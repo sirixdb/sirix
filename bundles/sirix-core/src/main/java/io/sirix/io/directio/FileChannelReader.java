@@ -25,10 +25,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
-import io.sirix.io.AbstractReader;
-import io.sirix.io.IOStorage;
-import io.sirix.io.Reader;
-import io.sirix.io.RevisionFileData;
+import io.sirix.io.*;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
@@ -40,6 +37,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.time.Instant;
+import java.util.Arrays;
 
 /**
  * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.
@@ -77,29 +75,31 @@ public final class FileChannelReader extends AbstractReader {
   public FileChannelReader(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter,
       final Cache<Integer, RevisionFileData> cache) {
-    super (handler, pagePersistenter, type);
+    super(handler, pagePersistenter, type);
     this.dataFileChannel = dataFileChannel;
     this.revisionsOffsetFileChannel = revisionsOffsetFileChannel;
     this.cache = cache;
   }
 
-  public Page read(final @NonNull PageReference reference,
-      final @Nullable PageReadOnlyTrx pageReadTrx) {
+  public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       // Read page from file.
-      ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
+      ByteBuffer buffer = DirectIOUtils.allocate(IOStorage.OTHER_BEACON);
 
       final long position = reference.getKey();
-      dataFileChannel.read(buffer, position);
 
+      dataFileChannel.read(buffer, position);
+     // DirectIOUtils.read(dataFileChannel, buffer, position);
       buffer.flip();
       final int dataLength = buffer.getInt();
+      buffer.clear();
 
-      buffer = ByteBuffer.allocate(dataLength).order(ByteOrder.nativeOrder());
+      buffer = DirectIOUtils.allocate(dataLength);
 
-      dataFileChannel.read(buffer, position + 4);
+      DirectIOUtils.read(dataFileChannel, buffer, position + IOStorage.OTHER_BEACON);
       buffer.flip();
-      final byte[] page = buffer.array();
+      final byte[] page = Arrays.copyOf(buffer.array(), dataLength);
+      buffer.clear();
 
       // Perform byte operations.
       return deserialize(pageReadTrx, page);
@@ -111,7 +111,7 @@ public final class FileChannelReader extends AbstractReader {
   @Override
   public PageReference readUberPageReference() {
     final PageReference uberPageReference = new PageReference();
-    uberPageReference.setKey(0);
+    uberPageReference.setKey(DirectIOUtils.BLOCK_SIZE);
     final UberPage page = (UberPage) read(uberPageReference, null);
     uberPageReference.setPage(page);
     return uberPageReference;

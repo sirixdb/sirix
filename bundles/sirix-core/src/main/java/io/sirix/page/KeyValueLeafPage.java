@@ -364,7 +364,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   private void processEntries(final PageReadOnlyTrx pageReadOnlyTrx, final DataRecord[] records) {
-    var out = Bytes.elasticByteBuffer(30);
+    var out = Bytes.elasticHeapByteBuffer(30);
     for (final DataRecord record : records) {
       if (record == null) {
         continue;
