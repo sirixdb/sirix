@@ -1,3 +1,4 @@
+xquery version "1.0";
 declare namespace local = "http://www.foobar.org";
 declare function local:convert($v as xs:decimal?) as xs:decimal?
 {

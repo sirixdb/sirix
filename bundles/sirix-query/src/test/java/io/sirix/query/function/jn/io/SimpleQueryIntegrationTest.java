@@ -72,7 +72,7 @@ public final class SimpleQueryIntegrationTest {
       final var storeQuery = "jn:store('json-path1','mydoc.jn','[\"bla\", \"blubb\"]')";
       new Query(chain, storeQuery).evaluate(ctx);
 
-      final var openQuery = "jn:doc('json-path1','mydoc.jn')[[0]]";
+      final var openQuery = "jn:doc('json-path1','mydoc.jn')[0]";
       final var seq = new Query(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
@@ -138,7 +138,7 @@ public final class SimpleQueryIntegrationTest {
       final var storeQuery = "jn:store('json-path1','mydoc.jn','" + json + "')";
       new Query(chain, storeQuery).evaluate(ctx);
 
-      final var openQuery = "jn:doc('json-path1','mydoc.jn').sirix[[0]].revisionNumber";
+      final var openQuery = "jn:doc('json-path1','mydoc.jn').sirix[0].revisionNumber";
       final var seq = new Query(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);
@@ -161,7 +161,7 @@ public final class SimpleQueryIntegrationTest {
       final String storeQuery = "jn:store('json-path1','mydoc.jn','[\"foo\",[[\"bar\"]]]')";
       new Query(chain, storeQuery).evaluate(ctx);
 
-      final String openQuery = "jn:doc('json-path1','mydoc.jn')[[1]][[0]][[0]]";
+      final String openQuery = "jn:doc('json-path1','mydoc.jn')[1][0][0]";
       final Sequence seq = new Query(chain, openQuery).evaluate(ctx);
 
       assertNotNull(seq);

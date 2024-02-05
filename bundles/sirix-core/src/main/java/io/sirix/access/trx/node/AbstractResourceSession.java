@@ -54,6 +54,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+@SuppressWarnings("ConstantValue")
 public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements ResourceSession<R, W>, InternalResourceSession<R, W> {
 
@@ -454,6 +455,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         createNodeReadWriteTrx(nodeTrxId, pageWtx, maxNodeCount, autoCommitDelay, documentNode, afterCommitState);
 
     // Remember node transaction for debugging and safe close.
+    //noinspection unchecked
     if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null || nodePageTrxMap.put(nodeTrxId, pageWtx) != null) {
       throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
     }
@@ -715,27 +717,22 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(revision);
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
-    NodePageReadOnlyTrx pageReadTrx = null;
-    try {
-      pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
-              this,
-              lastCommittedUberPage.get(),
-              revision,
-              storage.createReader(),
-              bufferManager,
-              new RevisionRootPageReader(),
-              null);
-      // Remember page transaction for debugging and safe close.
-      if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
-        throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
-      }
-    } catch (Exception e) {
-      // Handle exception if any
-      throw e;
-    } finally {
-      return pageReadTrx;
+    final NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
+                                                                    this,
+                                                                    lastCommittedUberPage.get(),
+                                                                    revision,
+                                                                    storage.createReader(),
+                                                                    bufferManager,
+                                                                    new RevisionRootPageReader(),
+                                                                    null);
+    // Remember page transaction for debugging and safe close.
+    if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
+      throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
     }
+    
+    return pageReadTrx;
   }
+
   @Override
   public synchronized PageTrx beginPageTrx(final @NonNegative int revision) {
     assertAccess(revision);

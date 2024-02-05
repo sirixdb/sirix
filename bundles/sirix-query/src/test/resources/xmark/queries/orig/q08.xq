@@ -1,4 +1,5 @@
-let $auction := $$ return
+xquery version "1.0";
+let $auction := . return
 for $p in $auction/site/people/person
 let $a :=
   for $t in $auction/site/closed_auctions/closed_auction

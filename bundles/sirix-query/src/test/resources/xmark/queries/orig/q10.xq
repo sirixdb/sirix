@@ -1,4 +1,5 @@
-let $auction := $$ return
+xquery version "1.0";
+let $auction := . return
 for $i in
   distinct-values($auction/site/people/person/profile/interest/@category)
 let $p :=

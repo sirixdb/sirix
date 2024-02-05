@@ -1,3 +1,4 @@
+xquery version "1.0";
 let $auction := doc("auction.xml") return
 <result>
   <preferred>
