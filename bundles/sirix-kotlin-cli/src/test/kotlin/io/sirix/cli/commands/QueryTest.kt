@@ -180,7 +180,7 @@ internal class QueryTest : CliCommandTest() {
 
     private fun giveAXQueryOption() =
         QueryOptions(
-            queryStr = "let \$nodeKey := sdb:nodekey(/xml/foo/element[3]) return <result nodeKey=\"{ \$nodeKey }\"/>",
+            queryStr = "xquery version \"1.0\";let \$nodeKey := sdb:nodekey(/xml/foo/element[3]) return <result nodeKey=\"{ \$nodeKey }\"/>",
             resource = CliCommandTestConstants.TEST_RESOURCE,
             revision = null,
             revisionTimestamp = null,
@@ -201,7 +201,7 @@ internal class QueryTest : CliCommandTest() {
 
     private fun giveAJSONiqQueryOption() =
         QueryOptions(
-            queryStr = "let \$nodeKey := sdb:nodekey($$.foo[[2]]) return {\"nodeKey\": \$nodeKey}",
+            queryStr = "let \$nodeKey := sdb:nodekey($$.foo[2]) return {\"nodeKey\": \$nodeKey}",
             resource = CliCommandTestConstants.TEST_RESOURCE,
             revision = null,
             revisionTimestamp = null,
