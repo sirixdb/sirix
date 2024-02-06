@@ -1303,7 +1303,7 @@ class SirixVerticleJsonTest {
                 }
 
                 httpResponse =
-                    client.getAbs("$server$serverPath?query=let+%24nodeKey+%3A%3D+sdb%3Anodekey%28%24%24.foo%5B%5B2%5D%5D%29%0D%0Areturn+%7B%22nodeKey%22%3A+%24nodeKey%7D")
+                    client.getAbs("$server$serverPath?query=let+%24nodeKey+%3A%3D+sdb%3Anodekey%28%24%24.foo%5B2%5D%29%0D%0Areturn+%7B%22nodeKey%22%3A+%24nodeKey%7D")
                         .putHeader(
                             HttpHeaders.AUTHORIZATION
                                 .toString(), "Bearer $accessToken"
