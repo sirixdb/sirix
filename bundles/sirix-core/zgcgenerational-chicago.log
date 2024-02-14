@@ -1,0 +1,28 @@
+[0.959s][info][gc] Using The Z Garbage Collector
+[1,594s][info][gc] GC(0) Major Collection (Metadata GC Threshold)
+[1,623s][info][gc] GC(0) Major Collection (Metadata GC Threshold) 84M(1%)->58M(0%) 0,030s
+[3,491s][info][gc] GC(1) Major Collection (Warmup)
+[3,653s][info][gc] GC(1) Major Collection (Warmup) 1544M(10%)->566M(4%) 0,161s
+[5,361s][info][gc] GC(2) Major Collection (Warmup)
+[5,422s][info][gc] GC(2) Major Collection (Warmup) 3074M(20%)->412M(3%) 0,061s
+[7,447s][info][gc] GC(3) Major Collection (Warmup)
+[7,528s][info][gc] GC(3) Major Collection (Warmup) 4616M(30%)->706M(5%) 0,081s
+[13,943s][info][gc] GC(4) Minor Collection (Allocation Rate)
+[14,191s][info][gc] GC(4) Minor Collection (Allocation Rate) 11196M(73%)->750M(5%) 0,247s
+[20,195s][info][gc] GC(5) Minor Collection (Allocation Rate)
+[20,558s][info][gc] GC(5) Minor Collection (Allocation Rate) 12780M(83%)->1552M(10%) 0,363s
+[26,055s][info][gc] GC(6) Minor Collection (Allocation Rate)
+[26,478s][info][gc] GC(6) Minor Collection (Allocation Rate) 13062M(85%)->1502M(10%) 0,423s
+[31,877s][info][gc] GC(7) Minor Collection (Allocation Rate)
+[32,300s][info][gc] GC(7) Minor Collection (Allocation Rate) 12862M(84%)->1432M(9%) 0,423s
+[35,455s][info][gc] GC(8) Major Collection (Proactive)
+[35,707s][info][gc] GC(8) Major Collection (Proactive) 8108M(53%)->804M(5%) 0,252s
+[41,402s][info][gc] GC(9) Minor Collection (Allocation Rate)
+[41,761s][info][gc] GC(9) Minor Collection (Allocation Rate) 12724M(83%)->1658M(11%) 0,358s
+[47,420s][info][gc] GC(10) Minor Collection (Allocation Rate)
+[47,857s][info][gc] GC(10) Minor Collection (Allocation Rate) 13102M(85%)->1588M(10%) 0,437s
+[53,352s][info][gc] GC(11) Minor Collection (Allocation Rate)
+[53,767s][info][gc] GC(11) Minor Collection (Allocation Rate) 12768M(83%)->1676M(11%) 0,415s
+[63,311s][info][gc] GC(12) Major Collection (Proactive)
+[66,972s][info][gc] GC(12) Major Collection (Proactive) 8110M(53%)->602M(4%) 3,666s
+[68,001s][info][gc] GC(13) Minor Collection (Allocation Rate)
