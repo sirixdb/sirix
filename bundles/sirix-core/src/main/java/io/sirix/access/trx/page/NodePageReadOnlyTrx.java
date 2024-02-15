@@ -239,9 +239,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * Make sure that the transaction is not yet closed when calling this method.
    */
   void assertNotClosed() {
-    if (isClosed) {
-      throw new IllegalStateException("Transaction is already closed.");
-    }
+    assert !isClosed : "Transaction is already closed!";
   }
 
   @Override
@@ -485,15 +483,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   @Nullable
   private Page getFromBufferManager(@NonNull IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
-    //if (trxIntentLog == null) {
-      final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
+    final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
 
-      if (recordPageFromBuffer != null) {
-        setMostRecentlyReadRecordPage(indexLogKey, recordPageFromBuffer);
-        pageReferenceToRecordPage.setPage(recordPageFromBuffer);
-        return recordPageFromBuffer;
-      }
-    //}
+    if (recordPageFromBuffer != null) {
+      setMostRecentlyReadRecordPage(indexLogKey, recordPageFromBuffer);
+      pageReferenceToRecordPage.setPage(recordPageFromBuffer);
+      return recordPageFromBuffer;
+    }
+    
     return null;
   }
 

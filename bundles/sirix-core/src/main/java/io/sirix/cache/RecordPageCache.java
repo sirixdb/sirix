@@ -6,7 +6,6 @@ import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import io.sirix.page.interfaces.Page;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -19,9 +18,6 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
     final RemovalListener<PageReference, KeyValueLeafPage> removalListener =
         (PageReference key, KeyValueLeafPage value, RemovalCause cause) -> {
           key.setPage(null);
-          //      if (value instanceof KeyValueLeafPage keyValueLeafPage) {
-          //        keyValueLeafPage.clearPage();
-          //      }
         };
 
     pageCache = Caffeine.newBuilder()
@@ -41,9 +37,9 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
   public KeyValueLeafPage get(PageReference key) {
     var keyValueLeafPage = pageCache.getIfPresent(key);
 
-//    if (keyValueLeafPage != null) {
-//      keyValueLeafPage = new KeyValueLeafPage(keyValueLeafPage);
-//    }
+    //    if (keyValueLeafPage != null) {
+    //      keyValueLeafPage = new KeyValueLeafPage(keyValueLeafPage);
+    //    }
 
     return keyValueLeafPage;
   }

@@ -99,17 +99,4 @@ public final class IndirectPage extends AbstractForwardingPage {
 
     return reference;
   }
-
-//  @Override
-//  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
-//      final SerializationType type) {
-//    if (delegate instanceof ReferencesPage4) {
-//      out.writeByte((byte) 0);
-//    } else if (delegate instanceof BitmapReferencesPage) {
-//      out.writeByte((byte) 1);
-//    } else if (delegate instanceof FullReferencesPage) {
-//      out.writeByte((byte) 2);
-//    }
-//    super.serialize(pageReadOnlyTrx, out, type);
-//  }
 }

@@ -17,9 +17,6 @@ public final class PageCache implements Cache<PageReference, Page> {
   public PageCache(final int maxSize) {
     RemovalListener<PageReference, Page> removalListener = (PageReference key, Page value, RemovalCause cause) -> {
       key.setPage(null);
-      //      if (value instanceof KeyValueLeafPage keyValueLeafPage) {
-      //        keyValueLeafPage.clearPage();
-      //      }
     };
 
     pageCache = Caffeine.newBuilder()
@@ -39,9 +36,9 @@ public final class PageCache implements Cache<PageReference, Page> {
   public Page get(PageReference key) {
     var page = pageCache.getIfPresent(key);
 
-    if (page instanceof IndirectPage indirectPage) {
-      page = new IndirectPage(indirectPage);
-    }
+//    if (page instanceof IndirectPage indirectPage) {
+//      page = new IndirectPage(indirectPage);
+//    }
 
     return page;
   }
