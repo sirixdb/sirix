@@ -22,6 +22,9 @@ package io.sirix.page.interfaces;
 
 import io.sirix.api.PageTrx;
 import io.sirix.page.PageReference;
+import io.sirix.page.delegates.BitmapReferencesPage;
+import io.sirix.page.delegates.FullReferencesPage;
+import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.settings.Constants;
 import org.checkerframework.checker.index.qual.NonNegative;
 
@@ -35,14 +38,6 @@ import java.util.List;
  * @author Johannes Lichtenberger
  */
 public interface Page extends Closeable {
-
-//  /**
-//   * Serialize a page
-//   *
-//   * @param out  {@link DataOutput} to serialize to
-//   * @param type serialization type (currently transaction intent log or normal commit)
-//   */
-//  void serialize(PageReadOnlyTrx pageReadOnlyTrx, Bytes<ByteBuffer> out, SerializationType type);
 
   default Page clearPage() {
     return this;

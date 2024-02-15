@@ -85,6 +85,7 @@ public final class FullReferencesPage implements Page {
       final var pageReferenceToClone = pageToClone.getReferences().get(index);
 
       if (pageReferenceToClone != null) {
+        pageReference.setPage(pageReferenceToClone.getPage());
         pageReference.setKey(pageReferenceToClone.getKey());
         pageReference.setLogKey(pageReferenceToClone.getLogKey());
         pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));

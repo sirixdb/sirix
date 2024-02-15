@@ -236,7 +236,6 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
                            descendantCount);
   }
 
-  @SuppressWarnings("UnstableApiUsage")
   @Override
   public long computeHash(Bytes<ByteBuffer> bytes) {
     throw new UnsupportedOperationException();

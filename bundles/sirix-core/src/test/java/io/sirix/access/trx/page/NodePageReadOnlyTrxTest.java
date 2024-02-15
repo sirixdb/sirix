@@ -36,12 +36,6 @@ public final class NodePageReadOnlyTrxTest {
 
   @Test
   public void testRecordPageOffset() {
-    final InternalResourceSession<?,?> resourceManagerMock = createResourceManagerMock();
-
-    final var trx = new NodePageReadOnlyTrx(1, resourceManagerMock, new UberPage(), 0,
-        mock(Reader.class), mock(BufferManager.class),
-        mock(RevisionRootPageReader.class), mock(TransactionIntentLog.class));
-
     Assert.assertEquals(1, PageReadOnlyTrx.recordPageOffset(1));
     assertEquals(Constants.NDP_NODE_COUNT - 1, PageReadOnlyTrx.recordPageOffset(1023));
   }
