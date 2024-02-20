@@ -84,12 +84,12 @@ public final class JsonShredderTest {
       while (axis.hasNext()) {
         final var nodeKey = axis.nextLong();
         if (count % 50_000_000L == 0) {
-          logger.info("nodeKey: " + nodeKey);
+          logger.info(STR."nodeKey: \{nodeKey}");
         }
         count++;
       }
 
-      logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
+      logger.info(STR." done [\{stopWatch.getTime(TimeUnit.SECONDS)} s].");
 
       stopWatch = new StopWatch();
       stopWatch.start();
@@ -102,19 +102,18 @@ public final class JsonShredderTest {
       while (axis.hasNext()) {
         final var nodeKey = axis.nextLong();
         if (count % 50_000_000L == 0) {
-          logger.info("nodeKey: " + nodeKey);
+          logger.info(STR."nodeKey: \{nodeKey}");
         }
         count++;
       }
 
-      logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
+      logger.info(STR." done [\{stopWatch.getTime(TimeUnit.SECONDS)} s].");
     }
   }
 
   // TODO: JMH test
   // Use Shenandoah or ZGC
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
-  @Disabled
   @Test
   public void testChicago() {
     logger.info("start");
@@ -148,7 +147,7 @@ public final class JsonShredderTest {
                                                  .storeChildCount(true)
                                                  .hashKind(HashType.ROLLING)
                                                  .useTextCompression(false)
-                                                 .storageType(StorageType.IO_URING)
+                                                 .storageType(StorageType.FILE_CHANNEL)
                                                  .useDeweyIDs(false)
                                                  .byteHandlerPipeline(new ByteHandlerPipeline(new LZ4Compressor()))
                                                  .build());
@@ -157,7 +156,7 @@ public final class JsonShredderTest {
       trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
     }
 
-    logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].");
+    logger.info(STR." done [\{stopWatch.getTime(TimeUnit.SECONDS)} s].");
   }
 
   @Disabled
@@ -183,12 +182,27 @@ public final class JsonShredderTest {
         }
       }
     }
-    System.out.println("Done in " + stopWatch.getTime(TimeUnit.MILLISECONDS) + "ms");
+    System.out.println(STR."Done in \{stopWatch.getTime(TimeUnit.MILLISECONDS)}ms");
   }
 
   @Test
   public void testLarge() throws IOException {
+    test("large-file.json");
+  }
+
+  @Test
+  public void testCvx() throws IOException {
     test("CVX.json");
+  }
+
+  @Test
+  public void testMovies() throws IOException {
+    test("movies.json");
+  }
+
+  @Test
+  public void testBlockchainLatestBlock() throws IOException {
+    test("blockchain-latestblock.json");
   }
 
   @Test
