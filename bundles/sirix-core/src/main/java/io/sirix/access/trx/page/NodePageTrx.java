@@ -80,7 +80,7 @@ import static java.util.Objects.requireNonNull;
  */
 final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements PageTrx {
 
-  private Bytes<ByteBuffer> bufferBytes = Bytes.elasticByteBuffer(Writer.FLUSH_SIZE);
+  private Bytes<ByteBuffer> bufferBytes = Bytes.elasticHeapByteBuffer(Writer.FLUSH_SIZE);
 
   /**
    * Page writer to serialize.
@@ -185,7 +185,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   @Override
   public Bytes<ByteBuffer> newBufferedBytesInstance() {
-    bufferBytes = Bytes.elasticByteBuffer(Writer.FLUSH_SIZE);
+    bufferBytes = Bytes.elasticHeapByteBuffer(Writer.FLUSH_SIZE);
     return bufferBytes;
   }
 
@@ -440,7 +440,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
        .map(PageContainer::getModified)
        .filter(page -> page instanceof KeyValueLeafPage)
        .forEach(page -> {
-         final Bytes<ByteBuffer> bytes = Bytes.elasticByteBuffer(60_000);
+         final var bytes = Bytes.elasticHeapByteBuffer(60_000);
          PageKind.KEYVALUELEAFPAGE.serializePage(this, bytes, page, SerializationType.DATA);
        });
   }

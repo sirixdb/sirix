@@ -1,3 +1,6 @@
+import org.jetbrains.kotlin.gradle.dsl.jvm.JvmTargetValidationMode
+import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
+
 buildscript {
     ext.kotlin_version = '1.9.22'
     repositories {
@@ -37,8 +40,8 @@ release {
     buildTasks = ['releaseBuild']
 }
 
-tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile).configureEach {
-    jvmTargetValidationMode.set(org.jetbrains.kotlin.gradle.dsl.jvm.JvmTargetValidationMode.WARNING)
+tasks.withType(KotlinJvmCompile).configureEach {
+    jvmTargetValidationMode.set(JvmTargetValidationMode.WARNING)
 }
 
 task releaseBuild {
@@ -257,14 +260,21 @@ subprojects {
                  "--add-opens=java.base/java.io=ALL-UNNAMED",
                  "--add-opens=java.base/java.util=ALL-UNNAMED",
                  "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+                 //"-XX:+UseShenandoahGC",
+                 "-Xlog:gc*=debug:file=g1.log",
                  "-XX:+UseZGC",
-                 //"-XX:+ZGenerational",
-                 //"-Xlog:gc:zgc-generational-insert.log",
+                 "-XX:+ZGenerational",
                  "-verbose:gc",
+                 "-XX:+HeapDumpOnOutOfMemoryError",
+                 //"-XX:HeapDumpPath=heapdump.hprof",
+                 "-XX:+UseStringDeduplication",
+                 //"-XX:MaxMetaspaceSize=3g",
+                 //"-XX:InitiatingHeapOccupancyPercent=20",
+                 //"-XX:MaxGCPauseMillis=60",
+                 "-XX:MaxDirectMemorySize=1g",
                  "-XX:+UnlockExperimentalVMOptions",
                  "-XX:+AlwaysPreTouch",
-                 "-XX:+UseLargePages",
-                 "-XX:+DisableExplicitGC",
+                 //"-XX:+UseLargePages",
                  "-XX:ReservedCodeCacheSize=1000m",
                  "-XX:+UnlockDiagnosticVMOptions",
                //  "-XX:+PrintInlining",
@@ -273,7 +283,7 @@ subprojects {
                 /* "-XX:MaxInlineSize=500" */])
 
         minHeapSize = '5g'
-        maxHeapSize = '8g'
+        maxHeapSize = '12g'
     }
 }
 
