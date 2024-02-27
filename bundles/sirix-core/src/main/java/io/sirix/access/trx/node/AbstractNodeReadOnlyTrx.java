@@ -299,7 +299,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * Make sure that the transaction is not yet closed when calling this method.
    */
   public void assertNotClosed() {
-    assert !isClosed;
+    if (isClosed) {
+      throw new IllegalStateException("Transaction is already closed.");
+    }
   }
 
   /**
