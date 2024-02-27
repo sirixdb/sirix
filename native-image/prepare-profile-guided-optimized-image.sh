@@ -8,5 +8,5 @@ NATIVE_IMAGE_OPTS="$NATIVE_IMAGE_OPTS --enable-preview --initialize-at-build-tim
     
 NATIVE_IMAGE_OPTS="$NATIVE_IMAGE_OPTS -DLOGGER_HOME=~/sirix-data --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED --add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED"
     
-native-image $NATIVE_IMAGE_OPTS -cp ../bundles/sirix-query/build/libs/sirix-query-0.11.0-all.jar:. -o sirix-shell io.sirix.query.Main
+native-image $NATIVE_IMAGE_OPTS -cp ../bundles/sirix-query/build/libs/sirix-query-0.11.1-SNAPSHOT-all.jar:. -o sirix-shell io.sirix.query.Main
 ./sirix-shell
