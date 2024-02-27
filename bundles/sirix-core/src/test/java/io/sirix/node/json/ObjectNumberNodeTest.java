@@ -72,12 +72,12 @@ public class ObjectNumberNodeTest {
                                                                0L,
                                                                0L);
     final ObjectNumberNode node = new ObjectNumberNode(value, strucDel);
-    var bytes = Bytes.elasticByteBuffer();
+    var bytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(bytes));
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageWriteTrx);
     final ObjectNumberNode node2 =
         (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(data, node.getNodeKey(), null, pageWriteTrx);

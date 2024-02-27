@@ -71,7 +71,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   private boolean isFirstUberPage;
 
-  private final Bytes<ByteBuffer> byteBufferBytes = Bytes.elasticByteBuffer(1_000);
+  private final Bytes<ByteBuffer> byteBufferBytes = Bytes.elasticHeapByteBuffer(1_000);
 
   /**
    * Constructor.

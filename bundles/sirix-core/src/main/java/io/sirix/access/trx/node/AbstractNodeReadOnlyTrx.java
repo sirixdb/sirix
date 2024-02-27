@@ -30,19 +30,25 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * A skeletal implementation of a read-only node transaction.
+ *
  * @param <T> the type of node cursor
  */
-public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnlyTrx, W extends NodeTrx & NodeCursor,
-        N extends ImmutableNode>
-        implements InternalNodeReadOnlyTrx<N>, NodeCursor, NodeReadOnlyTrx {
+public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnlyTrx, W extends NodeTrx & NodeCursor, N extends ImmutableNode>
+    implements InternalNodeReadOnlyTrx<N>, NodeCursor, NodeReadOnlyTrx {
 
-  /** ID of transaction. */
+  /**
+   * ID of transaction.
+   */
   protected final long id;
 
-  /** State of transaction including all cached stuff. */
+  /**
+   * State of transaction including all cached stuff.
+   */
   protected PageReadOnlyTrx pageReadOnlyTrx;
 
-  /** The current node. */
+  /**
+   * The current node.
+   */
   private N currentNode;
 
   /**
@@ -69,11 +75,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @param resourceSession     The resource manager for the current transaction
    * @param itemList            Read-transaction-exclusive item list.
    */
-  protected AbstractNodeReadOnlyTrx(final @NonNegative long trxId,
-                                    final @NonNull PageReadOnlyTrx pageReadTransaction,
-                                    final @NonNull N documentNode,
-                                    final InternalResourceSession<T, W> resourceSession,
-                                    final ItemList<AtomicValue> itemList) {
+  protected AbstractNodeReadOnlyTrx(final @NonNegative long trxId, final @NonNull PageReadOnlyTrx pageReadTransaction,
+      final @NonNull N documentNode, final InternalResourceSession<T, W> resourceSession,
+      final ItemList<AtomicValue> itemList) {
     this.itemList = itemList;
     this.resourceSession = requireNonNull(resourceSession);
     this.id = trxId;
@@ -295,9 +299,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * Make sure that the transaction is not yet closed when calling this method.
    */
   public void assertNotClosed() {
-    if (isClosed) {
-      throw new IllegalStateException("Transaction is already closed.");
-    }
+    assert !isClosed;
   }
 
   /**
@@ -332,12 +334,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @return structural node instance of current node
    */
   public final StructNode getStructuralNode() {
-    final var node = getCurrentNode();
-    if (node instanceof StructNode) {
-      return (StructNode) node;
-    } else {
-      return new NullNode(node);
+    if (currentNode instanceof StructNode node) {
+      return node;
     }
+    return new NullNode(currentNode);
   }
 
   @Override
@@ -563,7 +563,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
     final AbstractNodeReadOnlyTrx<?, ?, ?> that = (AbstractNodeReadOnlyTrx<?, ?, ?>) o;
     return currentNode.getNodeKey() == that.currentNode.getNodeKey()
-            && pageReadOnlyTrx.getRevisionNumber() == that.pageReadOnlyTrx.getRevisionNumber();
+        && pageReadOnlyTrx.getRevisionNumber() == that.pageReadOnlyTrx.getRevisionNumber();
   }
 
   @Override

@@ -73,12 +73,12 @@ public class BooleanNodeTest {
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
     final BooleanNode node = new BooleanNode(boolValue, strucDel);
-    var bytes = Bytes.elasticByteBuffer();
+    var bytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(bytes));
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageTrx);
     final BooleanNode node2 = (BooleanNode) NodeKind.BOOLEAN_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx);
     check(node2);

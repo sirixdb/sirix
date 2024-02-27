@@ -82,14 +82,14 @@ public class AttributeNodeTest {
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
 
     final AttributeNode node = new AttributeNode(del, nameDel, valDel, new QNm("ns", "a", "p"));
-    var bytes = Bytes.elasticByteBuffer();
+    var bytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(bytes));
 
     // Create empty node.
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageReadOnlyTrx);
     final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(data,
                                                                                node.getNodeKey(),

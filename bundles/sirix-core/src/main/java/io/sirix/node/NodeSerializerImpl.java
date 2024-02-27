@@ -27,7 +27,7 @@ public final class NodeSerializerImpl implements DeweyIdSerializer {
   }
 
   @Override
-  public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+  public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
     final NodeKind nodeKind = (NodeKind) record.getKind();
     final byte id = nodeKind.getId();
     sink.writeByte(id);

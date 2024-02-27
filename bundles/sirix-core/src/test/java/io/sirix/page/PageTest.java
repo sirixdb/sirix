@@ -64,7 +64,7 @@ public class PageTest {
   @Test(dataProvider = "instantiatePages")
   public void testByteRepresentation(final Page[] handlers) {
     for (final Page handler : handlers) {
-      final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+      final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
       PageKind.getKind(handler.getClass()).serializePage(pageReadTrx, data, handler, SerializationType.DATA);
       //handler.serialize(pageReadTrx, data, SerializationType.DATA);
       final var pageBytes = data.toByteArray();

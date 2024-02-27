@@ -85,14 +85,14 @@ public class PINodeTest {
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
 
     final PINode node = new PINode(structDel, nameDel, valDel, pageReadTrx);
-    var bytes = Bytes.elasticByteBuffer();
+    var bytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(bytes));
 
     // Create empty node.
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageReadTrx);
     final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(data,
                                                                               node.getNodeKey(),

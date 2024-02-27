@@ -93,7 +93,7 @@ public final class NodePageTest {
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
     final ElementNode node1 =
         new ElementNode(strucDel, nameDel, new LongArrayList(), new LongArrayList(), new QNm("a", "b", "c"));
-    var bytes = Bytes.elasticByteBuffer();
+    var bytes = Bytes.elasticHeapByteBuffer();
     node1.setHash(node1.computeHash(bytes));
     node1.insertAttribute(88L);
     node1.insertAttribute(87L);
@@ -102,7 +102,7 @@ public final class NodePageTest {
     assertEquals(0L, node1.getNodeKey());
     page1.setRecord(node1);
 
-    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     final PagePersister pagePersister = new PagePersister();
     pagePersister.serializePage(pageReadTrx, data, page1, SerializationType.DATA);
     final KeyValueLeafPage page2 = (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx,

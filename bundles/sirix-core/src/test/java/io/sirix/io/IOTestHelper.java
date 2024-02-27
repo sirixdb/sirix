@@ -74,7 +74,7 @@ public final class IOTestHelper {
    * @throws SirixException if something went wrong
    */
   public static void testReadWriteFirstRef(final ResourceConfiguration resourceConf) {
-    final Bytes<ByteBuffer> bufferedBytes = Bytes.elasticByteBuffer();
+    final Bytes<ByteBuffer> bufferedBytes = Bytes.elasticHeapByteBuffer();
     final IOStorage fac = StorageType.getStorage(resourceConf);
     final PageReference pageRef1 = new PageReference();
     final UberPage page1 = new UberPage();
