@@ -136,7 +136,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   private RecordPage pathSummaryRecordPage;
 
-  private final Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticByteBuffer(40);
+  private final Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticHeapByteBuffer(40);
 
   /**
    * Standard constructor.

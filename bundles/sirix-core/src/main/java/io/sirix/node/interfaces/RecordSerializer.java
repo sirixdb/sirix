@@ -36,5 +36,5 @@ public interface RecordSerializer {
    * @param pageReadTrx {@link PageReadOnlyTrx} instance
    * @throws NullPointerException if one of the parameters is {@code null}
    */
-  void serialize(BytesOut<ByteBuffer> sink, DataRecord record, PageReadOnlyTrx pageReadTrx);
+  void serialize(BytesOut<?> sink, DataRecord record, PageReadOnlyTrx pageReadTrx);
 }

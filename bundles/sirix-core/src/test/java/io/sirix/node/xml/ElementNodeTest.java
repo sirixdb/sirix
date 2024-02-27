@@ -87,7 +87,7 @@ public class ElementNodeTest {
 
     final ElementNode node =
         new ElementNode(strucDel, nameDel, new LongArrayList(), new LongArrayList(), new QNm("ns", "a", "p"));
-    var bytes = Bytes.elasticByteBuffer();
+    var bytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(bytes));
 
     // Create empty node.
@@ -98,7 +98,7 @@ public class ElementNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageReadTrx);
     final ElementNode node2 =
         (ElementNode) NodeKind.ELEMENT.deserialize(data, node.getNodeKey(), node.getDeweyID().toBytes(), pageReadTrx);

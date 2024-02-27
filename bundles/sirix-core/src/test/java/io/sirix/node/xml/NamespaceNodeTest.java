@@ -79,11 +79,11 @@ public class NamespaceNodeTest {
 
     // Create empty node.
     final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
-    var bytes = Bytes.elasticByteBuffer();
+    var bytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(bytes));
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageReadTrx);
     final NamespaceNode node2 =
         (NamespaceNode) NodeKind.NAMESPACE.deserialize(data, node.getNodeKey(), node.getDeweyID().toBytes(), pageReadTrx);

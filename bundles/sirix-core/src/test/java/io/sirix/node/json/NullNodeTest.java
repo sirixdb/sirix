@@ -65,12 +65,12 @@ public class NullNodeTest {
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 2L, 5L, 0L, 0L);
     final NullNode node = new NullNode(strucDel);
-    var bytes = Bytes.elasticByteBuffer();
+    var bytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(bytes));
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageWriteTrx);
     final NullNode node2 = (NullNode) NodeKind.NULL_VALUE.deserialize(data, node.getNodeKey(), null, pageWriteTrx);
     check(node2);

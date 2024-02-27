@@ -36,7 +36,7 @@ public final class RevisionReferencesNodeTest {
     checkNode(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageTrx);
     final RevisionReferencesNode node2 =
         (RevisionReferencesNode) node.getKind().deserialize(data, node.getNodeKey(), null, pageTrx);

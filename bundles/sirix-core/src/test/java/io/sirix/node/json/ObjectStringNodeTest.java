@@ -75,12 +75,12 @@ public class ObjectStringNodeTest {
                                                                0L,
                                                                0L);
     final ObjectStringNode node = new ObjectStringNode(valDel, strucDel);
-    var bytes = Bytes.elasticByteBuffer();
+    var bytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(bytes));
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageTrx);
     final ObjectStringNode node2 =
         (ObjectStringNode) NodeKind.OBJECT_STRING_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx);

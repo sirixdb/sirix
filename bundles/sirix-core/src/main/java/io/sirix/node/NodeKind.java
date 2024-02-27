@@ -36,6 +36,7 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.service.xml.xpath.AtomicValue;
+import it.unimi.dsi.fastutil.bytes.ByteList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import net.openhft.chronicle.bytes.BytesIn;
@@ -71,7 +72,9 @@ import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static io.sirix.node.Utils.getVarLong;
@@ -124,7 +127,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ElementNode node = (ElementNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(this,
@@ -171,7 +174,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final AttributeNode node = (AttributeNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
@@ -196,7 +199,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final NamespaceNode node = (NamespaceNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeNameDelegate(node.getNameNodeDelegate(), sink);
@@ -233,7 +236,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final TextNode node = (TextNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
@@ -272,7 +275,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final PINode node = (PINode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(this,
@@ -314,7 +317,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final CommentNode node = (CommentNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
@@ -354,7 +357,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final XmlDocumentRootNode node = (XmlDocumentRootNode) record;
       putVarLong(sink, node.getFirstChildKey());
       sink.writeByte(node.hasFirstChild() ? (byte) 1 : (byte) 0);
@@ -384,7 +387,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
@@ -413,7 +416,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
     }
 
     @Override
@@ -438,7 +441,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
@@ -464,7 +467,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
@@ -491,7 +494,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
@@ -530,7 +533,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final PathNode node = (PathNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructDelegate(this,
@@ -589,7 +592,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final RBNodeKey<CASValue> node = (RBNodeKey<CASValue>) record;
       final CASValue key = node.getKey();
       final byte[] textValue = key.getValue();
@@ -653,7 +656,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final RBNodeKey<Long> node = (RBNodeKey<Long>) record;
       putVarLong(sink, node.getKey());
       serializeDelegate(node.getNodeDelegate(), sink);
@@ -705,7 +708,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final RBNodeKey<QNm> node = (RBNodeKey<QNm>) record;
       final byte[] nspBytes = node.getKey().getNamespaceURI().getBytes();
       sink.writeInt(nspBytes.length);
@@ -749,7 +752,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final RBNodeValue<NodeReferences> node = (RBNodeValue<NodeReferences>) record;
       final NodeReferences value = node.getValue();
       final Roaring64Bitmap nodeKeys = value.getNodeKeys();
@@ -780,7 +783,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
@@ -814,7 +817,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ObjectNode node = (ObjectNode) record;
       var config = pageReadTrx.getResourceSession().getResourceConfig();
       if (config.hashType != HashType.NONE) {
@@ -856,7 +859,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ArrayNode node = (ArrayNode) record;
       var config = pageReadTrx.getResourceSession().getResourceConfig();
       if (config.hashType != HashType.NONE)
@@ -926,7 +929,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ObjectKeyNode node = (ObjectKeyNode) record;
       var config = pageReadTrx.getResourceSession().getResourceConfig();
       if (config.hashType != HashType.NONE) {
@@ -986,7 +989,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ObjectStringNode node = (ObjectStringNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
@@ -1029,7 +1032,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ObjectBooleanNode node = (ObjectBooleanNode) record;
       sink.writeBoolean(node.getValue());
       serializeDelegate(node.getNodeDelegate(), sink);
@@ -1088,7 +1091,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ObjectNumberNode node = (ObjectNumberNode) record;
       final Number number = node.getValue();
 
@@ -1161,7 +1164,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final ObjectNullNode node = (ObjectNullNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
     }
@@ -1202,7 +1205,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final StringNode node = (StringNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeValDelegate(node.getValNodeDelegate(), sink);
@@ -1240,7 +1243,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final BooleanNode node = (BooleanNode) record;
       sink.writeBoolean(node.getValue());
       serializeDelegate(node.getNodeDelegate(), sink);
@@ -1289,7 +1292,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final NumberNode node = (NumberNode) record;
       final Number number = node.getValue();
 
@@ -1357,7 +1360,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final NullNode node = (NullNode) record;
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructNodeJsonValueNode(sink, node);
@@ -1406,7 +1409,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final JsonDocumentRootNode node = (JsonDocumentRootNode) record;
       putVarLong(sink, node.getFirstChildKey());
       sink.writeLong(node.getDescendantCount());
@@ -1431,7 +1434,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final HashEntryNode node = (HashEntryNode) record;
       sink.writeInt(node.getKey());
       sink.writeUtf8(node.getValue());
@@ -1456,7 +1459,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final HashCountEntryNode node = (HashCountEntryNode) record;
       sink.writeInt(node.getValue());
     }
@@ -1480,7 +1483,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
     }
 
     @Override
@@ -1514,7 +1517,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       final var revisionRefNode = (RevisionReferencesNode) record;
       final var revisions = revisionRefNode.getRevisions();
       final int[] compressedRevisions;
@@ -1553,7 +1556,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
 
     @Override
-    public void serialize(final BytesOut<ByteBuffer> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+    public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
 
@@ -1569,7 +1572,7 @@ public enum NodeKind implements DeweyIdSerializer {
     }
   };
 
-  private static void serializeNodeReferences(BytesOut<ByteBuffer> sink, Roaring64Bitmap nodeKeys) {
+  private static void serializeNodeReferences(BytesOut<?> sink, Roaring64Bitmap nodeKeys) {
     try (var outputStream = new DataOutputStream(sink.outputStream())) {
       nodeKeys.serialize(outputStream);
     } catch (IOException e) {
@@ -1594,24 +1597,13 @@ public enum NodeKind implements DeweyIdSerializer {
   private final byte id;
 
   /**
-   * Class.
-   */
-  private final Class<? extends DataRecord> clazz;
-
-  /**
    * Mapping of keys -> nodes.
    */
-  private static final Map<Byte, NodeKind> INSTANCEFORID = new HashMap<>();
-
-  /**
-   * Mapping of class -> nodes.
-   */
-  private static final Map<Class<? extends DataRecord>, NodeKind> INSTANCEFORCLASS = new HashMap<>();
+  private static final NodeKind[] INSTANCEFORID = new NodeKind[128];
 
   static {
     for (final NodeKind node : values()) {
-      INSTANCEFORID.put(node.id, node);
-      INSTANCEFORCLASS.put(node.clazz, node);
+      INSTANCEFORID[node.id] = node;
     }
   }
 
@@ -1623,7 +1615,6 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   NodeKind(final byte id, final Class<? extends DataRecord> clazz) {
     this.id = id;
-    this.clazz = clazz;
   }
 
   /**
@@ -1642,17 +1633,7 @@ public enum NodeKind implements DeweyIdSerializer {
    * @return the related node
    */
   public static NodeKind getKind(final byte id) {
-    return INSTANCEFORID.get(id);
-  }
-
-  /**
-   * Public method to get the related node based on the class.
-   *
-   * @param clazz the class for the node
-   * @return the related node
-   */
-  public static NodeKind getKind(final Class<? extends DataRecord> clazz) {
-    return INSTANCEFORCLASS.get(clazz);
+    return INSTANCEFORID[id];
   }
 
   @Override
@@ -1674,7 +1655,7 @@ public enum NodeKind implements DeweyIdSerializer {
     return hashCode;
   }
 
-  private static void serializeStructNodeJsonValueNode(BytesOut<ByteBuffer> sink, StructNode node) {
+  private static void serializeStructNodeJsonValueNode(BytesOut<?> sink, StructNode node) {
     putVarLong(sink, node.getNodeKey() - node.getRightSiblingKey());
     putVarLong(sink, node.getNodeKey() - node.getLeftSiblingKey());
   }
@@ -1737,7 +1718,7 @@ public enum NodeKind implements DeweyIdSerializer {
                                   descendantCount);
   }
 
-  private static void serializeJsonObjectOrArrayStructDelegate(BytesOut<ByteBuffer> sink, StructNode node,
+  private static void serializeJsonObjectOrArrayStructDelegate(BytesOut<?> sink, StructNode node,
       ResourceConfiguration config) {
     final boolean storeChildCount = config.storeChildCount();
 
@@ -1778,14 +1759,14 @@ public enum NodeKind implements DeweyIdSerializer {
     return new NodeDelegate(recordID, parentKey, hashFunction, previousRevision, lastModifiedRevision, id);
   }
 
-  private static void serializeDelegate(final NodeDelegate nodeDel, final BytesOut<ByteBuffer> sink) {
+  private static void serializeDelegate(final NodeDelegate nodeDel, final BytesOut<?> sink) {
     putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getParentKey());
     sink.writeInt(nodeDel.getPreviousRevisionNumber());
     sink.writeInt(nodeDel.getLastModifiedRevisionNumber());
   }
 
   private static void serializeStructDelegate(final NodeKind kind, final StructNodeDelegate nodeDel,
-      final BytesOut<ByteBuffer> sink, final ResourceConfiguration config) {
+      final BytesOut<?> sink, final ResourceConfiguration config) {
     final var isValueNode =
         kind == NodeKind.NUMBER_VALUE || kind == NodeKind.STRING_VALUE || kind == NodeKind.BOOLEAN_VALUE
             || kind == NodeKind.NULL_VALUE;
@@ -1874,7 +1855,7 @@ public enum NodeKind implements DeweyIdSerializer {
    * @param nameDel {@link NameNodeDelegate} instance
    * @param sink    to serialize to
    */
-  private static void serializeNameDelegate(final NameNodeDelegate nameDel, final BytesOut<ByteBuffer> sink) {
+  private static void serializeNameDelegate(final NameNodeDelegate nameDel, final BytesOut<?> sink) {
     sink.writeInt(nameDel.getURIKey());
     sink.writeInt(nameDel.getPrefixKey());
     sink.writeInt(nameDel.getLocalNameKey());
@@ -1887,7 +1868,7 @@ public enum NodeKind implements DeweyIdSerializer {
    * @param valueDel to be serialized
    * @param sink     to serialize to
    */
-  private static void serializeValDelegate(final ValueNodeDelegate valueDel, final BytesOut<ByteBuffer> sink) {
+  private static void serializeValDelegate(final ValueNodeDelegate valueDel, final BytesOut<?> sink) {
     final boolean isCompressed = valueDel.isCompressed();
     sink.writeByte(isCompressed ? (byte) 1 : (byte) 0);
     final byte[] value = isCompressed ? valueDel.getCompressed() : valueDel.getRawValue();
@@ -1895,11 +1876,11 @@ public enum NodeKind implements DeweyIdSerializer {
     sink.write(value);
   }
 
-  private static void writeHash(final BytesOut<ByteBuffer> sink, final long hashCode) {
+  private static void writeHash(final BytesOut<?> sink, final long hashCode) {
     sink.writeLong(hashCode);
   }
 
-  private static void serializeBigInteger(final BytesOut<ByteBuffer> sink, final BigInteger bigInteger) {
+  private static void serializeBigInteger(final BytesOut<?> sink, final BigInteger bigInteger) {
     final byte[] bytes = bigInteger.toByteArray();
     sink.writeStopBit(bytes.length);
     sink.write(bytes);

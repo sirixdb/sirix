@@ -66,12 +66,12 @@ public class ObjectNullNodeTest {
                                                                0L,
                                                                0L);
     final ObjectNullNode node = new ObjectNullNode(strucDel);
-    var bytes = Bytes.elasticByteBuffer();
+    var bytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(bytes));
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticByteBuffer();
+    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageTrx);
     final ObjectNullNode node2 =
         (ObjectNullNode) NodeKind.OBJECT_NULL_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx);
