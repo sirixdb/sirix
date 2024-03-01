@@ -111,11 +111,14 @@ public final class Main {
     options.add(new Option("-fType", "default document type", true));
     options.add(new Option("-f", "default document", true));
     options.add(new Option("-p", "pretty print", false));
+    options.add(new Option("-d", "debug", false));
   }
 
   public static void main(final String[] args) {
+    Config config = null;
+
     try {
-      final Config config = parseParams(args);
+      config = parseParams(args);
       try (final BasicXmlDBStore nodeStore = BasicXmlDBStore.newBuilder().build();
            final BasicJsonDBStore jsonStore = BasicJsonDBStore.newBuilder().build()) {
         final QueryContext ctx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(nodeStore,
@@ -174,7 +177,10 @@ public final class Main {
             try {
               executeQuery(config, compileChain, ctx, query);
             } catch (final QueryException e) {
-              System.err.println("Error: " + e.getMessage());
+              System.err.println(STR."Error: \{e.getMessage()}");
+              if (config.isSet("-d")) {
+                e.printStackTrace();
+              }
             }
           }
         } else if (config.isSet("-iqf")) {
@@ -187,7 +193,10 @@ public final class Main {
             try {
               executeQuery(config, compileChain, ctx, query);
             } catch (final QueryException e) {
-              System.err.println("Error: " + e.getMessage());
+              System.err.println(STR."Error: \{e.getMessage()}");
+              if (config.isSet("-d")) {
+                e.printStackTrace();
+              }
             }
           }
         } else {
@@ -196,13 +205,22 @@ public final class Main {
         }
       }
     } catch (final QueryException e) {
-      System.err.println("Error: " + e.getMessage());
+      System.err.println(STR."Error: \{e.getMessage()}");
+      if (config.isSet("-d")) {
+        e.printStackTrace();
+      }
       System.exit(-2);
     } catch (final IOException e) {
-      System.err.println("I/O Error: " + e.getMessage());
+      System.err.println(STR."I/O Error: \{e.getMessage()}");
+      if (config.isSet("-d")) {
+        e.printStackTrace();
+      }
       System.exit(-3);
     } catch (final Throwable e) {
-      System.err.println("Error: " + e.getMessage());
+      System.err.println(STR."Error: \{e.getMessage()}");
+      if (config.isSet("-d")) {
+        e.printStackTrace();
+      }
       System.exit(-4);
     }
   }

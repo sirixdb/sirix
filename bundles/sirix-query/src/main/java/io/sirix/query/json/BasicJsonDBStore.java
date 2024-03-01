@@ -1,11 +1,14 @@
 package io.sirix.query.json;
 
 import com.google.gson.stream.JsonReader;
+import io.brackit.query.atomic.DateTime;
+import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Stream;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import io.brackit.query.jdm.json.Object;
+import io.brackit.query.jsonitem.object.ArrayObject;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -16,8 +19,11 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.io.StorageType;
+import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.utils.OS;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -48,6 +54,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
    * Storage for databases: Sirix data in home directory.
    */
   private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
+
+  private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   /**
    * {@link Set} of databases.
@@ -261,8 +269,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
-  public JsonDBCollection create(String collName, Path path, String commitMessage, Instant commitTimestamp) {
-    return createCollection(collName, null, JsonShredder.createFileReader(path), commitMessage, commitTimestamp);
+  public JsonDBCollection create(String collName, Path path, Object options) {
+    return createCollection(collName, null, JsonShredder.createFileReader(path), options);
   }
 
   @Override
@@ -271,52 +279,51 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
-  public JsonDBCollection create(String collName, String json, String commitMessage, Instant commitTimestamp) {
-    return createCollection(collName, null, JsonShredder.createStringReader(json), commitMessage, commitTimestamp);
+  public JsonDBCollection create(String collName, String json, Object options) {
+    return createCollection(collName, null, JsonShredder.createStringReader(json), options);
   }
 
   @Override
   public JsonDBCollection create(String collName, String optResName, String json) {
+    final var options = new ArrayObject(new QNm[0], new Sequence[0]);
     if (json == null) {
-      return createCollection(collName, optResName, null, null, null);
+      return createCollection(collName, optResName, null, options);
     }
-    return createCollection(collName, optResName, JsonShredder.createStringReader(json), null, null);
+    return createCollection(collName, optResName, JsonShredder.createStringReader(json), options);
   }
 
   @Override
-  public JsonDBCollection create(String collName, String optResName, String json, String commitMessage,
-      Instant commitTimestamp) {
+  public JsonDBCollection create(String collName, String optResName, String json, Object options) {
     return createCollection(collName,
                             optResName,
                             JsonShredder.createStringReader(json),
-                            commitMessage,
-                            commitTimestamp);
+                            options);
   }
 
   @Override
   public JsonDBCollection create(final String collName, final String optResName, final Path path) {
-    return createCollection(collName, optResName, JsonShredder.createFileReader(path), null, null);
+    final var options = new ArrayObject(new QNm[0], new Sequence[0]);
+    return createCollection(collName, optResName, JsonShredder.createFileReader(path), options);
   }
 
   @Override
-  public JsonDBCollection create(final String collName, final String optResName, final Path path, String commitMessage,
-      Instant commitTimestamp) {
-    return createCollection(collName, optResName, JsonShredder.createFileReader(path), commitMessage, commitTimestamp);
+  public JsonDBCollection create(final String collName, final String optResName, final Path path, Object options) {
+    return createCollection(collName, optResName, JsonShredder.createFileReader(path), options);
   }
 
   @Override
   public JsonDBCollection create(String collName, String resourceName, JsonReader jsonReader) {
-    return createCollection(collName, resourceName, jsonReader, null, null);
+    final var options = new ArrayObject(new QNm[0], new Sequence[0]);
+    return createCollection(collName, resourceName, jsonReader, options);
   }
 
   @Override
-  public JsonDBCollection create(String collName, String resourceName, JsonReader reader, String commitMessage,
-      Instant commitTimestamp) {
-    return createCollection(collName, resourceName, reader, commitMessage, commitTimestamp);
+  public JsonDBCollection create(String collName, String resourceName, JsonReader reader, Object options) {
+    return createCollection(collName, resourceName, reader, options);
   }
 
   private JsonDBCollection createCollection(final String collName, final String optionalResourceName,
-      final JsonReader reader, final String commitMessage, final Instant commitTimestamp) {
+      final JsonReader reader, final Object options) {
     final Path dbPath = location.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
@@ -344,6 +351,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
       } else {
         resourceName = "resource" + (database.listResources().size() + 1);
       }
+
+      final Sequence commitMessageSequence = options.get(new QNm("commitMessage"));
+      final Sequence dateTimeSequence = options.get(new QNm("commitTimestamp"));
+
+      final String commitMessage = commitMessageSequence != null ? ((Str) commitMessageSequence).stringValue() : null;
+      final Instant commitTimestamp = dateTimeSequence != null ? dateTimeToInstant.convert(new DateTime(dateTimeSequence.toString())) : null;
 
       database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                    .useTextCompression(false)
