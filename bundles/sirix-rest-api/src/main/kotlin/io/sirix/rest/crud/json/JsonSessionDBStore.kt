@@ -1,6 +1,7 @@
 package io.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
+import io.brackit.query.jdm.json.Object
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.RoutingContext
@@ -35,11 +36,10 @@ class JsonSessionDBStore(
         return dbStore.create(name, path)
     }
 
-    override fun create(name: String, path: String, commitMessage: String?,
-                        commitTimestamp: Instant?): JsonDBCollection {
+    override fun create(name: String, path: String, options: Object): JsonDBCollection {
         io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.CREATE, authz)
 
-        return dbStore.create(name, path, commitMessage, commitTimestamp)
+        return dbStore.create(name, path, options)
     }
 
     override fun create(name: String, path: Path): JsonDBCollection {
@@ -48,11 +48,10 @@ class JsonSessionDBStore(
         return dbStore.create(name, path)
     }
 
-    override fun create(name: String, path: Path, commitMessage: String?,
-                        commitTimestamp: Instant?): JsonDBCollection {
+    override fun create(name: String, path: Path, options: Object): JsonDBCollection {
         io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.CREATE, authz)
 
-        return dbStore.create(name, path, commitMessage, commitTimestamp)
+        return dbStore.create(name, path, options)
     }
 
     override fun create(name: String, resourceName: String, path: Path): JsonDBCollection {
@@ -61,11 +60,10 @@ class JsonSessionDBStore(
         return dbStore.create(name, resourceName, path)
     }
 
-    override fun create(name: String, resourceName: String, path: Path, commitMessage: String?,
-                        commitTimestamp: Instant?): JsonDBCollection {
+    override fun create(name: String, resourceName: String, path: Path, options: Object): JsonDBCollection {
         io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.CREATE, authz)
 
-        return dbStore.create(name, resourceName, path, commitMessage, commitTimestamp)
+        return dbStore.create(name, resourceName, path, options)
     }
 
     override fun create(name: String, resourceName: String, json: String): JsonDBCollection {
@@ -75,12 +73,11 @@ class JsonSessionDBStore(
     }
 
     override fun create(
-        name: String, resourceName: String, json: String, commitMessage: String?,
-        commitTimestamp: Instant?
+        name: String, resourceName: String, json: String, options: Object
     ): JsonDBCollection {
         io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.CREATE, authz)
 
-        return dbStore.create(name, resourceName, json, commitMessage, commitTimestamp)
+        return dbStore.create(name, resourceName, json, options)
     }
 
     override fun create(name: String, resourceName: String, json: JsonReader): JsonDBCollection {
@@ -93,12 +90,11 @@ class JsonSessionDBStore(
         name: String,
         resourceName: String,
         json: JsonReader,
-        commitMessage: String?,
-        commitTimestamp: Instant?
+        options: Object
     ): JsonDBCollection {
         io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.CREATE, authz)
 
-        return dbStore.create(name, resourceName, json, commitMessage, commitTimestamp)
+        return dbStore.create(name, resourceName, json, options)
     }
 
     override fun create(name: String, jsonReaders: Set<JsonReader>): JsonDBCollection {
