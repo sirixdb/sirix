@@ -1,13 +1,17 @@
 package io.sirix.query.json;
 
 import com.google.gson.stream.JsonReader;
-import io.sirix.query.node.XmlDBCollection;
+import io.brackit.query.atomic.DateTime;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.DocumentException;
+import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Stream;
+import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jdm.json.TemporalJsonCollection;
 import io.brackit.query.jsonitem.AbstractJsonItemCollection;
+import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.node.stream.ArrayStream;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -17,6 +21,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
+import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -41,6 +46,8 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
    * ID sequence.
    */
   private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
+
+  private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   /**
    * Sirix database.
@@ -86,7 +93,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   @Override
-  public boolean equals(final @Nullable Object other) {
+  public boolean equals(final java.lang.Object other) {
     if (this == other) {
       return true;
     }
@@ -213,8 +220,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
     return null;
   }
 
-  public JsonDBItem add(final String resourceName, final JsonReader reader, final String commitMessage,
-      final Instant commitTimestamp) {
+  public JsonDBItem add(final String resourceName, final JsonReader reader, final Object options) {
     try {
       String resName = resourceName;
       for (final Path resource : database.listResources()) {
@@ -224,6 +230,13 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
           break;
         }
       }
+
+      final Sequence commitMessageSequence = options.get(new QNm("commitMessage"));
+      final Sequence dateTimeSequence = options.get(new QNm("commitTimestamp"));
+
+      final String commitMessage = commitMessageSequence != null ? ((Str) commitMessageSequence).stringValue() : null;
+      final Instant commitTimestamp = dateTimeSequence != null ? dateTimeToInstant.convert(new DateTime(dateTimeSequence.toString())) : null;
+
       database.createResource(ResourceConfiguration.newBuilder(resName)
                                                    .useDeweyIDs(true)
                                                    .customCommitTimestamps(commitTimestamp != null)
@@ -245,7 +258,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   public JsonDBItem add(final String resourceName, final JsonReader reader) {
-    return add(resourceName, reader, null, null);
+    return add(resourceName, reader, new ArrayObject(new QNm[0], new Sequence[0]));
   }
 
   @Override
@@ -303,12 +316,19 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   public JsonDBItem add(final String json) {
     requireNonNull(json);
 
-    return add(JsonShredder.createStringReader(json), null, null);
+    return add(JsonShredder.createStringReader(json), new ArrayObject(new QNm[0], new Sequence[0]));
   }
 
   @SuppressWarnings("SameParameterValue")
-  private JsonDBItem add(final JsonReader reader, final String commitMessage, final Instant commitTimestamp) {
+  private JsonDBItem add(final JsonReader reader, final Object options) {
     try {
+      final String commitMessage = ((Str) options.get(new QNm("commitMessage"))).stringValue();
+      final Sequence dateTime = options.get(new QNm("commitTimestamp"));
+
+      //final String commitMessage = args.length >= 5 ? FunUtil.getString(args, 4, "commitMessage", null, null, false) : null;
+      //final DateTime dateTime = args.length == 6 ? (DateTime) args[5] : null;
+      final Instant commitTimestamp = dateTime != null ? dateTimeToInstant.convert((DateTime) dateTime) : null;
+
       final String resourceName = "resource" + (database.listResources().size() + 1);
       database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                    .useDeweyIDs(true)
@@ -335,7 +355,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   public JsonDBItem add(final Path file) {
     requireNonNull(file);
 
-    return add(JsonShredder.createFileReader(file), null, null);
+    return add(JsonShredder.createFileReader(file), new ArrayObject(new QNm[0], new Sequence[0]));
   }
 
 }

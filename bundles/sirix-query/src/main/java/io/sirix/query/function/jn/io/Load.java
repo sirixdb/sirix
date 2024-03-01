@@ -10,10 +10,12 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.jdm.*;
+import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jdm.type.AnyJsonItemType;
 import io.brackit.query.jdm.type.AtomicType;
 import io.brackit.query.jdm.type.Cardinality;
 import io.brackit.query.jdm.type.SequenceType;
+import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.FunctionConversionSequence;
 import io.brackit.query.util.annotation.FunctionAnnotation;
@@ -101,22 +103,24 @@ public final class Load extends AbstractFunction {
       }
       final boolean createNew = args.length < 4 || args[3].booleanValue();
 
-      final String commitMessage = args.length >= 5 ? FunUtil.getString(args, 4, "commitMessage", null, null, false) : null;
-
-      final DateTime dateTime = args.length == 6 ? (DateTime) args[5] : null;
-      final Instant commitTimesstamp = args.length == 6 ? dateTimeToInstant.convert(dateTime) : null;
+      final Object options;
+      if (args.length >= 5) {
+        options = (Object) args[4];
+      } else {
+        options = new ArrayObject(new QNm[0], new Sequence[0]);
+      }
 
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
       JsonDBCollection coll;
       if (createNew) {
-        coll = create(store, collName, resName, resources, commitMessage, commitTimesstamp);
+        coll = create(store, collName, resName, resources, options);
       } else {
         try {
           coll = store.lookup(collName);
-          add(coll, resName, resources, commitMessage, commitTimesstamp);
+          add(coll, resName, resources, options);
         } catch (final DocumentException e) {
           // collection does not exist
-          coll = create(store, collName, resName, resources, commitMessage, commitTimesstamp);
+          coll = create(store, collName, resName, resources, options);
         }
       }
 
@@ -127,11 +131,11 @@ public final class Load extends AbstractFunction {
   }
 
   private static void add(final JsonDBCollection coll, final String resName,
-      final Sequence resources, final String commitMessage, final Instant commitTimestamp) {
+      final Sequence resources, final Object options) {
     if (resources instanceof Atomic res) {
       try (final JsonReader reader =
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(res.stringValue())))) {
-        coll.add(resName, reader, commitMessage, commitTimestamp);
+        coll.add(resName, reader, options);
       } catch (final Exception e) {
         throw new QueryException(new QNm(e.getMessage()), e);
       }
@@ -150,11 +154,11 @@ public final class Load extends AbstractFunction {
   }
 
   private JsonDBCollection create(final JsonDBStore store, final String collName, final String resName,
-      final Sequence resources, final String commitMessage, final Instant commitTimestamp) throws IOException {
+      final Sequence resources, final Object options) throws IOException {
     if (resources instanceof Atomic atomic) {
       try (final JsonReader reader =
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(atomic.stringValue())))) {
-        return store.create(collName, resName, reader, commitMessage, commitTimestamp);
+        return store.create(collName, resName, reader, options);
       } catch (final Exception e) {
         throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
       }

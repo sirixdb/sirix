@@ -1,5 +1,6 @@
 package io.sirix.query.function.jn;
 
+import io.brackit.query.jdm.type.*;
 import io.sirix.query.function.jn.diff.Diff;
 import io.sirix.query.function.jn.index.create.CreateCASIndex;
 import io.sirix.query.function.jn.index.create.CreateNameIndex;
@@ -17,10 +18,6 @@ import io.sirix.query.function.jn.trx.SelectJsonItem;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.jdm.Signature;
-import io.brackit.query.jdm.type.AnyJsonItemType;
-import io.brackit.query.jdm.type.AtomicType;
-import io.brackit.query.jdm.type.Cardinality;
-import io.brackit.query.jdm.type.SequenceType;
 import io.brackit.query.module.Functions;
 
 import static io.brackit.query.compiler.XQ.ItemType;
@@ -103,15 +100,7 @@ public final class JNFun {
                                                 new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
                                                 new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
                                                 new SequenceType(AtomicType.BOOL, Cardinality.One),
-                                                new SequenceType(AtomicType.STR, Cardinality.One),
-                                                new SequenceType(AtomicType.DATI, Cardinality.One))));
-    Functions.predefine(new Store(Store.STORE,
-                                  new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
-                                                new SequenceType(AtomicType.STR, Cardinality.One),
-                                                new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-                                                new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
-                                                new SequenceType(AtomicType.BOOL, Cardinality.One),
-                                                new SequenceType(AtomicType.STR, Cardinality.One))));
+                                                new SequenceType(ObjectType.OBJECT, Cardinality.ZeroOrOne))));
 
     // load
     Functions.predefine(new Load(false));
@@ -124,15 +113,7 @@ public final class JNFun {
                                                new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
                                                new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
                                                new SequenceType(AtomicType.BOOL, Cardinality.One),
-                                               new SequenceType(AtomicType.STR, Cardinality.One),
-                                               new SequenceType(AtomicType.DATI, Cardinality.One))));
-    Functions.predefine(new Load(Load.LOAD,
-                                 new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
-                                               new SequenceType(AtomicType.STR, Cardinality.One),
-                                               new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-                                               new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
-                                               new SequenceType(AtomicType.BOOL, Cardinality.One),
-                                               new SequenceType(AtomicType.STR, Cardinality.One))));
+                                               new SequenceType(ObjectType.OBJECT, Cardinality.ZeroOrOne))));
 
     // doc
     Functions.predefine(new Doc(Doc.DOC,

@@ -3,27 +3,26 @@ package io.sirix.query.function.jn.io;
 import com.google.gson.stream.JsonReader;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
-import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.jdm.*;
+import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jdm.type.AnyJsonItemType;
 import io.brackit.query.jdm.type.AtomicType;
 import io.brackit.query.jdm.type.Cardinality;
 import io.brackit.query.jdm.type.SequenceType;
+import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.node.stream.ArrayStream;
 import io.brackit.query.sequence.FunctionConversionSequence;
 import io.brackit.query.util.annotation.FunctionAnnotation;
-import io.sirix.service.json.shredder.JsonShredder;
-import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
+import io.sirix.service.json.shredder.JsonShredder;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -47,8 +46,6 @@ public final class Store extends AbstractFunction {
 
   /** Store function name. */
   public final static QNm STORE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "store");
-
-  private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   /**
    * Constructor.
@@ -98,21 +95,23 @@ public final class Store extends AbstractFunction {
       }
       final boolean createNew = args.length < 4 || args[3].booleanValue();
 
-      final String commitMessage = args.length >= 5 ? FunUtil.getString(args, 4, "commitMessage", null, null, false) : null;
-
-      final DateTime dateTime = args.length == 6 ? (DateTime) args[5] : null;
-      final Instant commitTimestamp = args.length == 6 ? dateTimeToInstant.convert(dateTime) : null;
+      final Object options;
+      if (args.length >= 5) {
+        options = (Object) args[4];
+      } else {
+        options = new ArrayObject(new QNm[0], new Sequence[0]);
+      }
 
       final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
       if (createNew) {
-        create(store, collName, resName, nodes, commitMessage, commitTimestamp);
+        create(store, collName, resName, nodes, options);
       } else {
         try {
           final JsonDBCollection coll = store.lookup(collName);
-          add(coll, resName, nodes, commitMessage, commitTimestamp);
+          add(coll, resName, nodes, options);
         } catch (final DocumentException e) {
           // collection does not exist
-          create(store, collName, resName, nodes, commitMessage, commitTimestamp);
+          create(store, collName, resName, nodes, options);
         }
       }
 
@@ -123,10 +122,10 @@ public final class Store extends AbstractFunction {
   }
 
   private static void add(final JsonDBCollection coll, final String resName,
-      final Sequence nodes, final String commitMessage, final Instant commitTimestamp) {
+      final Sequence nodes, final Object options) {
     if (nodes instanceof Str) {
       try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
-        coll.add(resName, reader, commitMessage, commitTimestamp);
+        coll.add(resName, reader, options);
       } catch (final Exception e) {
         throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
       }
@@ -136,7 +135,7 @@ public final class Store extends AbstractFunction {
         for (Item item; (item = iter.next()) != null; ) {
           // TODO: use item shredder
           try (final JsonReader reader = JsonShredder.createStringReader(((Str) item).stringValue())) {
-            coll.add("resource" + size++, reader);
+            coll.add("resource" + size++, reader, options);
           } catch (final Exception e) {
             throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
           }
@@ -146,10 +145,10 @@ public final class Store extends AbstractFunction {
   }
 
   private static void create(final JsonDBStore store, final String collName, final String resName,
-      final Sequence nodes, String commitMessage, Instant commitTimestamp) {
+      final Sequence nodes, Object options) {
     if (nodes instanceof Str string) {
       if (string.stringValue().isEmpty()) {
-        store.create(collName, resName, (String) null, commitMessage, commitTimestamp);
+        store.create(collName, resName, (String) null, options);
       } else {
         try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
           store.create(collName, resName, reader);
