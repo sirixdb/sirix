@@ -1,27 +1,28 @@
 package io.sirix.query.function.jn.io;
 
-import java.nio.file.Path;
-
+import io.brackit.query.Query;
+import io.sirix.JsonTestHelper;
+import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
-import io.brackit.query.Query;
-import org.junit.Test;
-import io.sirix.JsonTestHelper;
-import io.sirix.JsonTestHelper.PATHS;
-import junit.framework.TestCase;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-public final class StoreIntegrationTest extends TestCase {
+import java.nio.file.Path;
+
+public final class StoreIntegrationTest {
 
   private final Path sirixPath = PATHS.PATH1.getFile();
 
-  @Override
-  protected void setUp() throws Exception {
+  @BeforeEach
+  public void setUp() throws Exception {
     JsonTestHelper.deleteEverything();
   }
 
-  @Override
-  protected void tearDown() {
+  @AfterEach
+  public void tearDown() {
     JsonTestHelper.deleteEverything();
   }
 

@@ -5,16 +5,16 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.json.JsonStore;
 import io.brackit.query.jdm.json.Object;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.io.StorageType;
 
 import java.nio.file.Path;
 import java.util.Set;
 
 /**
  * Database store.
- *
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public interface JsonDBStore extends JsonStore, AutoCloseable {
   JsonDBStore addDatabase(JsonDBCollection jsonDBCollection, Database<JsonResourceSession> database);
@@ -54,6 +54,8 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
 
   JsonDBCollection create(String collName, Set<JsonReader> json);
 
+  JsonDBCollection create(String collName, Set<JsonReader> json, Object options);
+
   @Override
   JsonDBCollection createFromJsonStrings(String collName, Stream<Str> jsons);
 
@@ -65,4 +67,12 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
 
   @Override
   void close();
+
+  boolean buildPathSummary();
+
+  StorageType storageType();
+
+  boolean useDeweyIDs();
+
+  HashType hashType();
 }

@@ -1,9 +1,7 @@
 package io.sirix.query.json;
 
 import com.google.gson.stream.JsonReader;
-import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.QNm;
-import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Stream;
@@ -14,14 +12,12 @@ import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.node.stream.ArrayStream;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
-import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -46,8 +42,6 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
    * ID sequence.
    */
   private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
-
-  private final DateTimeToInstant dateTimeToInstant = new DateTimeToInstant();
 
   /**
    * Sirix database.
@@ -231,22 +225,27 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
         }
       }
 
-      final Sequence commitMessageSequence = options.get(new QNm("commitMessage"));
-      final Sequence dateTimeSequence = options.get(new QNm("commitTimestamp"));
-
-      final String commitMessage = commitMessageSequence != null ? ((Str) commitMessageSequence).stringValue() : null;
-      final Instant commitTimestamp = dateTimeSequence != null ? dateTimeToInstant.convert(new DateTime(dateTimeSequence.toString())) : null;
+      final var resourceOptions = OptionsFactory.createOptions(options,
+                                                               new Options(null,
+                                                                           null,
+                                                                           false,
+                                                                           jsonDbStore.buildPathSummary(),
+                                                                           jsonDbStore.storageType(),
+                                                                           jsonDbStore.useDeweyIDs(),
+                                                                           jsonDbStore.hashType()));
 
       database.createResource(ResourceConfiguration.newBuilder(resName)
-                                                   .useDeweyIDs(true)
-                                                   .customCommitTimestamps(commitTimestamp != null)
-                                                   .buildPathSummary(true)
-                                                   .hashKind(HashType.ROLLING)
+                                                   .useTextCompression(resourceOptions.useTextCompression())
+                                                   .storageType(resourceOptions.storageType())
+                                                   .useDeweyIDs(resourceOptions.useDeweyIDs())
+                                                   .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
+                                                   .buildPathSummary(resourceOptions.buildPathSummary())
+                                                   .hashKind(resourceOptions.hashType())
                                                    .build());
       final JsonResourceSession manager = database.beginResourceSession(resName);
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-        wtx.commit(commitMessage, commitTimestamp);
+        wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       }
       final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
       rtx.moveToDocumentRoot();
@@ -322,25 +321,29 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   @SuppressWarnings("SameParameterValue")
   private JsonDBItem add(final JsonReader reader, final Object options) {
     try {
-      final String commitMessage = ((Str) options.get(new QNm("commitMessage"))).stringValue();
-      final Sequence dateTime = options.get(new QNm("commitTimestamp"));
-
-      //final String commitMessage = args.length >= 5 ? FunUtil.getString(args, 4, "commitMessage", null, null, false) : null;
-      //final DateTime dateTime = args.length == 6 ? (DateTime) args[5] : null;
-      final Instant commitTimestamp = dateTime != null ? dateTimeToInstant.convert((DateTime) dateTime) : null;
 
       final String resourceName = "resource" + (database.listResources().size() + 1);
+      final var resourceOptions = OptionsFactory.createOptions(options,
+                                                               new Options(null,
+                                                                           null,
+                                                                           false,
+                                                                           jsonDbStore.buildPathSummary(),
+                                                                           jsonDbStore.storageType(),
+                                                                           jsonDbStore.useDeweyIDs(),
+                                                                           jsonDbStore.hashType()));
+
       database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                   .useDeweyIDs(true)
-                                                   .useTextCompression(true)
-                                                   .buildPathSummary(true)
-                                                   .customCommitTimestamps(commitTimestamp != null)
-                                                   .hashKind(HashType.ROLLING)
+                                                   .useTextCompression(resourceOptions.useTextCompression())
+                                                   .storageType(resourceOptions.storageType())
+                                                   .useDeweyIDs(resourceOptions.useDeweyIDs())
+                                                   .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
+                                                   .buildPathSummary(resourceOptions.buildPathSummary())
+                                                   .hashKind(resourceOptions.hashType())
                                                    .build());
       final JsonResourceSession manager = database.beginResourceSession(resourceName);
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-        wtx.commit(commitMessage, commitTimestamp);
+        wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       }
 
       final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();

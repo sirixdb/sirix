@@ -13,6 +13,9 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 
 public abstract class AbstractReader implements Reader {
+
+  private final Bytes<byte[]> wrappedForRead = Bytes.allocateElasticOnHeap(10_000);
+
   protected final ByteHandler byteHandler;
 
   /**
@@ -37,7 +40,7 @@ public abstract class AbstractReader implements Reader {
     try (final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page))) {
       bytes = inputStream.readAllBytes();
     }
-    Bytes<byte[]> wrappedForRead = Bytes.wrapForRead(bytes);
+    wrappedForRead.write(bytes);
     final var deserializedPage = pagePersister.deserializePage(pageReadTrx, wrappedForRead, type);
     wrappedForRead.clear();
     return deserializedPage;

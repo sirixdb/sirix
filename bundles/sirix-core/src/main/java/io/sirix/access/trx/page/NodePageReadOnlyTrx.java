@@ -566,6 +566,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @return dereferenced pages
    * @throws SirixIOException if an I/O-error occurs within the creation process
    */
+  @SuppressWarnings("unchecked")
   List<KeyValuePage<DataRecord>> getPageFragments(final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceSession.getResourceConfig();
@@ -612,6 +613,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                           .collect(Collectors.toList());
   }
 
+  @SuppressWarnings("unchecked")
   private CompletableFuture<KeyValuePage<DataRecord>> readPage(final PageFragmentKey pageFragmentKey) {
     final var pageReference = new PageReference().setKey(pageFragmentKey.key());
     if (trxIntentLog == null) {
