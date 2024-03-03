@@ -144,7 +144,7 @@ public final class Load extends AbstractFunction {
         int size = coll.getDatabase().listResources().size();
         for (Item item; (item = iter.next()) != null; ) {
           try (final JsonReader reader = new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue())))) {
-            coll.add("resource" + size++, reader);
+            coll.add("resource" + size++, reader, options);
           } catch (final Exception e) {
             throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
           }
@@ -170,7 +170,7 @@ public final class Load extends AbstractFunction {
           jsonReaders.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
         }
 
-        final JsonDBCollection collection = store.create(collName, jsonReaders);
+        final JsonDBCollection collection = store.create(collName, jsonReaders, options);
 
         jsonReaders.forEach(this::closeReader);
 

@@ -12,4 +12,13 @@ public enum HashType {
   POSTORDER,
   /** No hash structure after all. */
   NONE;
+
+  public static HashType fromString(String string) {
+    for (final HashType hashType : values()) {
+      if (hashType.name().equalsIgnoreCase(string)) {
+        return hashType;
+      }
+    }
+    throw new IllegalArgumentException(STR."No constant with name \{string} found");
+  }
 }
