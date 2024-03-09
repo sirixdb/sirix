@@ -118,6 +118,15 @@ public enum StorageType {
   public static final ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> CACHE_REPOSITORY =
       new ConcurrentHashMap<>();
 
+  public static StorageType fromString(String storageType) {
+    for (final var type : values()) {
+      if (type.name().equalsIgnoreCase(storageType)) {
+        return type;
+      }
+    }
+    throw new IllegalArgumentException("No constant with name " + storageType + " found");
+  }
+
   /**
    * Get an instance of the storage backend.
    *

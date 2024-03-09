@@ -68,11 +68,5 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
   @Override
   void close();
 
-  boolean buildPathSummary();
-
-  StorageType storageType();
-
-  boolean useDeweyIDs();
-
-  HashType hashType();
+  Options options();
 }

@@ -19,6 +19,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.settings.VersioningType;
 import io.sirix.utils.OS;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -34,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Predicate;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -89,6 +91,16 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final HashType hashType;
 
   /**
+   * Determines the versioning type.
+   */
+  private final VersioningType versioningType;
+
+  /**
+   * Number of nodes before an auto-commit is issued during an import of an XML document.
+   */
+  private final int numberOfNodesBeforeAutoCommit;
+
+  /**
    * Get a new builder instance.
    */
   public static Builder newBuilder() {
@@ -98,32 +110,54 @@ public final class BasicJsonDBStore implements JsonDBStore {
   /**
    * Builder setting up the store.
    */
+  @SuppressWarnings("unused")
   public static class Builder {
     /**
      * Storage type.
      */
-    private StorageType storageType =
-        OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
+    private StorageType storageType = System.getProperty("storageType") != null
+        ? StorageType.fromString(System.getProperty("storageType"))
+        : OS.isWindows()
+            ? StorageType.FILE_CHANNEL
+            : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
 
     /**
      * The location to store created collections/databases.
      */
-    private Path location = LOCATION;
+    private Path location =
+        System.getProperty("dbLocation") != null ? Path.of(System.getProperty("dbLocation")) : LOCATION;
 
     /**
      * Determines if a path summary should be build for resources.
      */
-    private boolean buildPathSummary = true;
+    private boolean buildPathSummary =
+        System.getProperty("buildPathSummary") == null || Boolean.parseBoolean(System.getProperty("buildPathSummary"));
 
     /**
      * Determines if DeweyIDs should be generated for resources.
      */
-    private boolean useDeweyIDs = true;
+    private boolean useDeweyIDs =
+        System.getProperty("useDeweyIDs") != null && Boolean.parseBoolean(System.getProperty("useDeweyIDs"));
 
     /**
      * Determines the hash type to use (default: rolling).
      */
-    private HashType hashType = HashType.ROLLING;
+    private HashType hashType =
+        System.getProperty("hashType") != null ? HashType.fromString(System.getProperty("hashType")) : HashType.ROLLING;
+
+    /**
+     * Determines the versioning type.
+     */
+    private VersioningType versioningType = System.getProperty("versioningType") != null
+        ? VersioningType.fromString(System.getProperty("versioningType"))
+        : VersioningType.SLIDING_SNAPSHOT;
+
+    /**
+     * Number of nodes before an auto-commit is issued during an import of an XML document.
+     */
+    private int numberOfNodesBeforeAutoCommit =
+        System.getProperty("numberOfNodesBeforeAutoCommit") != null ? Integer.parseInt(System.getProperty(
+            "numberOfNodesBeforeAutoCommit")) : 262_144 << 2;
 
     /**
      * Set the storage type (default: file backend).
@@ -181,6 +215,29 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
 
     /**
+     * Sets the versioning type of the storage.
+     *
+     * @param versioningType the versioning type to set
+     * @return this builder instance
+     */
+    public Builder versioningType(final VersioningType versioningType) {
+      this.versioningType = versioningType;
+      return this;
+    }
+
+    /**
+     * Number of nodes, before the write trx is internally committed during an import of a file.
+     *
+     * @param numberOfNodesBeforeAutoCommit number of nodes to insert before an auto-commit is issued
+     * @return this builder instance
+     */
+    public Builder numberOfNodesBeforeAutoCommit(final int numberOfNodesBeforeAutoCommit) {
+      checkArgument(numberOfNodesBeforeAutoCommit > 0, "Must be > 0!");
+      this.numberOfNodesBeforeAutoCommit = numberOfNodesBeforeAutoCommit;
+      return this;
+    }
+
+    /**
      * Create a new {@link BasicJsonDBStore} instance
      *
      * @return new {@link BasicJsonDBStore} instance
@@ -203,6 +260,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
     buildPathSummary = builder.buildPathSummary;
     useDeweyIDs = builder.useDeweyIDs;
     hashType = builder.hashType;
+    versioningType = builder.versioningType;
+    numberOfNodesBeforeAutoCommit = builder.numberOfNodesBeforeAutoCommit;
   }
 
   /**
@@ -213,23 +272,16 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
-  public boolean buildPathSummary() {
-    return buildPathSummary;
-  }
-
-  @Override
-  public StorageType storageType() {
-    return storageType;
-  }
-
-  @Override
-  public HashType hashType() {
-    return hashType;
-  }
-
-  @Override
-  public boolean useDeweyIDs() {
-    return useDeweyIDs;
+  public Options options() {
+    return new Options(null,
+                       null,
+                       false,
+                       buildPathSummary,
+                       storageType,
+                       useDeweyIDs,
+                       hashType,
+                       versioningType,
+                       numberOfNodesBeforeAutoCommit);
   }
 
   @Override
@@ -394,7 +446,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                                          buildPathSummary,
                                                                          storageType,
                                                                          useDeweyIDs,
-                                                                         hashType));
+                                                                         hashType,
+                                                                         versioningType,
+                                                                         numberOfNodesBeforeAutoCommit));
 
     database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                  .useTextCompression(resourceOptions.useTextCompression())
@@ -403,6 +457,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                  .storageType(resourceOptions.storageType())
                                                  .useDeweyIDs(resourceOptions.useDeweyIDs())
                                                  .hashKind(resourceOptions.hashType())
+                                                 .versioningApproach(versioningType)
                                                  .build());
     return resourceOptions;
   }
@@ -424,7 +479,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
         final String resourceName = "resource" + numberOfResources;
         resourceFutures[i++] =
             (CompletableFuture.runAsync(() -> createResource(collName, database, jsonReader, resourceName, options)));
-      } CompletableFuture.allOf(resourceFutures).join();
+      }
+      CompletableFuture.allOf(resourceFutures).join();
       return new JsonDBCollection(collName, database, this);
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
@@ -491,7 +547,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final String resourceName, final Object options) {
     createResource(options, database, resourceName);
     try (final JsonResourceSession manager = database.beginResourceSession(resourceName);
-         final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+         final JsonNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
       final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
       collections.put(database, collection);
       wtx.insertSubtreeAsFirstChild(reader);
@@ -523,11 +579,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                          .storageType(storageType)
                                                          .useDeweyIDs(useDeweyIDs)
                                                          .useTextCompression(false)
-                                                         .buildPathSummary(true)
+                                                         .buildPathSummary(buildPathSummary)
                                                          .hashKind(hashType)
+                                                         .versioningApproach(versioningType)
                                                          .build());
             try (final JsonResourceSession manager = database.beginResourceSession(resourceName);
-                 final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+                 final JsonNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
               final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
               collections.put(database, collection);
               wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(currentPath));

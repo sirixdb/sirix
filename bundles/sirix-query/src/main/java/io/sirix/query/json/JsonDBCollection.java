@@ -225,14 +225,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
         }
       }
 
-      final var resourceOptions = OptionsFactory.createOptions(options,
-                                                               new Options(null,
-                                                                           null,
-                                                                           false,
-                                                                           jsonDbStore.buildPathSummary(),
-                                                                           jsonDbStore.storageType(),
-                                                                           jsonDbStore.useDeweyIDs(),
-                                                                           jsonDbStore.hashType()));
+      final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
 
       database.createResource(ResourceConfiguration.newBuilder(resName)
                                                    .useTextCompression(resourceOptions.useTextCompression())
@@ -323,14 +316,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
     try {
 
       final String resourceName = "resource" + (database.listResources().size() + 1);
-      final var resourceOptions = OptionsFactory.createOptions(options,
-                                                               new Options(null,
-                                                                           null,
-                                                                           false,
-                                                                           jsonDbStore.buildPathSummary(),
-                                                                           jsonDbStore.storageType(),
-                                                                           jsonDbStore.useDeweyIDs(),
-                                                                           jsonDbStore.hashType()));
+      final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
 
       database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                    .useTextCompression(resourceOptions.useTextCompression())
