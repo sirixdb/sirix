@@ -613,6 +613,15 @@ public enum VersioningType {
     }
   }
 
+  public static VersioningType fromString(String versioningType) {
+    for (final var type : values()) {
+      if (type.name().equalsIgnoreCase(versioningType)) {
+        return type;
+      }
+    }
+    throw new IllegalArgumentException("No constant with name " + versioningType + " found");
+  }
+
   /**
    * Method to reconstruct a complete {@link KeyValuePage} with the help of partly filled pages plus
    * a revision-delta which determines the necessary steps back.

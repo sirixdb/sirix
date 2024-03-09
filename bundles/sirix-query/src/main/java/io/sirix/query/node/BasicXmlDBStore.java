@@ -109,43 +109,55 @@ public final class BasicXmlDBStore implements XmlDBStore {
   /**
    * Builder setting up the store.
    */
+  @SuppressWarnings("unused")
   public static class Builder {
 
     /**
      * Storage type.
      */
-    private StorageType storageType =
-        OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
+    private StorageType storageType = System.getProperty("storageType") != null
+        ? StorageType.fromString(System.getProperty("storageType"))
+        : OS.isWindows()
+            ? StorageType.FILE_CHANNEL
+            : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
 
     /**
      * The location to store created collections/databases.
      */
-    private Path location = LOCATION;
+    private Path location =
+        System.getProperty("dbLocation") != null ? Path.of(System.getProperty("dbLocation")) : LOCATION;
 
     /**
-     * Determines if for resources a path summary should be build.
+     * Determines if a path summary should be build for resources.
      */
-    private boolean buildPathSummary = true;
+    private boolean buildPathSummary =
+        System.getProperty("buildPathSummary") == null || Boolean.parseBoolean(System.getProperty("buildPathSummary"));
 
     /**
-     * Determines the hash type for each node.
+     * Determines if DeweyIDs should be generated for resources.
      */
-    private HashType hashType = HashType.NONE;
+    private boolean storeDeweyIds =
+        System.getProperty("storeDeweyIds") == null || Boolean.parseBoolean(System.getProperty("storeDeweyIds"));
 
     /**
-     * Determines if DeweyIDs should be created or not.
+     * Determines the hash type to use (default: rolling).
      */
-    private boolean storeDeweyIds = true;
-
-    /**
-     * Number of nodes before an auto-commit is issued during an import of an XML document.
-     */
-    public int numberOfNodesBeforeAutoCommit = 262_144 << 2;
+    private HashType hashType =
+        System.getProperty("hashType") != null ? HashType.fromString(System.getProperty("hashType")) : HashType.ROLLING;
 
     /**
      * Determines the versioning type.
      */
-    private VersioningType versioningType = VersioningType.SLIDING_SNAPSHOT;
+    private VersioningType versioningType = System.getProperty("versioningType") != null
+        ? VersioningType.fromString(System.getProperty("versioningType"))
+        : VersioningType.SLIDING_SNAPSHOT;
+
+    /**
+     * Number of nodes before an auto-commit is issued during an import of an XML document.
+     */
+    private int numberOfNodesBeforeAutoCommit =
+        System.getProperty("numberOfNodesBeforeAutoCommit") != null ? Integer.parseInt(System.getProperty(
+            "numberOfNodesBeforeAutoCommit")) : 262_144 << 2;
 
     /**
      * Determines if DeweyIDs should be stored or not.
@@ -321,8 +333,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
     return createCollection(collName, null, parser, commitMessage, commitTimestamp);
   }
 
-  private XmlDBCollection createCollection(final String collName, final String optResName, final NodeSubtreeParser parser,
-      final String commitMessage, final Instant commitTimestamp) {
+  private XmlDBCollection createCollection(final String collName, final String optResName,
+      final NodeSubtreeParser parser, final String commitMessage, final Instant commitTimestamp) {
     final Path dbPath = location.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
@@ -380,7 +392,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                            .versioningApproach(versioningType)
                                                            .build());
               try (final XmlResourceSession manager = database.beginResourceSession(resourceName);
-                   final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+                   final XmlNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
                 final XmlDBCollection collection = new XmlDBCollection(collName, database);
                 collections.put(database, collection);
                 nextParser.parse(new SubtreeBuilder(collection,
