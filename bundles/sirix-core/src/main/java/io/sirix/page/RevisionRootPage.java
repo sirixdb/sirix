@@ -164,9 +164,9 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     maxNodeKeyInDocumentIndex = -1L;
     maxNodeKeyInChangedNodesIndex = -1L;
     maxNodeKeyInRecordToRevisionsIndex = -1L;
-    currentMaxLevelOfDocumentIndexIndirectPages = 1;
-    currentMaxLevelOfChangedNodesIndirectPages = 1;
-    currentMaxLevelOfRecordToRevisionsIndirectPages = 1;
+    currentMaxLevelOfDocumentIndexIndirectPages = 0;
+    currentMaxLevelOfChangedNodesIndirectPages = 0;
+    currentMaxLevelOfRecordToRevisionsIndirectPages = 0;
   }
 
   /**

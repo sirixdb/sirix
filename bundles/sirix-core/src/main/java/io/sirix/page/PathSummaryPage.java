@@ -96,7 +96,6 @@ public final class PathSummaryPage extends AbstractForwardingPage {
     this.delegate = delegate;
     this.maxNodeKeys = maxNodeKeys;
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
-
   }
 
   @Override
@@ -132,12 +131,12 @@ public final class PathSummaryPage extends AbstractForwardingPage {
       } else {
         maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
       }
-      currentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
+      currentMaxLevelsOfIndirectPages.put(index, 0);
     }
   }
 
   public int getCurrentMaxLevelOfIndirectPages(int index) {
-    return currentMaxLevelsOfIndirectPages.getOrDefault(index, 1);
+    return currentMaxLevelsOfIndirectPages.getOrDefault(index, 0);
   }
 
   /**

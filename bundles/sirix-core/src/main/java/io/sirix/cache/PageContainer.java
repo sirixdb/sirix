@@ -21,12 +21,12 @@
 
 package io.sirix.cache;
 
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
 
 /**
  *

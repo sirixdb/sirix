@@ -28,6 +28,7 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.PageTrx;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -72,7 +73,7 @@ public interface TreeModifier {
    *         the {@code key}
    * @throws SirixIOException if an I/O error occured
    */
-  PageReference prepareLeafOfTree(PageReadOnlyTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
+  PageReference prepareLeafOfTree(PageTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
       PageReference startReference, @NonNegative long pageKey, int indexNumber, IndexType indexType,
       RevisionRootPage revisionRootPage);
 

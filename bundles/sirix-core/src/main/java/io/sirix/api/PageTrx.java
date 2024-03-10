@@ -137,6 +137,8 @@ public interface PageTrx extends PageReadOnlyTrx {
    */
   void commit(PageReference reference);
 
+  PageContainer dereferenceRecordPageForModification(PageReference reference);
+
   /**
    * Get inlying {@link PageReadOnlyTrx}.
    *

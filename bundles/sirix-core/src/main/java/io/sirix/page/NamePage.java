@@ -441,7 +441,7 @@ public final class NamePage extends AbstractForwardingPage {
       } else {
         maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
       }
-      currentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
+      currentMaxLevelsOfIndirectPages.put(index, 0);
     }
   }
 

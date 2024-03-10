@@ -65,19 +65,15 @@ public final class PageUtils {
    */
   public static void createTree(final DatabaseType databaseType, @NonNull PageReference reference,
       final IndexType indexType, final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
-    final Page page = new IndirectPage();
-    log.put(reference, PageContainer.getInstance(page, page));
-    reference = page.getOrCreateReference(0);
-
     // Create new record page.
     final KeyValueLeafPage recordPage =
         new KeyValueLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, pageReadTrx);
 
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceSession().getResourceConfig();
 
-    // Create a {@link DocumentRootNode}.
     final SirixDeweyID id = resourceConfiguration.areDeweyIDsStored ? SirixDeweyID.newRootID() : null;
 
+    // Create a {@link DocumentRootNode}.
     recordPage.setRecord(databaseType.getDocumentNode(id));
 
     log.put(reference, PageContainer.getInstance(recordPage, recordPage));

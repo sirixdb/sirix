@@ -187,10 +187,10 @@ public final class PageTrxFactory {
         log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
       }
 
-      final Page indirectPage =
-          pageRtx.dereferenceIndirectPageReference(newRevisionRootPage.getIndirectDocumentIndexPageReference());
-      log.put(newRevisionRootPage.getIndirectDocumentIndexPageReference(),
-              PageContainer.getInstance(indirectPage, indirectPage));
+//      final Page indirectPage =
+//          pageRtx.dereferenceIndirectPageReference(newRevisionRootPage.getIndirectDocumentIndexPageReference());
+//      log.put(newRevisionRootPage.getIndirectDocumentIndexPageReference(),
+//              PageContainer.getInstance(indirectPage, indirectPage));
 
       final var revisionRootPageReference = new PageReference();
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
