@@ -28,6 +28,8 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.PageTrx;
+import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.page.IndirectPage;
@@ -36,7 +38,6 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.settings.Constants;
 import org.checkerframework.checker.index.qual.NonNegative;
-import io.sirix.cache.PageContainer;
 
 /**
  * @author Johannes Lichtenberger
@@ -69,7 +70,7 @@ public final class TreeModifierImpl implements TreeModifier {
   }
 
   @Override
-  public PageReference prepareLeafOfTree(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
+  public PageReference prepareLeafOfTree(final PageTrx pageRtx, final TransactionIntentLog log,
       final int[] inpLevelPageCountExp, final PageReference startReference, @NonNegative final long pageKey,
       final int index, final IndexType indexType, final RevisionRootPage revisionRootPage) {
     // Initial state pointing to the indirect nodePageReference of level 0.
@@ -84,17 +85,16 @@ public final class TreeModifierImpl implements TreeModifier {
     if (pageKey == (1L << inpLevelPageCountExp[inpLevelPageCountExp.length - maxHeight - 1])) {
       maxHeight = incrementCurrentMaxIndirectPageTreeLevel(pageRtx, revisionRootPage, indexType, index);
 
-      // First, get the old referenced page.
-      final IndirectPage oldPage = dereferenceOldIndirectPage(pageRtx, log, reference);
-
       // Add a new indirect page to the top of the tree and to the transaction-log.
       final IndirectPage page = new IndirectPage();
 
       // Get the first reference.
       final PageReference newReference = page.getOrCreateReference(0);
 
-      // Set new reference in log with the old referenced page.
-      log.put(newReference, PageContainer.getInstance(oldPage, oldPage));
+      newReference.setKey(reference.getKey());
+      newReference.setLogKey(reference.getLogKey());
+      newReference.setPage(reference.getPage());
+      newReference.setPageFragments(reference.getPageFragments());
 
       // Create new page reference, add it to the transaction-log and reassign it in the root pages
       // of the tree.
@@ -106,8 +106,8 @@ public final class TreeModifierImpl implements TreeModifier {
     }
 
     // Iterate through all levels.
-    for (int level = inpLevelPageCountExp.length - maxHeight, height = inpLevelPageCountExp.length; level < height;
-        level++) {
+    for (int level = inpLevelPageCountExp.length - maxHeight, height = inpLevelPageCountExp.length;
+         level < height; level++) {
       offset = (int) (levelKey >> inpLevelPageCountExp[level]);
       levelKey -= (long) offset << inpLevelPageCountExp[level];
       final IndirectPage page = prepareIndirectPage(pageRtx, log, reference);
@@ -144,8 +144,8 @@ public final class TreeModifierImpl implements TreeModifier {
       case PATH -> pageRtx.getPathPage(revisionRoot).setOrCreateReference(index, pageReference);
       case NAME -> pageRtx.getNamePage(revisionRoot).setOrCreateReference(index, pageReference);
       case PATH_SUMMARY -> pageRtx.getPathSummaryPage(revisionRoot).setOrCreateReference(index, pageReference);
-      default -> throw new IllegalStateException(
-          "Only defined for node, path summary, text value and attribute value pages!");
+      default ->
+          throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     }
   }
 
@@ -159,10 +159,10 @@ public final class TreeModifierImpl implements TreeModifier {
       case CAS -> pageRtx.getCASPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       case PATH -> pageRtx.getPathPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       case NAME -> pageRtx.getNamePage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      case PATH_SUMMARY -> pageRtx.getPathSummaryPage(revisionRoot)
-                                  .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-      default -> throw new IllegalStateException(
-          "Only defined for node, path summary, text value and attribute value pages!");
+      case PATH_SUMMARY ->
+          pageRtx.getPathSummaryPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      default ->
+          throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     };
   }
 

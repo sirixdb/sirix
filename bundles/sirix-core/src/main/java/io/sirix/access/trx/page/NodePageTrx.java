@@ -567,7 +567,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
 
       // Get the reference to the unordered key/value page storing the records.
-      final PageReference reference = treeModifier.prepareLeafOfTree(pageRtx,
+      final PageReference reference = treeModifier.prepareLeafOfTree(this,
                                                                      log,
                                                                      getUberPage().getPageCountExp(indexType),
                                                                      pageReference,
@@ -632,7 +632,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    * @param reference reference to leaf, that is the record page
    * @return dereferenced page
    */
-  private PageContainer dereferenceRecordPageForModification(final PageReference reference) {
+  @Override
+  public PageContainer dereferenceRecordPageForModification(final PageReference reference) {
     final List<KeyValuePage<DataRecord>> pageFragments = pageRtx.getPageFragments(reference);
     final VersioningType versioningType = pageRtx.resourceSession.getResourceConfig().versioningType;
     final int mileStoneRevision = pageRtx.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
