@@ -24,87 +24,7 @@ import io.sirix.query.json.*
 import java.io.StringWriter
 import java.nio.file.Path
 
-class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider): AbstractGetHandler <JsonResourceSession, JsonDBCollection, JsonNodeReadOnlyTrx> (location, authz) {
-//    override suspend fun xquery(
-//        manager: JsonResourceSession?,
-//        dbCollection: JsonDBCollection?,
-//        nodeId: String?,
-//        revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
-//        user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?, jsonBody: JsonObject?
-//    ): String? {
-//        return vertxContext.executeBlocking { promise: Promise<String> ->
-//            // Initialize queryResource context and store.
-//            val jsonDBStore = JsonSessionDBStore(
-//                routingContext,
-//                BasicJsonDBStore.newBuilder().storeDeweyIds(true).build(),
-//                user,
-//                authz
-//            )
-//            val xmlDBStore =
-//                XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().storeDeweyIds(true).build(), user, authz)
-//
-//            val commitMessage = routingContext.queryParam("commitMessage").getOrElse(0) {
-//                jsonBody?.getString("commitMessage")
-//            }
-//            val commitTimestampAsString = routingContext.queryParam("commitTimestamp").getOrElse(0) {
-//                jsonBody?.getString("commitTimestamp")
-//            }
-//            val commitTimestamp = if (commitTimestampAsString == null) {
-//                null
-//            } else {
-//                Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
-//            }
-//
-//            val queryCtx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(
-//                xmlDBStore,
-//                jsonDBStore,
-//                SirixQueryContext.CommitStrategy.AUTO,
-//                commitMessage,
-//                commitTimestamp
-//            )
-//
-//            var body: String? = null
-//
-//            queryCtx.use {
-//                if (manager != null && dbCollection != null && revisionNumber != null) {
-//                    val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0])
-//
-//                    rtx.use {
-//                        if (nodeId == null) {
-//                            rtx.moveToFirstChild()
-//                        } else {
-//                            rtx.moveTo(nodeId.toLong())
-//                        }
-//
-//                        handleQueryExtra(rtx, dbCollection, queryCtx, jsonDBStore)
-//
-//                        body = query(
-//                            xmlDBStore,
-//                            jsonDBStore,
-//                            startResultSeqIndex,
-//                            query,
-//                            queryCtx,
-//                            endResultSeqIndex,
-//                            routingContext
-//                        )
-//                    }
-//                } else {
-//                    body = query(
-//                        xmlDBStore,
-//                        jsonDBStore,
-//                        startResultSeqIndex,
-//                        query,
-//                        queryCtx,
-//                        endResultSeqIndex,
-//                        routingContext
-//                    )
-//                }
-//            }
-//
-//            promise.complete(body)
-//        }.await()
-//    }
-
+class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider): AbstractGetHandler <JsonResourceSession, JsonDBCollection, JsonNodeReadOnlyTrx> (location, authz) {
     override fun query(
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
@@ -275,7 +195,7 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
         return JsonDBCollection(databaseName, database)
     }
 
-    override fun  handleQueryExtra(rtx: JsonNodeReadOnlyTrx, dbCollection: JsonDBCollection, queryContext: SirixQueryContext, jsonDBStore: JsonSessionDBStore) {
+    override fun  handleQueryExtra(rtx: JsonNodeReadOnlyTrx, dbCollection: JsonDBCollection, queryContext: SirixQueryContext, jsonSessionDBStore: JsonSessionDBStore) {
         val jsonItem = JsonItemFactory()
                 .getSequence(rtx, dbCollection)
 
@@ -284,33 +204,33 @@ class JsonGet(private val location: Path, private val keycloak: OAuth2Auth, priv
 
             when (jsonItem) {
                 is AbstractJsonDBArray<*> -> {
-                    jsonItem.collection.setJsonDBStore(jsonDBStore)
-                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
+                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                 }
 
                 is JsonDBObject -> {
-                    jsonItem.collection.setJsonDBStore(jsonDBStore)
-                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
+                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                 }
 
                 is AtomicBooleanJsonDBItem -> {
-                    jsonItem.collection.setJsonDBStore(jsonDBStore)
-                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
+                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                 }
 
                 is AtomicStrJsonDBItem -> {
-                    jsonItem.collection.setJsonDBStore(jsonDBStore)
-                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
+                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                 }
 
                 is AtomicNullJsonDBItem -> {
-                    jsonItem.collection.setJsonDBStore(jsonDBStore)
-                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
+                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                 }
 
                 is NumericJsonDBItem -> {
-                    jsonItem.collection.setJsonDBStore(jsonDBStore)
-                    jsonDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
+                    jsonItem.collection.setJsonDBStore(jsonSessionDBStore)
+                    jsonSessionDBStore.addDatabase(jsonItem.collection, jsonItem.collection.database)
                 }
 
                 else -> {

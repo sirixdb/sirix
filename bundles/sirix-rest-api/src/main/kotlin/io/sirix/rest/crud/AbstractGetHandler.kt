@@ -1,29 +1,21 @@
 package io.sirix.rest.crud
 
-import io.brackit.query.jdm.StructuredItemCollection
-import io.brackit.query.jdm.node.TemporalNodeCollection
-import io.sirix.access.Databases
 import io.sirix.api.Database
 import io.sirix.api.NodeCursor
-import io.sirix.api.NodeReadOnlyTrx
 import io.sirix.api.ResourceSession
-import io.sirix.api.json.JsonResourceSession
-import io.sirix.api.xml.XmlResourceSession
 import io.sirix.query.SirixQueryContext
-import io.vertx.ext.auth.User
-import io.vertx.ext.web.Route
-import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
-
-import io.sirix.query.json.*
+import io.sirix.query.json.BasicJsonDBStore
 import io.sirix.query.node.BasicXmlDBStore
-import io.sirix.query.node.XmlDBCollection
 import io.sirix.rest.crud.json.JsonSessionDBStore
 import io.sirix.rest.crud.xml.XmlSessionDBStore
 import io.vertx.core.Context
 import io.vertx.core.Promise
 import io.vertx.core.json.JsonObject
+import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
+import io.vertx.ext.web.Route
+import io.vertx.ext.web.RoutingContext
+import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
@@ -69,7 +61,7 @@ private val authz: AuthorizationProvider){
             val manager = database.beginResourceSession(resource)
 
             manager.use {
-                body = if (query != null && query.isNotEmpty()) {
+                body = if (!query.isNullOrEmpty()) {
                     queryResource(
                             databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
                             vertxContext, user, jsonBody
@@ -93,7 +85,7 @@ private val authz: AuthorizationProvider){
         }
     }
 
-     suspend fun queryResource(
+     private suspend fun queryResource(
             databaseName: String?, database: Database<T>, revision: String?,
             revisionTimestamp: String?, manager: T, ctx: RoutingContext,
             nodeId: String?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
