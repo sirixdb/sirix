@@ -79,7 +79,7 @@ public final class FilterAxis extends AbstractAxis {
       final var node = axis.next();
       boolean filterResult = true;
       for (final Predicate<PathNode> filter : axisFilter) {
-        filterResult = filterResult && filter.test(node);
+        filterResult = filter.test(node);
         if (!filterResult) {
           break;
         }

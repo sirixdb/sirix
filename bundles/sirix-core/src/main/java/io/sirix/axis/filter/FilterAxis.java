@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -58,14 +58,14 @@ public final class FilterAxis<R extends NodeReadOnlyTrx & NodeCursor> extends Ab
     this.axis = axis;
     axisFilter = new ArrayList<>();
     axisFilter.add(firstAxisTest);
-    if (!this.axis.getCursor().equals(axisFilter.get(0).getTrx())) {
+    if (!this.axis.getCursor().equals(axisFilter.getFirst().getTrx())) {
       throw new IllegalArgumentException("The filter must be bound to the same transaction as the axis!");
     }
 
     if (axisTest != null) {
       for (final var filter : axisTest) {
         axisFilter.add(filter);
-        if (!this.axis.getCursor().equals(axisFilter.get(axisFilter.size() - 1).getTrx())) {
+        if (!this.axis.getCursor().equals(axisFilter.getLast().getTrx())) {
           throw new IllegalArgumentException("The filter must be bound to the same transaction as the axis!");
         }
       }
@@ -86,7 +86,7 @@ public final class FilterAxis<R extends NodeReadOnlyTrx & NodeCursor> extends Ab
       final long nodeKey = axis.nextLong();
       boolean filterResult = true;
       for (final Filter<R> filter : axisFilter) {
-        filterResult = filterResult && filter.filter();
+        filterResult = filter.filter();
         if (!filterResult) {
           break;
         }
