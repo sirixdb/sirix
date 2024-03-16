@@ -74,14 +74,14 @@ public class UnionAxis extends AbstractAxis {
   public boolean hasNext() {
     resetToLastKey();
     // first return all values of the first operand
-    while (op1.hasNext()) {
-      key = op1.next();
+    if (op1.hasNext()) {
+      key = op1.nextLong();
       return true;
     }
 
     // then all values of the second operand.
-    while (op2.hasNext()) {
-      key = op2.next();
+    if (op2.hasNext()) {
+      key = op2.nextLong();
       return true;
     }
 

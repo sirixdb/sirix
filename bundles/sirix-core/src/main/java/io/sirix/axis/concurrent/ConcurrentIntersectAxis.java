@@ -96,8 +96,8 @@ public final class ConcurrentIntersectAxis<R extends NodeCursor & NodeReadOnlyTr
 
     // if 1st axis has a result left that is not contained in the 2nd it is
     // returned
-    while (!op1.isFinished()) {
-      while (!op2.isFinished()) {
+    if (!op1.isFinished()) {
+      if (!op2.isFinished()) {
         // if both results are not equal get next values
         while (currentResult1 != currentResult2 && !op1.isFinished() && !op2.isFinished()) {
 
@@ -127,12 +127,8 @@ public final class ConcurrentIntersectAxis<R extends NodeCursor & NodeReadOnlyTr
           throw new IllegalStateException(nodeKey + " is not valid!");
 
         }
-        break;
-
       }
-      break;
     }
-
     return done();
   }
 }

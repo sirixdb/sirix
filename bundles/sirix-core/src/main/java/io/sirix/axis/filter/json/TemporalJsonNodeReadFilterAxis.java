@@ -1,6 +1,7 @@
 package io.sirix.axis.filter.json;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import io.sirix.api.Filter;
@@ -21,10 +22,10 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
     extends AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
   /** Axis to test. */
-  private final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> mAxis;
+  private final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis;
 
   /** Test to apply to axis. */
-  private final List<F> mAxisFilter;
+  private final List<F> axisFilter;
 
   /**
    * Constructor initializing internal state.
@@ -37,21 +38,19 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
   public TemporalJsonNodeReadFilterAxis(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
       final F firstAxisTest, final F... axisTest) {
     requireNonNull(firstAxisTest);
-    mAxis = axis;
-    mAxisFilter = new ArrayList<F>();
-    mAxisFilter.add(firstAxisTest);
+    this.axis = axis;
+    axisFilter = new ArrayList<>();
+    axisFilter.add(firstAxisTest);
 
     if (axisTest != null) {
-      for (int i = 0, length = axisTest.length; i < length; i++) {
-        mAxisFilter.add(axisTest[i]);
-      }
+        axisFilter.addAll(Arrays.asList(axisTest));
     }
   }
 
   @Override
   protected JsonNodeReadOnlyTrx computeNext() {
-    while (mAxis.hasNext()) {
-      final JsonNodeReadOnlyTrx rtx = mAxis.next();
+    while (axis.hasNext()) {
+      final JsonNodeReadOnlyTrx rtx = axis.next();
       final boolean filterResult = doFilter(rtx);
       if (filterResult) {
         return rtx;
@@ -64,9 +63,9 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
 
   private boolean doFilter(final JsonNodeReadOnlyTrx rtx) {
     boolean filterResult = true;
-    for (final F filter : mAxisFilter) {
+    for (final F filter : axisFilter) {
       filter.setTrx(rtx);
-      filterResult = filterResult && filter.filter();
+      filterResult = filter.filter();
       if (!filterResult) {
         break;
       }
@@ -80,11 +79,11 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
    * @return the axis
    */
   public AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> getAxis() {
-    return mAxis;
+    return axis;
   }
 
   @Override
   public ResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> getResourceManager() {
-    return mAxis.getResourceManager();
+    return axis.getResourceManager();
   }
 }

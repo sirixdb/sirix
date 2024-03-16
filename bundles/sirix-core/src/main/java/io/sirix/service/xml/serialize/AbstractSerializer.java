@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -47,13 +47,13 @@ import static java.util.Objects.requireNonNull;
 public abstract class AbstractSerializer implements Callable<Void> {
 
   /** Sirix {@link ResourceSession}. */
-  protected final XmlResourceSession mResMgr;
+  protected final XmlResourceSession resourceSession;
 
   /** Stack for reading end element. */
   protected final Deque<Long> mStack;
 
   /** Array with versions to print. */
-  protected final int[] mRevisions;
+  protected final int[] revisions;
 
   /** Root node key of subtree to shredder. */
   protected final long mNodeKey;
@@ -67,11 +67,11 @@ public abstract class AbstractSerializer implements Callable<Void> {
    */
   public AbstractSerializer(final XmlResourceSession resMgr, final @NonNegative int revision, final int... revisions) {
     mStack = new ArrayDeque<>();
-    mRevisions = revisions == null
+    this.revisions = revisions == null
         ? new int[1]
         : new int[revisions.length + 1];
     initialize(revision, revisions);
-    mResMgr = requireNonNull(resMgr);
+    resourceSession = requireNonNull(resMgr);
     mNodeKey = 0;
   }
 
@@ -86,11 +86,11 @@ public abstract class AbstractSerializer implements Callable<Void> {
   public AbstractSerializer(final XmlResourceSession resMgr, final @NonNegative long key,
       final @NonNegative int revision, final int... revisions) {
     mStack = new ArrayDeque<>();
-    mRevisions = revisions == null
+    this.revisions = revisions == null
         ? new int[1]
         : new int[revisions.length + 1];
     initialize(revision, revisions);
-    mResMgr = requireNonNull(resMgr);
+    resourceSession = requireNonNull(resMgr);
     mNodeKey = key;
   }
 
@@ -101,11 +101,9 @@ public abstract class AbstractSerializer implements Callable<Void> {
    * @param revisions revisions to serialize
    */
   private void initialize(final @NonNegative int revision, final int... revisions) {
-    mRevisions[0] = revision;
+    this.revisions[0] = revision;
     if (revisions != null) {
-      for (int i = 0; i < revisions.length; i++) {
-        mRevisions[i + 1] = revisions[i];
-      }
+        System.arraycopy(revisions, 0, this.revisions, 1, revisions.length);
     }
   }
 
@@ -119,15 +117,15 @@ public abstract class AbstractSerializer implements Callable<Void> {
   public Void call() throws SirixException {
     emitStartDocument();
 
-    final int nrOfRevisions = mRevisions.length;
-    final int length = (nrOfRevisions == 1 && mRevisions[0] < 0)
-        ? (int) mResMgr.getMostRecentRevisionNumber()
+    final int nrOfRevisions = revisions.length;
+    final int length = (nrOfRevisions == 1 && revisions[0] < 0)
+        ? resourceSession.getMostRecentRevisionNumber()
         : nrOfRevisions;
 
     for (int i = 1; i <= length; i++) {
-      try (final XmlNodeReadOnlyTrx rtx = mResMgr.beginNodeReadOnlyTrx((nrOfRevisions == 1 && mRevisions[0] < 0)
+      try (final XmlNodeReadOnlyTrx rtx = resourceSession.beginNodeReadOnlyTrx((nrOfRevisions == 1 && revisions[0] < 0)
           ? i
-          : mRevisions[i - 1])) {
+          : revisions[i - 1])) {
         emitRevisionStartTag(rtx);
 
         rtx.moveTo(mNodeKey);
@@ -140,7 +138,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
 
         // Iterate over all nodes of the subtree including self.
         while (descAxis.hasNext()) {
-          key = descAxis.next();
+          key = descAxis.nextLong();
 
           // Emit all pending end elements.
           if (closeElements) {

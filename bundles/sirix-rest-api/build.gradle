@@ -5,7 +5,7 @@ buildscript {
 
     dependencies {
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22"
-        classpath "com.avast.gradle:gradle-docker-compose-plugin:0.14.5"
+        classpath "com.avast.gradle:gradle-docker-compose-plugin:0.17.6"
         //classpath "org.jetbrains.dokka:dokka-gradle-plugin:0.10.0"
     }
 }
@@ -84,6 +84,8 @@ task dokkaJavadoc(type: org.jetbrains.dokka.gradle.DokkaTask) {
 
 javadocJar.dependsOn dokkaJavadoc*/
 
+dockerCompose.isRequiredBy(test)
+
 test.dependsOn copyCertificates
 test.dependsOn composeUp
 test.finalizedBy composeDownForced
@@ -91,7 +93,7 @@ test.finalizedBy composeDownForced
 dockerCompose {
     useComposeFiles = ["${projectDir}/src/test/resources/docker-compose.yml"]
 
-    removeImages = "None" // Other accepted values are: "All" and "Local"
+   // removeImages = "com.avast.gradle.dockercompose.RemoveImages.None" // Other accepted values are: "All" and "Local"
 
     projectName = 'sirix-test'
 }
