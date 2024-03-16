@@ -4,7 +4,7 @@ buildscript {
     }
 
     dependencies {
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.23"
         classpath "com.avast.gradle:gradle-docker-compose-plugin:0.17.6"
         //classpath "org.jetbrains.dokka:dokka-gradle-plugin:0.10.0"
     }
