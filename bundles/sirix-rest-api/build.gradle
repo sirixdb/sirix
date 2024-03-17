@@ -95,8 +95,8 @@ dockerCompose {
 
    // removeImages = "com.avast.gradle.dockercompose.RemoveImages.None" // Other accepted values are: "All" and "Local"
 
-    composeLogToFile = project.file('build/sirix-logs.txt') // redirect output of composeUp and composeDown tasks to this file; default is null (ouput is not redirected)
-    containerLogToDir = project.file('build/logs') // directory where composeLogs task stores output of the containers; default: build/containers-logs
+    composeLogToFile = project.file('sirix-logs.txt') // redirect output of composeUp and composeDown tasks to this file; default is null (ouput is not redirected)
+    containerLogToDir = project.file('logs') // directory where composeLogs task stores output of the containers; default: build/containers-logs
 
     projectName = 'sirix-test'
 }
