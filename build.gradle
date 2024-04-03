@@ -114,6 +114,7 @@ subprojects {
             addBooleanOption('-enable-preview', true)
         }
     }
+
     compileJava {
         options.compilerArgs += ["--enable-preview",
                                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
