@@ -27,6 +27,8 @@ sonarqube {
         property "sonar.projectKey", "sirixdb_sirix"
         property "sonar.organization", "sirixdb"
         property "sonar.host.url", "https://sonarcloud.io"
+        property ("sonar.gradle.skipCompile", true)
+        property ("sonar.skipCompile", true)
     }
 }
 
@@ -100,6 +102,10 @@ subprojects {
         }
     }
 
+    wrapper {
+        gradleVersion = '8.7'
+    }
+
 
     javadoc {
         failOnError = false
@@ -108,7 +114,6 @@ subprojects {
             addBooleanOption('-enable-preview', true)
         }
     }
-
     compileJava {
         options.compilerArgs += ["--enable-preview",
                                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
