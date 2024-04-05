@@ -174,4 +174,8 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @return the revision to represent
    */
   int getRevisionToRepresent();
+
+  TransactionIntentLog getFormerLog();
+
+  void setLog(TransactionIntentLog transactionIntentLog);
 }

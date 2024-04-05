@@ -11,6 +11,12 @@ import io.sirix.node.SirixDeweyID;
 public interface DataRecord {
 
   /**
+   * Clone the record.
+   * @return a clone of the record
+   */
+  DataRecord clone();
+
+  /**
    * Get unique node key.
    * 
    * @return node key

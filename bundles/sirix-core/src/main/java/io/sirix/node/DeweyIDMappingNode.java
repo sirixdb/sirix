@@ -4,6 +4,7 @@ import io.sirix.node.delegates.NodeDelegate;
 
 import static java.util.Objects.requireNonNull;
 
+import io.sirix.node.interfaces.DataRecord;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
@@ -17,7 +18,7 @@ public final class DeweyIDMappingNode extends AbstractForwardingNode {
   /**
    * Delegate for common data.
    */
-  private final NodeDelegate mDelegate;
+  private final NodeDelegate delegate;
 
   /**
    * Constructor.
@@ -25,7 +26,12 @@ public final class DeweyIDMappingNode extends AbstractForwardingNode {
    * @param nodeDelegate node delegate
    */
   public DeweyIDMappingNode(final NodeDelegate nodeDelegate) {
-    mDelegate = requireNonNull(nodeDelegate);
+    delegate = requireNonNull(nodeDelegate);
+  }
+
+  @Override
+  public DeweyIDMappingNode clone() {
+    return new DeweyIDMappingNode(getNodeDelegate().clone());
   }
 
   @Override
@@ -35,6 +41,6 @@ public final class DeweyIDMappingNode extends AbstractForwardingNode {
 
   @Override
   protected @NonNull NodeDelegate delegate() {
-    return mDelegate;
+    return delegate;
   }
 }

@@ -16,25 +16,25 @@ import java.util.Collection;
 public final class JsonDiffSerializer {
 
   private final String databaseName;
-  private final JsonResourceSession resourceManager;
+  private final JsonResourceSession resourceSession;
   private final int oldRevisionNumber;
   private final int newRevisionNumber;
   private final Collection<DiffTuple> diffs;
 
-  public JsonDiffSerializer(final String databaseName,
-                            JsonResourceSession resourceManager,
+  public JsonDiffSerializer(String databaseName,
+                            JsonResourceSession resourceSession,
                             int oldRevisionNumber,
                             int newRevisionNumber,
                             Collection<DiffTuple> diffs) {
     this.databaseName = databaseName;
-    this.resourceManager = resourceManager;
+    this.resourceSession = resourceSession;
     this.oldRevisionNumber = oldRevisionNumber;
     this.newRevisionNumber = newRevisionNumber;
     this.diffs = diffs;
   }
 
   public String serialize(boolean emitFromDiffAlgorithm) {
-    final var resourceName = resourceManager.getResourceConfig().getName();
+    final var resourceName = resourceSession.getResourceConfig().getName();
 
     final JsonObject json = createMetaInfo(databaseName, resourceName, oldRevisionNumber, newRevisionNumber);
 
@@ -47,8 +47,8 @@ public final class JsonDiffSerializer {
 
     final var jsonDiffs = json.getAsJsonArray("diffs");
 
-    try (final var oldRtx = resourceManager.beginNodeReadOnlyTrx(oldRevisionNumber);
-         final var newRtx = resourceManager.beginNodeReadOnlyTrx(newRevisionNumber)) {
+    try (final var oldRtx = resourceSession.beginNodeReadOnlyTrx(oldRevisionNumber);
+         final var newRtx = resourceSession.beginNodeReadOnlyTrx(newRevisionNumber)) {
       if (emitFromDiffAlgorithm) {
         diffs.removeIf(diffTuple -> diffTuple.getDiff() == DiffFactory.DiffType.SAME
             || diffTuple.getDiff() == DiffFactory.DiffType.SAMEHASH
@@ -78,7 +78,7 @@ public final class JsonDiffSerializer {
 
             insertBasedOnNewRtx(newRtx, jsonInsertDiff);
 
-            if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+            if (resourceSession.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
               jsonInsertDiff.addProperty("deweyID", deweyId.toString());
               jsonInsertDiff.addProperty("depth", deweyId.getLevel());
@@ -93,7 +93,7 @@ public final class JsonDiffSerializer {
           case DELETED:
             final var deletedJson = new JsonObject();
 
-            if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+            if (resourceSession.getResourceConfig().areDeweyIDsStored) {
               final var jsonDeletedDiff = new JsonObject();
 
               jsonDeletedDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
@@ -118,7 +118,7 @@ public final class JsonDiffSerializer {
             jsonReplaceDiff.addProperty("oldNodeKey", diffTuple.getOldNodeKey());
             jsonReplaceDiff.addProperty("newNodeKey", diffTuple.getNewNodeKey());
 
-            if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+            if (resourceSession.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
               jsonReplaceDiff.addProperty("deweyID", deweyId.toString());
               jsonReplaceDiff.addProperty("depth", deweyId.getLevel());
@@ -134,7 +134,7 @@ public final class JsonDiffSerializer {
 
             jsonUpdateDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
 
-            if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+            if (resourceSession.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
               jsonUpdateDiff.addProperty("deweyID", deweyId.toString());
               jsonUpdateDiff.addProperty("depth", deweyId.getLevel());
@@ -199,7 +199,7 @@ public final class JsonDiffSerializer {
     if (newRtx.isArray() || newRtx.isObject() || newRtx.isObjectKey()) {
       json.addProperty("type", "jsonFragment");
       if (emitFromDiffAlgorithm) {
-        serialize(newRevisionNumber, resourceManager, newRtx, json);
+        serialize(newRevisionNumber, resourceSession, newRtx, json);
       }
     } else if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE) {
       json.addProperty("type", "boolean");

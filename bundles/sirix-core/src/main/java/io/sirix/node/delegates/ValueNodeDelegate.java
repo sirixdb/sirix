@@ -24,6 +24,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
+import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.settings.Constants;
@@ -67,6 +68,11 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
     nodeDelegate = nodeDel;
     value = val;
     this.compressed = compressed;
+  }
+
+  @Override
+  public ValueNodeDelegate clone() {
+    return new ValueNodeDelegate(nodeDelegate.clone(), Arrays.copyOf(value, value.length), compressed);
   }
 
   @Override

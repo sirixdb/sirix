@@ -118,11 +118,6 @@ public final class BitmapReferencesPage implements Page {
     offsetBitmap = new BitSet(bitmap.size());
   }
 
-  /**
-   * Constructor to initialize instance.
-   *
-   * @param pageToClone commited page
-   */
   public BitmapReferencesPage(final Page pageToClone, final BitSet bitSet) {
     bitmap = (BitSet) bitSet.clone();
     offsetBitmap = new BitSet(bitmap.size());
@@ -132,13 +127,20 @@ public final class BitmapReferencesPage implements Page {
     references = new GapList<>(length);
 
     for (int offset = 0; offset < length; offset++) {
-      final PageReference pageReference = new PageReference();
       final var pageReferenceToClone = pageToClone.getReferences().get(offset);
-      pageReference.setKey(pageReferenceToClone.getKey());
-      pageReference.setPage(pageReferenceToClone.getPage());
-      pageReference.setLogKey(pageReferenceToClone.getLogKey());
-      pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
-      references.add(offset, pageReference);
+      references.add(offset, pageReferenceToClone);
+//      if (pageReferenceToClone != null) { // Check if the PageReference is not null
+//        final PageReference pageReference = new PageReference();
+//        pageReference.setKey(pageReferenceToClone.getKey());
+//        pageReference.setPage(pageReferenceToClone.getPage());
+//        pageReference.setLogKey(pageReferenceToClone.getLogKey());
+//        pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
+//
+//        references.add(offset, pageReference);
+//      } else {
+//        // If the PageReference to clone is null, add a null object in the list
+//        references.add(offset, null);
+//      }
     }
   }
 

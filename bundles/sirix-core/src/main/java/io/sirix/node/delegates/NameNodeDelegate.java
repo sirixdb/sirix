@@ -30,14 +30,14 @@ package io.sirix.node.delegates;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.brackit.query.atomic.QNm;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.NameNode;
 import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.ByteBuffer;
 
@@ -106,6 +106,11 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
     localNameKey = nameDel.localNameKey;
     uriKey = nameDel.uriKey;
     pathNodeKey = nameDel.pathNodeKey;
+  }
+
+  @Override
+  public NameNodeDelegate clone() {
+    return new NameNodeDelegate(this);
   }
 
   @Override

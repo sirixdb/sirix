@@ -28,13 +28,14 @@
 
 package io.sirix.page;
 
-import org.junit.jupiter.api.Test;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.PageFragmentKey;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 
 /**
  * Test the {@link ReferencesPage4}.
@@ -52,9 +53,11 @@ public final class ReferencesPage4Test {
     pageReference.setLogKey(5);
 
     final List<PageFragmentKey> pageFragmentKeys =
-        List.of(new PageFragmentKeyImpl(1, 200), new PageFragmentKeyImpl(2, 763));
+        List.of(new PageFragmentKeyImpl(1, new PageReference().setKey(200)), new PageFragmentKeyImpl(2, new PageReference().setKey(763)));
 
-    pageReference.setPageFragments(pageFragmentKeys);
+    for (final var pageFragmentKey : pageFragmentKeys) {
+      pageReference.addPageFragment(0, pageFragmentKey);
+    }
 
     final var newReferencesPage4 = new ReferencesPage4(referencesPage4);
 
@@ -65,14 +68,14 @@ public final class ReferencesPage4Test {
     assert copiedPageReference != null;
     assertEquals(pageReference.getLogKey(), copiedPageReference.getLogKey());
 
-    final List<PageFragmentKey> copiedPageFragmentKeys = copiedPageReference.getPageFragments();
+    final List<PageFragmentKey> copiedPageFragmentKeys = copiedPageReference.getPageFragments(0);
 
     assertEquals(copiedPageFragmentKeys.size(), 2);
 
     assertEquals(pageFragmentKeys.get(0).revision(), copiedPageFragmentKeys.get(0).revision());
     assertEquals(pageFragmentKeys.get(1).revision(), copiedPageFragmentKeys.get(1).revision());
 
-    assertEquals(pageFragmentKeys.get(0).key(), copiedPageFragmentKeys.get(0).key());
-    assertEquals(pageFragmentKeys.get(1).key(), copiedPageFragmentKeys.get(1).key());
+    assertEquals(pageFragmentKeys.get(0).pageReference().getKey(), copiedPageFragmentKeys.get(0).pageReference().getKey());
+    assertEquals(pageFragmentKeys.get(1).pageReference().getKey(), copiedPageFragmentKeys.get(1).pageReference().getKey());
   }
 }

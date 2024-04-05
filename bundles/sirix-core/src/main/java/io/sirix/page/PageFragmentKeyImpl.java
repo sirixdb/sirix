@@ -7,4 +7,4 @@ import io.sirix.page.interfaces.PageFragmentKey;
  *
  * @author Johannes Lichtenberger
  */
-public record PageFragmentKeyImpl(int revision, long key) implements PageFragmentKey {}
+public record PageFragmentKeyImpl(int revision, PageReference pageReference) implements PageFragmentKey {}

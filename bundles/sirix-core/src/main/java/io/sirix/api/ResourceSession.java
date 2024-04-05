@@ -23,20 +23,22 @@ package io.sirix.api;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
+import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.IndexController;
+import io.sirix.access.trx.node.InternalResourceSession;
+import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.cache.Cache;
+import io.sirix.cache.RBIndexKey;
+import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.interfaces.Node;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import io.sirix.access.trx.node.AfterCommitState;
-import io.sirix.access.trx.node.xml.XmlIndexController;
-import io.sirix.cache.Cache;
-import io.sirix.cache.RBIndexKey;
-import io.sirix.index.path.summary.PathSummaryReader;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -209,13 +211,14 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param maxTime          time after which a commit is issued
    * @param timeUnit         unit used for time
    * @param afterCommitState determines if the transaction keeps running after committing or not
+   * @param doAsyncCommit    {@code true}, if async commit is enabled, {@code false} otherwise
    * @return instance of a class, which implements the {@link XmlNodeTrx} interface
    * @throws SirixThreadedException   if the thread is interrupted
    * @throws SirixUsageException      if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException     if {@code timeUnit} is {@code null}
    */
-  W beginNodeTrx(@NonNegative int maxNodes, @NonNegative int maxTime, @NonNull TimeUnit timeUnit, @NonNull AfterCommitState afterCommitState);
+  W beginNodeTrx(@NonNegative int maxNodes, @NonNegative int maxTime, @NonNull TimeUnit timeUnit, @NonNull AfterCommitState afterCommitState, boolean doAsyncCommit);
 
   /**
    * Begin exclusive read/write transaction without auto commit.
@@ -256,13 +259,14 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param maxNodeCount count of node modifications after which a commit is issued
    * @param timeUnit unit used for time
    * @param maxTime  time after which a commit is issued
+   * @param doAsyncCommit {@code true}, if async commit is enabled, {@code false} otherwise
    * @return instance of a class, which implements the {@link XmlNodeTrx} interface
    * @throws SirixThreadedException   if the thread is interrupted
    * @throws SirixUsageException      if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    * @throws NullPointerException     if {@code timeUnit} is {@code null}
    */
-  W beginNodeTrx(@NonNegative int maxNodeCount, @NonNegative int maxTime, @NonNull TimeUnit timeUnit);
+  W beginNodeTrx(@NonNegative int maxNodeCount, @NonNegative int maxTime, @NonNull TimeUnit timeUnit, boolean doAsyncCommit);
 
   /**
    * Open the path summary to allow iteration (basically implementation of {@link XmlNodeReadOnlyTrx}.

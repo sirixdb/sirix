@@ -28,11 +28,20 @@
 
 package io.sirix.page;
 
+import io.sirix.BinaryEncodingVersion;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
+import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.PageTrx;
+import io.sirix.index.IndexType;
 import io.sirix.node.Utils;
-import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.RecordSerializer;
+import io.sirix.page.delegates.BitmapReferencesPage;
+import io.sirix.page.delegates.FullReferencesPage;
+import io.sirix.page.delegates.ReferencesPage4;
+import io.sirix.page.interfaces.Page;
+import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
@@ -41,14 +50,6 @@ import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import io.sirix.BinaryEncodingVersion;
-import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.index.IndexType;
-import io.sirix.page.delegates.FullReferencesPage;
-import io.sirix.page.delegates.ReferencesPage4;
-import io.sirix.page.interfaces.Page;
-import io.sirix.settings.Constants;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -69,7 +70,7 @@ public enum PageKind {
   KEYVALUELEAFPAGE((byte) 1, KeyValueLeafPage.class) {
     @Override
     @NonNull
-    public Page deserializePage(final PageReadOnlyTrx pageReadTrx, final BytesIn<?> source,
+    public Page deserializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesIn<?> source,
         final SerializationType type) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
@@ -78,7 +79,7 @@ public enum PageKind {
           final long recordPageKey = Utils.getVarLong(source);
           final int revision = source.readInt();
           final IndexType indexType = IndexType.getType(source.readByte());
-          final ResourceConfiguration resourceConfig = pageReadTrx.getResourceSession().getResourceConfig();
+          final ResourceConfiguration resourceConfig = pageReadOnlyTrx.getResourceSession().getResourceConfig();
           final boolean areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
           final RecordSerializer recordPersister = resourceConfig.recordPersister;
           final byte[][] slots = new byte[Constants.NDP_NODE_COUNT][];
@@ -158,110 +159,122 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> sink, final Page page,
+    public void serializePage(final PageTrx pageTrx, final BytesOut<?> sink, final Page page,
         final SerializationType type) {
       KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
 
-      final var bytes = keyValueLeafPage.getBytes();
-
-      if (bytes != null) {
-        sink.write(bytes.bytesForWrite());
-        return;
+      try {
+        keyValueLeafPage.getLock().acquire();
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
       }
 
-      sink.writeByte(KEYVALUELEAFPAGE.id);
-      sink.writeByte(pageReadOnlyTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
+      try {
+        final var bytes = keyValueLeafPage.getBytes();
 
-      //Variables from keyValueLeafPage
-      final long recordPageKey = keyValueLeafPage.getPageKey();
-      final IndexType indexType = keyValueLeafPage.getIndexType();
-      final ResourceConfiguration resourceConfig = keyValueLeafPage.getResourceConfig();
-      final RecordSerializer recordPersister = resourceConfig.recordPersister;
-      final byte[][] deweyIds = keyValueLeafPage.getDeweyIds();
-      final byte[][] slots = keyValueLeafPage.getSlots();
-      final Map<Long, PageReference> references = keyValueLeafPage.getReferencesMap();
-
-      // Add references to overflow pages if necessary.
-      keyValueLeafPage.addReferences(pageReadOnlyTrx);
-      // Write page key.
-      Utils.putVarLong(sink, recordPageKey);
-      // Write revision number.
-      sink.writeInt(pageReadOnlyTrx.getRevisionNumber());
-      // Write index type.
-      sink.writeByte(indexType.getID());
-
-      // Write dewey IDs.
-      if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer persistence) {
-        var deweyIdsBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-        for (int i = 0; i < deweyIds.length; i++) {
-          if (deweyIds[i] != null) {
-            deweyIdsBitmap.set(i);
-          }
+        if (bytes != null) {
+          sink.write(bytes.bytesForWrite());
+          return;
         }
-        SerializationType.serializeBitSet(sink, deweyIdsBitmap);
-        sink.writeInt(deweyIdsBitmap.cardinality());
 
-        boolean first = true;
-        byte[] previousDeweyId = null;
+        sink.writeByte(KEYVALUELEAFPAGE.id);
+        sink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
 
-        for (byte[] deweyId : deweyIds) {
-          if (deweyId != null) {
-            if (first) {
-              first = false;
-              persistence.serializeDeweyID(sink, deweyId, null, resourceConfig);
-            } else {
-              persistence.serializeDeweyID(sink, previousDeweyId, deweyId, resourceConfig);
+        //Variables from keyValueLeafPage
+        final long recordPageKey = keyValueLeafPage.getPageKey();
+        final IndexType indexType = keyValueLeafPage.getIndexType();
+        final ResourceConfiguration resourceConfig = keyValueLeafPage.getResourceConfig();
+        final RecordSerializer recordPersister = resourceConfig.recordPersister;
+        final byte[][] deweyIds = keyValueLeafPage.getDeweyIds();
+        final byte[][] slots = keyValueLeafPage.getSlots();
+        final Map<Long, PageReference> references = keyValueLeafPage.getReferencesMap();
+
+        // Add references to overflow pages if necessary.
+        keyValueLeafPage.addReferences(pageTrx);
+        // Write page key.
+        Utils.putVarLong(sink, recordPageKey);
+        // Write revision number.
+        sink.writeInt(pageTrx.getRevisionNumber());
+        // Write index type.
+        sink.writeByte(indexType.getID());
+
+        // Write dewey IDs.
+        if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer persistence) {
+          var deweyIdsBitmap = new BitSet(Constants.NDP_NODE_COUNT);
+          for (int i = 0; i < deweyIds.length; i++) {
+            if (deweyIds[i] != null) {
+              deweyIdsBitmap.set(i);
             }
-            previousDeweyId = deweyId;
+          }
+          SerializationType.serializeBitSet(sink, deweyIdsBitmap);
+          sink.writeInt(deweyIdsBitmap.cardinality());
+
+          boolean first = true;
+          byte[] previousDeweyId = null;
+
+          for (byte[] deweyId : deweyIds) {
+            if (deweyId != null) {
+              if (first) {
+                first = false;
+                persistence.serializeDeweyID(sink, deweyId, null, resourceConfig);
+              } else {
+                persistence.serializeDeweyID(sink, previousDeweyId, deweyId, resourceConfig);
+              }
+              previousDeweyId = deweyId;
+            }
           }
         }
-      }
 
-      var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
+        var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
 
-      for (int i = 0; i < slots.length; i++) {
-        if (slots[i] != null) {
-          entriesBitmap.set(i);
+        for (int i = 0; i < slots.length; i++) {
+          if (slots[i] != null) {
+            entriesBitmap.set(i);
+          }
         }
-      }
-      SerializationType.serializeBitSet(sink, entriesBitmap);
+        SerializationType.serializeBitSet(sink, entriesBitmap);
 
-      var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-      final var overlongEntriesSortedByKey = references.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList();
+        var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
+        final var overlongEntriesSortedByKey =
+            references.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList();
 
-      for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
-        final var pageOffset = PageReadOnlyTrx.recordPageOffset(entry.getKey());
-        overlongEntriesBitmap.set(pageOffset);
-      }
-      SerializationType.serializeBitSet(sink, overlongEntriesBitmap);
-
-      // Write normal entries.
-      sink.writeInt(entriesBitmap.cardinality());
-      for (final byte[] data : slots) {
-        if (data != null) {
-          final int length = data.length;
-          sink.writeInt(length);
-          sink.write(data);
+        for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
+          final var pageOffset = PageReadOnlyTrx.recordPageOffset(entry.getKey());
+          overlongEntriesBitmap.set(pageOffset);
         }
-      }
+        SerializationType.serializeBitSet(sink, overlongEntriesBitmap);
 
-      // Write overlong entries.
-      sink.writeInt(overlongEntriesSortedByKey.size());
-      for (final var entry : overlongEntriesSortedByKey) {
-        // Write key in persistent storage.
-        sink.writeLong(entry.getValue().getKey());
-      }
+        // Write normal entries.
+        sink.writeInt(entriesBitmap.cardinality());
+        for (final byte[] data : slots) {
+          if (data != null) {
+            final int length = data.length;
+            sink.writeInt(length);
+            sink.write(data);
+          }
+        }
 
-      keyValueLeafPage.setHashCode(pageReadOnlyTrx.getReader().hashFunction.hashBytes(sink.bytesForRead().toByteArray())
-                                                                           .asBytes());
+        // Write overlong entries.
+        sink.writeInt(overlongEntriesSortedByKey.size());
+        for (final var entry : overlongEntriesSortedByKey) {
+          // Write key in persistent storage.
+          sink.writeLong(entry.getValue().getKey());
+        }
+
+        keyValueLeafPage.setHashCode(pageTrx.getReader().hashFunction.hashBytes(sink.bytesForRead().toByteArray())
+                                                                     .asBytes());
+
+      } finally {
+        keyValueLeafPage.getLock().release();
+      }
 
       final var byteArray = sink.bytesForRead().toByteArray();
 
       final byte[] serializedPage;
 
       try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
-        try (final DataOutputStream dataOutput = new DataOutputStream(pageReadOnlyTrx.getResourceSession()
-                                                                                     .getResourceConfig().byteHandlePipeline.serialize(
+        try (final DataOutputStream dataOutput = new DataOutputStream(pageTrx.getResourceSession()
+                                                                             .getResourceConfig().byteHandlePipeline.serialize(
                 output))) {
           dataOutput.write(byteArray);
           dataOutput.flush();
@@ -275,10 +288,10 @@ public enum PageKind {
     }
 
     @Override
-    public @NonNull Page getInstance(final Page nodePage, final PageReadOnlyTrx pageReadTrx) {
+    public @NonNull Page getInstance(final Page nodePage, final PageTrx pageTrx) {
       assert nodePage instanceof KeyValueLeafPage;
       final KeyValueLeafPage page = (KeyValueLeafPage) nodePage;
-      return new KeyValueLeafPage(page.getPageKey(), page.getIndexType(), pageReadTrx);
+      return new KeyValueLeafPage(page.getPageKey(), page.getIndexType(), pageTrx);
     }
   },
 
@@ -288,7 +301,7 @@ public enum PageKind {
   NAMEPAGE((byte) 2, NamePage.class) {
     @Override
     @NonNull
-    public Page deserializePage(final PageReadOnlyTrx pageReadTrx, final BytesIn<?> source,
+    public Page deserializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesIn<?> source,
         final SerializationType type) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
@@ -308,15 +321,15 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> sink, final Page page,
+    public void serializePage(final PageTrx pageTrx, final BytesOut<?> sink, final Page page,
         final SerializationType type) {
       NamePage namePage = (NamePage) page;
       sink.writeByte(NAMEPAGE.id);
-      sink.writeByte(pageReadOnlyTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
+      sink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
       Page delegate = namePage.delegate();
 
       PageKind.writeDelegateType(delegate, sink);
-      PageKind.serializeDelegate(sink, delegate, type);
+      PageKind.serializeDelegate(pageTrx.getRevisionNumber(), sink, delegate, type);
 
       final int maxNodeKeySize = namePage.getMaxNodeKeySize();
       sink.writeInt(maxNodeKeySize);
@@ -335,7 +348,7 @@ public enum PageKind {
     }
 
     @Override
-    public @NonNull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
+    public @NonNull Page getInstance(final Page page, final PageTrx pageTrx) {
       return new NamePage();
     }
   },
@@ -346,7 +359,7 @@ public enum PageKind {
   UBERPAGE((byte) 3, UberPage.class) {
     @Override
     @NonNull
-    public Page deserializePage(final PageReadOnlyTrx pageReadTrx, final BytesIn<?> source,
+    public Page deserializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesIn<?> source,
         final SerializationType type) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
@@ -361,18 +374,18 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> sink, final Page page,
+    public void serializePage(final PageTrx pagepageTrx, final BytesOut<?> sink, final Page page,
         final SerializationType type) {
       UberPage uberPage = (UberPage) page;
 
       sink.writeByte(UBERPAGE.id);
-      sink.writeByte(pageReadOnlyTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
+      sink.writeByte(pagepageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
       sink.writeInt(uberPage.getRevisionCount());
       uberPage.setBootstrap(false);
     }
 
     @Override
-    public @NonNull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
+    public @NonNull Page getInstance(final Page page, final PageTrx pageTrx) {
       return new UberPage();
     }
   },
@@ -383,7 +396,7 @@ public enum PageKind {
   INDIRECTPAGE((byte) 4, IndirectPage.class) {
     @Override
     @NonNull
-    public Page deserializePage(final PageReadOnlyTrx pageReadTrx, final BytesIn<?> source,
+    public Page deserializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesIn<?> source,
         final SerializationType type) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
@@ -397,20 +410,31 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> sink, final Page page,
+    public void serializePage(final PageTrx pageTrx, final BytesOut<?> sink, final Page page,
         final SerializationType type) {
       IndirectPage indirectPage = (IndirectPage) page;
-      Page delegate = indirectPage.delegate();
-      sink.writeByte(INDIRECTPAGE.id);
-      sink.writeByte(pageReadOnlyTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
 
-      PageKind.writeDelegateType(delegate, sink);
+      try {
+        indirectPage.getLock().acquire();
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      }
 
-      PageKind.serializeDelegate(sink, delegate, type);
+      try {
+        Page delegate = indirectPage.delegate();
+        sink.writeByte(INDIRECTPAGE.id);
+        sink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
+
+        PageKind.writeDelegateType(delegate, sink);
+
+        PageKind.serializeDelegate(pageTrx.getRevisionNumber(), sink, delegate, type);
+      } finally {
+        indirectPage.getLock().release();
+      }
     }
 
     @Override
-    public @NonNull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
+    public @NonNull Page getInstance(final Page page, final PageTrx pageTrx) {
       return new IndirectPage();
     }
   },
@@ -421,7 +445,7 @@ public enum PageKind {
   REVISIONROOTPAGE((byte) 5, RevisionRootPage.class) {
     @Override
     @NonNull
-    public Page deserializePage(final PageReadOnlyTrx pageReadTrx, final BytesIn<?> source,
+    public Page deserializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesIn<?> source,
         final SerializationType type) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
@@ -466,14 +490,14 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> sink, final Page page,
+    public void serializePage(final PageTrx pageTrx, final BytesOut<?> sink, final Page page,
         final SerializationType type) {
       RevisionRootPage revisionRootPage = (RevisionRootPage) page;
       sink.writeByte(REVISIONROOTPAGE.id);
-      sink.writeByte(pageReadOnlyTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
+      sink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
 
       Page delegate = revisionRootPage.delegate();
-      PageKind.serializeDelegate(sink, delegate, type);
+      PageKind.serializeDelegate(pageTrx.getRevisionNumber(), sink, delegate, type);
 
       //initial variables from RevisionRootPage, to serialize
       final Instant commitTimestamp = revisionRootPage.getCommitTimestamp();
@@ -521,7 +545,7 @@ public enum PageKind {
     }
 
     @Override
-    public @NonNull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
+    public @NonNull Page getInstance(final Page page, final PageTrx pageTrx) {
       return new RevisionRootPage();
     }
   },
@@ -532,7 +556,7 @@ public enum PageKind {
   PATHSUMMARYPAGE((byte) 6, PathSummaryPage.class) {
     @Override
     @NonNull
-    public Page deserializePage(final PageReadOnlyTrx pageReadTrx, final BytesIn<?> source,
+    public Page deserializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesIn<?> source,
         final @NonNull SerializationType type) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
@@ -558,16 +582,16 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> sink, final Page page,
+    public void serializePage(final PageTrx pageTrx, final BytesOut<?> sink, final Page page,
         final @NonNull SerializationType type) {
       PathSummaryPage pathSummaryPage = (PathSummaryPage) page;
       sink.writeByte(PATHSUMMARYPAGE.id);
-      sink.writeByte(pageReadOnlyTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
+      sink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
 
       sink.writeByte((byte) 0);
 
       Page delegate = pathSummaryPage.delegate();
-      PageKind.serializeDelegate(sink, delegate, type);
+      PageKind.serializeDelegate(pageTrx.getRevisionNumber(), sink, delegate, type);
 
       final int maxNodeKeySize = pathSummaryPage.getMaxNodeKeySize();
       sink.writeInt(maxNodeKeySize);
@@ -583,7 +607,7 @@ public enum PageKind {
     }
 
     @Override
-    public @NonNull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
+    public @NonNull Page getInstance(final Page page, final PageTrx pageTrx) {
       return new PathSummaryPage();
     }
   },
@@ -593,7 +617,7 @@ public enum PageKind {
    */
   CASPAGE((byte) 8, CASPage.class) {
     @NonNull
-    public Page deserializePage(final PageReadOnlyTrx pageReadTrx, final BytesIn<?> source,
+    public Page deserializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesIn<?> source,
         final SerializationType type) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
@@ -612,15 +636,15 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> sink, final Page page,
+    public void serializePage(final PageTrx pageTrx, final BytesOut<?> sink, final Page page,
         final SerializationType type) {
       CASPage casPage = (CASPage) page;
       Page delegate = casPage.delegate();
       sink.writeByte(CASPAGE.id);
-      sink.writeByte(pageReadOnlyTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
+      sink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
 
       PageKind.writeDelegateType(delegate, sink);
-      PageKind.serializeDelegate(sink, delegate, type);
+      PageKind.serializeDelegate(pageTrx.getRevisionNumber(), sink, delegate, type);
 
       final int maxNodeKeySize = casPage.getMaxNodeKeySize();
       sink.writeInt(maxNodeKeySize);
@@ -636,7 +660,7 @@ public enum PageKind {
     }
 
     @Override
-    public @NonNull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
+    public @NonNull Page getInstance(final Page page, final PageTrx pageTrx) {
       return new CASPage();
     }
   },
@@ -647,7 +671,7 @@ public enum PageKind {
   OVERFLOWPAGE((byte) 9, OverflowPage.class) {
     @Override
     @NonNull
-    public Page deserializePage(final PageReadOnlyTrx pageReadTrx, final BytesIn<?> source,
+    public Page deserializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesIn<?> source,
         final SerializationType type) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
@@ -663,17 +687,17 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> sink, final Page page,
+    public void serializePage(final PageTrx pageTrx, final BytesOut<?> sink, final Page page,
         @NonNull SerializationType type) {
       OverflowPage overflowPage = (OverflowPage) page;
       sink.writeByte(OVERFLOWPAGE.id);
-      sink.writeByte(pageReadOnlyTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
+      sink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
       sink.writeInt(overflowPage.getData().length);
       sink.write(overflowPage.getData());
     }
 
     @Override
-    public @NonNull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx) {
+    public @NonNull Page getInstance(final Page page, final PageTrx pageTrx) {
       return new OverflowPage();
     }
   },
@@ -683,7 +707,7 @@ public enum PageKind {
    */
   PATHPAGE((byte) 10, PathPage.class) {
     @Override
-    public Page deserializePage(@NonNull PageReadOnlyTrx pageReadTrx, BytesIn<?> source,
+    public Page deserializePage(@NonNull PageReadOnlyTrx pageReadOnlyTrx, BytesIn<?> source,
         @NonNull SerializationType type) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
       switch (binaryVersion) {
@@ -701,15 +725,15 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, BytesOut<?> sink, @NonNull Page page,
+    public void serializePage(final PageTrx pageTrx, BytesOut<?> sink, @NonNull Page page,
         @NonNull SerializationType type) {
       PathPage pathPage = (PathPage) page;
       Page delegate = pathPage.delegate();
       sink.writeByte(PATHPAGE.id);
-      sink.writeByte(pageReadOnlyTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
+      sink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
 
       PageKind.writeDelegateType(delegate, sink);
-      PageKind.serializeDelegate(sink, delegate, type);
+      PageKind.serializeDelegate(pageTrx.getRevisionNumber(), sink, delegate, type);
 
       final int maxNodeKeysSize = pathPage.getMaxNodeKeySize();
       sink.writeInt(maxNodeKeysSize);
@@ -724,7 +748,7 @@ public enum PageKind {
     }
 
     @Override
-    public @NonNull Page getInstance(Page page, @NonNull PageReadOnlyTrx pageReadTrx) {
+    public @NonNull Page getInstance(Page page, @NonNull PageTrx pageTrx) {
       return new PathPage();
     }
   },
@@ -734,7 +758,7 @@ public enum PageKind {
    */
   DEWEYIDPAGE((byte) 11, DeweyIDPage.class) {
     @Override
-    public Page deserializePage(@NonNull PageReadOnlyTrx pageReadTrx, BytesIn<?> source,
+    public Page deserializePage(@NonNull PageReadOnlyTrx pageReadOnlyTrx, BytesIn<?> source,
         @NonNull SerializationType type) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
@@ -750,22 +774,22 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(@NonNull PageReadOnlyTrx pageReadOnlyTrx, BytesOut<?> sink, @NonNull Page page,
+    public void serializePage(@NonNull PageTrx pageTrx, BytesOut<?> sink, @NonNull Page page,
         @NonNull SerializationType type) {
       DeweyIDPage deweyIDPage = (DeweyIDPage) page;
       Page delegate = deweyIDPage.delegate();
       sink.writeByte(DEWEYIDPAGE.id);
-      sink.writeByte(pageReadOnlyTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
+      sink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
 
       PageKind.writeDelegateType(delegate, sink);
 
-      PageKind.serializeDelegate(sink, delegate, type);
+      PageKind.serializeDelegate(pageTrx.getRevisionNumber(), sink, delegate, type);
       sink.writeLong(deweyIDPage.getMaxNodeKey());
       sink.writeByte((byte) deweyIDPage.getCurrentMaxLevelOfIndirectPages());
     }
 
     @Override
-    public @NonNull Page getInstance(Page page, @NonNull PageReadOnlyTrx pageReadTrx) {
+    public @NonNull Page getInstance(Page page, @NonNull PageTrx pageTrx) {
       return new DeweyIDPage();
     }
   };
@@ -779,13 +803,13 @@ public enum PageKind {
     }
   }
 
-  private static void serializeDelegate(BytesOut<?> sink, Page delegate, SerializationType type) {
+  private static void serializeDelegate(int revision, BytesOut<?> sink, Page delegate, SerializationType type) {
     switch (delegate) {
-      case ReferencesPage4 page -> type.serializeReferencesPage4(sink, page.getReferences(), page.getOffsets());
+      case ReferencesPage4 page -> type.serializeReferencesPage4(revision, sink, page.getReferences(), page.getOffsets());
       case BitmapReferencesPage page ->
-          type.serializeBitmapReferencesPage(sink, page.getReferences(), page.getBitmap());
+          type.serializeBitmapReferencesPage(revision, sink, page.getReferences(), page.getBitmap());
       case FullReferencesPage ignored ->
-          type.serializeFullReferencesPage(sink, ((FullReferencesPage) delegate).getReferencesArray());
+          type.serializeFullReferencesPage(revision, sink, ((FullReferencesPage) delegate).getReferencesArray());
       default -> throw new IllegalStateException("Unexpected value: " + delegate);
     }
   }
@@ -861,21 +885,21 @@ public enum PageKind {
   /**
    * Serialize page.
    *
-   * @param pageReadOnlyTrx the read only page transaction
-   * @param sink            {@link Bytes<ByteBuffer>} instance
-   * @param page            {@link Page} implementation
+   * @param pageTrx the page transaction
+   * @param sink    {@link Bytes<ByteBuffer>} instance
+   * @param page    {@link Page} implementation
    */
-  public abstract void serializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> sink, final Page page,
+  public abstract void serializePage(final PageTrx pageTrx, final BytesOut<?> sink, final Page page,
       final SerializationType type);
 
   /**
    * Deserialize page.
    *
-   * @param pageReadTrx the read only page transaction
-   * @param source      {@link Bytes<ByteBuffer>} instance
+   * @param pageReadOnlyTrx the read only page transaction
+   * @param source          {@link Bytes<ByteBuffer>} instance
    * @return page instance implementing the {@link Page} interface
    */
-  public abstract Page deserializePage(final PageReadOnlyTrx pageReadTrx, final BytesIn<?> source,
+  public abstract Page deserializePage(final PageReadOnlyTrx pageReadOnlyTrx, final BytesIn<?> source,
       final SerializationType type);
 
   /**
@@ -909,9 +933,9 @@ public enum PageKind {
   /**
    * New page instance.
    *
-   * @param page        instance of class which implements {@link Page}
-   * @param pageReadTrx instance of class which implements {@link PageReadOnlyTrx}
+   * @param page    instance of class which implements {@link Page}
+   * @param pageTrx instance of class which implements {@link PageTrx}
    * @return new page instance
    */
-  public abstract @NonNull Page getInstance(final Page page, final PageReadOnlyTrx pageReadTrx);
+  public abstract @NonNull Page getInstance(final Page page, final PageTrx pageTrx);
 }

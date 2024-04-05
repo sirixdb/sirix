@@ -69,25 +69,36 @@ public final class ReferencesPage4 implements Page {
     offsets = tuple.offsets();
   }
 
-  /**
-   * Constructor to initialize instance.
-   *
-   * @param pageToClone committed page
-   */
   public ReferencesPage4(final ReferencesPage4 pageToClone) {
     references = new ArrayList<>(4);
     offsets = new ShortArrayList(4);
 
     final var otherOffsets = pageToClone.getOffsets();
+    final var otherReferences = pageToClone.getReferences();
 
-    for (int offset = 0, size = otherOffsets.size(); offset < size; offset++) {
-      offsets.add(otherOffsets.getShort(offset));
-      final var pageReference = new PageReference();
-      final var pageReferenceToClone = pageToClone.getReferences().get(offset);
-      pageReference.setKey(pageReferenceToClone.getKey());
-      pageReference.setLogKey(pageReferenceToClone.getLogKey());
-      pageReference.setPage(pageReferenceToClone.getPage());
-      pageReference.setPageFragments(pageReferenceToClone.getPageFragments());
+    for (int i = 0, size = otherOffsets.size(); i < size; i++) {
+      short offset = otherOffsets.getShort(i);
+      PageReference pageReference = otherReferences.get(i);
+//      PageReference pageReferenceToClone = otherReferences.get(i);
+//
+//      if (pageReferenceToClone != null) {
+//        PageReference pageReference = new PageReference();
+//        pageReference.setKey(pageReferenceToClone.getKey());
+//        pageReference.setLogKey(pageReferenceToClone.getLogKey());
+//        pageReference.setPage(pageReferenceToClone.getPage());
+//
+//        if (pageReferenceToClone.getPageFragments() != null) {
+//          pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
+//        } else {
+//          pageReference.setPageFragments(null);
+//        }
+//
+//        references.add(pageReference);
+//      } else {
+//        references.add(null);
+//      }
+
+      offsets.add(offset);
       references.add(pageReference);
     }
   }

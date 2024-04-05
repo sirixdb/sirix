@@ -72,6 +72,10 @@ public final class FullReferencesPage implements Page {
     }
   }
 
+  public FullReferencesPage() {
+    references = new PageReference[Constants.INP_REFERENCE_COUNT];
+  }
+
   /**
    * Copy constructor.
    *
@@ -81,17 +85,20 @@ public final class FullReferencesPage implements Page {
     references = new PageReference[Constants.INP_REFERENCE_COUNT];
 
     for (int index = 0, size = pageToClone.references.length; index < size; index++) {
-      final var pageReference = new PageReference();
+
       final var pageReferenceToClone = pageToClone.getReferences().get(index);
 
-      if (pageReferenceToClone != null) {
-        pageReference.setPage(pageReferenceToClone.getPage());
-        pageReference.setKey(pageReferenceToClone.getKey());
-        pageReference.setLogKey(pageReferenceToClone.getLogKey());
-        pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
-      }
+//      PageReference pageReference = null;
+//
+//      if (pageReferenceToClone != null) {
+//        pageReference = new PageReference();
+//        pageReference.setPage(pageReferenceToClone.getPage());
+//        pageReference.setKey(pageReferenceToClone.getKey());
+//        pageReference.setLogKey(pageReferenceToClone.getLogKey());
+//        pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
+//      }
 
-      references[index] = pageReference;
+      references[index] = pageReferenceToClone;
     }
   }
 

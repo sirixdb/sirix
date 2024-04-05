@@ -27,11 +27,14 @@ import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 
+import java.util.concurrent.Semaphore;
 
 /**
  * Bitmap based indirect page holds a set of references to build a reference tree.
  */
 public final class IndirectPage extends AbstractForwardingPage {
+
+  private final Semaphore lock = new Semaphore(1);
 
   /**
    * The reference delegate.
@@ -42,7 +45,7 @@ public final class IndirectPage extends AbstractForwardingPage {
    * Create indirect page.
    */
   public IndirectPage() {
-    delegate = new ReferencesPage4();
+    delegate = new FullReferencesPage();
   }
 
   /**
@@ -60,15 +63,29 @@ public final class IndirectPage extends AbstractForwardingPage {
    * @param page {@link IndirectPage} to clone
    */
   public IndirectPage(final IndirectPage page) {
-    final Page pageDelegate = page.delegate();
-
-    if (pageDelegate instanceof ReferencesPage4) {
-      delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
-    } else if (pageDelegate instanceof BitmapReferencesPage) {
-      delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
-    } else if (pageDelegate instanceof FullReferencesPage) {
-      delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+    try {
+      lock.acquire();
+    } catch (InterruptedException e) {
+      throw new RuntimeException(e);
     }
+
+    try {
+      final Page pageDelegate = page.delegate();
+
+      if (pageDelegate instanceof ReferencesPage4) {
+        delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
+      } else if (pageDelegate instanceof BitmapReferencesPage) {
+        delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
+      } else if (pageDelegate instanceof FullReferencesPage) {
+        delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+      }
+    } finally {
+      lock.release();
+    }
+  }
+
+  public Semaphore getLock() {
+    return lock;
   }
 
   @Override

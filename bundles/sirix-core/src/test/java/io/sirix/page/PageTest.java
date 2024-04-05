@@ -44,7 +44,7 @@ public class PageTest {
   /**
    * Sirix {@link PageReadOnlyTrx} instance.
    */
-  private PageReadOnlyTrx pageReadTrx;
+  private PageTrx pageTrx;
 
   @BeforeClass
   public void setUp() throws SirixException {
@@ -52,12 +52,12 @@ public class PageTest {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
     holder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = holder.getResourceManager().beginPageReadOnlyTrx();
+    pageTrx = holder.getResourceManager().beginPageTrx();
   }
 
   @AfterClass
   public void tearDown() throws SirixException {
-    pageReadTrx.close();
+    pageTrx.close();
     holder.close();
   }
 
@@ -65,11 +65,11 @@ public class PageTest {
   public void testByteRepresentation(final Page[] handlers) {
     for (final Page handler : handlers) {
       final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-      PageKind.getKind(handler.getClass()).serializePage(pageReadTrx, data, handler, SerializationType.DATA);
+      PageKind.getKind(handler.getClass()).serializePage(pageTrx, data, handler, SerializationType.DATA);
       //handler.serialize(pageReadTrx, data, SerializationType.DATA);
       final var pageBytes = data.toByteArray();
       final Page serializedPage =
-          PageKind.getKind(handler.getClass()).deserializePage(pageReadTrx, Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
+          PageKind.getKind(handler.getClass()).deserializePage(pageTrx, Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
       //serializedPage.serialize(pageReadTrx, data, SerializationType.DATA);
       final var serializedPageBytes = data.toByteArray();
       assertArrayEquals("Check for " + handler.getClass() + " failed.", pageBytes, serializedPageBytes);
@@ -91,7 +91,7 @@ public class PageTest {
 
     // NodePage setup.
     final KeyValueLeafPage nodePage =
-        new KeyValueLeafPage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE), IndexType.DOCUMENT, pageReadTrx);
+        new KeyValueLeafPage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE), IndexType.DOCUMENT, pageTrx);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();
       nodePage.setRecord(record);

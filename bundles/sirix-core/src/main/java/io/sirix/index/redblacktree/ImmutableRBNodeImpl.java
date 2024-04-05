@@ -3,7 +3,6 @@ package io.sirix.index.redblacktree;
 import io.sirix.index.redblacktree.interfaces.ImmutableRBNodeKey;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
-
 import io.sirix.node.delegates.NodeDelegate;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -28,6 +27,11 @@ public final class ImmutableRBNodeImpl<K extends Comparable<? super K>> extends 
   public ImmutableRBNodeImpl(final RBNodeKey<K> node) {
     assert node != null;
     this.node = node;
+  }
+
+  @Override
+  public ImmutableRBNodeImpl clone() {
+    return new ImmutableRBNodeImpl(node.clone());
   }
 
   @Override

@@ -54,6 +54,11 @@ public final class NumberNode extends AbstractNumberNode {
   }
 
   @Override
+  public NumberNode clone() {
+    return new NumberNode(getValue(), structDelegate().clone());
+  }
+
+  @Override
   public NodeKind getKind() {
     return NodeKind.NUMBER_VALUE;
   }

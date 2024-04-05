@@ -2,17 +2,16 @@ package io.sirix.index.redblacktree;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.brackit.query.atomic.QNm;
 import io.sirix.index.redblacktree.interfaces.MutableRBNodeKey;
+import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
-
-import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.settings.Fixed;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import static java.util.Objects.requireNonNull;
 
@@ -58,6 +57,12 @@ public final class RBNodeKey<K extends Comparable<? super K>> extends AbstractFo
     this.key = requireNonNull(key);
     this.valueNodeKey = valueNodeKey;
     this.nodeDelegate = requireNonNull(nodeDelegate);
+  }
+
+  @Override
+  public RBNodeKey<K> clone() {
+    // FIXME: copy key
+    return new RBNodeKey<>(key, valueNodeKey, nodeDelegate.clone());
   }
 
   @Override

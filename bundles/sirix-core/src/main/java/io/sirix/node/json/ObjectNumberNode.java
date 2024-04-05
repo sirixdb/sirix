@@ -51,6 +51,11 @@ public final class ObjectNumberNode extends AbstractNumberNode {
   }
 
   @Override
+  public ObjectNumberNode clone() {
+    return new ObjectNumberNode(getValue(), structNodeDelegate);
+  }
+
+  @Override
   public NodeKind getKind() {
     return NodeKind.OBJECT_NUMBER_VALUE;
   }

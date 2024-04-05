@@ -28,6 +28,7 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.BufferManager;
 import io.sirix.cache.TransactionIntentLog;
 
 /**
@@ -42,7 +43,8 @@ final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFacto
   }
 
   @Override
-  public TransactionIntentLog createTrxIntentLog(final ResourceConfiguration resourceConfig) {
-    return new TransactionIntentLog(1 << 12);
+  public TransactionIntentLog createTrxIntentLog(final BufferManager bufferManager,
+      final ResourceConfiguration resourceConfig, final int initialLogKey) {
+    return new TransactionIntentLog(bufferManager, 1 << 15, initialLogKey);
   }
 }

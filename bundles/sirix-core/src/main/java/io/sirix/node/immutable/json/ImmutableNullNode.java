@@ -4,9 +4,9 @@ import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.StructNode;
+import io.sirix.node.json.NullNode;
 import io.sirix.node.xml.ElementNode;
 import net.openhft.chronicle.bytes.Bytes;
-import io.sirix.node.json.NullNode;
 
 import java.nio.ByteBuffer;
 
@@ -40,6 +40,11 @@ public final class ImmutableNullNode extends AbstractImmutableJsonStructuralNode
    */
   public static ImmutableNullNode of(final NullNode node) {
     return new ImmutableNullNode(node);
+  }
+
+  @Override
+  public ImmutableNullNode clone() {
+    return new ImmutableNullNode(node.clone());
   }
 
   @Override

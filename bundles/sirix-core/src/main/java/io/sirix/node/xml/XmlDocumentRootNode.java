@@ -78,6 +78,11 @@ public final class XmlDocumentRootNode extends AbstractStructForwardingNode impl
   }
 
   @Override
+  public XmlDocumentRootNode clone() {
+    return new XmlDocumentRootNode(nodeDelegate.clone(), structNodeDelegate.clone());
+  }
+
+  @Override
   public NodeKind getKind() {
     return NodeKind.XML_DOCUMENT;
   }

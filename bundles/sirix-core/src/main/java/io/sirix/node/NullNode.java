@@ -22,12 +22,12 @@
 package io.sirix.node;
 
 import com.google.common.base.Objects;
-import net.openhft.chronicle.bytes.Bytes;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.settings.Fixed;
+import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.ByteBuffer;
 
@@ -52,6 +52,11 @@ public final class NullNode implements StructNode {
    */
   public NullNode(final ImmutableNode node) {
     this.node = requireNonNull(node);
+  }
+
+  @Override
+  public NullNode clone() {
+    return new NullNode(node.clone());
   }
 
   @Override

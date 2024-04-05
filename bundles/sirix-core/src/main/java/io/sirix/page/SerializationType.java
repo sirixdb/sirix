@@ -55,7 +55,7 @@ public enum SerializationType {
    */
   DATA {
     @Override
-    public void serializeBitmapReferencesPage(BytesOut<?> out, List<PageReference> pageReferences,
+    public void serializeBitmapReferencesPage(int revision, BytesOut<?> out, List<PageReference> pageReferences,
         BitSet bitmap) {
       assert out != null;
       assert pageReferences != null;
@@ -64,7 +64,7 @@ public enum SerializationType {
         serializeBitSet(out, bitmap);
 
         for (final PageReference pageReference : pageReferences) {
-          writePageFragments(out, pageReference);
+          writePageFragments(revision, out, pageReference);
           writeHash(out, pageReference);
         }
       } catch (final IOException e) {
@@ -73,12 +73,12 @@ public enum SerializationType {
     }
 
     @Override
-    public void serializeReferencesPage4(BytesOut<?> out, List<PageReference> pageReferences,
+    public void serializeReferencesPage4(int revision, BytesOut<?> out, List<PageReference> pageReferences,
         List<Short> offsets) {
       try {
         out.writeByte((byte) pageReferences.size());
         for (final PageReference pageReference : pageReferences) {
-          writePageFragments(out, pageReference);
+          writePageFragments(revision, out, pageReference);
           writeHash(out, pageReference);
         }
         for (final short offset : offsets) {
@@ -134,7 +134,7 @@ public enum SerializationType {
     }
 
     @Override
-    public void serializeFullReferencesPage(BytesOut<?> out, PageReference[] pageReferences) {
+    public void serializeFullReferencesPage(int revision, BytesOut<?> out, PageReference[] pageReferences) {
       try {
         final BitSet bitSet = new BitSet(Constants.INP_REFERENCE_COUNT);
         for (int i = 0, size = pageReferences.length; i < size; i++) {
@@ -147,7 +147,7 @@ public enum SerializationType {
         for (final PageReference pageReference : pageReferences) {
           if (pageReference != null) {
             out.writeLong(pageReference.getKey());
-            writePageFragments(out, pageReference);
+            writePageFragments(revision, out, pageReference);
             writeHash(out, pageReference);
           }
         }
@@ -203,19 +203,22 @@ public enum SerializationType {
       for (int i = 0; i < keysSize; i++) {
         final var revision = in.readInt();
         final var key = in.readLong();
-        reference.addPageFragment(new PageFragmentKeyImpl(revision, key));
+        reference.addPageFragment(-1, new PageFragmentKeyImpl(revision, new PageReference().setKey(key)));
       }
     }
     final long key = in.readLong();
     reference.setKey(key);
   }
 
-  private static void writePageFragments(BytesOut<?> out, PageReference pageReference) throws IOException {
-    final var keys = pageReference.getPageFragments();
+  private static void writePageFragments(int revision, BytesOut<?> out, PageReference pageReference)
+      throws IOException {
+    List<PageFragmentKey> keys = pageReference.getMostRecentPageFragments();
     out.writeByte((byte) keys.size());
     for (final PageFragmentKey key : keys) {
       out.writeInt(key.revision());
-      out.writeLong(key.key());
+      if (key.pageReference().getKey() < 0)
+        throw new IllegalStateException();
+      out.writeLong(key.pageReference().getKey());
     }
     out.writeLong(pageReference.getKey());
   }
@@ -242,7 +245,7 @@ public enum SerializationType {
    * @param bitmap         the bitmap
    * @throws SirixIOException if an I/O error occurs.
    */
-  public abstract void serializeBitmapReferencesPage(BytesOut<?> out, List<PageReference> pageReferences,
+  public abstract void serializeBitmapReferencesPage(int revision, BytesOut<?> out, List<PageReference> pageReferences,
       BitSet bitmap);
 
   /**
@@ -253,7 +256,7 @@ public enum SerializationType {
    * @param offsets        the offset indexes
    * @throws SirixIOException if an I/O error occurs.
    */
-  public abstract void serializeReferencesPage4(BytesOut<?> out, List<PageReference> pageReferences,
+  public abstract void serializeReferencesPage4(int revision, BytesOut<?> out, List<PageReference> pageReferences,
       List<Short> offsets);
 
   /**
@@ -281,7 +284,7 @@ public enum SerializationType {
    * @param pageReferences the page references
    * @throws SirixIOException if an I/O error occurs.
    */
-  public abstract void serializeFullReferencesPage(BytesOut<?> out, PageReference[] pageReferences);
+  public abstract void serializeFullReferencesPage(int revision, BytesOut<?> out, PageReference[] pageReferences);
 
   /**
    * Deserialize all page references.

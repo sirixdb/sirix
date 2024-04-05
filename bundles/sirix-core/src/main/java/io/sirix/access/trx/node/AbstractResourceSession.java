@@ -3,6 +3,7 @@ package io.sirix.access.trx.node;
 import cn.danielw.fop.*;
 import io.sirix.api.*;
 import io.brackit.query.jdm.DocumentException;
+import io.sirix.cache.TransactionIntentLog;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -59,6 +60,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     implements ResourceSession<R, W>, InternalResourceSession<R, W> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractResourceSession.class);
+
+  private final Semaphore revisionRootPageLock = new Semaphore(1);
 
   /**
    * Write lock to assure only one exclusive write transaction exists.
@@ -182,6 +185,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     isClosed = false;
   }
 
+  @Override
+  public Semaphore getRevisionRootPageLock() {
+    return revisionRootPageLock;
+  }
+
   public void createPageTrxPool() {
     if (pool.get() == null) {
       final PoolConfig config = new PoolConfig();
@@ -231,7 +239,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    */
   @Override
   public PageTrx createPageTransaction(final @NonNegative long id, final @NonNegative int representRevision,
-      final @NonNegative int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
+      final @NonNegative int storedRevision, final Abort abort, boolean isBoundToNodeTrx,
+      final TransactionIntentLog formerLog, final boolean doAsyncCommit) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
@@ -250,9 +259,42 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
                                                           storedRevision,
                                                           lastCommittedRev,
                                                           isBoundToNodeTrx,
-                                                          bufferManager);
+                                                          formerLog,
+                                                          bufferManager,
+                                                          doAsyncCommit);
 
     truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedRev, pageTrx);
+
+    return pageTrx;
+  }
+
+  /**
+   * Create a new {@link PageTrx}.
+   *
+   * @param id                 the transaction ID
+   * @param representRevision  the revision which is represented
+   * @param uberPage           the former uber page
+   * @param isBoundToNodeTrx   determines if the page transaction is bound to a node transaction
+   * @param formerTrxIntentLog former transaction intent log (it might be committing)
+   * @return a new {@link PageTrx} instance
+   */
+  @Override
+  public PageTrx createPageTransaction(final @NonNegative long id, final @NonNegative int representRevision,
+      final @NonNull UberPage uberPage, final boolean isBoundToNodeTrx,
+      final @Nullable TransactionIntentLog formerTrxIntentLog, final boolean doAsyncCommit) {
+    checkArgument(id >= 0, "id must be >= 0!");
+    final Writer writer = storage.createWriter();
+    final var pageTrx = pageTrxFactory.createPageTrx(this,
+                                                     new UberPage(uberPage),
+                                                     writer,
+                                                     id,
+                                                     representRevision,
+                                                     uberPage.getRevisionNumber(),
+                                                     uberPage.getRevisionNumber(),
+                                                     isBoundToNodeTrx,
+                                                     formerTrxIntentLog,
+                                                     bufferManager,
+                                                     doAsyncCommit);
 
     return pageTrx;
   }
@@ -362,7 +404,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public abstract R createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode);
 
   public abstract W createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, Duration autoCommitDelay,
-      Node documentNode, AfterCommitState afterCommitState);
+      Node documentNode, AfterCommitState afterCommitState, boolean doAsyncCommit);
 
   static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
     final Node node = pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
@@ -385,44 +427,44 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public W beginNodeTrx() {
-    return beginNodeTrx(0, 0, TimeUnit.MILLISECONDS, AfterCommitState.KEEP_OPEN);
+    return beginNodeTrx(0, 0, TimeUnit.MILLISECONDS, AfterCommitState.KEEP_OPEN, false);
   }
 
   @Override
   public W beginNodeTrx(final @NonNegative int maxNodeCount) {
-    return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS, AfterCommitState.KEEP_OPEN);
+    return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS, AfterCommitState.KEEP_OPEN, false);
   }
 
   @Override
   public W beginNodeTrx(final @NonNegative int maxTime, final @NonNull TimeUnit timeUnit) {
-    return beginNodeTrx(0, maxTime, timeUnit, AfterCommitState.KEEP_OPEN);
+    return beginNodeTrx(0, maxTime, timeUnit, AfterCommitState.KEEP_OPEN, false);
   }
 
   @Override
   public W beginNodeTrx(final @NonNegative int maxNodeCount, final @NonNegative int maxTime,
-      final @NonNull TimeUnit timeUnit) {
-    return beginNodeTrx(maxNodeCount, maxTime, timeUnit, AfterCommitState.KEEP_OPEN);
+      final @NonNull TimeUnit timeUnit, final boolean doAsyncCommit) {
+    return beginNodeTrx(maxNodeCount, maxTime, timeUnit, AfterCommitState.KEEP_OPEN, doAsyncCommit);
   }
 
   @Override
   public W beginNodeTrx(final @NonNull AfterCommitState afterCommitState) {
-    return beginNodeTrx(0, 0, TimeUnit.MILLISECONDS, afterCommitState);
+    return beginNodeTrx(0, 0, TimeUnit.MILLISECONDS, afterCommitState, false);
   }
 
   @Override
   public W beginNodeTrx(final @NonNegative int maxNodeCount, final @NonNull AfterCommitState afterCommitState) {
-    return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS);
+    return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS, false);
   }
 
   @Override
   public W beginNodeTrx(final @NonNegative int maxTime, final @NonNull TimeUnit timeUnit,
       final @NonNull AfterCommitState afterCommitState) {
-    return beginNodeTrx(0, maxTime, timeUnit, afterCommitState);
+    return beginNodeTrx(0, maxTime, timeUnit, afterCommitState, false);
   }
 
   @Override
   public synchronized W beginNodeTrx(final @NonNegative int maxNodeCount, final @NonNegative int maxTime,
-      final @NonNull TimeUnit timeUnit, final @NonNull AfterCommitState afterCommitState) {
+      final @NonNull TimeUnit timeUnit, final @NonNull AfterCommitState afterCommitState, final boolean doAsyncCommit) {
     // Checks.
     assertAccess(getMostRecentRevisionNumber());
     if (maxNodeCount < 0 || maxTime < 0) {
@@ -445,14 +487,19 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // Create new page write transaction (shares the same ID with the node write trx).
     final long nodeTrxId = nodeTrxIDCounter.incrementAndGet();
     final int lastRev = getMostRecentRevisionNumber();
-    final PageTrx pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
+    final PageTrx pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true, null, doAsyncCommit);
 
     final Node documentNode = getDocumentNode(pageWtx);
 
     // Create new node write transaction.
     final var autoCommitDelay = Duration.of(maxTime, timeUnit.toChronoUnit());
-    final W wtx =
-        createNodeReadWriteTrx(nodeTrxId, pageWtx, maxNodeCount, autoCommitDelay, documentNode, afterCommitState);
+    final W wtx = createNodeReadWriteTrx(nodeTrxId,
+                                         pageWtx,
+                                         maxNodeCount,
+                                         autoCommitDelay,
+                                         documentNode,
+                                         afterCommitState,
+                                         doAsyncCommit);
 
     // Remember node transaction for debugging and safe close.
     //noinspection unchecked
@@ -526,7 +573,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   private void assertNotClosed() {
     if (isClosed) {
-      throw new IllegalStateException("Resource manager is already closed!");
+      throw new IllegalStateException("Resource session is already closed!");
     }
   }
 
@@ -724,12 +771,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
                                                                     storage.createReader(),
                                                                     bufferManager,
                                                                     new RevisionRootPageReader(),
+                                                                    null,
                                                                     null);
     // Remember page transaction for debugging and safe close.
     if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
       throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
     }
-    
+
     return pageReadTrx;
   }
 
@@ -750,7 +798,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
     final int lastRev = getMostRecentRevisionNumber();
-    final PageTrx pageTrx = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
+    final PageTrx pageTrx = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, true, null, false);
 
     // Remember page transaction for debugging and safe close.
     if (pageTrxMap.put(currentPageTrxID, pageTrx) != null) {

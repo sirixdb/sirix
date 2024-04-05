@@ -39,7 +39,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import java.nio.ByteBuffer;
 
 public abstract class AbstractNullNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
-  private final StructNodeDelegate structNodeDelegate;
+  protected final StructNodeDelegate structNodeDelegate;
 
   private long hashCode;
 

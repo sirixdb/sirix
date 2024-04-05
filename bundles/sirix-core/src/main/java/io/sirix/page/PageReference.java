@@ -22,10 +22,13 @@
 package io.sirix.page;
 
 import com.google.common.base.MoreObjects;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.settings.Constants;
+import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectRBTreeMap;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,23 +47,23 @@ public final class PageReference {
   private volatile Page page;
 
   /** Key in persistent storage. */
-  private long key = Constants.NULL_ID_LONG;
+  private volatile long key = Constants.NULL_ID_LONG;
 
   /** Log key. */
-  private int logKey = Constants.NULL_ID_INT;
+  private volatile int logKey = Constants.NULL_ID_INT;
 
   /** The hash in bytes, generated from the referenced page-fragment. */
-  private byte[] hashInBytes;
+  private volatile byte[] hashInBytes;
 
-  private List<PageFragmentKey> pageFragments;
+  private volatile Int2ObjectRBTreeMap<List<PageFragmentKey>> pageFragments;
 
-  private int hash;
+  private volatile int hash;
 
   /**
    * Default constructor setting up an uninitialized page reference.
    */
   public PageReference() {
-    pageFragments = new ArrayList<>();
+    pageFragments = new Int2ObjectRBTreeMap<>();
   }
 
   /**
@@ -120,8 +123,29 @@ public final class PageReference {
    * @param key the page fragment key to add.
    * @return this instance
    */
-  public PageReference addPageFragment(final PageFragmentKey key) {
-    pageFragments.add(key);
+  public PageReference addPageFragment(final int revision, final PageFragmentKey key) {
+    pageFragments.merge(revision, List.of(key), (previous, current) -> {
+      var list = new ArrayList<>(previous);
+      list.addAll(current);
+      return list;
+    });
+    return this;
+  }
+
+  /**
+   * Add a page fragment key.
+   * @param key the page fragment key to add.
+   * @return this instance
+   */
+  public PageReference setFirstPageFragment(final int revision, final PageFragmentKey key) {
+    pageFragments.merge(revision, List.of(key), (previous, current) -> {
+      var list = new ArrayList<PageFragmentKey>();
+      list.addAll(current);
+      for (int i = previous.size() - 1; i > 0; i--) {
+        list.add(previous.get(i));
+      }
+      return list;
+    });
     return this;
   }
 
@@ -129,7 +153,15 @@ public final class PageReference {
    * Get the page fragments keys.
    * @return the page fragments keys
    */
-  public List<PageFragmentKey> getPageFragments() {
+  public List<PageFragmentKey> getPageFragments(final int revision) {
+    return pageFragments.getOrDefault(revision, List.of());
+  }
+
+  public List<PageFragmentKey> getMostRecentPageFragments() {
+    return pageFragments.isEmpty() ? List.of() : pageFragments.get(pageFragments.lastIntKey());
+  }
+
+  public Int2ObjectRBTreeMap<List<PageFragmentKey>> getPageFragments() {
     return pageFragments;
   }
 
@@ -138,7 +170,7 @@ public final class PageReference {
    * @param previousPageFragmentKeys the previous page fragment keys to set
    * @return this instance
    */
-  public PageReference setPageFragments(final List<PageFragmentKey> previousPageFragmentKeys) {
+  public PageReference setPageFragments(final Int2ObjectRBTreeMap<List<PageFragmentKey>> previousPageFragmentKeys) {
     pageFragments = previousPageFragmentKeys;
     return this;
   }
@@ -170,7 +202,7 @@ public final class PageReference {
                       .add("logKey", logKey)
                       .add("key", key)
                       .add("page", page)
-                      .add("pageFragments", pageFragments)
+                      //.add("pageFragments", pageFragments)
                       .toString();
   }
 

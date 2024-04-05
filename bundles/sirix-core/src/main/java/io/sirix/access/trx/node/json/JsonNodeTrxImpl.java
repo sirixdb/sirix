@@ -142,11 +142,6 @@ final class JsonNodeTrxImpl extends
   private final boolean isAutoCommitting;
 
   /**
-   * The revision number before bulk-inserting nodes.
-   */
-  private int beforeBulkInsertionRevisionNumber;
-
-  /**
    * Insert not allowed exception because of absance of parent in array.
    */
   private static final String INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE =
@@ -173,8 +168,9 @@ final class JsonNodeTrxImpl extends
       @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter, @NonNegative final int maxNodeCount,
       @Nullable final Lock transactionLock, final Duration afterCommitDelay, @NonNull final JsonNodeHashing nodeHashing,
       final JsonNodeFactory nodeFactory, @NonNull final AfterCommitState afterCommitState,
-      final RecordToRevisionsIndex nodeToRevisionsIndex, final boolean isAutoCommitting) {
-    super(new JsonNodeTrxThreadFactory(),
+      final RecordToRevisionsIndex nodeToRevisionsIndex, final boolean isAutoCommitting, final boolean doAsyncCommit) {
+    super(databaseName,
+          new JsonNodeTrxThreadFactory(),
           resourceManager.getResourceConfig().hashType,
           nodeReadTrx,
           nodeReadTrx,
@@ -186,7 +182,8 @@ final class JsonNodeTrxImpl extends
           nodeToRevisionsIndex,
           transactionLock,
           afterCommitDelay,
-          maxNodeCount);
+          maxNodeCount,
+          doAsyncCommit);
     this.databaseName = requireNonNull(databaseName);
 
     hashFunction = resourceManager.getResourceConfig().nodeHashFunction;
@@ -2697,7 +2694,7 @@ final class JsonNodeTrxImpl extends
       }
       // $CASES-OMITTED$
       default -> //new JsonItemShredder.Builder(this, new JsonItemIterator(new JsonItemFactory().get), insert).build().call();
-        throw new IllegalStateException(); // FIXME
+          throw new IllegalStateException(); // FIXME
     }
     rtx.close();
   }

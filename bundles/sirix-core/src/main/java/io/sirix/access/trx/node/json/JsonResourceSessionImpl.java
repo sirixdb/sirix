@@ -104,7 +104,7 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
 
   @Override
   public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount,
-      Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
+      Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState, boolean doAsyncCommit) {
     // The node read-only transaction.
     final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, pageTrx, documentNode);
 
@@ -135,7 +135,8 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
                                nodeFactory,
                                afterCommitState,
                                new RecordToRevisionsIndex(pageTrx),
-                               isAutoCommitting);
+                               isAutoCommitting,
+                               doAsyncCommit);
   }
 
   @SuppressWarnings("unchecked")

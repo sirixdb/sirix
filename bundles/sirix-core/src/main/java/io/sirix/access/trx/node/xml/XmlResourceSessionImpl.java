@@ -25,7 +25,10 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.ResourceStore;
 import io.sirix.access.User;
-import io.sirix.access.trx.node.*;
+import io.sirix.access.trx.node.AbstractResourceSession;
+import io.sirix.access.trx.node.AfterCommitState;
+import io.sirix.access.trx.node.InternalResourceSession;
+import io.sirix.access.trx.node.RecordToRevisionsIndex;
 import io.sirix.access.trx.page.PageTrxFactory;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.PageTrx;
@@ -33,13 +36,12 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.cache.BufferManager;
+import io.sirix.dagger.DatabaseName;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.io.IOStorage;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.page.UberPage;
-import io.sirix.access.trx.node.AbstractResourceSession;
-import io.sirix.access.trx.node.InternalResourceSession;
 
 import javax.inject.Inject;
 import java.time.Duration;
@@ -64,6 +66,8 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
    */
   private final ConcurrentMap<Integer, XmlIndexController> wtxIndexControllers;
 
+  private final String databaseName;
+
   /**
    * Package private constructor.
    *
@@ -79,16 +83,13 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
    */
   @Inject
   XmlResourceSessionImpl(final ResourceStore<XmlResourceSession> resourceStore,
-                         final ResourceConfiguration resourceConf,
-                         final BufferManager bufferManager,
-                         final IOStorage storage,
-                         final UberPage uberPage,
-                         final Semaphore writeLock,
-                         final User user,
-                         final PageTrxFactory pageTrxFactory) {
+      final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
+      final UberPage uberPage, final Semaphore writeLock, final User user, @DatabaseName final String databaseName,
+      final PageTrxFactory pageTrxFactory) {
 
     super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
 
+    this.databaseName = databaseName;
     rtxIndexControllers = new ConcurrentHashMap<>();
     wtxIndexControllers = new ConcurrentHashMap<>();
   }
@@ -100,12 +101,8 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
   }
 
   @Override
-  public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId,
-                                           PageTrx pageTrx,
-                                           int maxNodeCount,
-                                           Duration autoCommitDelay,
-                                           Node documentNode,
-                                           AfterCommitState afterCommitState) {
+  public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, Duration autoCommitDelay,
+      Node documentNode, AfterCommitState afterCommitState, boolean doAsyncCommit) {
     // The node read-only transaction.
     final InternalXmlNodeReadOnlyTrx nodeReadTrx =
         new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageTrx, (ImmutableXmlNode) documentNode);
@@ -125,17 +122,18 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
     final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
     final var transactionLock = isAutoCommitting ? new ReentrantLock() : null;
     final var resourceConfig = getResourceConfig();
-    return new XmlNodeTrxImpl(this,
-            nodeReadTrx,
-            pathSummaryWriter,
-            maxNodeCount,
-            transactionLock,
-            autoCommitDelay,
-            new XmlNodeHashing(resourceConfig, nodeReadTrx, pageTrx),
-            nodeFactory,
-            afterCommitState,
-            new RecordToRevisionsIndex(pageTrx)
-    );
+    return new XmlNodeTrxImpl(databaseName,
+                              this,
+                              nodeReadTrx,
+                              pathSummaryWriter,
+                              maxNodeCount,
+                              transactionLock,
+                              autoCommitDelay,
+                              new XmlNodeHashing(resourceConfig, nodeReadTrx, pageTrx),
+                              nodeFactory,
+                              afterCommitState,
+                              new RecordToRevisionsIndex(pageTrx),
+                              doAsyncCommit);
   }
 
   @SuppressWarnings("unchecked")

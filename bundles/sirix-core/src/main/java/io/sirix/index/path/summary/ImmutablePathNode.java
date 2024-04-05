@@ -1,13 +1,12 @@
 package io.sirix.index.path.summary;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
-import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.interfaces.immutable.ImmutableStructNode;
 import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.ByteBuffer;
@@ -38,8 +37,13 @@ public class ImmutablePathNode implements ImmutableNameNode, ImmutableStructNode
    * @param node the mutable {@link PathNode} to wrap
    * @return immutable path node instance
    */
-  public static ImmutableNode of(final PathNode node) {
+  public static ImmutablePathNode of(final PathNode node) {
     return new ImmutablePathNode(node);
+  }
+
+  @Override
+  public ImmutablePathNode clone() {
+    return new ImmutablePathNode(node.clone());
   }
 
   @Override

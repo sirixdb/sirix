@@ -7,9 +7,9 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableStructNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.node.xml.XmlDocumentRootNode;
 import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
-import io.sirix.node.xml.XmlDocumentRootNode;
 
 import java.nio.ByteBuffer;
 
@@ -42,6 +42,11 @@ public class ImmutableXmlDocumentRootNode implements ImmutableStructNode, Immuta
    */
   public static ImmutableXmlDocumentRootNode of(final XmlDocumentRootNode node) {
     return new ImmutableXmlDocumentRootNode(node);
+  }
+
+  @Override
+  public ImmutableXmlDocumentRootNode clone() {
+    return new ImmutableXmlDocumentRootNode(node.clone());
   }
 
   @Override

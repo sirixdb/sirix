@@ -1,89 +1,83 @@
 package io.sirix.cache;
 
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
+import it.unimi.dsi.fastutil.longs.Long2ObjectArrayMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * The transaction intent log, used for caching everything the read/write-transaction changes.
- *
- * @author Johannes Lichtenberger
- */
 public final class TransactionIntentLog implements AutoCloseable {
 
-  /**
-   * The collection to hold the maps.
-   */
-  private final List<PageContainer> list;
+  private final Long2ObjectMap<PageContainer> map;
+  private final BufferManager bufferManager;
 
-  /**
-   * The log key.
-   */
-  private int logKey;
+  private volatile int logKey;
 
-  /**
-   * Creates a new transaction intent log.
-   *
-   * @param maxInMemoryCapacity the maximum size of the in-memory map
-   */
-  public TransactionIntentLog(final int maxInMemoryCapacity) {
-    logKey = 0;
-    list = new ArrayList<>(maxInMemoryCapacity);
+  public TransactionIntentLog(final BufferManager bufferManager, final int maxInMemoryCapacity, final int initialLogKey) {
+    this.bufferManager = bufferManager;
+    logKey = initialLogKey;
+    map = new Long2ObjectArrayMap<>(maxInMemoryCapacity);
   }
 
-  /**
-   * Retrieves an entry from the cache.<br>
-   *
-   * @param key the key whose associated value is to be returned.
-   * @return the value associated to this key, or {@code null} if no value with this key exists in the
-   * cache
-   */
+  // Copy constructor
+  public TransactionIntentLog(final TransactionIntentLog original) {
+    this.bufferManager = original.bufferManager;
+    this.logKey = original.logKey;
+    this.map = new Long2ObjectArrayMap<>(original.map);
+  }
+
   public PageContainer get(final PageReference key) {
     var logKey = key.getLogKey();
     if ((logKey >= this.logKey) || logKey < 0) {
       return null;
     }
-    return list.get(logKey);
+    return map.get(logKey);
   }
 
-  /**
-   * Adds an entry to this cache. If the cache is full, the LRU (least recently used) entry is
-   * dropped.
-   *
-   * @param key   the key with which the specified value is to be associated
-   * @param value a value to be associated with the specified key
-   */
   public void put(final PageReference key, final PageContainer value) {
-    key.setKey(Constants.NULL_ID_LONG);
-    key.setPage(null);
-    key.setLogKey(logKey);
+    bufferManager.getRecordPageCache().remove(key);
+    bufferManager.getPageCache().remove(key);
 
-    list.add(value);
-    logKey++;
+    if (key.getLogKey() == Constants.NULL_ID_INT) {
+      key.setLogKey(logKey);
+
+      map.put(logKey, value);
+      logKey++;
+    } else {
+      map.put(key.getLogKey(), value);
+    }
   }
 
-  /**
-   * Clears the cache.
-   */
   public void clear() {
     logKey = 0;
-    list.clear();
+    map.clear();
   }
 
-  /**
-   * Get a view of the underlying map.
-   *
-   * @return an unmodifiable view of all entries in the cache
-   */
   public List<PageContainer> getList() {
-    return list;
+    return new ArrayList<>(map.values());
   }
 
   @Override
   public void close() {
     logKey = 0;
-    list.clear();
+    map.values()
+       .stream()
+       .filter(pageContainer -> pageContainer.getComplete() instanceof KeyValueLeafPage)
+       .forEach(pageContainer -> {
+         pageContainer.getModifiedAsUnorderedKeyValuePage().clearPage();
+         pageContainer.getCompleteAsUnorderedKeyValuePage().clearPage();
+       });
+    map.clear();
+  }
+
+  public int getMaxLogKey() {
+    return logKey - 1;
+  }
+
+  public void remove(PageReference reference) {
+    map.remove(reference.getLogKey());
   }
 }

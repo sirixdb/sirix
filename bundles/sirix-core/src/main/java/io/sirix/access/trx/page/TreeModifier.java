@@ -32,10 +32,7 @@ import io.sirix.api.PageTrx;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
-import io.sirix.page.IndirectPage;
-import io.sirix.page.PageReference;
-import io.sirix.page.RevisionRootPage;
-import io.sirix.page.UberPage;
+import io.sirix.page.*;
 import org.checkerframework.checker.index.qual.NonNegative;
 
 /**
@@ -54,10 +51,10 @@ public interface TreeModifier {
    * @throws SirixIOException if an I/O error occurs
    */
   RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, NodePageReadOnlyTrx pageRtx,
-      TransactionIntentLog log, @NonNegative int baseRevision, @NonNegative int representRevision);
+      TransactionIntentLog log, final TransactionIntentLog formerLog, @NonNegative int baseRevision, @NonNegative int representRevision);
 
   /**
-   * Prepare the leaf of a tree, namely the reference to a {@link KeyValueLeafPage} and put the
+   * Prepare the leaf of a tree, namely the reference to a {@link io.sirix.page.KeyValueLeafPage} and put the
    * whole path into the log.
    *
    * @param pageRtx the page reading transaction
@@ -73,7 +70,7 @@ public interface TreeModifier {
    *         the {@code key}
    * @throws SirixIOException if an I/O error occured
    */
-  PageReference prepareLeafOfTree(PageTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
+  PageReference prepareLeafOfTree(PageTrx pageRtx, TransactionIntentLog log, TransactionIntentLog formerLog, int[] inpLevelPageCountExp,
       PageReference startReference, @NonNegative long pageKey, int indexNumber, IndexType indexType,
       RevisionRootPage revisionRootPage);
 
@@ -87,5 +84,5 @@ public interface TreeModifier {
    * @return {@link IndirectPage} reference
    * @throws SirixIOException if an I/O error occurs
    */
-  IndirectPage prepareIndirectPage(PageReadOnlyTrx pageRtx, TransactionIntentLog log, PageReference reference);
+  IndirectPage prepareIndirectPage(PageReadOnlyTrx pageRtx, TransactionIntentLog log, TransactionIntentLog formerLog, PageReference reference);
 }

@@ -16,6 +16,9 @@ import java.nio.ByteBuffer;
 public interface ImmutableNode extends DataRecord {
 
   @Override
+  ImmutableNode clone();
+
+  @Override
   NodeKind getKind();
 
   /**

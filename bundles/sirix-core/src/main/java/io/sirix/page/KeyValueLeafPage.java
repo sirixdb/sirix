@@ -23,20 +23,20 @@ package io.sirix.page;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.PageTrx;
 import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.RecordSerializer;
+import io.sirix.page.interfaces.KeyValuePage;
+import io.sirix.settings.Constants;
+import io.sirix.utils.ArrayIterator;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
-import io.sirix.page.interfaces.KeyValuePage;
-import io.sirix.settings.Constants;
-import io.sirix.utils.ArrayIterator;
 
 import java.util.Arrays;
 import java.util.List;
@@ -44,6 +44,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 
 /**
  * <p>
@@ -55,6 +56,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @SuppressWarnings("unchecked")
 public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
+
+  private final Semaphore lock = new Semaphore(1);
 
   /**
    * The current revision.
@@ -124,17 +127,68 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   @SuppressWarnings("CopyConstructorMissesField")
   public KeyValueLeafPage(final KeyValueLeafPage pageToClone) {
-    this.addedReferences = false;
-    this.references = pageToClone.references;
-    this.recordPageKey = pageToClone.recordPageKey;
-    this.records = Arrays.copyOf(pageToClone.records, pageToClone.records.length);
-    this.slots = Arrays.copyOf(pageToClone.slots, pageToClone.slots.length);
-    this.deweyIds = Arrays.copyOf(pageToClone.deweyIds, pageToClone.deweyIds.length);
-    this.indexType = pageToClone.indexType;
-    this.recordPersister = pageToClone.recordPersister;
-    this.resourceConfig = pageToClone.resourceConfig;
-    this.revision = pageToClone.revision;
-    this.areDeweyIDsStored = pageToClone.areDeweyIDsStored;
+
+    try {
+      pageToClone.lock.acquire();
+    } catch (InterruptedException e) {
+      throw new RuntimeException(e);
+    }
+
+    try {
+      this.addedReferences = false;
+      this.revision = pageToClone.revision;
+      this.areDeweyIDsStored = pageToClone.areDeweyIDsStored;
+      this.recordPageKey = pageToClone.recordPageKey;
+      this.indexType = pageToClone.indexType;
+      this.recordPersister = pageToClone.recordPersister;
+      this.resourceConfig = pageToClone.resourceConfig;
+
+      // deep-copy Map
+      this.references = new ConcurrentHashMap<>();
+      for (Map.Entry<Long, PageReference> entry : pageToClone.references.entrySet()) {
+        this.references.put(entry.getKey(),
+                            new PageReference(entry.getValue())); // assuming PageReference has proper copy constructor
+      }
+
+      // deep-copy array of DataRecord
+      this.records = new DataRecord[pageToClone.records.length];
+      for (int i = 0; i < pageToClone.records.length; i++) {
+        if (pageToClone.records[i] != null) {
+          this.records[i] = pageToClone.records[i].clone();
+        }
+      }
+
+      // deep-copy array of byte arrays
+      this.slots = new byte[pageToClone.slots.length][];
+      for (int i = 0; i < pageToClone.slots.length; i++) {
+        this.slots[i] =
+            pageToClone.slots[i] != null ? Arrays.copyOf(pageToClone.slots[i], pageToClone.slots[i].length) : null;
+      }
+
+      // deep-copy array of byte arrays
+      this.deweyIds = new byte[pageToClone.deweyIds.length][];
+
+      if (resourceConfig.areDeweyIDsStored) {
+        for (int i = 0; i < pageToClone.deweyIds.length; i++) {
+          this.deweyIds[i] = pageToClone.deweyIds[i] != null
+              ? Arrays.copyOf(pageToClone.deweyIds[i], pageToClone.deweyIds[i].length)
+              : null;
+        }
+      }
+
+      // assuming a new BytesOut object should be created here (if BytesOut is not immutable)
+      //this.bytes = Bytes.pageToClone.bytes;
+
+      // deep-copy of hash code
+      if (pageToClone.hashCode != null) {
+        this.hashCode = Arrays.copyOf(pageToClone.hashCode, pageToClone.hashCode.length);
+      }
+
+      // copy hash
+      this.hash = pageToClone.hash;
+    } finally {
+      pageToClone.lock.release();
+    }
   }
 
   /**
@@ -191,24 +245,66 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.records = new DataRecord[Constants.NDP_NODE_COUNT];
   }
 
+  public Semaphore getLock() {
+    return lock;
+  }
+
+  /**
+   * Copy and add records, slots and references from another KeyValueLeafPage
+   * if they are not already set
+   *
+   * @param pageToMerge the page to merge with the current page
+   */
+  public KeyValueLeafPage mergePage(final KeyValueLeafPage pageToMerge) {
+    synchronized (this) {
+      // Merge DataRecords
+      for (int i = 0; i < pageToMerge.records.length; i++) {
+        if (this.records[i] == null && pageToMerge.records[i] != null) {
+          this.records[i] = pageToMerge.records[i];
+        }
+      }
+
+      // Merge slots
+      for (int i = 0; i < pageToMerge.slots.length; i++) {
+        if (this.slots[i] == null && pageToMerge.slots[i] != null) {
+          this.slots[i] = Arrays.copyOf(pageToMerge.slots[i], pageToMerge.slots[i].length);
+        }
+      }
+
+      // Merge deweyIds
+      for (int i = 0; i < pageToMerge.deweyIds.length; i++) {
+        if (this.deweyIds[i] == null && pageToMerge.deweyIds[i] != null) {
+          this.deweyIds[i] = Arrays.copyOf(pageToMerge.deweyIds[i], pageToMerge.deweyIds[i].length);
+        }
+      }
+    }
+
+    // Merge references
+    for (Map.Entry<Long, PageReference> entry : pageToMerge.references.entrySet()) {
+      this.references.putIfAbsent(entry.getKey(), new PageReference(entry.getValue()));
+    }
+
+    return this;
+  }
+
   @Override
   public long getPageKey() {
     return recordPageKey;
   }
 
   @Override
-  public DataRecord getRecord(long key) {
+  public synchronized DataRecord getRecord(long key) {
     int offset = PageReadOnlyTrx.recordPageOffset(key);
     return records[offset];
   }
 
   @Override
-  public byte[] getSlot(int slotNumber) {
+  public synchronized byte[] getSlot(int slotNumber) {
     return slots[slotNumber];
   }
 
   @Override
-  public void setRecord(@NonNull final DataRecord record) {
+  public synchronized void setRecord(@NonNull final DataRecord record) {
     addedReferences = false;
     final var offset = PageReadOnlyTrx.recordPageOffset(record.getNodeKey());
     synchronized (records) {
@@ -221,7 +317,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    *
    * @return bytes
    */
-  public BytesOut<?> getBytes() {
+  public synchronized BytesOut<?> getBytes() {
     return bytes;
   }
 
@@ -230,7 +326,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    *
    * @param bytes bytes
    */
-  public void setBytes(BytesOut<?> bytes) {
+  public synchronized void setBytes(BytesOut<?> bytes) {
     this.bytes = bytes;
   }
 
@@ -252,7 +348,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public DataRecord[] records() {
+  public synchronized DataRecord[] records() {
     return records;
   }
 
@@ -260,18 +356,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return hashCode;
   }
 
-  public void setHashCode(byte[] hashCode) {
+  public synchronized void setHashCode(byte[] hashCode) {
     this.hashCode = hashCode;
   }
 
   @SuppressWarnings("rawtypes")
   @Override
-  public <I extends Iterable<DataRecord>> I values() {
+  public synchronized <I extends Iterable<DataRecord>> I values() {
     return (I) new ArrayIterator(records, records.length);
   }
 
   @Override
-  public byte[][] slots() {
+  public synchronized byte[][] slots() {
     return slots;
   }
 
@@ -363,7 +459,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
   }
 
-  private void processEntries(final PageReadOnlyTrx pageReadOnlyTrx, final DataRecord[] records) {
+  private synchronized void processEntries(final PageReadOnlyTrx pageReadOnlyTrx, final DataRecord[] records) {
     var out = Bytes.elasticHeapByteBuffer(30);
     for (final DataRecord record : records) {
       if (record == null) {
@@ -448,6 +544,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   public static int getNumberOfNonNullEntries(DataRecord[] entries, byte[][] slots) {
     int count = 0;
+    assert entries.length == slots.length;
+    assert entries.length == Constants.NDP_NODE_COUNT;
     for (int i = 0; i < entries.length; i++) {
       if (entries[i] != null || slots[i] != null) {
         ++count;

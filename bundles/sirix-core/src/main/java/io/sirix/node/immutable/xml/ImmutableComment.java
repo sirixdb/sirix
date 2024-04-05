@@ -8,9 +8,9 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableStructNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.node.xml.CommentNode;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import io.sirix.node.xml.CommentNode;
 
 import java.nio.ByteBuffer;
 
@@ -44,6 +44,11 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
    */
   public static ImmutableComment of(final CommentNode node) {
     return new ImmutableComment(node);
+  }
+
+  @Override
+  public ImmutableComment clone() {
+    return new ImmutableComment(node.clone());
   }
 
   @Override

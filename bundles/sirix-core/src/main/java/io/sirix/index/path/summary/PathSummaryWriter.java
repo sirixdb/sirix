@@ -174,11 +174,19 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     }
 
     if (nodeRtx.getKind() == NodeKind.OBJECT_KEY) {
-      pathSummaryReader.moveTo(((ImmutableObjectKeyNode) nodeRtx.getNode()).getPathNodeKey());
+      var pathNodeKey = ((ImmutableObjectKeyNode) nodeRtx.getNode()).getPathNodeKey();
+      pathSummaryReader.moveTo(pathNodeKey);
+      assert pathSummaryReader.getNodeKey() == pathNodeKey;
     } else if (nodeRtx.getKind() == NodeKind.ARRAY) {
-      pathSummaryReader.moveTo(((ImmutableArrayNode) nodeRtx.getNode()).getPathNodeKey());
+      var pathNodeKey = ((ImmutableArrayNode) nodeRtx.getNode()).getPathNodeKey();
+      pathSummaryReader.moveTo(pathNodeKey);
+      assert pathSummaryReader.getNodeKey() == pathNodeKey;
     } else if (nodeRtx.getNode() instanceof ImmutableNameNode) {
-      pathSummaryReader.moveTo(((ImmutableNameNode) nodeRtx.getNode()).getPathNodeKey());
+      var pathNodeKey = ((ImmutableNameNode) nodeRtx.getNode()).getPathNodeKey();
+      pathSummaryReader.moveTo(pathNodeKey);
+      assert
+          pathSummaryReader.getNodeKey() == pathNodeKey :
+          "Path summary reader must be on node " + pathNodeKey + " but is on node " + pathSummaryReader.getNodeKey();
     } else {
       throw new IllegalStateException();
     }
@@ -708,7 +716,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Decrements the reference-counter of the node or removes the path node if the reference-counter
    * would be zero otherwise.
    *
-   * @param node     node which is going to be removed from the storage
+   * @param node node which is going to be removed from the storage
    * @throws SirixException if anything went wrong
    */
   public void remove(final ImmutableNameNode node) {

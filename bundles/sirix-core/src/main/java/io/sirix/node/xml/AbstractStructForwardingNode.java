@@ -32,6 +32,7 @@ import com.google.common.base.MoreObjects;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.StructNode;
+import io.sirix.node.interfaces.immutable.ImmutableNode;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -46,6 +47,9 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
 
   /** Constructor for use by subclasses. */
   protected AbstractStructForwardingNode() {}
+
+  @Override
+  public abstract ImmutableNode clone();
 
   /** 
    * {@link StructNodeDelegate} instance.

@@ -4,9 +4,9 @@ import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.StructNode;
-import net.openhft.chronicle.bytes.Bytes;
 import io.sirix.node.json.NumberNode;
 import io.sirix.node.json.ObjectNumberNode;
+import net.openhft.chronicle.bytes.Bytes;
 
 import java.nio.ByteBuffer;
 
@@ -39,6 +39,10 @@ public final class ImmutableObjectNumberNode extends AbstractImmutableJsonStruct
    */
   public static ImmutableObjectNumberNode of(final ObjectNumberNode node) {
     return new ImmutableObjectNumberNode(node);
+  }
+
+  public ImmutableObjectNumberNode clone() {
+    return new ImmutableObjectNumberNode(node.clone());
   }
 
   @Override

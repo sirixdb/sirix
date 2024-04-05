@@ -529,30 +529,6 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
 
   /**
    * Commit all modifications of the exclusive write transaction. Even commit if there are no
-   * modification at all.
-   *
-   * @throws SirixException if this revision couldn't be commited
-   */
-  @Override
-  default XmlNodeTrx commit() {
-    return commit(null, null);
-  }
-
-  /**
-   * Commit all modifications of the exclusive write transaction. Even commit if there are no
-   * modification at all. The author assigns a commit message.
-   *
-   * @param commitMessage message of the commit
-   * @throws SirixException if this revision couldn't be commited
-   */
-  @Override
-  default XmlNodeTrx commit(@Nullable String commitMessage) {
-    commit(commitMessage, null);
-    return this;
-  }
-
-  /**
-   * Commit all modifications of the exclusive write transaction. Even commit if there are no
    * modification at all. The author assigns a commit message.
    *
    * @param commitMessage message of the commit

@@ -1,5 +1,6 @@
 package io.sirix.node.immutable.xml;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.node.NodeKind;
@@ -10,7 +11,6 @@ import io.sirix.node.interfaces.immutable.ImmutableStructNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.node.xml.ElementNode;
 import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.ByteBuffer;
@@ -45,6 +45,11 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode,
    */
   public static ImmutableElement of(final ElementNode node) {
     return new ImmutableElement(node);
+  }
+
+  @Override
+  public ImmutableElement clone() {
+    return new ImmutableElement(node.clone());
   }
 
   @Override

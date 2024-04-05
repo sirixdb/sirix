@@ -46,6 +46,11 @@ public final class BooleanNode extends AbstractBooleanNode {
   }
 
   @Override
+  public BooleanNode clone() {
+    return new BooleanNode(getValue(), structDelegate().clone());
+  }
+
+  @Override
   public NodeKind getKind() {
     return NodeKind.BOOLEAN_VALUE;
   }

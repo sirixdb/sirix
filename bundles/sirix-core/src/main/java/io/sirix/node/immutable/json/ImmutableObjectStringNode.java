@@ -7,9 +7,9 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
+import io.sirix.node.json.ObjectStringNode;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import io.sirix.node.json.ObjectStringNode;
 
 import java.nio.ByteBuffer;
 
@@ -42,6 +42,10 @@ public final class ImmutableObjectStringNode extends AbstractImmutableJsonStruct
    */
   public static ImmutableObjectStringNode of(final ObjectStringNode node) {
     return new ImmutableObjectStringNode(node);
+  }
+
+  public ImmutableObjectStringNode clone() {
+    return new ImmutableObjectStringNode(node.clone());
   }
 
   @Override
@@ -141,6 +145,9 @@ public final class ImmutableObjectStringNode extends AbstractImmutableJsonStruct
 
   @Override
   public boolean equals(Object obj) {
+    if (!(obj instanceof ImmutableObjectStringNode)) {
+      return false;
+    }
     return node.equals(obj);
   }
 

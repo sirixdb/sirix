@@ -69,6 +69,12 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     this.autoCommit = value;
   }
 
+  public boolean isAutoCommitting() {
+    return autoCommit;
+  }
+
+  public abstract AbstractNodeHashing<N, T> clone();
+
   /**
    * Adapting the structure with a hash for all ancestors only with insert.
    *
@@ -324,32 +330,6 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   }
 
   /**
-   * Add a hash.
-   *
-   * @param startNode start node
-   */
-  public void addParentHash(final ImmutableNode startNode) {
-    switch (hashType) {
-      case ROLLING:
-        long hashToAdd = startNode.computeHash(bytes);
-        final Node parentNode =
-            pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-        var hash = parentNode.getHash();
-        parentNode.setHash(hash + hashToAdd * PRIME);
-        if (startNode instanceof StructNode startAsStructNode) {
-          final StructNode parentNodeAsStructNode = (StructNode) parentNode;
-          parentNodeAsStructNode.setDescendantCount(
-              parentNodeAsStructNode.getDescendantCount() + startAsStructNode.getDescendantCount() + 1);
-        }
-        break;
-      case POSTORDER:
-        break;
-      case NONE:
-      default:
-    }
-  }
-
-  /**
    * Add a hash and the descendant count.
    */
   public void addHashAndDescendantCount() {
@@ -382,6 +362,32 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
       case POSTORDER -> postorderAdd();
       case NONE -> {
       }
+    }
+  }
+
+  /**
+   * Add a hash.
+   *
+   * @param startNode start node
+   */
+  public void addParentHash(final ImmutableNode startNode) {
+    switch (hashType) {
+      case ROLLING:
+        long hashToAdd = startNode.computeHash(bytes);
+        final Node parentNode =
+            pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
+        var hash = parentNode.getHash();
+        parentNode.setHash(hash + hashToAdd * PRIME);
+        if (startNode instanceof StructNode startAsStructNode) {
+          final StructNode parentNodeAsStructNode = (StructNode) parentNode;
+          parentNodeAsStructNode.setDescendantCount(
+              parentNodeAsStructNode.getDescendantCount() + startAsStructNode.getDescendantCount() + 1);
+        }
+        break;
+      case POSTORDER:
+        break;
+      case NONE:
+      default:
     }
   }
 

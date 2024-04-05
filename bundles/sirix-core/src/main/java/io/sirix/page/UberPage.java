@@ -87,10 +87,12 @@ public final class UberPage implements Page {
    */
   public UberPage(final UberPage committedUberPage) {
     if (committedUberPage.isBootstrap()) {
+      rootPageReference = committedUberPage.rootPageReference;
       revisionCount = committedUberPage.revisionCount;
       isBootstrap = committedUberPage.isBootstrap;
       rootPage = committedUberPage.rootPage;
     } else {
+      rootPageReference = committedUberPage.rootPageReference;
       revisionCount = committedUberPage.revisionCount + 1;
       isBootstrap = false;
       rootPage = null;
@@ -127,13 +129,6 @@ public final class UberPage implements Page {
   public void setBootstrap(boolean bootstrap) {
     isBootstrap = bootstrap;
   }
-
-  //  @Override
-  //  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
-  //      final SerializationType type) {
-  //    out.writeInt(revisionCount);
-  //    isBootstrap = false;
-  //  }
 
   @Override
   public List<PageReference> getReferences() {

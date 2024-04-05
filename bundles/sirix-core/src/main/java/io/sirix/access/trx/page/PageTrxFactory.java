@@ -72,7 +72,7 @@ public final class PageTrxFactory {
   /**
    * Create a page write trx.
    *
-   * @param resourceManager    {@link XmlResourceSessionImpl} this page write trx is bound to
+   * @param resourceSession    {@link XmlResourceSessionImpl} this page write trx is bound to
    * @param uberPage           root of revision
    * @param writer             writer where this transaction should write to
    * @param trxId              the transaction ID
@@ -82,18 +82,18 @@ public final class PageTrxFactory {
    *                           {@code false} otherwise
    */
   public PageTrx createPageTrx(
-      final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
+      final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession,
       final UberPage uberPage, final Writer writer, final @NonNegative long trxId,
       final @NonNegative int representRevision, final @NonNegative int lastStoredRevision,
-      final @NonNegative int lastCommitedRevision, final boolean isBoundToNodeTrx, final BufferManager bufferManager) {
-    final ResourceConfiguration resourceConfig = resourceManager.getResourceConfig();
+      final @NonNegative int lastCommitedRevision, final boolean isBoundToNodeTrx, final TransactionIntentLog formerLog,
+      final BufferManager bufferManager, final boolean doAsyncCommit) {
+    final ResourceConfiguration resourceConfig = resourceSession.getResourceConfig();
     final boolean usePathSummary = resourceConfig.withPathSummary;
-    final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(representRevision);
+    final IndexController<?, ?> indexController = resourceSession.getWtxIndexController(representRevision);
 
     // Deserialize index definitions.
-    final Path indexes =
-        resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                   .resolve(lastStoredRevision + ".xml");
+    final Path indexes = resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                                    .resolve(lastStoredRevision + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
@@ -104,7 +104,8 @@ public final class PageTrxFactory {
 
     final TreeModifierImpl treeModifier = new TreeModifierImpl();
     final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
-    final TransactionIntentLog log = logFactory.createTrxIntentLog(resourceConfig);
+    final int initialLogKey = formerLog != null ? formerLog.getMaxLogKey() + 1 : 0;
+    final TransactionIntentLog log = logFactory.createTrxIntentLog(bufferManager, resourceConfig, initialLogKey);
 
     // Create revision tree if needed. Note: This must happen before the page read trx is created.
     if (uberPage.isBootstrap()) {
@@ -113,30 +114,46 @@ public final class PageTrxFactory {
 
     // Page read trx.
     final NodePageReadOnlyTrx pageRtx = new NodePageReadOnlyTrx(trxId,
-                                                                resourceManager,
+                                                                resourceSession,
                                                                 uberPage,
                                                                 representRevision,
                                                                 writer,
                                                                 bufferManager,
                                                                 new RevisionRootPageReader(),
-                                                                log);
+                                                                log,
+                                                                formerLog);
 
     // Create new revision root page.
-    final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);
-    final RevisionRootPage newRevisionRootPage =
-        treeModifier.preparePreviousRevisionRootPage(uberPage, pageRtx, log, representRevision, lastStoredRevision);
-    newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
-    newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
-    if (resourceConfig.storeNodeHistory()) {
-      newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(lastCommitedRoot.getMaxNodeKeyInRecordToRevisionsIndex());
+    try {
+      resourceSession.getRevisionRootPageLock().acquire();
+    } catch (InterruptedException e) {
+      throw new RuntimeException(e);
     }
+    final RevisionRootPage newRevisionRootPage;
 
-    // First create revision tree if needed.
-    newRevisionRootPage.createDocumentIndexTree(this.databaseType, pageRtx, log);
-    newRevisionRootPage.createChangedNodesIndexTree(this.databaseType, pageRtx, log);
+    try {
+      final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);
+      newRevisionRootPage = treeModifier.preparePreviousRevisionRootPage(uberPage,
+                                                                         pageRtx,
+                                                                         log,
+                                                                         formerLog,
+                                                                         representRevision,
+                                                                         lastStoredRevision);
+      newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
+      newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
+      if (resourceConfig.storeNodeHistory()) {
+        newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(lastCommitedRoot.getMaxNodeKeyInRecordToRevisionsIndex());
+      }
 
-    if (resourceConfig.storeNodeHistory()) {
-      newRevisionRootPage.createRecordToRevisionsIndexTree(this.databaseType, pageRtx, log);
+      // First create revision tree if needed.
+      newRevisionRootPage.createDocumentIndexTree(this.databaseType, pageRtx, log);
+      newRevisionRootPage.createChangedNodesIndexTree(this.databaseType, pageRtx, log);
+
+      if (resourceConfig.storeNodeHistory()) {
+        newRevisionRootPage.createRecordToRevisionsIndexTree(this.databaseType, pageRtx, log);
+      }
+    } finally {
+      resourceSession.getRevisionRootPageLock().release();
     }
 
     if (usePathSummary) {
@@ -154,10 +171,10 @@ public final class PageTrxFactory {
       final NamePage namePage = pageRtx.getNamePage(newRevisionRootPage);
       final DeweyIDPage deweyIDPage = pageRtx.getDeweyIDPage(newRevisionRootPage);
 
-      if (resourceManager instanceof JsonResourceSession) {
+      if (resourceSession instanceof JsonResourceSession) {
         namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.JSON_OBJECT_KEY_REFERENCE_OFFSET, log);
         deweyIDPage.createIndexTree(this.databaseType, pageRtx, log);
-      } else if (resourceManager instanceof XmlResourceSession) {
+      } else if (resourceSession instanceof XmlResourceSession) {
         namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.ATTRIBUTES_REFERENCE_OFFSET, log);
         namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.ELEMENTS_REFERENCE_OFFSET, log);
         namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.NAMESPACE_REFERENCE_OFFSET, log);
@@ -187,24 +204,22 @@ public final class PageTrxFactory {
         log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
       }
 
-//      final Page indirectPage =
-//          pageRtx.dereferenceIndirectPageReference(newRevisionRootPage.getIndirectDocumentIndexPageReference());
-//      log.put(newRevisionRootPage.getIndirectDocumentIndexPageReference(),
-//              PageContainer.getInstance(indirectPage, indirectPage));
-
       final var revisionRootPageReference = new PageReference();
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
       uberPage.setRevisionRootPageReference(revisionRootPageReference);
       uberPage.setRevisionRootPage(newRevisionRootPage);
     }
 
-    return new NodePageTrx(treeModifier,
-                           writer,
-                           log,
-                           newRevisionRootPage,
-                           pageRtx,
-                           indexController,
-                           representRevision,
-                           isBoundToNodeTrx);
+    var nodePageTrx = new NodePageTrx(treeModifier,
+                                      writer,
+                                      log,
+                                      newRevisionRootPage,
+                                      pageRtx,
+                                      indexController,
+                                      representRevision,
+                                      isBoundToNodeTrx,
+                                      doAsyncCommit);
+    nodePageTrx.setFormerTransactionIntentLog(formerLog);
+    return nodePageTrx;
   }
 }

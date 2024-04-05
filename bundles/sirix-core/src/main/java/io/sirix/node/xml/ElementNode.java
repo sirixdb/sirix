@@ -42,6 +42,7 @@ import io.sirix.node.immutable.xml.ImmutableElement;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Fixed;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -130,6 +131,15 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
     this.namespaceKeys = namespaceKeys;
     assert qNm != null;
     this.qNm = qNm;
+  }
+
+  @Override
+  public ElementNode clone() {
+    return new ElementNode(structNodeDelegate.clone(),
+                           nameNodeDelegate.clone(),
+                           new LongArrayList(attributeKeys),
+                           new LongArrayList(namespaceKeys),
+                           qNm);
   }
 
   /**

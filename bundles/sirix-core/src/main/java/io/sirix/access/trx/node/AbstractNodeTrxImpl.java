@@ -1,16 +1,17 @@
 package io.sirix.access.trx.node;
 
 import com.google.common.base.MoreObjects;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.json.InternalJsonNodeReadOnlyTrx;
 import io.sirix.api.*;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.PostOrderAxis;
+import io.sirix.cache.TransactionIntentLog;
 import io.sirix.diff.DiffTuple;
-import io.sirix.exception.SirixException;
-import io.sirix.exception.SirixIOException;
-import io.sirix.exception.SirixThreadedException;
-import io.sirix.exception.SirixUsageException;
+import io.sirix.diff.JsonDiffSerializer;
+import io.sirix.exception.*;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.SirixDeweyID;
@@ -18,15 +19,17 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.page.UberPage;
 import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.locks.Lock;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -41,6 +44,11 @@ import static java.util.concurrent.Executors.newScheduledThreadPool;
  */
 public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor, NF extends NodeFactory, N extends ImmutableNode, IN extends InternalNodeReadOnlyTrx<N>>
     implements NodeReadOnlyTrx, InternalNodeTrx<W>, NodeCursor {
+
+  /**
+   * Single threaded executor service to commit asynchronally.
+   */
+  private final ExecutorService commitThreadPool = Executors.newSingleThreadExecutor(new JsonNodeTrxThreadFactory());
 
   /**
    * Maximum number of node modifications before auto commit.
@@ -66,6 +74,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * The resource manager.
    */
   protected final InternalResourceSession<R, W> resourceSession;
+
+  private final String databaseName;
+
+  private final boolean doAsyncCommit;
 
   /**
    * {@link PathSummaryWriter} instance.
@@ -138,6 +150,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private final List<PostCommitHook> postCommitHooks = new ArrayList<>();
 
+  private final Semaphore commitLock = new Semaphore(1);
+
   /**
    * Hashes nodes.
    */
@@ -156,15 +170,26 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     CLOSED
   }
 
-  protected AbstractNodeTrxImpl(final ThreadFactory threadFactory, final HashType hashType, final IN nodeReadOnlyTrx,
-      final R typeSpecificTrx, final InternalResourceSession<R, W> resourceManager,
+  /**
+   * The revision number before bulk-inserting nodes.
+   */
+  protected int beforeBulkInsertionRevisionNumber;
+
+  /**
+   * {@code true}, if transaction is auto-committing, {@code false} if not.
+   */
+  private final boolean isAutoCommitting;
+
+  protected AbstractNodeTrxImpl(final String databaseName, final ThreadFactory threadFactory, final HashType hashType,
+      final IN nodeReadOnlyTrx, final R typeSpecificTrx, final InternalResourceSession<R, W> resourceManager,
       final AfterCommitState afterCommitState, final AbstractNodeHashing<N, R> nodeHashing,
       final PathSummaryWriter<R> pathSummaryWriter, final NF nodeFactory,
       final RecordToRevisionsIndex nodeToRevisionsIndex, @Nullable final Lock transactionLock,
-      final Duration afterCommitDelay, @NonNegative final int maxNodeCount) {
+      final Duration afterCommitDelay, @NonNegative final int maxNodeCount, final boolean doAsyncCommit) {
     // Do not accept negative values.
     checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
     checkArgument(!afterCommitDelay.isNegative(), "After commit delay cannot be negative");
+    this.databaseName = databaseName;
     this.commitScheduler = newScheduledThreadPool(1, threadFactory);
     this.hashType = hashType;
     this.nodeReadOnlyTrx = requireNonNull(nodeReadOnlyTrx);
@@ -178,6 +203,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.pathSummaryWriter = pathSummaryWriter;
     this.indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
     this.nodeToRevisionsIndex = requireNonNull(nodeToRevisionsIndex);
+    this.doAsyncCommit = doAsyncCommit;
 
     this.updateOperationsOrdered = new TreeMap<>();
     this.updateOperationsUnordered = new HashMap<>();
@@ -189,6 +215,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.modificationCount = 0L;
 
     this.state = State.RUNNING;
+
+    isAutoCommitting = maxNodeCount > 0 || !afterCommitDelay.isZero();
 
     if (!afterCommitDelay.isZero()) {
       commitScheduler.scheduleWithFixedDelay(() -> commit("autoCommit", null),
@@ -259,12 +287,195 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     if (lock != null) {
       lock.lock();
     }
-    try {
-      runnable.run();
-    } finally {
-    }
+    runnable.run();
     if (lock != null) {
       lock.unlock();
+    }
+  }
+
+  public W asyncCommit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp) {
+    nodeReadOnlyTrx.assertNotClosed();
+    if (commitTimestamp != null && !resourceSession.getResourceConfig().customCommitTimestamps()) {
+      throw new IllegalStateException("Custom commit timestamps are not enabled for the resource.");
+    }
+
+    try {
+      commitLock.acquire();
+    } catch (final InterruptedException e) {
+      throw new SirixRuntimeException(e.getMessage(), e);
+    }
+
+    // Execute pre-commit hooks.
+    for (final PreCommitHook hook : preCommitHooks) {
+      hook.preCommit(this);
+    }
+
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
+      if (pageTrx.getFormerLog() != null) {
+        pageTrx.getFormerLog().close();
+      }
+      // Reinstantiate everything.
+
+      final var uberPage = pageTrx.getUberPage();
+      final var log = pageTrx.getLog();
+      pageTrx.setLog(new TransactionIntentLog(log));
+
+      // Reset modification counter.
+      modificationCount = 0L;
+
+      ((InternalResourceSession<?,?>) getResourceSession()).getRevisionRootPageLock().acquire();
+
+      final int revisionNumber = getRevisionNumber();
+
+      final var commitTask = new CommitTask<>(databaseName,
+                                              commitMessage,
+                                              pageTrx,
+                                              commitLock,
+                                              lock,
+                                              resourceSession,
+                                              nodeHashing,
+                                              beforeBulkInsertionRevisionNumber,
+                                              isAutoCommitting,
+                                              new TreeMap<>(updateOperationsOrdered),
+                                              new TreeMap<>(updateOperationsUnordered),
+                                              storeDeweyIDs());
+
+      commitThreadPool.submit(commitTask);
+
+      reInstantiate(getId(), revisionNumber, uberPage, log);
+    } catch (Throwable e) {
+      throw new SirixRuntimeException(e.getMessage(), e);
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+
+    // Execute post-commit hooks.
+    for (final PostCommitHook hook : postCommitHooks) {
+      hook.postCommit(this);
+    }
+
+    return self();
+  }
+
+  private final static class CommitTask<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
+      implements Callable<UberPage> {
+    private final String commitMessage;
+
+    private final PageTrx pageTrx;
+
+    private final Semaphore commitLock;
+
+    private final Lock lock;
+
+    private final InternalResourceSession<R, W> resourceSession;
+
+    private final int revisionNumber;
+
+    private final AbstractNodeHashing<?, ?> nodeHashing;
+
+    private final int beforeBulkInsertionRevisionNumber;
+
+    private final boolean isAutoCommitting;
+
+    /**
+     * Collects update operations in pre-order, thus it must be an order-preserving sorted map.
+     */
+    private final SortedMap<SirixDeweyID, DiffTuple> updateOperationsOrdered;
+
+    /**
+     * Collects update operations in no particular order (if DeweyIDs used for sorting are not stored).
+     */
+    private final Map<Long, DiffTuple> updateOperationsUnordered;
+    private final boolean storeDeweyIds;
+    private final String databaseName;
+
+    // TODO: Extract common stuff to reduce param count.
+    public CommitTask(final String databaseName, final String commitMessage, final PageTrx pageTrx,
+        final Semaphore commitLock, final Lock lock, final InternalResourceSession<R, W> resourceSession,
+        final AbstractNodeHashing<?, ?> nodeHashing, final int beforeBulkInsertionRevisionNumber,
+        final boolean isAutoCommitting, SortedMap<SirixDeweyID, DiffTuple> updateOperationsOrdered,
+        final Map<Long, DiffTuple> updateOperationsUnordered, final boolean storeDeweyIds) {
+      this.databaseName = databaseName;
+      this.commitMessage = commitMessage;
+      this.pageTrx = pageTrx;
+      this.commitLock = commitLock;
+      this.lock = lock;
+      this.resourceSession = resourceSession;
+      this.revisionNumber = pageTrx.getRevisionNumber();
+      this.nodeHashing = nodeHashing;
+      this.beforeBulkInsertionRevisionNumber = beforeBulkInsertionRevisionNumber;
+      this.isAutoCommitting = isAutoCommitting;
+      this.updateOperationsOrdered = new TreeMap<>(updateOperationsOrdered);
+      this.updateOperationsUnordered = new HashMap<>(updateOperationsUnordered);
+      this.storeDeweyIds = storeDeweyIds;
+    }
+
+    public UberPage call() {
+      UberPage uberPage = null;
+      try {
+        uberPage = commitMessage == null ? pageTrx.commit() : pageTrx.commit(commitMessage);
+
+        if (lock != null) {
+          lock.lock();
+        }
+        try {
+          // Remember succesfully committed uber page in resource manager.
+          resourceSession.setLastCommittedUberPage(uberPage);
+        } finally {
+          if (lock != null) {
+            lock.unlock();
+          }
+        }
+
+        if (resourceSession.getResourceConfig().storeDiffs()) {
+          serializeUpdateDiffs();
+        }
+
+        pageTrx.close();
+      } catch (Throwable e) {
+        e.printStackTrace();
+      } finally {
+        if (commitLock != null) {
+          commitLock.release();
+        }
+      }
+
+      return uberPage;
+    }
+
+    public void serializeUpdateDiffs() {
+      if (resourceSession instanceof JsonResourceSession jsonResourceSession && !nodeHashing.isBulkInsert()
+          && revisionNumber - 1 > 0) {
+        final var diffSerializer = new JsonDiffSerializer(databaseName,
+                                                          jsonResourceSession,
+                                                          beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
+                                                              ? beforeBulkInsertionRevisionNumber
+                                                              : revisionNumber - 1,
+                                                          revisionNumber,
+                                                          storeDeweyIds
+                                                              ? updateOperationsOrdered.values()
+                                                              : updateOperationsUnordered.values());
+        final var jsonDiff = diffSerializer.serialize(false);
+
+        // Deserialize index definitions.
+        final Path diff = resourceSession.getResourceConfig()
+                                         .getResource()
+                                         .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                         .resolve(
+                                             "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber + ".json");
+        try {
+          Files.createFile(diff);
+          Files.writeString(diff, jsonDiff);
+        } catch (final IOException e) {
+          throw new UncheckedIOException(e);
+        }
+      }
     }
   }
 
@@ -275,36 +486,48 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       throw new IllegalStateException("Custom commit timestamps are not enabled for the resource.");
     }
 
-    runLocked(() -> {
-      state = State.COMMITTING;
+    try {
+      commitLock.acquire();
+    } catch (InterruptedException e) {
+      throw new SirixRuntimeException(e.getMessage(), e);
+    }
 
-      // Execute pre-commit hooks.
-      for (final PreCommitHook hook : preCommitHooks) {
-        hook.preCommit(this);
-      }
+    try {
+      runLocked(() -> {
+        state = State.COMMITTING;
 
-      // Reset modification counter.
-      modificationCount = 0L;
+        // Execute pre-commit hooks.
+        for (final PreCommitHook hook : preCommitHooks) {
+          hook.preCommit(this);
+        }
 
-      final var preCommitRevision = getRevisionNumber();
+        // Reset modification counter.
+        modificationCount = 0L;
 
-      final UberPage uberPage = pageTrx.commit(commitMessage, commitTimestamp);
+        final var preCommitRevision = getRevisionNumber();
 
-      // Remember successfully committed uber page in resource manager.
-      resourceSession.setLastCommittedUberPage(uberPage);
+        final UberPage uberPage = pageTrx.commit(commitMessage, commitTimestamp);
 
-      if (resourceSession.getResourceConfig().storeDiffs()) {
-        serializeUpdateDiffs(preCommitRevision);
-      }
+        pageTrx.getLog().clear();
 
-      // Reinstantiate everything.
-      if (afterCommitState == AfterCommitState.KEEP_OPEN) {
-        reInstantiate(getId(), preCommitRevision);
-        state = State.RUNNING;
-      } else {
-        state = State.COMMITTED;
-      }
-    });
+        // Remember successfully committed uber page in resource manager.
+        resourceSession.setLastCommittedUberPage(uberPage);
+
+        if (resourceSession.getResourceConfig().storeDiffs()) {
+          serializeUpdateDiffs(preCommitRevision);
+        }
+
+        // Reinstantiate everything.
+        if (afterCommitState == AfterCommitState.KEEP_OPEN) {
+          reInstantiate(getId(), preCommitRevision);
+          state = State.RUNNING;
+        } else {
+          state = State.COMMITTED;
+        }
+      });
+    } finally {
+      commitLock.release();
+    }
 
     // Execute post-commit hooks.
     for (final PostCommitHook hook : postCommitHooks) {
@@ -334,7 +557,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
     if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
-      commit("autoCommit");
+      if (doAsyncCommit) {
+        asyncCommit("autoCommit", null);
+      } else {
+        commit("autoCommit", null);
+      }
     }
   }
 
@@ -349,14 +576,48 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void reInstantiate(final @NonNegative long trxID, final @NonNegative int revNumber) {
     // Reset page transaction to new uber page.
     resourceSession.closeNodePageWriteTransaction(getId());
-    pageTrx =
-        resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.NO, true);
+    pageTrx = resourceSession.createPageTransaction(trxID,
+                                                    revNumber,
+                                                    revNumber,
+                                                    InternalResourceSession.Abort.NO,
+                                                    true,
+                                                    null,
+                                                    false);
     nodeReadOnlyTrx.setPageReadTransaction(null);
     nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
     resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
 
     nodeFactory = reInstantiateNodeFactory(pageTrx);
 
+    final boolean isBulkInsert = nodeHashing.isBulkInsert();
+    nodeHashing = reInstantiateNodeHashing(pageTrx);
+    nodeHashing.setBulkInsert(isBulkInsert);
+
+    updateOperationsUnordered.clear();
+    updateOperationsOrdered.clear();
+
+    reInstantiateIndexes();
+  }
+
+  void reInstantiate(final @NonNegative long trxID, final @NonNegative int revNumber, final UberPage uberPage,
+      final @NonNull TransactionIntentLog log) {
+    if (uberPage == null) {
+      pageTrx = resourceSession.createPageTransaction(trxID,
+                                                      revNumber,
+                                                      revNumber,
+                                                      InternalResourceSession.Abort.NO,
+                                                      true,
+                                                      log,
+                                                      doAsyncCommit);
+    } else {
+      pageTrx = resourceSession.createPageTransaction(trxID, revNumber, uberPage, true, log, doAsyncCommit);
+    }
+
+    nodeReadOnlyTrx.setPageReadTransaction(null);
+    nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
+    resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
+
+    nodeFactory = reInstantiateNodeFactory(pageTrx);
     final boolean isBulkInsert = nodeHashing.isBulkInsert();
     nodeHashing = reInstantiateNodeHashing(pageTrx);
     nodeHashing.setBulkInsert(isBulkInsert);
@@ -410,8 +671,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     nodeReadOnlyTrx.setPageReadTransaction(null);
     removeCommitFile();
 
-    pageTrx =
-        resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.YES, true);
+    pageTrx = resourceSession.createPageTransaction(trxID,
+                                                    revNumber,
+                                                    revNumber,
+                                                    InternalResourceSession.Abort.YES,
+                                                    true,
+                                                    null,
+                                                    false);
     nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
     resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
 
@@ -450,8 +716,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       // Reset internal transaction state to new uber page.
       resourceSession.closeNodePageWriteTransaction(getId());
-      pageTrx =
-          resourceSession.createPageTransaction(trxID, revision, revNumber - 1, InternalResourceSession.Abort.NO, true);
+      pageTrx = resourceSession.createPageTransaction(trxID,
+                                                      revision,
+                                                      revNumber - 1,
+                                                      InternalResourceSession.Abort.NO,
+                                                      true,
+                                                      null,
+                                                      false);
       nodeReadOnlyTrx.setPageReadTransaction(null);
       nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
       resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
@@ -546,12 +817,23 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   @Override
-  public synchronized void close() {
+  public void close() {
     runLocked(() -> {
       if (!isClosed()) {
         // Make sure to commit all dirty data.
         if (modificationCount > 0) {
           throw new SirixUsageException("Must commit/rollback transaction first!");
+        }
+
+        // Shutdown pool.
+        commitScheduler.shutdown();
+        try {
+          boolean successful = commitScheduler.awaitTermination(5, TimeUnit.SECONDS);
+          if (!successful) {
+            throw new SirixThreadedException("Commit scheduler did not terminate in time.");
+          }
+        } catch (final InterruptedException e) {
+          throw new SirixThreadedException(e);
         }
 
         // Release all state immediately.
@@ -609,5 +891,17 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
                       .add("hashType", this.hashType)
                       .add("nodeReadOnlyTrx", this.nodeReadOnlyTrx)
                       .toString();
+  }
+
+  private static final class JsonNodeTrxThreadFactory implements ThreadFactory {
+    @Override
+    public Thread newThread(@NonNull final Runnable runnable) {
+      final var thread = new Thread(runnable, "JsonNodeTrxCommitThread");
+
+      thread.setPriority(Thread.NORM_PRIORITY);
+      thread.setDaemon(false);
+
+      return thread;
+    }
   }
 }

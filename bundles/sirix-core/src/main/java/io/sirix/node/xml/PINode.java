@@ -30,12 +30,7 @@ package io.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import net.openhft.chronicle.bytes.Bytes;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
-
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
@@ -51,6 +46,10 @@ import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
+import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.ByteBuffer;
 
@@ -113,6 +112,11 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
     this.valueNodeDelegate = valueNodeDelegate;
     assert pageReadTrx != null : "pageReadTrx must not be null!";
     this.pageReadTrx = pageReadTrx;
+  }
+
+  @Override
+  public PINode clone() {
+    return new PINode(structNodeDelegate.clone(), nameNodeDelegate.clone(), valueNodeDelegate.clone(), pageReadTrx);
   }
 
   @Override

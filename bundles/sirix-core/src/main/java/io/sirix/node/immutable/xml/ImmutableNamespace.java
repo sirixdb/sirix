@@ -1,5 +1,6 @@
 package io.sirix.node.immutable.xml;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.node.NodeKind;
@@ -7,10 +8,9 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.node.xml.NamespaceNode;
+import net.openhft.chronicle.bytes.Bytes;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.ByteBuffer;
 
@@ -44,6 +44,11 @@ public class ImmutableNamespace implements ImmutableNameNode, ImmutableXmlNode {
    */
   public static ImmutableNamespace of(final NamespaceNode node) {
     return new ImmutableNamespace(node);
+  }
+
+  @Override
+  public ImmutableNamespace clone() {
+    return new ImmutableNamespace(node.clone());
   }
 
   @Override

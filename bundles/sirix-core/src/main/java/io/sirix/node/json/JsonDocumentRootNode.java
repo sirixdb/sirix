@@ -30,11 +30,11 @@ import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.node.xml.AbstractStructForwardingNode;
 import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import io.sirix.node.xml.AbstractStructForwardingNode;
 
 import java.nio.ByteBuffer;
 
@@ -72,6 +72,11 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
   public JsonDocumentRootNode(@NonNull final NodeDelegate nodeDelegate, @NonNull final StructNodeDelegate structNodeDelegate) {
     this.nodeDelegate = requireNonNull(nodeDelegate);
     this.structNodeDelegate = requireNonNull(structNodeDelegate);
+  }
+
+  @Override
+  public JsonDocumentRootNode clone() {
+    return new JsonDocumentRootNode(nodeDelegate.clone(), structNodeDelegate.clone());
   }
 
   @Override

@@ -1,11 +1,12 @@
 package io.sirix.node;
 
 import com.google.common.collect.ForwardingObject;
+import io.sirix.node.delegates.NodeDelegate;
+import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.immutable.ImmutableNode;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.interfaces.Node;
 
 import java.nio.ByteBuffer;
 
@@ -19,6 +20,9 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
 
   /** Constructor for use by subclasses. */
   protected AbstractForwardingNode() {}
+
+  @Override
+  public abstract ImmutableNode clone();
 
   @Override
   protected abstract @NonNull NodeDelegate delegate();

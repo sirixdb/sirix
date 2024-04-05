@@ -82,8 +82,18 @@ public final class MMFileReader extends AbstractReader {
   public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
     try {
       final long offset = reference.getKey() + LAYOUT_INT.byteSize();
-      final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
 
+      if (reference.getKey() < 0) {
+        throw new IllegalStateException("Key must be >= 0 but is " + reference.getKey());
+      }
+
+      int dataLength = 0;
+
+      try {
+        dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
+      } catch (Throwable t) {
+        t.printStackTrace();
+      }
       final byte[] page = new byte[dataLength];
 
       MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);

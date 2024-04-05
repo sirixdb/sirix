@@ -24,6 +24,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
+import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
@@ -131,6 +132,11 @@ public class NodeDelegate implements Node {
     this.lastModifiedRevision = lastModifiedRevision;
     typeKey = TYPE_KEY;
     deweyIDData = deweyID;
+  }
+
+  @Override
+  public NodeDelegate clone() {
+    return new NodeDelegate(nodeKey, parentKey, hashFunction, previousRevision, lastModifiedRevision, deweyIDData);
   }
 
   public LongHashFunction getHashFunction() {

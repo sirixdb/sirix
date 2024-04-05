@@ -46,6 +46,11 @@ public final class ImmutableStringNode extends AbstractImmutableJsonStructuralNo
   }
 
   @Override
+  public ImmutableStringNode clone() {
+    return new ImmutableStringNode(node.clone());
+  }
+
+  @Override
   public boolean isSameItem(final @Nullable Node other) {
     return node.isSameItem(other);
   }
@@ -142,6 +147,9 @@ public final class ImmutableStringNode extends AbstractImmutableJsonStructuralNo
 
   @Override
   public boolean equals(Object obj) {
+    if (!(obj instanceof ImmutableStringNode)) {
+      return false;
+    }
     return node.equals(obj);
   }
 

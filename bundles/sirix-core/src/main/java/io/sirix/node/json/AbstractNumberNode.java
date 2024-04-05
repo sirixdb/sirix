@@ -42,7 +42,7 @@ import java.nio.ByteBuffer;
 
 public abstract class AbstractNumberNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
-  private final StructNodeDelegate structNodeDelegate;
+  protected final StructNodeDelegate structNodeDelegate;
   private Number number;
 
   private long hashCode;

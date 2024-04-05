@@ -35,6 +35,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
+import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
@@ -84,6 +85,11 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
     assert structNodeDelegate != null;
     this.structNodeDelegate = structNodeDelegate;
     this.pathNodeKey = pathNodeKey;
+  }
+
+  @Override
+  public ArrayNode clone() {
+    return new ArrayNode(structNodeDelegate, pathNodeKey);
   }
 
   @Override

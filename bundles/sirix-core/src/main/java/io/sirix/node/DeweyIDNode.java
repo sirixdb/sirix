@@ -15,6 +15,11 @@ public final class DeweyIDNode implements DataRecord {
   }
 
   @Override
+  public DeweyIDNode clone() {
+    return new DeweyIDNode(nodeKey, new SirixDeweyID(deweyId.toBytes()));
+  }
+
+  @Override
   public long getNodeKey() {
     return nodeKey;
   }

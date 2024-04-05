@@ -4,8 +4,8 @@ import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.StructNode;
-import net.openhft.chronicle.bytes.Bytes;
 import io.sirix.node.json.NumberNode;
+import net.openhft.chronicle.bytes.Bytes;
 
 import java.nio.ByteBuffer;
 
@@ -38,6 +38,11 @@ public final class ImmutableNumberNode extends AbstractImmutableJsonStructuralNo
    */
   public static ImmutableNumberNode of(final NumberNode node) {
     return new ImmutableNumberNode(node);
+  }
+
+  @Override
+  public ImmutableNumberNode clone() {
+    return new ImmutableNumberNode(node.clone());
   }
 
   @Override

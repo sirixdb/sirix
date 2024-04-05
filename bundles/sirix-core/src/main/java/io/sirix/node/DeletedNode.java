@@ -30,11 +30,10 @@ package io.sirix.node;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
-
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.Node;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import static java.util.Objects.requireNonNull;
 
@@ -58,6 +57,11 @@ public final class DeletedNode extends AbstractForwardingNode {
    */
   public DeletedNode(final NodeDelegate nodeDel) {
     nodeDelegate = requireNonNull(nodeDel);
+  }
+
+  @Override
+  public DeletedNode clone() {
+    return new DeletedNode(nodeDelegate.clone());
   }
 
   @Override

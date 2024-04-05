@@ -22,7 +22,6 @@
 package io.sirix.io.iouring;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
-import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.PageTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.*;
@@ -104,7 +103,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @Override
-  public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx, final int revision) {
+  public Writer truncateTo(final PageTrx pageTrx, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
@@ -128,11 +127,11 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @Override
-  public IOUringWriter write(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+  public IOUringWriter write(final PageTrx pageTrx, final PageReference pageReference,
       final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long offset = getOffset(bufferedBytes);
-      return writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, offset);
+      return writePageReference(pageTrx, pageReference, bufferedBytes, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -154,10 +153,10 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @NonNull
-  private IOUringWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+  private IOUringWriter writePageReference(final PageTrx pageTrx, final PageReference pageReference,
       Bytes<ByteBuffer> bufferedBytes, long offset) {
     try {
-      POOL.submit(() -> writePage(pageReadOnlyTrx, pageReference, bufferedBytes, offset)).get();
+      POOL.submit(() -> writePage(pageTrx, pageReference, bufferedBytes, offset)).get();
       return this;
     } catch (InterruptedException | ExecutionException e) {
       throw new SirixIOException(e);
@@ -165,8 +164,8 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @NonNull
-  private IOUringWriter writePage(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference,
-      Bytes<ByteBuffer> bufferedBytes, long offset) {
+  private IOUringWriter writePage(PageTrx pageReadOnlyTrx, PageReference pageReference, Bytes<ByteBuffer> bufferedBytes,
+      long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
@@ -212,10 +211,10 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
       final var pageBuffer = ByteBuffer.allocateDirect(serializedPage.length + IOStorage.OTHER_BEACON + offsetToAdd)
                                        .order(ByteOrder.nativeOrder());
 
-//      if (!(page instanceof UberPage) && offsetToAdd > 0) {
-//        var buffer = new byte[(int) offsetToAdd];
-//        pageBuffer.put(buffer);
-//      }
+      //      if (!(page instanceof UberPage) && offsetToAdd > 0) {
+      //        var buffer = new byte[(int) offsetToAdd];
+      //        pageBuffer.put(buffer);
+      //      }
 
       pageBuffer.putInt(serializedPage.length);
       pageBuffer.put(serializedPage);
@@ -291,12 +290,12 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @Override
-  public Writer writeUberPageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+  public Writer writeUberPageReference(final PageTrx pageTrx, final PageReference pageReference,
       Bytes<ByteBuffer> bufferedBytes) {
     isFirstUberPage = true;
-    writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, 0);
+    writePageReference(pageTrx, pageReference, bufferedBytes, 0);
     isFirstUberPage = false;
-    writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
+    writePageReference(pageTrx, pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
 
     dataFile.dataSync().join();
 

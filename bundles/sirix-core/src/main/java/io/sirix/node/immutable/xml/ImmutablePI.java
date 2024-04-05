@@ -1,5 +1,6 @@
 package io.sirix.node.immutable.xml;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.node.NodeKind;
@@ -11,7 +12,6 @@ import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.node.xml.PINode;
 import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.ByteBuffer;
@@ -45,6 +45,11 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
    */
   public static ImmutablePI of(final PINode node) {
     return new ImmutablePI(node);
+  }
+
+  @Override
+  public ImmutablePI clone() {
+    return new ImmutablePI(node.clone());
   }
 
   @Override

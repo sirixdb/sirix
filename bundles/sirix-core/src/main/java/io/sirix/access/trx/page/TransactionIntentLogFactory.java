@@ -1,5 +1,5 @@
-/**
- * Copyright (c) 2018, Sirix
+/*
+ * Copyright (c) 2024, Sirix
  *
  * All rights reserved.
  *
@@ -28,10 +28,11 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.BufferManager;
 import io.sirix.cache.TransactionIntentLog;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
  */
 public interface TransactionIntentLogFactory {
 
@@ -40,8 +41,9 @@ public interface TransactionIntentLogFactory {
    * 
    * @param resourceConfig the resource configuration to get the path for the log and a byte handler
    *        pipeline
+   * @param initialLogKey the initial log key
    * @return the transaction intent log instance
    * @throws NullPointerException if the {@code resourceConfig} parameter is null
    */
-  TransactionIntentLog createTrxIntentLog(ResourceConfiguration resourceConfig);
+  TransactionIntentLog createTrxIntentLog(BufferManager bufferManager, ResourceConfiguration resourceConfig, int initialLogKey);
 }

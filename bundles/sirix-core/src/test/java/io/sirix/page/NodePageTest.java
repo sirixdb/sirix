@@ -21,16 +21,10 @@
 
 package io.sirix.page;
 
-import it.unimi.dsi.fastutil.longs.LongArrayList;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.PageTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.index.IndexType;
 import io.sirix.node.SirixDeweyID;
@@ -41,6 +35,12 @@ import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.xml.ElementNode;
 import io.sirix.settings.Constants;
 import io.sirix.utils.NamePageHash;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -55,33 +55,33 @@ public final class NodePageTest {
   /**
    * {@link Holder} instance.
    */
-  private Holder mHolder;
+  private Holder holder;
 
   /**
-   * Sirix {@link PageReadOnlyTrx} instance.
+   * Sirix {@link PageTrx} instance.
    */
-  private PageReadOnlyTrx pageReadTrx;
+  private PageTrx pageTrx;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceMgr();
+    pageTrx = holder.getResourceManager().beginPageTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
-    pageReadTrx.close();
-    mHolder.close();
+    pageTrx.close();
+    holder.close();
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
   }
 
   @Test
   public void testSerializeDeserialize() throws IOException {
-    final KeyValueLeafPage page1 = new KeyValueLeafPage(0L, IndexType.DOCUMENT, pageReadTrx);
+    final KeyValueLeafPage page1 = new KeyValueLeafPage(0L, IndexType.DOCUMENT, pageTrx);
     assertEquals(0L, page1.getPageKey());
 
     final NodeDelegate del = new NodeDelegate(0,
@@ -104,14 +104,14 @@ public final class NodePageTest {
 
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     final PagePersister pagePersister = new PagePersister();
-    pagePersister.serializePage(pageReadTrx, data, page1, SerializationType.DATA);
-    final KeyValueLeafPage page2 = (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx,
+    pagePersister.serializePage(pageTrx, data, page1, SerializationType.DATA);
+    final KeyValueLeafPage page2 = (KeyValueLeafPage) pagePersister.deserializePage(pageTrx,
                                                                                     Bytes.wrapForRead(data.toByteArray()),
                                                                                     SerializationType.DATA);
     // assertEquals(position, out.position());
-    final ElementNode element = (ElementNode) pageReadTrx.getValue(page2, 0L);
+    final ElementNode element = (ElementNode) pageTrx.getValue(page2, 0L);
 
-    assertEquals(0L, pageReadTrx.getValue(page2, 0L).getNodeKey());
+    assertEquals(0L, pageTrx.getValue(page2, 0L).getNodeKey());
     assertEquals(1L, element.getParentKey());
     assertEquals(12L, element.getFirstChildKey());
     assertEquals(3L, element.getLeftSiblingKey());
@@ -123,9 +123,9 @@ public final class NodePageTest {
     assertEquals(87L, element.getAttributeKey(1));
     assertEquals(99L, element.getNamespaceKey(0));
     assertEquals(98L, element.getNamespaceKey(1));
-    assertEquals(5, ((NameNode) pageReadTrx.getValue(page2, 0L)).getURIKey());
-    assertEquals(6, ((NameNode) pageReadTrx.getValue(page2, 0L)).getPrefixKey());
-    assertEquals(7, ((NameNode) pageReadTrx.getValue(page2, 0L)).getLocalNameKey());
+    assertEquals(5, ((NameNode) pageTrx.getValue(page2, 0L)).getURIKey());
+    assertEquals(6, ((NameNode) pageTrx.getValue(page2, 0L)).getPrefixKey());
+    assertEquals(7, ((NameNode) pageTrx.getValue(page2, 0L)).getLocalNameKey());
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), element.getTypeKey());
   }
 }

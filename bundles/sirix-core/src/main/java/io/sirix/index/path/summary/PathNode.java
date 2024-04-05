@@ -95,6 +95,11 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     this.level = level;
   }
 
+  @Override
+  public PathNode clone() {
+    return new PathNode(name, nodeDel.clone(), structNodeDel.clone(), nameNodeDel.clone(), kind, references, level);
+  }
+
   /**
    * Get the path up to the root path node.
    *

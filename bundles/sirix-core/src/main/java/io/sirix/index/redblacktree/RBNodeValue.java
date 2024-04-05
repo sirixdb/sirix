@@ -6,11 +6,10 @@ import io.sirix.index.redblacktree.interfaces.MutableRBNodeValue;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
-
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.settings.Fixed;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import static java.util.Objects.requireNonNull;
 
@@ -42,6 +41,12 @@ public final class RBNodeValue<V> extends AbstractForwardingNode
   public RBNodeValue(final V value, final NodeDelegate nodeDelegate) {
     this.value = requireNonNull(value);
     this.nodeDelegate = requireNonNull(nodeDelegate);
+  }
+
+  @Override
+  public RBNodeValue<V> clone() {
+    // FIXME: clone value
+    return new RBNodeValue<>(value, nodeDelegate.clone());
   }
 
   @Override

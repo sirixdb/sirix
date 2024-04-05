@@ -1,13 +1,21 @@
 package io.sirix.access.trx.node;
 
 import io.sirix.api.*;
+import io.sirix.cache.TransactionIntentLog;
 import io.sirix.page.UberPage;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.nio.file.Path;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.Lock;
 
 public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends ResourceSession<R, W> {
+
+  PageTrx createPageTransaction(long trxID,
+      int revNumber, UberPage uberPage, boolean isBoundToNodeTrx,
+      @NonNull TransactionIntentLog formerLog, boolean doAsyncCommit);
+
   /**
    * Abort the write-transaction.
    */
@@ -23,11 +31,14 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
     NO
   }
 
+  Semaphore getRevisionRootPageLock();
+
   Path getCommitFile();
 
   void assertAccess(int revision);
 
-  PageTrx createPageTransaction(long trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx);
+  PageTrx createPageTransaction(long trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx,
+      TransactionIntentLog formerLog, boolean doAsyncCommit);
 
   Lock getCommitLock();
 

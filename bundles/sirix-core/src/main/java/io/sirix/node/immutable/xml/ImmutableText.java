@@ -8,9 +8,9 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableStructNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.node.xml.TextNode;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import io.sirix.node.xml.TextNode;
 
 import java.nio.ByteBuffer;
 
@@ -43,6 +43,11 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, I
    */
   public static ImmutableText of(final TextNode node) {
     return new ImmutableText(node);
+  }
+
+  @Override
+  public ImmutableText clone() {
+    return new ImmutableText(node.clone());
   }
 
   @Override

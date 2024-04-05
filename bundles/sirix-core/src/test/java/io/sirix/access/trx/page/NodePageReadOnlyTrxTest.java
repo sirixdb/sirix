@@ -27,6 +27,7 @@ public final class NodePageReadOnlyTrxTest {
     final var trx = new NodePageReadOnlyTrx(1, resourceManagerMock, new UberPage(), 0,
                                             mock(Reader.class), mock(BufferManager.class),
                                             mock(RevisionRootPageReader.class), mock(
+        TransactionIntentLog.class), mock(
         TransactionIntentLog.class));
 
     assertEquals(0, trx.pageKey(1, IndexType.DOCUMENT));

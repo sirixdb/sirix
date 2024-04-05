@@ -1,5 +1,6 @@
 package io.sirix.node.immutable.xml;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.node.NodeKind;
@@ -9,11 +10,10 @@ import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.node.xml.AttributeNode;
 import io.sirix.settings.Constants;
 import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import io.sirix.node.xml.AttributeNode;
 
 import java.nio.ByteBuffer;
 
@@ -47,6 +47,11 @@ public final class ImmutableAttributeNode implements ImmutableValueNode, Immutab
    */
   public static ImmutableAttributeNode of(final AttributeNode node) {
     return new ImmutableAttributeNode(node);
+  }
+
+  @Override
+  public ImmutableAttributeNode clone() {
+    return new ImmutableAttributeNode(node.clone());
   }
 
   @Override

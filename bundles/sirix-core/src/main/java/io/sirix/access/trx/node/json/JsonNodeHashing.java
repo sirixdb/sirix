@@ -10,18 +10,30 @@ import io.sirix.access.trx.node.AbstractNodeHashing;
 final class JsonNodeHashing extends AbstractNodeHashing<ImmutableNode, JsonNodeReadOnlyTrx> {
 
   private final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx;
+  private final ResourceConfiguration resourceConfiguration;
+  private final PageTrx pageTrx;
 
   /**
    * Constructor.
    *
    * @param resourceConfiguration the resource configuration
    * @param nodeReadOnlyTrx       the internal read-only node trx
-   * @param pageWriteTrx          the page trx
+   * @param pageTrx          the page trx
    */
   JsonNodeHashing(final ResourceConfiguration resourceConfiguration, final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx,
-      final PageTrx pageWriteTrx) {
-    super(resourceConfiguration, nodeReadOnlyTrx, pageWriteTrx);
+      final PageTrx pageTrx) {
+    super(resourceConfiguration, nodeReadOnlyTrx, pageTrx);
+    this.resourceConfiguration = resourceConfiguration;
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
+    this.pageTrx = pageTrx;
+  }
+
+  @Override
+  public JsonNodeHashing clone() {
+    final var jsonNodeHashing =  new JsonNodeHashing(resourceConfiguration, nodeReadOnlyTrx, pageTrx);
+    jsonNodeHashing.setAutoCommit(isAutoCommitting());
+    jsonNodeHashing.setBulkInsert(isBulkInsert());
+    return jsonNodeHashing;
   }
 
   @Override

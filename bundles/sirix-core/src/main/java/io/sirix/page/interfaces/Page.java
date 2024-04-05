@@ -22,9 +22,6 @@ package io.sirix.page.interfaces;
 
 import io.sirix.api.PageTrx;
 import io.sirix.page.PageReference;
-import io.sirix.page.delegates.BitmapReferencesPage;
-import io.sirix.page.delegates.FullReferencesPage;
-import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.settings.Constants;
 import org.checkerframework.checker.index.qual.NonNegative;
 
@@ -39,6 +36,11 @@ import java.util.List;
  */
 public interface Page extends Closeable {
 
+  /**
+   * Clear the page.
+   *
+   * @return the cleared page
+   */
   default Page clearPage() {
     return this;
   }
@@ -57,29 +59,6 @@ public interface Page extends Closeable {
    */
   default void commit(PageTrx pageWriteTrx) {
     final var references = getReferences();
-    //    final var log = pageWriteTrx.getLog();
-    //    final List<CompletableFuture<Void>> futures = new ArrayList<>(references.size());
-    //    for (final PageReference reference : references) {
-    //      if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
-    //          || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
-    //        final PageContainer container = log.get(reference, pageWriteTrx);
-    //
-    //        assert container != null;
-    //
-    //        final Page page = container.getModified();
-    //
-    //        assert page != null;
-    //
-    //        if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
-    //          final var byteBufferBytes = Bytes.elasticByteBuffer(10_000);
-    //          futures.add(CompletableFuture.runAsync(() -> unorderedKeyValuePage.serialize(byteBufferBytes,
-    //                                                                                       SerializationType.DATA)));
-    //        }
-    //      }
-    //    }
-    //
-    //    CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()])).join();
-
     for (final PageReference reference : references) {
       if (reference.getLogKey() != Constants.NULL_ID_INT) {
         pageWriteTrx.commit(reference);

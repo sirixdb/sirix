@@ -21,15 +21,15 @@
 
 package io.sirix.utils;
 
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-
-import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
 import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
+import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.exception.SirixException;
+
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  *

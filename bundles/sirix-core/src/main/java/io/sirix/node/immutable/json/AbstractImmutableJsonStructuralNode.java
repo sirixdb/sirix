@@ -4,10 +4,14 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 public abstract class AbstractImmutableJsonStructuralNode implements ImmutableStructNode, ImmutableJsonNode {
+
+  @Override
+  public abstract ImmutableNode clone();
 
   public abstract StructNode structDelegate();
 
@@ -108,6 +112,9 @@ public abstract class AbstractImmutableJsonStructuralNode implements ImmutableSt
 
   @Override
   public boolean equals(Object obj) {
+    if (!(obj instanceof AbstractImmutableJsonStructuralNode)) {
+      return false;
+    }
     return structDelegate().equals(obj);
   }
 

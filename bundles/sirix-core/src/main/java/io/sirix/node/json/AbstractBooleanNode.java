@@ -31,10 +31,9 @@ package io.sirix.node.json;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.node.xml.AbstractStructForwardingNode;
 import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
-
-import io.sirix.node.xml.AbstractStructForwardingNode;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.nio.ByteBuffer;

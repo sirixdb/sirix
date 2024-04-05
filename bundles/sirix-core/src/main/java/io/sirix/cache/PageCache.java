@@ -3,9 +3,9 @@ package io.sirix.cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
-import io.sirix.page.IndirectPage;
-import io.sirix.page.PageReference;
+import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
+import io.sirix.settings.Constants;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -35,17 +35,15 @@ public final class PageCache implements Cache<PageReference, Page> {
   @Override
   public Page get(PageReference key) {
     var page = pageCache.getIfPresent(key);
-
-//    if (page instanceof IndirectPage indirectPage) {
-//      page = new IndirectPage(indirectPage);
-//    }
-
     return page;
   }
 
   @Override
   public void put(PageReference key, Page value) {
-    pageCache.put(key, value);
+    if (!(value instanceof RevisionRootPage) && !(value instanceof PathSummaryPage) && !(value instanceof PathPage)
+        && !(value instanceof CASPage) && !(value instanceof NamePage)) {
+      pageCache.put(key, value);
+    }
   }
 
   @Override

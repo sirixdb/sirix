@@ -37,8 +37,8 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.ByteBuffer;
 
@@ -135,6 +135,17 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
+  public StructNodeDelegate clone() {
+    return new StructNodeDelegate(nodeDelegate.clone(),
+                                  firstChild,
+                                  lastChild,
+                                  rightSibling,
+                                  leftSibling,
+                                  childCount,
+                                  descendantCount);
+  }
+
+  @Override
   public NodeKind getKind() {
     return nodeDelegate.getKind();
   }
@@ -227,13 +238,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
                            leftSibling,
                            rightSibling,
                            descendantCount)
-        : Objects.hashCode(childCount,
-                           nodeDelegate,
-                           firstChild,
-                           lastChild,
-                           leftSibling,
-                           rightSibling,
-                           descendantCount);
+        : Objects.hashCode(childCount, nodeDelegate, firstChild, lastChild, leftSibling, rightSibling, descendantCount);
   }
 
   @Override

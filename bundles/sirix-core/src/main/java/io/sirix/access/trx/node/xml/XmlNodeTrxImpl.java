@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.node.xml;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.access.trx.node.*;
 import io.sirix.api.Axis;
 import io.sirix.api.Movement;
@@ -52,7 +53,6 @@ import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.XMLToken;
 import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -86,7 +86,8 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 @SuppressWarnings({ "StatementWithEmptyBody", "resource" })
-final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNodeTrx, XmlNodeFactory, ImmutableXmlNode, InternalXmlNodeReadOnlyTrx>
+final class XmlNodeTrxImpl extends
+    AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNodeTrx, XmlNodeFactory, ImmutableXmlNode, InternalXmlNodeReadOnlyTrx>
     implements InternalXmlNodeTrx, ForwardingXmlNodeReadOnlyTrx {
 
   private final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
@@ -118,12 +119,14 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
    * @throws SirixIOException    if the reading of the props is failing
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
-  XmlNodeTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
+  XmlNodeTrxImpl(final String databaseName,
+      final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
       final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx, final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter,
       final @NonNegative int maxNodeCount, @Nullable final Lock transactionLock, final Duration afterCommitDelay,
       final @NonNull XmlNodeHashing nodeHashing, final XmlNodeFactory nodeFactory,
-      final @NonNull AfterCommitState afterCommitState, final RecordToRevisionsIndex nodeToRevisionsIndex) {
-    super(Executors.defaultThreadFactory(),
+      final @NonNull AfterCommitState afterCommitState, final RecordToRevisionsIndex nodeToRevisionsIndex, final boolean doAsyncCommit) {
+    super(databaseName,
+          Executors.defaultThreadFactory(),
           resourceManager.getResourceConfig().hashType,
           nodeReadOnlyTrx,
           nodeReadOnlyTrx,
@@ -135,7 +138,8 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
           nodeToRevisionsIndex,
           transactionLock,
           afterCommitDelay,
-          maxNodeCount);
+          maxNodeCount,
+          doAsyncCommit);
     indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
     storeChildCount = this.resourceSession.getResourceConfig().storeChildCount();
 
@@ -318,8 +322,9 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
 
           // Adapt path summary.
           if (buildPathSummary && toMove instanceof NameNode moved) {
-            final PathSummaryWriter.OPType
-                type = moved.getParentKey() == parentKey ? PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL : PathSummaryWriter.OPType.MOVED;
+            final PathSummaryWriter.OPType type = moved.getParentKey() == parentKey
+                ? PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL
+                : PathSummaryWriter.OPType.MOVED;
 
             if (type != PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL) {
               pathSummaryWriter.adaptPathForChangedNode(moved,
@@ -1458,7 +1463,12 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
 
           // Adapt path summary.
           if (buildPathSummary) {
-            pathSummaryWriter.adaptPathForChangedNode(node, name, uriKey, prefixKey, localNameKey, PathSummaryWriter.OPType.SETNAME);
+            pathSummaryWriter.adaptPathForChangedNode(node,
+                                                      name,
+                                                      uriKey,
+                                                      prefixKey,
+                                                      localNameKey,
+                                                      PathSummaryWriter.OPType.SETNAME);
           }
 
           // Set path node key.

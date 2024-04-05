@@ -169,7 +169,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
                          hashFunction, Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
+                           revisionNumber,
                          id);
     final boolean compression = doCompress && value.length > 10;
     final byte[] compressedValue = compression ? Compression.compress(value, Deflater.HUFFMAN_ONLY) : value;

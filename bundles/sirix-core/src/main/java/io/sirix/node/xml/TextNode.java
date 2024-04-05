@@ -102,6 +102,11 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   }
 
   @Override
+  public TextNode clone() {
+    return new TextNode(valueNodeDelegate.clone(), structNodeDelegate.clone());
+  }
+
+  @Override
   public long computeHash(Bytes<ByteBuffer> bytes) {
     final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 

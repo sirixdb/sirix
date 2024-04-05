@@ -48,6 +48,11 @@ public final class ObjectNullNode extends AbstractNullNode {
   }
 
   @Override
+  public ObjectNullNode clone() {
+    return new ObjectNullNode(structNodeDelegate);
+  }
+
+  @Override
   public NodeKind getKind() {
     return NodeKind.OBJECT_NULL_VALUE;
   }

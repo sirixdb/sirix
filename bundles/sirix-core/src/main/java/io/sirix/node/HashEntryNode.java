@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (c) 2019.
  *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
@@ -52,6 +52,11 @@ public final class HashEntryNode implements DataRecord {
     this.nodeKey = nodeKey;
     this.key = key;
     this.value = requireNonNull(value);
+  }
+
+  @Override
+  public HashEntryNode clone() {
+    return new HashEntryNode(nodeKey, key, value);
   }
 
   @Override

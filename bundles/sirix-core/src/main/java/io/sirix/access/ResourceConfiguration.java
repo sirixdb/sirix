@@ -175,7 +175,7 @@ public final class ResourceConfiguration {
   /**
    * Standard versioning approach.
    */
-  private static final VersioningType VERSIONING = VersioningType.SLIDING_SNAPSHOT;
+  private static final VersioningType VERSIONING = VersioningType.FULL;
 
   /**
    * Type of hashing.

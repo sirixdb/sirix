@@ -22,7 +22,7 @@
 package io.sirix.io.file;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.PageTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.*;
 import io.sirix.page.*;
@@ -95,7 +95,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   }
 
   @Override
-  public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx, final int revision) {
+  public Writer truncateTo(final PageTrx pageTrx, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
@@ -119,19 +119,19 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
    * @throws SirixIOException if errors during writing occur
    */
   @Override
-  public FileWriter write(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+  public FileWriter write(final PageTrx pageTrx, final PageReference pageReference,
       final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long fileSize = dataFile.length();
       long offset = fileSize == 0 ? IOStorage.FIRST_BEACON : fileSize;
-      return writePageReference(pageReadOnlyTrx, pageReference, offset);
+      return writePageReference(pageTrx, pageReference, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
   @NonNull
-  private FileWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+  private FileWriter writePageReference(final PageTrx pageTrx, final PageReference pageReference,
       long offset) {
     // Perform byte operations.
     try {
@@ -142,7 +142,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
       try (final ByteArrayOutputStream output = new ByteArrayOutputStream(1_000)) {
         try (final DataOutputStream dataOutput = new DataOutputStream(reader.byteHandler.serialize(output))) {
-          pagePersister.serializePage(pageReadOnlyTrx, byteBufferBytes, page, type);
+          pagePersister.serializePage(pageTrx, byteBufferBytes, page, type);
           final var byteArray = byteBufferBytes.toByteArray();
           dataOutput.write(byteArray);
           dataOutput.flush();
@@ -228,12 +228,12 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   }
 
   @Override
-  public Writer writeUberPageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+  public Writer writeUberPageReference(final PageTrx pageTrx, final PageReference pageReference,
       final Bytes<ByteBuffer> bufferedBytes) {
     isFirstUberPage = true;
-    writePageReference(pageReadOnlyTrx, pageReference, 0);
+    writePageReference(pageTrx, pageReference, 0);
     isFirstUberPage = false;
-    writePageReference(pageReadOnlyTrx, pageReference, 100);
+    writePageReference(pageTrx, pageReference, 100);
     return this;
   }
 

@@ -40,6 +40,7 @@ import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.delegates.ValueNodeDelegate;
 import io.sirix.node.immutable.xml.ImmutableAttributeNode;
+import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
@@ -119,6 +120,11 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
     this.valueNodeDelegate = valDel;
     assert qNm != null : "qNm must not be null!";
     this.qNm = qNm;
+  }
+
+  @Override
+  public AttributeNode clone() {
+    return new AttributeNode(nodeDelegate.clone(), nameNodeDelegate.clone(), valueNodeDelegate.clone(), qNm);
   }
 
   @Override

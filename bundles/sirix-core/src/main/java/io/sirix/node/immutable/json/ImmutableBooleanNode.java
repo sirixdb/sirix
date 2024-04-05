@@ -4,10 +4,10 @@ import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.StructNode;
-import net.openhft.chronicle.bytes.Bytes;
 import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.node.xml.TextNode;
+import net.openhft.chronicle.bytes.Bytes;
 
 import java.nio.ByteBuffer;
 
@@ -30,6 +30,11 @@ public final class ImmutableBooleanNode extends AbstractImmutableJsonStructuralN
    */
   private ImmutableBooleanNode(final BooleanNode node) {
     this.node = requireNonNull(node);
+  }
+
+  @Override
+  public ImmutableBooleanNode clone() {
+    return new ImmutableBooleanNode(node.clone());
   }
 
   /**

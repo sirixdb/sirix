@@ -2,6 +2,7 @@ package io.sirix.io.ram;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.PageTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.page.PageReference;
@@ -156,7 +157,7 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Writer write(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
+    public Writer write(final PageTrx pageTrx, final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
       final Page page = pageReference.getPage();
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey++, page);
@@ -165,7 +166,7 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Writer writeUberPageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+    public Writer writeUberPageReference(final PageTrx pageTrx, final PageReference pageReference,
         final Bytes<ByteBuffer> bufferedBytes) {
       final Page page = pageReference.getPage();
       pageReference.setKey(mPageKey);
@@ -192,7 +193,7 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Writer truncateTo(PageReadOnlyTrx pageReadOnlyTrx, int revision) {
+    public Writer truncateTo(PageTrx pageTrx, int revision) {
       // TODO
       return this;
     }

@@ -64,7 +64,6 @@ public final class JsonShredderTest {
     }
   }
 
-  @Disabled
   @Test
   public void testChicagoDescendantAxis() {
     if (Files.notExists(PATHS.PATH1.getFile())) {
@@ -82,9 +81,10 @@ public final class JsonShredderTest {
       int count = 0;
 
       while (axis.hasNext()) {
-        final var nodeKey = axis.nextLong();
-        if (count % 50_000_000L == 0) {
-          logger.info(STR."nodeKey: \{nodeKey}");
+        axis.nextLong();
+
+        if (count % 1_000_000L == 0) {
+          logger.info(STR."node: \{axis.getTrx().getNode()}");
         }
         count++;
       }
@@ -114,7 +114,6 @@ public final class JsonShredderTest {
   // TODO: JMH test
   // Use Shenandoah or ZGC
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
-  @Disabled
   @Test
   public void testChicago() {
     logger.info("start");
@@ -141,20 +140,36 @@ public final class JsonShredderTest {
     var stopWatch = new StopWatch();
     stopWatch.start();
     database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-                                                 .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                 .versioningApproach(VersioningType.FULL)
                                                  .buildPathSummary(true)
                                                  .storeDiffs(true)
                                                  .storeNodeHistory(false)
                                                  .storeChildCount(true)
                                                  .hashKind(HashType.ROLLING)
                                                  .useTextCompression(false)
-                                                 .storageType(StorageType.FILE_CHANNEL)
+                                                 .storageType(StorageType.MEMORY_MAPPED)
                                                  .useDeweyIDs(false)
                                                  .byteHandlerPipeline(new ByteHandlerPipeline(new LZ4Compressor()))
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx(262_144 << 3)) {
+         final var trx = manager.beginNodeTrx(262_144 << 3, 0, TimeUnit.SECONDS, true)) {
       trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
+
+      trx.moveToDocumentRoot();
+      logger.info("Max node key: " + trx.getMaxNodeKey());
+
+      Axis axis = new DescendantAxis(trx);
+
+      int count = 0;
+
+      while (axis.hasNext()) {
+        axis.nextLong();
+
+        if (count % 5_000_000L == 0) {
+          logger.info(STR."node: \{axis.getTrx().getNode()}");
+        }
+        count++;
+      }
     }
 
     logger.info(STR." done [\{stopWatch.getTime(TimeUnit.SECONDS)} s].");

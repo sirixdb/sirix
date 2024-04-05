@@ -22,7 +22,7 @@
 package io.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.PageTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.*;
 import io.sirix.page.*;
@@ -97,7 +97,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx, final int revision) {
+  public Writer truncateTo(final PageTrx pageTrx, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
@@ -119,11 +119,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public FileChannelWriter write(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+  public FileChannelWriter write(final PageTrx pageTrx, final PageReference pageReference,
       final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long offset = getOffset(bufferedBytes);
-      return writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, offset);
+      return writePageReference(pageTrx, pageReference, bufferedBytes, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -135,7 +135,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
     if (fileSize == 0) {
       offset = IOStorage.FIRST_BEACON;
-      offset += (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN - 1)));
+      //offset += (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN - 1)));
       offset += bufferedBytes.writePosition();
     } else {
       offset = fileSize + bufferedBytes.writePosition();
@@ -145,7 +145,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @NonNull
-  private FileChannelWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+  private FileChannelWriter writePageReference(final PageTrx pageTrx, final PageReference pageReference,
       final Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
@@ -153,7 +153,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       final Page page = pageReference.getPage();
       assert page != null;
 
-      pagePersister.serializePage(pageReadOnlyTrx, byteBufferBytes, page, serializationType);
+      pagePersister.serializePage(pageTrx, byteBufferBytes, page, serializationType);
       final var byteArray = byteBufferBytes.toByteArray();
 
       final byte[] serializedPage;
@@ -268,7 +268,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public Writer writeUberPageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+  public Writer writeUberPageReference(final PageTrx pageTrx, final PageReference pageReference,
       final Bytes<ByteBuffer> bufferedBytes) {
     try {
       if (bufferedBytes.writePosition() > 0) {
@@ -276,9 +276,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       }
 
       isFirstUberPage = true;
-      writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, 0);
+      writePageReference(pageTrx, pageReference, bufferedBytes, 0);
       isFirstUberPage = false;
-      writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
+      writePageReference(pageTrx, pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
 
       @SuppressWarnings("DataFlowIssue") final var buffer = bufferedBytes.underlyingObject().rewind();
       buffer.limit((int) bufferedBytes.readLimit());
@@ -298,7 +298,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
     if (fileSize == 0) {
       offset = IOStorage.FIRST_BEACON;
-      offset += (PAGE_FRAGMENT_BYTE_ALIGN - (offset % PAGE_FRAGMENT_BYTE_ALIGN));
+      //offset += (PAGE_FRAGMENT_BYTE_ALIGN - (offset % PAGE_FRAGMENT_BYTE_ALIGN));
     } else {
       offset = fileSize;
     }

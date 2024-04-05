@@ -4,8 +4,8 @@ import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.StructNode;
-import net.openhft.chronicle.bytes.Bytes;
 import io.sirix.node.json.JsonDocumentRootNode;
+import net.openhft.chronicle.bytes.Bytes;
 
 import java.nio.ByteBuffer;
 
@@ -38,6 +38,11 @@ public final class ImmutableJsonDocumentRootNode extends AbstractImmutableJsonSt
    */
   public static ImmutableJsonDocumentRootNode of(final JsonDocumentRootNode node) {
     return new ImmutableJsonDocumentRootNode(node);
+  }
+
+  @Override
+  public ImmutableJsonDocumentRootNode clone() {
+    return new ImmutableJsonDocumentRootNode(node.clone());
   }
 
   @Override

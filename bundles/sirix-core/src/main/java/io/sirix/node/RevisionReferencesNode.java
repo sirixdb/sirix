@@ -17,6 +17,11 @@ public final class RevisionReferencesNode implements DataRecord {
   }
 
   @Override
+  public RevisionReferencesNode clone() {
+    return new RevisionReferencesNode(nodeKey, Arrays.copyOf(revisions, revisions.length));
+  }
+
+  @Override
   public long getNodeKey() {
     return nodeKey;
   }

@@ -30,6 +30,7 @@ package io.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.brackit.query.atomic.QNm;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.node.AbstractForwardingNode;
@@ -41,10 +42,9 @@ import io.sirix.node.immutable.xml.ImmutableNamespace;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.ByteBuffer;
 
@@ -95,6 +95,11 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
     this.nodeDelegate = nodeDel;
     this.nameNodeDelegate = nameNodeDelegate;
     this.qNm = qNm;
+  }
+
+  @Override
+  public NamespaceNode clone() {
+    return new NamespaceNode(nodeDelegate.clone(), nameNodeDelegate.clone(), qNm);
   }
 
   @Override

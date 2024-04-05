@@ -53,17 +53,22 @@ import java.nio.ByteBuffer;
  * Comment node implementation.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class CommentNode extends AbstractStructForwardingNode implements ValueNode, ImmutableXmlNode {
 
-  /** {@link StructNodeDelegate} reference. */
+  /**
+   * {@link StructNodeDelegate} reference.
+   */
   private final StructNodeDelegate structNodeDelegate;
 
-  /** {@link ValueNodeDelegate} reference. */
+  /**
+   * {@link ValueNodeDelegate} reference.
+   */
   private final ValueNodeDelegate valueNodeDelegate;
 
-  /** Value of the node. */
+  /**
+   * Value of the node.
+   */
   private byte[] value;
 
   private long hash;
@@ -71,7 +76,7 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
   /**
    * Constructor for TextNode.
    *
-   * @param valDel delegate for {@link ValueNode} implementation
+   * @param valDel    delegate for {@link ValueNode} implementation
    * @param structDel delegate for {@link StructNode} implementation
    */
   public CommentNode(final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
@@ -79,6 +84,11 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
     this.valueNodeDelegate = valDel;
     assert structDel != null;
     structNodeDelegate = structDel;
+  }
+
+  @Override
+  public CommentNode clone() {
+    return new CommentNode(valueNodeDelegate.clone(), structNodeDelegate.clone());
   }
 
   @Override
@@ -181,7 +191,8 @@ public final class CommentNode extends AbstractStructForwardingNode implements V
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof final CommentNode other) {
-      return Objects.equal(structNodeDelegate.getNodeDelegate(), other.getNodeDelegate()) && valueNodeDelegate.equals(other.valueNodeDelegate);
+      return Objects.equal(structNodeDelegate.getNodeDelegate(), other.getNodeDelegate()) && valueNodeDelegate.equals(
+          other.valueNodeDelegate);
     }
     return false;
   }

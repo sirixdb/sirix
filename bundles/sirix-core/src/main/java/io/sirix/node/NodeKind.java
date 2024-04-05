@@ -28,28 +28,12 @@
 
 package io.sirix.node;
 
-import io.sirix.access.trx.node.HashType;
-import io.sirix.node.json.*;
-import io.sirix.node.json.NullNode;
-import io.sirix.node.xml.*;
-import io.sirix.node.interfaces.DataRecord;
-import io.sirix.node.interfaces.DeweyIdSerializer;
-import io.sirix.node.interfaces.StructNode;
-import io.sirix.service.xml.xpath.AtomicValue;
-import it.unimi.dsi.fastutil.bytes.ByteList;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongList;
-import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.BytesOut;
-import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.module.Namespaces;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.roaringbitmap.longlong.Roaring64Bitmap;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.index.AtomicUtil;
 import io.sirix.index.path.summary.PathNode;
@@ -61,9 +45,23 @@ import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.delegates.ValueNodeDelegate;
+import io.sirix.node.interfaces.DataRecord;
+import io.sirix.node.interfaces.DeweyIdSerializer;
+import io.sirix.node.interfaces.StructNode;
+import io.sirix.node.json.NullNode;
+import io.sirix.node.json.*;
+import io.sirix.node.xml.*;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
+import net.openhft.chronicle.bytes.BytesIn;
+import net.openhft.chronicle.bytes.BytesOut;
+import net.openhft.hashing.LongHashFunction;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -71,11 +69,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 import static io.sirix.node.Utils.getVarLong;
 import static io.sirix.node.Utils.putVarLong;
@@ -92,7 +85,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is element.
    */
-  ELEMENT((byte) 1, ElementNode.class) {
+  ELEMENT((byte) 1) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -153,7 +146,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is attribute.
    */
-  ATTRIBUTE((byte) 2, AttributeNode.class) {
+  ATTRIBUTE((byte) 2) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -185,7 +178,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is namespace.
    */
-  NAMESPACE((byte) 13, NamespaceNode.class) {
+  NAMESPACE((byte) 13) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -209,7 +202,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is text.
    */
-  TEXT((byte) 3, TextNode.class) {
+  TEXT((byte) 3) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -250,7 +243,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is processing instruction.
    */
-  PROCESSING_INSTRUCTION((byte) 7, PINode.class) {
+  PROCESSING_INSTRUCTION((byte) 7) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -290,7 +283,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is comment.
    */
-  COMMENT((byte) 8, CommentNode.class) {
+  COMMENT((byte) 8) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -332,7 +325,7 @@ public enum NodeKind implements DeweyIdSerializer {
    * Node kind is document root.
    */
   // Virtualize document root node?
-  XML_DOCUMENT((byte) 9, XmlDocumentRootNode.class) {
+  XML_DOCUMENT((byte) 9) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -364,22 +357,12 @@ public enum NodeKind implements DeweyIdSerializer {
       if (pageReadTrx.getResourceSession().getResourceConfig().hashType != HashType.NONE)
         sink.writeLong(node.getDescendantCount());
     }
-
-    @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
-      return null;
-    }
-
-    @Override
-    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
-        ResourceConfiguration resourceConfig) {
-    }
   },
 
   /**
    * Whitespace text.
    */
-  WHITESPACE((byte) 4, null) {
+  WHITESPACE((byte) 4) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -390,22 +373,12 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
-
-    @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
-      return null;
-    }
-
-    @Override
-    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
-        ResourceConfiguration resourceConfig) {
-    }
   },
 
   /**
    * Node kind is deleted node.
    */
-  DELETE((byte) 5, DeletedNode.class) {
+  DELETE((byte) 5) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -418,22 +391,12 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
     }
-
-    @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
-      return null;
-    }
-
-    @Override
-    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
-        ResourceConfiguration resourceConfig) {
-    }
   },
 
   /**
    * NullNode to support the Null Object pattern.
    */
-  NULL((byte) 6, NullNode.class) {
+  NULL((byte) 6) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -444,22 +407,12 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
       throw new UnsupportedOperationException();
     }
-
-    @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
-      return null;
-    }
-
-    @Override
-    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
-        ResourceConfiguration resourceConfig) {
-    }
   },
 
   /**
    * Dumb node for testing.
    */
-  DUMB((byte) 20, DumbNode.class) {
+  DUMB((byte) 20) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -486,7 +439,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * AtomicKind.
    */
-  ATOMIC((byte) 15, AtomicValue.class) {
+  ATOMIC((byte) 15) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -513,7 +466,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is path node.
    */
-  PATH((byte) 16, PathNode.class) {
+  PATH((byte) 16) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -561,7 +514,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is a CAS-RB node.
    */
-  CASRB((byte) 17, RBNodeKey.class) {
+  CASRB((byte) 17) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -637,7 +590,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is a PATH-RB node.
    */
-  PATHRB((byte) 18, RBNodeKey.class) {
+  PATHRB((byte) 18) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -681,7 +634,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is a PATH-RB node.
    */
-  NAMERB((byte) 19, RBNodeKey.class) {
+  NAMERB((byte) 19) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -741,7 +694,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node kind is a value red black tree node.
    */
-  RB_NODE_VALUE((byte) 55, RBNodeValue.class) {
+  RB_NODE_VALUE((byte) 55) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -775,7 +728,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Node includes a deweyID &lt;=&gt; nodeKey mapping.
    */
-  DEWEYIDMAPPING((byte) 23, DeweyIDMappingNode.class) {
+  DEWEYIDMAPPING((byte) 23) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -802,7 +755,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * JSON object node.
    */
-  OBJECT((byte) 24, ObjectNode.class) {
+  OBJECT((byte) 24) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -842,7 +795,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * JSON array node.
    */
-  ARRAY((byte) 25, ArrayNode.class) {
+  ARRAY((byte) 25) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -884,7 +837,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * JSON object key node.
    */
-  OBJECT_KEY((byte) 26, ObjectKeyNode.class) {
+  OBJECT_KEY((byte) 26) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -962,7 +915,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * JSON string value node.
    */
-  OBJECT_STRING_VALUE((byte) 40, ObjectStringNode.class) {
+  OBJECT_STRING_VALUE((byte) 40) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1010,7 +963,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * JSON boolean value node.
    */
-  OBJECT_BOOLEAN_VALUE((byte) 41, ObjectBooleanNode.class) {
+  OBJECT_BOOLEAN_VALUE((byte) 41) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1053,7 +1006,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * JSON number value node.
    */
-  OBJECT_NUMBER_VALUE((byte) 42, ObjectNumberNode.class) {
+  OBJECT_NUMBER_VALUE((byte) 42) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1143,7 +1096,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * JSON null node.
    */
-  OBJECT_NULL_VALUE((byte) 43, ObjectNullNode.class) {
+  OBJECT_NULL_VALUE((byte) 43) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1184,7 +1137,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * JSON string value node.
    */
-  STRING_VALUE((byte) 30, StringNode.class) {
+  STRING_VALUE((byte) 30) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1227,7 +1180,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * JSON boolean value node.
    */
-  BOOLEAN_VALUE((byte) 27, BooleanNode.class) {
+  BOOLEAN_VALUE((byte) 27) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1265,7 +1218,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * JSON number value node.
    */
-  NUMBER_VALUE((byte) 28, NumberNode.class) {
+  NUMBER_VALUE((byte) 28) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1345,7 +1298,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * JSON null node.
    */
-  NULL_VALUE((byte) 29, NullNode.class) {
+  NULL_VALUE((byte) 29) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1381,7 +1334,7 @@ public enum NodeKind implements DeweyIdSerializer {
    * Node kind is document root.
    */
   // Virtualize document root node?
-  JSON_DOCUMENT((byte) 31, JsonDocumentRootNode.class) {
+  JSON_DOCUMENT((byte) 31) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1414,19 +1367,9 @@ public enum NodeKind implements DeweyIdSerializer {
       putVarLong(sink, node.getFirstChildKey());
       sink.writeLong(node.getDescendantCount());
     }
-
-    @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
-      return null;
-    }
-
-    @Override
-    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
-        ResourceConfiguration resourceConfig) {
-    }
   },
 
-  HASH_ENTRY((byte) 32, HashEntryNode.class) {
+  HASH_ENTRY((byte) 32) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1440,18 +1383,9 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.writeUtf8(node.getValue());
     }
 
-    @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
-      return null;
-    }
-
-    @Override
-    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
-        ResourceConfiguration resourceConfig) {
-    }
   },
 
-  HASH_NAME_COUNT_TO_NAME_ENTRY((byte) 33, HashCountEntryNode.class) {
+  HASH_NAME_COUNT_TO_NAME_ENTRY((byte) 33) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1464,18 +1398,9 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.writeInt(node.getValue());
     }
 
-    @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
-      return null;
-    }
-
-    @Override
-    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
-        ResourceConfiguration resourceConfig) {
-    }
   },
 
-  DEWEY_ID_NODE((byte) 34, DeweyIDNode.class) {
+  DEWEY_ID_NODE((byte) 34) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1486,18 +1411,9 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
     }
 
-    @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
-      return null;
-    }
-
-    @Override
-    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
-        ResourceConfiguration resourceConfig) {
-    }
   },
 
-  REVISION_REFERENCES_NODE((byte) 35, RevisionReferencesNode.class) {
+  REVISION_REFERENCES_NODE((byte) 35) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1534,21 +1450,12 @@ public enum NodeKind implements DeweyIdSerializer {
       }
     }
 
-    @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
-      return null;
-    }
-
-    @Override
-    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
-        ResourceConfiguration resourceConfig) {
-    }
   },
 
   /**
    * Node type not known.
    */
-  UNKNOWN((byte) 22, null) {
+  UNKNOWN((byte) 22) {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final PageReadOnlyTrx pageReadTrx) {
@@ -1611,9 +1518,8 @@ public enum NodeKind implements DeweyIdSerializer {
    * Constructor.
    *
    * @param id    unique identifier
-   * @param clazz class
    */
-  NodeKind(final byte id, final Class<? extends DataRecord> clazz) {
+  NodeKind(final byte id) {
     this.id = id;
   }
 
@@ -1907,6 +1813,11 @@ public enum NodeKind implements DeweyIdSerializer {
      * @param nodeKey to be set
      */
     public DumbNode {
+    }
+
+    @Override
+    public DumbNode clone() {
+      return new DumbNode(nodeKey);
     }
 
     @Override

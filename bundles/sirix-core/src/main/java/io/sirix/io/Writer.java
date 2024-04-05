@@ -22,6 +22,7 @@
 package io.sirix.io;
 
 import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.PageTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
 import net.openhft.chronicle.bytes.Bytes;
@@ -52,7 +53,7 @@ public interface Writer extends Reader {
    * @throws SirixIOException exception to be thrown if something bad happens
    * @return this writer instance
    */
-  Writer write(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference, Bytes<ByteBuffer> bufferedBytes);
+  Writer write(PageTrx pageTrx, PageReference pageReference, Bytes<ByteBuffer> bufferedBytes);
 
   /**
    * Write beacon for the first reference.
@@ -62,15 +63,16 @@ public interface Writer extends Reader {
    * @throws SirixIOException if an I/O error occured
    * @return this writer instance
    */
-  Writer writeUberPageReference(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference, Bytes<ByteBuffer> bufferedBytes);
+  Writer writeUberPageReference(PageTrx pageTrx, PageReference pageReference, Bytes<ByteBuffer> bufferedBytes);
 
   /**
    * Truncate to a specific revision.
    *
+   * @param pageTrx the page transaction
    * @param revision the revision to truncate to.
    * @return this writer instance
    */
-  Writer truncateTo(PageReadOnlyTrx pageReadOnlyTrx, int revision);
+  Writer truncateTo(PageTrx pageTrx, int revision);
 
   /**
    * Truncate, that is remove all file content.

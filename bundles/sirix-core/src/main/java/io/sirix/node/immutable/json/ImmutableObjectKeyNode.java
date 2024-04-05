@@ -1,14 +1,14 @@
 package io.sirix.node.immutable.json;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
-import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
 import io.sirix.node.json.ObjectKeyNode;
 import io.sirix.node.json.ObjectNode;
+import net.openhft.chronicle.bytes.Bytes;
 
 import java.nio.ByteBuffer;
 
@@ -42,6 +42,11 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
    */
   public static ImmutableObjectKeyNode of(final ObjectKeyNode node) {
     return new ImmutableObjectKeyNode(node);
+  }
+
+  @Override
+  public ImmutableObjectKeyNode clone() {
+    return new ImmutableObjectKeyNode(node.clone());
   }
 
   @Override

@@ -56,6 +56,11 @@ public final class ObjectStringNode extends AbstractStringNode {
   }
 
   @Override
+  public ObjectStringNode clone() {
+    return new ObjectStringNode(getValNodeDelegate().clone(), getStructNodeDelegate().clone());
+  }
+
+  @Override
   public NodeKind getKind() {
     return NodeKind.OBJECT_STRING_VALUE;
   }

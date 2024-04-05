@@ -52,7 +52,8 @@ public final class TreeModifierImpl implements TreeModifier {
 
   @Override
   public RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage, final NodePageReadOnlyTrx pageRtx,
-      final TransactionIntentLog log, final @NonNegative int baseRevision, final @NonNegative int representRevision) {
+      final TransactionIntentLog log, final TransactionIntentLog formerLog, final @NonNegative int baseRevision,
+      final @NonNegative int representRevision) {
     final RevisionRootPage revisionRootPage;
 
     if (uberPage.isBootstrap()) {
@@ -71,8 +72,9 @@ public final class TreeModifierImpl implements TreeModifier {
 
   @Override
   public PageReference prepareLeafOfTree(final PageTrx pageRtx, final TransactionIntentLog log,
-      final int[] inpLevelPageCountExp, final PageReference startReference, @NonNegative final long pageKey,
-      final int index, final IndexType indexType, final RevisionRootPage revisionRootPage) {
+      final TransactionIntentLog formerLog, final int[] inpLevelPageCountExp, final PageReference startReference,
+      @NonNegative final long pageKey, final int index, final IndexType indexType,
+      final RevisionRootPage revisionRootPage) {
     // Initial state pointing to the indirect nodePageReference of level 0.
     PageReference reference = startReference;
 
@@ -89,12 +91,12 @@ public final class TreeModifierImpl implements TreeModifier {
       final IndirectPage page = new IndirectPage();
 
       // Get the first reference.
-      final PageReference newReference = page.getOrCreateReference(0);
+      page.setOrCreateReference(0, reference);
 
-      newReference.setKey(reference.getKey());
-      newReference.setLogKey(reference.getLogKey());
-      newReference.setPage(reference.getPage());
-      newReference.setPageFragments(reference.getPageFragments());
+//      newReference.setKey(reference.getKey());
+//      newReference.setLogKey(reference.getLogKey());
+//      newReference.setPage(reference.getPage());
+//      newReference.setPageFragments(reference.getPageFragments());
 
       // Create new page reference, add it to the transaction-log and reassign it in the root pages
       // of the tree.
@@ -110,27 +112,12 @@ public final class TreeModifierImpl implements TreeModifier {
          level < height; level++) {
       offset = (int) (levelKey >> inpLevelPageCountExp[level]);
       levelKey -= (long) offset << inpLevelPageCountExp[level];
-      final IndirectPage page = prepareIndirectPage(pageRtx, log, reference);
+      final IndirectPage page = prepareIndirectPage(pageRtx, log, formerLog, reference);
       reference = page.getOrCreateReference(offset);
     }
 
     // Return reference to leaf of indirect tree.
     return reference;
-  }
-
-  private IndirectPage dereferenceOldIndirectPage(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
-      PageReference reference) throws AssertionError {
-    final PageContainer cont = log.get(reference);
-    IndirectPage oldPage = cont == null ? null : (IndirectPage) cont.getComplete();
-    if (oldPage == null) {
-      if (reference.getKey() == Constants.NULL_ID_LONG) {
-        throw new AssertionError("The referenced page on top must of our tree must exist (first IndirectPage).");
-      } else {
-        final IndirectPage indirectPage = pageRtx.dereferenceIndirectPageReference(reference);
-        oldPage = new IndirectPage(indirectPage);
-      }
-    }
-    return oldPage;
   }
 
   private void setNewIndirectPage(final PageReadOnlyTrx pageRtx, final RevisionRootPage revisionRoot,
@@ -168,16 +155,28 @@ public final class TreeModifierImpl implements TreeModifier {
 
   @Override
   public IndirectPage prepareIndirectPage(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
-      final PageReference reference) {
-    final PageContainer cont = log.get(reference);
+      final TransactionIntentLog formerLog, final PageReference reference) {
+    PageContainer cont = log.get(reference);
     IndirectPage page = cont == null ? null : (IndirectPage) cont.getComplete();
     if (page == null) {
-      if (reference.getKey() == Constants.NULL_ID_LONG) {
-        page = new IndirectPage();
-      } else {
-        final IndirectPage indirectPage = pageRtx.dereferenceIndirectPageReference(reference);
-        page = new IndirectPage(indirectPage);
+      if (formerLog != null) {
+        cont = formerLog.get(reference);
+        page = cont == null ? null : (IndirectPage) cont.getComplete();
+
+        if (page != null) {
+          page = new IndirectPage(page);
+        }
       }
+
+      if (page == null) {
+        if (reference.getKey() == Constants.NULL_ID_LONG) {
+          page = new IndirectPage();
+        } else {
+          page = pageRtx.dereferenceIndirectPageReference(reference);
+          page = new IndirectPage(page);
+        }
+      }
+
       log.put(reference, PageContainer.getInstance(page, page));
     }
     return page;

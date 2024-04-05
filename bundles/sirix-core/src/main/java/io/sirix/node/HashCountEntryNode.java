@@ -49,6 +49,11 @@ public final class HashCountEntryNode implements DataRecord {
   }
 
   @Override
+  public HashCountEntryNode clone() {
+    return new HashCountEntryNode(nodeKey, value);
+  }
+
+  @Override
   public NodeKind getKind() {
     return NodeKind.HASH_NAME_COUNT_TO_NAME_ENTRY;
   }
