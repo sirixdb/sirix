@@ -414,7 +414,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
       // Recursively commit indirectly referenced pages and then write self.
       page.commit(this);
-      storagePageReaderWriter.write(this, reference, bufferBytes);
+      storagePageReaderWriter.write(this, reference, page, bufferBytes);
     } finally {
       if (page instanceof RevisionRootPage) {
         ((InternalResourceSession<?, ?>) getResourceSession()).getRevisionRootPageLock().release();

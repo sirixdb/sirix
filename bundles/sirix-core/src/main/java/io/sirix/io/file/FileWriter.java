@@ -119,25 +119,23 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
    * @throws SirixIOException if errors during writing occur
    */
   @Override
-  public FileWriter write(final PageTrx pageTrx, final PageReference pageReference,
+  public FileWriter write(final PageTrx pageTrx, final PageReference pageReference, final Page page,
       final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long fileSize = dataFile.length();
       long offset = fileSize == 0 ? IOStorage.FIRST_BEACON : fileSize;
-      return writePageReference(pageTrx, pageReference, offset);
+      return writePageReference(pageTrx, pageReference, page, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
   @NonNull
-  private FileWriter writePageReference(final PageTrx pageTrx, final PageReference pageReference,
+  private FileWriter writePageReference(final PageTrx pageTrx, final PageReference pageReference, final Page page,
       long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
-      final Page page = pageReference.getPage();
-
       final byte[] serializedPage;
 
       try (final ByteArrayOutputStream output = new ByteArrayOutputStream(1_000)) {
@@ -231,9 +229,9 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   public Writer writeUberPageReference(final PageTrx pageTrx, final PageReference pageReference,
       final Bytes<ByteBuffer> bufferedBytes) {
     isFirstUberPage = true;
-    writePageReference(pageTrx, pageReference, 0);
+    writePageReference(pageTrx, pageReference, pageReference.getPage(), 0);
     isFirstUberPage = false;
-    writePageReference(pageTrx, pageReference, 100);
+    writePageReference(pageTrx, pageReference, pageReference.getPage(), 100);
     return this;
   }
 

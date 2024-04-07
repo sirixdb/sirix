@@ -199,11 +199,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
     }
 
-    reference.setLogKey(Constants.NULL_ID_INT);
-    page = resourceBufferManager.getPageCache().get(reference);
-    if (page != null) {
-      reference.setPage(page);
-      return page;
+    if (trxIntentLog == null) {
+      page = resourceBufferManager.getPageCache().get(reference);
+      if (page != null) {
+        reference.setPage(page);
+        return page;
+      }
     }
 
     if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
@@ -211,16 +212,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
 
     if (page != null) {
-      reference.setPage(page);
       putIntoPageCache(reference, page);
+      reference.setPage(page);
     }
     return page;
   }
 
   private void putIntoPageCache(PageReference reference, Page page) {
-    if (reference.getLogKey() != Constants.NULL_ID_INT) {
-      return;
-    }
     if (!(page instanceof UberPage)) {
       // Put page into buffer manager.
       resourceBufferManager.getPageCache().put(reference, page);
@@ -480,9 +478,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
 
     // Fourth: Try to get from resource buffer manager.
-    Page recordPageFromBuffer = getFromBufferManager(indexLogKey, pageReferenceToRecordPage);
-    if (recordPageFromBuffer != null) {
-      return recordPageFromBuffer;
+    if (trxIntentLog == null || indexLogKey.getIndexType() != IndexType.PATH_SUMMARY) {
+      Page recordPageFromBuffer = getFromBufferManager(indexLogKey, pageReferenceToRecordPage);
+      if (recordPageFromBuffer != null) {
+        return recordPageFromBuffer;
+      }
     }
 
     if (pageReferenceToRecordPage.getKey() == Constants.NULL_ID_LONG) {

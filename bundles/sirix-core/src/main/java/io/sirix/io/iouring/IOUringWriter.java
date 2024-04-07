@@ -127,11 +127,11 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @Override
-  public IOUringWriter write(final PageTrx pageTrx, final PageReference pageReference,
+  public IOUringWriter write(final PageTrx pageTrx, final PageReference pageReference, final Page page,
       final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long offset = getOffset(bufferedBytes);
-      return writePageReference(pageTrx, pageReference, bufferedBytes, offset);
+      return writePageReference(pageTrx, pageReference, page, bufferedBytes, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -153,10 +153,10 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @NonNull
-  private IOUringWriter writePageReference(final PageTrx pageTrx, final PageReference pageReference,
+  private IOUringWriter writePageReference(final PageTrx pageTrx, final PageReference pageReference, final Page page,
       Bytes<ByteBuffer> bufferedBytes, long offset) {
     try {
-      POOL.submit(() -> writePage(pageTrx, pageReference, bufferedBytes, offset)).get();
+      POOL.submit(() -> writePage(pageTrx, pageReference, page, bufferedBytes, offset)).get();
       return this;
     } catch (InterruptedException | ExecutionException e) {
       throw new SirixIOException(e);
@@ -164,14 +164,11 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @NonNull
-  private IOUringWriter writePage(PageTrx pageReadOnlyTrx, PageReference pageReference, Bytes<ByteBuffer> bufferedBytes,
-      long offset) {
+  private IOUringWriter writePage(PageTrx pageReadOnlyTrx, PageReference pageReference, Page page,
+      Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
-      final Page page = pageReference.getPage();
-      assert page != null;
-
       pagePersister.serializePage(pageReadOnlyTrx, byteBufferBytes, page, serializationType);
       final var byteArray = byteBufferBytes.toByteArray();
 
@@ -293,9 +290,9 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   public Writer writeUberPageReference(final PageTrx pageTrx, final PageReference pageReference,
       Bytes<ByteBuffer> bufferedBytes) {
     isFirstUberPage = true;
-    writePageReference(pageTrx, pageReference, bufferedBytes, 0);
+    writePageReference(pageTrx, pageReference, pageReference.getPage(), bufferedBytes, 0);
     isFirstUberPage = false;
-    writePageReference(pageTrx, pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
+    writePageReference(pageTrx, pageReference, pageReference.getPage(), bufferedBytes, IOStorage.FIRST_BEACON >> 1);
 
     dataFile.dataSync().join();
 

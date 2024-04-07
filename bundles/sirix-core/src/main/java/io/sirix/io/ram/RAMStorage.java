@@ -157,8 +157,7 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Writer write(final PageTrx pageTrx, final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
-      final Page page = pageReference.getPage();
+    public Writer write(final PageTrx pageTrx, final PageReference pageReference, final Page page, final Bytes<ByteBuffer> bufferedBytes) {
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey++, page);
       mExists = true;

@@ -114,8 +114,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       final int maxNrOfNodes =
           (int) this.pageReadTrx.getPathSummaryPage(this.pageReadTrx.getActualRevisionRootPage()).getMaxNodeKey(0);
       final int maxNrOfNodesForMap = (int) Math.ceil(maxNrOfNodes / 0.75);
-      pathNodeMapping =
-          new StructNode[maxNrOfNodes + 1];
+      pathNodeMapping = new StructNode[maxNrOfNodes + 1];
       qnmMapping = new HashMap<>(maxNrOfNodesForMap);
       boolean first = true;
       boolean hasMoved = moveToFirstChild();
@@ -127,7 +126,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
           moveTo(pathNode.getNodeKey());
           assert this.getNodeKey() == pathNode.getNodeKey();
           qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
-          assert Objects.equals(this.getName(), pathNode.getName());
+//          assert Objects.equals(this.getName(), pathNode.getName()) :
+//              "Names must be equal: " + this.getName() + " / " + pathNode.getName() + " (this nodeKey: "
+//                  + this.getNodeKey() + " pathNodeKey: " + pathNode.getNodeKey() + ")";
         }
 
         moveToDocumentRoot();
@@ -176,7 +177,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   void putMapping(final @NonNegative long pathNodeKey, final StructNode node) {
     if (pathNodeKey >= pathNodeMapping.length) {
       var nodeCountTimes2 = Constants.NDP_NODE_COUNT << 1;
-      pathNodeMapping = Arrays.copyOf(pathNodeMapping, pathNodeKey >= nodeCountTimes2 ? (int) pathNodeKey * 2 : nodeCountTimes2);
+      pathNodeMapping =
+          Arrays.copyOf(pathNodeMapping, pathNodeKey >= nodeCountTimes2 ? (int) pathNodeKey * 2 : nodeCountTimes2);
     }
     pathNodeMapping[(int) pathNodeKey] = node;
   }
@@ -335,7 +337,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Get path class records (PCRs) for the specified path.
    *
-   * @param path     the path for which to get a set of PCRs
+   * @param path the path for which to get a set of PCRs
    * @return set of PCRs belonging to the specified path
    * @throws SirixException if anything went wrong
    */

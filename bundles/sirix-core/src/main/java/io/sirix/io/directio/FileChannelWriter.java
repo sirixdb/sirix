@@ -119,11 +119,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public FileChannelWriter write(final PageTrx pageTrx, final PageReference pageReference,
+  public FileChannelWriter write(final PageTrx pageTrx, final PageReference pageReference, final Page page,
       final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long offset = getOffset(bufferedBytes);
-      return writePageReference(pageTrx, pageReference, bufferedBytes, offset);
+      return writePageReference(pageTrx, pageReference, page, bufferedBytes, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -145,13 +145,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   @NonNull
   private FileChannelWriter writePageReference(final PageTrx pageTrx, final PageReference pageReference,
-      final Bytes<ByteBuffer> bufferedBytes, long offset) {
+      final Page page, final Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
-      final Page page = pageReference.getPage();
-      assert page != null;
-
       pagePersister.serializePage(pageTrx, byteBufferBytes, page, serializationType);
       final var byteArray = byteBufferBytes.toByteArray();
 
@@ -252,13 +249,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       }
 
       isFirstUberPage = true;
-      writePageReference(pageTrx, pageReference, bufferedBytes, DirectIOUtils.BLOCK_SIZE);
+      writePageReference(pageTrx, pageReference, pageReference.getPage(), bufferedBytes, DirectIOUtils.BLOCK_SIZE);
       isFirstUberPage = false;
-      writePageReference(pageTrx, pageReference, bufferedBytes, DirectIOUtils.BLOCK_SIZE * 2L);
+      writePageReference(pageTrx, pageReference, pageReference.getPage(), bufferedBytes, DirectIOUtils.BLOCK_SIZE * 2L);
 
-      @SuppressWarnings("DataFlowIssue") final var buffer = bufferedBytes.underlyingObject();
+      final var buffer = bufferedBytes.underlyingObject();
       buffer.limit((int) bufferedBytes.readLimit());
-      dataFileChannel.write(buffer.alignedSlice(DirectIOUtils.BLOCK_SIZE).order(ByteOrder.nativeOrder()), DirectIOUtils.BLOCK_SIZE);
+      dataFileChannel.write(buffer.alignedSlice(DirectIOUtils.BLOCK_SIZE).order(ByteOrder.nativeOrder()),
+                            DirectIOUtils.BLOCK_SIZE);
       dataFileChannel.force(false);
       bufferedBytes.clear();
     } catch (final IOException e) {
@@ -278,8 +276,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       offset = fileSize;
     }
 
-    @SuppressWarnings("DataFlowIssue") final var buffer =
-        bufferedBytes.underlyingObject();
+    final var buffer = bufferedBytes.underlyingObject();
     buffer.limit((int) bufferedBytes.readLimit());
     dataFileChannel.write(buffer.alignedSlice(DirectIOUtils.BLOCK_SIZE).order(ByteOrder.nativeOrder()), offset);
     dataFileChannel.force(false);

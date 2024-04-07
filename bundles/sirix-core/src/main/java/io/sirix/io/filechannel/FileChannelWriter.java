@@ -119,11 +119,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public FileChannelWriter write(final PageTrx pageTrx, final PageReference pageReference,
+  public FileChannelWriter write(final PageTrx pageTrx, final PageReference pageReference, final Page page,
       final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long offset = getOffset(bufferedBytes);
-      return writePageReference(pageTrx, pageReference, bufferedBytes, offset);
+      return writePageReference(pageTrx, pageReference, page, bufferedBytes, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -146,13 +146,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   @NonNull
   private FileChannelWriter writePageReference(final PageTrx pageTrx, final PageReference pageReference,
-      final Bytes<ByteBuffer> bufferedBytes, long offset) {
+      final Page page, final Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
-      final Page page = pageReference.getPage();
-      assert page != null;
-
       pagePersister.serializePage(pageTrx, byteBufferBytes, page, serializationType);
       final var byteArray = byteBufferBytes.toByteArray();
 
@@ -276,9 +273,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       }
 
       isFirstUberPage = true;
-      writePageReference(pageTrx, pageReference, bufferedBytes, 0);
+      writePageReference(pageTrx, pageReference, pageReference.getPage(), bufferedBytes, 0);
       isFirstUberPage = false;
-      writePageReference(pageTrx, pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
+      writePageReference(pageTrx, pageReference, pageReference.getPage(), bufferedBytes, IOStorage.FIRST_BEACON >> 1);
 
       @SuppressWarnings("DataFlowIssue") final var buffer = bufferedBytes.underlyingObject().rewind();
       buffer.limit((int) bufferedBytes.readLimit());
