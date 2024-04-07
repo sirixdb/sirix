@@ -75,6 +75,30 @@ public final class PathSummaryPage extends AbstractForwardingPage {
   }
 
   /**
+   * Clone/copy constructor
+   */
+  public PathSummaryPage(final PathSummaryPage pathSummaryPage) {
+    this.delegate = pathSummaryPage.delegate;
+    this.maxNodeKeys = pathSummaryPage.maxNodeKeys;
+    this.currentMaxLevelsOfIndirectPages =
+        pathSummaryPage.currentMaxLevelsOfIndirectPages;
+  }
+
+  /**
+   * Constructor to set deserialized values for PathSummaryPage
+   *
+   * @param delegate                        page
+   * @param maxNodeKeys                     Hashmap deserialized
+   * @param currentMaxLevelsOfIndirectPages Hashmap deserialized
+   */
+  PathSummaryPage(final Page delegate, final Int2LongMap maxNodeKeys,
+      final Int2IntMap currentMaxLevelsOfIndirectPages) {
+    this.delegate = delegate;
+    this.maxNodeKeys = maxNodeKeys;
+    this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
+  }
+
+  /**
    * Get indirect page reference.
    *
    * @param index the offset of the indirect page, that is the index number
@@ -82,20 +106,6 @@ public final class PathSummaryPage extends AbstractForwardingPage {
    */
   public PageReference getIndirectPageReference(int index) {
     return getOrCreateReference(index);
-  }
-
-  /**
-   * Constructor to set deserialized values for PathSummaryPage
-   *
-   * @param delegate page
-   * @param maxNodeKeys Hashmap deserialized
-   * @param currentMaxLevelsOfIndirectPages Hashmap deserialized
-   */
-  PathSummaryPage(final Page delegate, final  Int2LongMap maxNodeKeys,
-                  final Int2IntMap currentMaxLevelsOfIndirectPages ){
-    this.delegate = delegate;
-    this.maxNodeKeys = maxNodeKeys;
-    this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
   }
 
   @Override
@@ -141,12 +151,12 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 
   /**
    * Get the size of CurrentMaxLevelOfIndirectPage to Serialize
+   *
    * @return int Size of CurrentMaxLevelOfIndirectPage
    */
-  public int getCurrentMaxLevelOfIndirectPagesSize(){
+  public int getCurrentMaxLevelOfIndirectPagesSize() {
     return currentMaxLevelsOfIndirectPages.size();
   }
-
 
   public int incrementAndGetCurrentMaxLevelOfIndirectPages(int index) {
     return currentMaxLevelsOfIndirectPages.merge(index, 1, Integer::sum);
@@ -154,9 +164,10 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 
   /**
    * Get the size of MaxNodeKey to Serialize
+   *
    * @return int Size of MaxNodeKey
    */
-  public int getMaxNodeKeySize(){
+  public int getMaxNodeKeySize() {
     return maxNodeKeys.size();
   }
 

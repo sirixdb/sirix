@@ -44,7 +44,7 @@ import java.util.Objects;
 public final class PageReference {
 
   /** In-memory deserialized page instance. */
-  private volatile Page page;
+  private Page page;
 
   /** Key in persistent storage. */
   private volatile long key = Constants.NULL_ID_LONG;
@@ -53,11 +53,11 @@ public final class PageReference {
   private volatile int logKey = Constants.NULL_ID_INT;
 
   /** The hash in bytes, generated from the referenced page-fragment. */
-  private volatile byte[] hashInBytes;
+  private byte[] hashInBytes;
 
-  private volatile Int2ObjectRBTreeMap<List<PageFragmentKey>> pageFragments;
+  private Int2ObjectRBTreeMap<List<PageFragmentKey>> pageFragments;
 
-  private volatile int hash;
+  private int hash;
 
   /**
    * Default constructor setting up an uninitialized page reference.

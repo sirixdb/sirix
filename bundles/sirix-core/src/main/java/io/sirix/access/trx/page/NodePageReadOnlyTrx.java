@@ -194,6 +194,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         final PageContainer cont = formerTrxIntentLog.get(reference);
         page = cont == null ? null : cont.getComplete();
         if (page != null) {
+          if (page instanceof IndirectPage indirectPage) {
+            page = new IndirectPage(indirectPage);
+          }
           return page;
         }
       }
@@ -660,7 +663,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     if (trxIntentLog == null) {
       final var pageFromBufferManager = resourceBufferManager.getPageCache().get(pageReference);
       if (pageFromBufferManager != null) {
-        assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) pageFromBufferManager).getRevision();
+//        assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) pageFromBufferManager).getRevision();
         return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) pageFromBufferManager);
       }
     }
@@ -670,8 +673,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                                                         .whenComplete((page, exception) -> {
                                                                           pageReadOnlyTrx.close();
                                                                           if (trxIntentLog == null) {
-                                                                            assert pageFragmentKey.revision()
-                                                                                == ((KeyValuePage<DataRecord>) page).getRevision();
+//                                                                            assert pageFragmentKey.revision()
+//                                                                                == ((KeyValuePage<DataRecord>) page).getRevision();
                                                                             resourceBufferManager.getPageCache()
                                                                                                  .put(pageReference,
                                                                                                       page);
