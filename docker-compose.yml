@@ -1,7 +1,7 @@
 version: '3'
 services:
   keycloak:
-    image: quay.io/keycloak/keycloak
+    image: quay.io/keycloak/keycloak:7.0.1
     ports:
       - 8080:8080
       - 8433:8433
