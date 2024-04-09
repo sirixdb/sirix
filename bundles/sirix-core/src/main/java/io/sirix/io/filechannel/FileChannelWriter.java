@@ -225,7 +225,6 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
             revisionsFileOffset = revisionsFileChannel.size();
           }
           revisionsFileChannel.write(buffer, revisionsFileOffset);
-          buffer = null;
           final long currOffset = offset;
           cache.put(revisionRootPage.getRevision(),
                     CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
@@ -237,7 +236,6 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           revisionsFileChannel.write(buffer, 0);
           buffer.position(0);
           revisionsFileChannel.write(buffer, Writer.UBER_PAGE_BYTE_ALIGN);
-          buffer = null;
         }
       }
 

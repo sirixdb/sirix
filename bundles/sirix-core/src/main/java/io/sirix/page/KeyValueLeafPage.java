@@ -249,44 +249,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return lock;
   }
 
-  /**
-   * Copy and add records, slots and references from another KeyValueLeafPage
-   * if they are not already set
-   *
-   * @param pageToMerge the page to merge with the current page
-   */
-  public KeyValueLeafPage mergePage(final KeyValueLeafPage pageToMerge) {
-    synchronized (this) {
-      // Merge DataRecords
-      for (int i = 0; i < pageToMerge.records.length; i++) {
-        if (this.records[i] == null && pageToMerge.records[i] != null) {
-          this.records[i] = pageToMerge.records[i];
-        }
-      }
-
-      // Merge slots
-      for (int i = 0; i < pageToMerge.slots.length; i++) {
-        if (this.slots[i] == null && pageToMerge.slots[i] != null) {
-          this.slots[i] = Arrays.copyOf(pageToMerge.slots[i], pageToMerge.slots[i].length);
-        }
-      }
-
-      // Merge deweyIds
-      for (int i = 0; i < pageToMerge.deweyIds.length; i++) {
-        if (this.deweyIds[i] == null && pageToMerge.deweyIds[i] != null) {
-          this.deweyIds[i] = Arrays.copyOf(pageToMerge.deweyIds[i], pageToMerge.deweyIds[i].length);
-        }
-      }
-    }
-
-    // Merge references
-    for (Map.Entry<Long, PageReference> entry : pageToMerge.references.entrySet()) {
-      this.references.putIfAbsent(entry.getKey(), new PageReference(entry.getValue()));
-    }
-
-    return this;
-  }
-
   @Override
   public long getPageKey() {
     return recordPageKey;

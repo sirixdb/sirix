@@ -177,8 +177,10 @@ public enum PageKind {
           return;
         }
 
-        sink.writeByte(KEYVALUELEAFPAGE.id);
-        sink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
+        final var tmpSink = Bytes.elasticHeapByteBuffer(60_000);
+
+        tmpSink.writeByte(KEYVALUELEAFPAGE.id);
+        tmpSink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
 
         //Variables from keyValueLeafPage
         final long recordPageKey = keyValueLeafPage.getPageKey();
@@ -192,11 +194,11 @@ public enum PageKind {
         // Add references to overflow pages if necessary.
         keyValueLeafPage.addReferences(pageTrx);
         // Write page key.
-        Utils.putVarLong(sink, recordPageKey);
+        Utils.putVarLong(tmpSink, recordPageKey);
         // Write revision number.
-        sink.writeInt(pageTrx.getRevisionNumber());
+        tmpSink.writeInt(pageTrx.getRevisionNumber());
         // Write index type.
-        sink.writeByte(indexType.getID());
+        tmpSink.writeByte(indexType.getID());
 
         // Write dewey IDs.
         if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer persistence) {
@@ -206,8 +208,8 @@ public enum PageKind {
               deweyIdsBitmap.set(i);
             }
           }
-          SerializationType.serializeBitSet(sink, deweyIdsBitmap);
-          sink.writeInt(deweyIdsBitmap.cardinality());
+          SerializationType.serializeBitSet(tmpSink, deweyIdsBitmap);
+          tmpSink.writeInt(deweyIdsBitmap.cardinality());
 
           boolean first = true;
           byte[] previousDeweyId = null;
@@ -216,9 +218,9 @@ public enum PageKind {
             if (deweyId != null) {
               if (first) {
                 first = false;
-                persistence.serializeDeweyID(sink, deweyId, null, resourceConfig);
+                persistence.serializeDeweyID(tmpSink, deweyId, null, resourceConfig);
               } else {
-                persistence.serializeDeweyID(sink, previousDeweyId, deweyId, resourceConfig);
+                persistence.serializeDeweyID(tmpSink, previousDeweyId, deweyId, resourceConfig);
               }
               previousDeweyId = deweyId;
             }
@@ -232,7 +234,7 @@ public enum PageKind {
             entriesBitmap.set(i);
           }
         }
-        SerializationType.serializeBitSet(sink, entriesBitmap);
+        SerializationType.serializeBitSet(tmpSink, entriesBitmap);
 
         var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
         final var overlongEntriesSortedByKey =
@@ -242,49 +244,50 @@ public enum PageKind {
           final var pageOffset = PageReadOnlyTrx.recordPageOffset(entry.getKey());
           overlongEntriesBitmap.set(pageOffset);
         }
-        SerializationType.serializeBitSet(sink, overlongEntriesBitmap);
+        SerializationType.serializeBitSet(tmpSink, overlongEntriesBitmap);
 
         // Write normal entries.
-        sink.writeInt(entriesBitmap.cardinality());
+        tmpSink.writeInt(entriesBitmap.cardinality());
         for (final byte[] data : slots) {
           if (data != null) {
             final int length = data.length;
-            sink.writeInt(length);
-            sink.write(data);
+            tmpSink.writeInt(length);
+            tmpSink.write(data);
           }
         }
 
         // Write overlong entries.
-        sink.writeInt(overlongEntriesSortedByKey.size());
+        tmpSink.writeInt(overlongEntriesSortedByKey.size());
         for (final var entry : overlongEntriesSortedByKey) {
           // Write key in persistent storage.
-          sink.writeLong(entry.getValue().getKey());
+          tmpSink.writeLong(entry.getValue().getKey());
         }
 
-        keyValueLeafPage.setHashCode(pageTrx.getReader().hashFunction.hashBytes(sink.bytesForRead().toByteArray())
+        keyValueLeafPage.setHashCode(pageTrx.getReader().hashFunction.hashBytes(tmpSink.bytesForRead().toByteArray())
                                                                      .asBytes());
 
+        final var byteArray = tmpSink.bytesForRead().toByteArray();
+
+        final byte[] serializedPage;
+
+        try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
+          try (final DataOutputStream dataOutput = new DataOutputStream(pageTrx.getResourceSession()
+                                                                               .getResourceConfig().byteHandlePipeline.serialize(
+                  output))) {
+            dataOutput.write(byteArray);
+            dataOutput.flush();
+          }
+          serializedPage = output.toByteArray();
+        } catch (IOException e) {
+          throw new UncheckedIOException(e);
+        }
+
+        keyValueLeafPage.setBytes(Bytes.wrapForRead(serializedPage));
+
+        sink.write(serializedPage);
       } finally {
         keyValueLeafPage.getLock().release();
       }
-
-      final var byteArray = sink.bytesForRead().toByteArray();
-
-      final byte[] serializedPage;
-
-      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
-        try (final DataOutputStream dataOutput = new DataOutputStream(pageTrx.getResourceSession()
-                                                                             .getResourceConfig().byteHandlePipeline.serialize(
-                output))) {
-          dataOutput.write(byteArray);
-          dataOutput.flush();
-        }
-        serializedPage = output.toByteArray();
-      } catch (IOException e) {
-        throw new UncheckedIOException(e);
-      }
-
-      keyValueLeafPage.setBytes(Bytes.wrapForRead(serializedPage));
     }
 
     @Override
@@ -805,7 +808,8 @@ public enum PageKind {
 
   private static void serializeDelegate(int revision, BytesOut<?> sink, Page delegate, SerializationType type) {
     switch (delegate) {
-      case ReferencesPage4 page -> type.serializeReferencesPage4(revision, sink, page.getReferences(), page.getOffsets());
+      case ReferencesPage4 page ->
+          type.serializeReferencesPage4(revision, sink, page.getReferences(), page.getOffsets());
       case BitmapReferencesPage page ->
           type.serializeBitmapReferencesPage(revision, sink, page.getReferences(), page.getBitmap());
       case FullReferencesPage ignored ->

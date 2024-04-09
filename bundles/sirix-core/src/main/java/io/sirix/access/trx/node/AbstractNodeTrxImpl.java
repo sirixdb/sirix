@@ -327,7 +327,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // Reset modification counter.
       modificationCount = 0L;
 
-      ((InternalResourceSession<?,?>) getResourceSession()).getRevisionRootPageLock().acquire();
+      ((InternalResourceSession<?, ?>) getResourceSession()).getRevisionRootPageLock().acquire();
 
       final int revisionNumber = getRevisionNumber();
 
@@ -508,8 +508,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
         final UberPage uberPage = pageTrx.commit(commitMessage, commitTimestamp);
 
-        pageTrx.getLog().clear();
-
         // Remember successfully committed uber page in resource manager.
         resourceSession.setLastCommittedUberPage(uberPage);
 
@@ -520,6 +518,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         // Reinstantiate everything.
         if (afterCommitState == AfterCommitState.KEEP_OPEN) {
           reInstantiate(getId(), preCommitRevision);
+          //pageTrx.getLog().clear();
           state = State.RUNNING;
         } else {
           state = State.COMMITTED;
@@ -575,14 +574,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private void reInstantiate(final @NonNegative long trxID, final @NonNegative int revNumber) {
     // Reset page transaction to new uber page.
-    resourceSession.closeNodePageWriteTransaction(getId());
+    resourceSession.closeNodePageWriteTransaction(trxID);
+
     pageTrx = resourceSession.createPageTransaction(trxID,
                                                     revNumber,
                                                     revNumber,
                                                     InternalResourceSession.Abort.NO,
                                                     true,
                                                     null,
-                                                    false);
+                                                    true);
+
     nodeReadOnlyTrx.setPageReadTransaction(null);
     nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
     resourceSession.setNodePageWriteTransaction(getId(), pageTrx);

@@ -42,6 +42,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
@@ -84,11 +85,8 @@ public final class NodePageTest {
     final KeyValueLeafPage page1 = new KeyValueLeafPage(0L, IndexType.DOCUMENT, pageTrx);
     assertEquals(0L, page1.getPageKey());
 
-    final NodeDelegate del = new NodeDelegate(0,
-                                              1,
-                                              LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER,
-                                              0,
-                                              SirixDeweyID.newRootID());
+    final NodeDelegate del =
+        new NodeDelegate(0, 1, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12L, 4L, 3L, 1L, 0L);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
     final ElementNode node1 =
@@ -105,8 +103,16 @@ public final class NodePageTest {
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     final PagePersister pagePersister = new PagePersister();
     pagePersister.serializePage(pageTrx, data, page1, SerializationType.DATA);
+
+    byte[] deserializedBytes;
+    try (final var inputStream = pageTrx.getResourceSession()
+                                        .getResourceConfig().byteHandlePipeline.deserialize(new ByteArrayInputStream(
+            data.toByteArray()))) {
+      deserializedBytes = inputStream.readAllBytes();
+    }
+
     final KeyValueLeafPage page2 = (KeyValueLeafPage) pagePersister.deserializePage(pageTrx,
-                                                                                    Bytes.wrapForRead(data.toByteArray()),
+                                                                                    Bytes.wrapForRead(deserializedBytes),
                                                                                     SerializationType.DATA);
     // assertEquals(position, out.position());
     final ElementNode element = (ElementNode) pageTrx.getValue(page2, 0L);

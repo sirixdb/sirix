@@ -41,8 +41,9 @@ public final class PagePersister {
   /**
    * Deserialize page.
    *
+   * @param pageReadOnlyTrx instance of class, which implements the {@link PageReadOnlyTrx} interface
    * @param source source to read from
-   * @param pageReadTrx instance of class, which implements the {@link PageReadOnlyTrx} interface
+   * @param type the type of serialization
    * @return {@link Page} instance
    * @throws IOException if an exception during deserialization of a page occurs
    */
@@ -54,8 +55,10 @@ public final class PagePersister {
   /**
    * Serialize page.
    *
+   * @param pageTrx the page transaction
    * @param sink output sink
    * @param page the {@link Page} to serialize
+   * @param type the type of serialization
    * @throws IOException if an exception during serialization of a page occurs
    */
   public void serializePage(final PageTrx pageTrx, final BytesOut<?> sink, final Page page,

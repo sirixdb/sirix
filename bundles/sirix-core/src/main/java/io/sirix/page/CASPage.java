@@ -32,6 +32,7 @@ import com.google.common.base.MoreObjects;
 import io.sirix.access.DatabaseType;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.page.delegates.BitmapReferencesPage;
+import io.sirix.page.delegates.FullReferencesPage;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
@@ -72,6 +73,20 @@ public final class CASPage extends AbstractForwardingPage {
     delegate = new ReferencesPage4();
     maxNodeKeys = new Int2LongOpenHashMap();
     currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
+  }
+
+  public CASPage(final CASPage casPage) {
+    final Page pageDelegate = casPage.delegate();
+
+    if (pageDelegate instanceof ReferencesPage4) {
+      delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
+    } else if (pageDelegate instanceof BitmapReferencesPage) {
+      delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
+    } else if (pageDelegate instanceof FullReferencesPage) {
+      delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+    }
+    maxNodeKeys = casPage.maxNodeKeys;
+    currentMaxLevelsOfIndirectPages = casPage.currentMaxLevelsOfIndirectPages;
   }
 
   /**

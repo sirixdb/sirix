@@ -31,6 +31,7 @@ package io.sirix.page;
 import com.google.common.base.MoreObjects;
 import io.sirix.access.DatabaseType;
 import io.sirix.page.delegates.BitmapReferencesPage;
+import io.sirix.page.delegates.FullReferencesPage;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
@@ -78,7 +79,15 @@ public final class PathSummaryPage extends AbstractForwardingPage {
    * Clone/copy constructor
    */
   public PathSummaryPage(final PathSummaryPage pathSummaryPage) {
-    this.delegate = pathSummaryPage.delegate;
+    final Page pageDelegate = pathSummaryPage.delegate();
+
+    if (pageDelegate instanceof ReferencesPage4) {
+      delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
+    } else if (pageDelegate instanceof BitmapReferencesPage) {
+      delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
+    } else if (pageDelegate instanceof FullReferencesPage) {
+      delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+    }
     this.maxNodeKeys = pathSummaryPage.maxNodeKeys;
     this.currentMaxLevelsOfIndirectPages =
         pathSummaryPage.currentMaxLevelsOfIndirectPages;

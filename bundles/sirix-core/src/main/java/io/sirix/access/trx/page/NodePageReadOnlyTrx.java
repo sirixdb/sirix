@@ -196,6 +196,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         if (page != null) {
           if (page instanceof IndirectPage indirectPage) {
             page = new IndirectPage(indirectPage);
+          } else if (page instanceof PathSummaryPage pathSummaryPage) {
+            page = new PathSummaryPage(pathSummaryPage);
+          } else if (page instanceof PathPage pathPage) {
+            page = new PathPage(pathPage);
+          } else if (page instanceof CASPage casPage) {
+            page = new CASPage(casPage);
+          } else if (page instanceof NamePage namePage) {
+            page = new NamePage(namePage);
           }
           return page;
         }

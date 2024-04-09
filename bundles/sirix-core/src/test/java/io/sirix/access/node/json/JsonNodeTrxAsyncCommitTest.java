@@ -32,6 +32,11 @@ public final class JsonNodeTrxAsyncCommitTest {
   }
 
   @RepeatedTest(1)
+  public void testFullVersioningSimple() {
+    testSimple(VersioningType.FULL, 1024, 2048);
+  }
+
+  @RepeatedTest(1)
   public void testDifferentialVersioning() {
     test(VersioningType.DIFFERENTIAL, 1024, 409600);
   }
@@ -44,6 +49,35 @@ public final class JsonNodeTrxAsyncCommitTest {
   @RepeatedTest(1)
   public void testSlidingSnapshotVersioning() {
     test(VersioningType.SLIDING_SNAPSHOT, 1024, 409600);
+  }
+
+  private void testSimple(VersioningType versioningType, int maxNodeCount, long iterationCount) {
+    final var resource = "smallInsertions";
+
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(resource)
+                                                   .storeDiffs(false)
+                                                   .hashKind(HashType.NONE)
+                                                   .buildPathSummary(true)
+                                                  // .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                   .versioningApproach(versioningType)
+                                                   .build());
+      try (final var manager = database.beginResourceSession(resource);
+           final var wtx = manager.beginNodeTrx(maxNodeCount, 0, TimeUnit.SECONDS, true)) {
+        wtx.insertArrayAsFirstChild();
+        for (int i = 0; i < iterationCount; i++) {
+          wtx.moveTo(1);
+          wtx.insertObjectAsFirstChild();
+        }
+        wtx.commit();
+
+        wtx.moveToDocumentRoot();
+
+        for (Axis axis = new DescendantAxis(wtx); axis.hasNext(); axis.nextLong()) {
+          System.out.println(axis.getTrx().getNode());
+        }
+      }
+    }
   }
 
   private void test(VersioningType versioningType, int maxNodeCount, long iterationCount) {

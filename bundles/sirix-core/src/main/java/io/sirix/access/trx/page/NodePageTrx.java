@@ -193,28 +193,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     secondMostRecentPageContainer = mostRecentPageContainer;
     mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
 
-//    pageContainerCache = new LinkedHashMap<>(1_000) {
-//      @Override
-//      protected boolean removeEldestEntry(Map.Entry<IndexLogKey, PageContainer> eldest) {
-////        if (eldest.getValue().getComplete() instanceof KeyValueLeafPage keyValueLeafPage) {
-////          keyValueLeafPage.clearPage();
-////        }
-////        if (eldest.getValue().getModified() instanceof KeyValueLeafPage keyValueLeafPage) {
-////          keyValueLeafPage.clearPage();
-////        }
-//        return size() > 1000;
-//      }
-//    };
-
     pageContainerCacheForTrxIntentLog = new LinkedHashMap<>(1_000) {
       @Override
       protected boolean removeEldestEntry(Map.Entry<IndexLogKey, PageContainer> eldest) {
-//        if (eldest.getValue().getComplete() instanceof KeyValueLeafPage keyValueLeafPage) {
-//          keyValueLeafPage.clearPage();
-//        }
-//        if (eldest.getValue().getModified() instanceof KeyValueLeafPage keyValueLeafPage) {
-//          keyValueLeafPage.clearPage();
-//        }
         return size() > 1_000;
       }
     };
@@ -448,9 +429,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       // Due to waiting for the revision root page lock, we can't afford to serialize the key/value pages in parallel
       // as we would block the commit lock for too long.
 
-      //if (!doAsyncCommit) {
+      if (!doAsyncCommit) {
         parallelSerializationOfKeyValuePages();
-      //}
+      }
 
       // Recursively write indirectly referenced pages.
       uberPage.commit(this);
@@ -466,7 +447,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
         log.clear();
       }
 
-      //pageContainerCache.clear();
       pageContainerCacheForTrxIntentLog.clear();
 
       // Delete commit file which denotes that a commit must write the log in the data file.
@@ -675,7 +655,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
       if (reference.getKey() == Constants.NULL_ID_LONG) {
         final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey, indexType, pageRtx);
-        final KeyValueLeafPage modifyPage = new KeyValueLeafPage(completePage);
+        final KeyValueLeafPage modifyPage = new KeyValueLeafPage(recordPageKey, indexType, pageRtx);
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
       } else {
         pageContainer = dereferenceRecordPageForModification(reference);
