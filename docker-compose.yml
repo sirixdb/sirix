@@ -1,13 +1,15 @@
 version: '3'
 services:
   keycloak:
-    image: jboss/keycloak
+    image: quay.io/keycloak/keycloak
     ports:
       - 8080:8080
       - 8433:8433
     environment:
       - KEYCLOAK_USER=admin
+      - KEYCLOAK_ADMIN=admin
       - KEYCLOAK_PASSWORD=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
       - KEYCLOAK_LOGLEVEL=DEBUG
       - KEYCLOAK_IMPORT=/opt/keycloak/realm-export.json
     restart: always
@@ -15,8 +17,8 @@ services:
       - ./bundles/sirix-rest-api/src/test/resources/realm-export.json:/opt/keycloak/realm-export.json
       - ./bundles/sirix-rest-api/src/test/resources/create-sirix-users.sh:/opt/jboss/startup-scripts/create-sirix-users.sh
     command:
-      - "-b 0.0.0.0"
-      - "-bmanagement 0.0.0.0"
+      - start-dev
+      - --import-realm
     networks:
       - auth-network
     healthcheck:
@@ -27,6 +29,7 @@ services:
   server:
     build: .
     image: sirixdb/sirix
+    #platform: linux/amd64 //only add if there's a platform error
     ports:
       - "9443:9443"
     restart: always
