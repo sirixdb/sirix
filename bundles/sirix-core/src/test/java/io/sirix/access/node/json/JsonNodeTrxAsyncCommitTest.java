@@ -32,8 +32,13 @@ public final class JsonNodeTrxAsyncCommitTest {
   }
 
   @RepeatedTest(1)
-  public void testFullVersioningSimple() {
+  public void testFullVersioningSimple1() {
     testSimple(VersioningType.FULL, 1024, 2048);
+  }
+
+  @RepeatedTest(1)
+  public void testFullVersioningSimple2() {
+    testSimple(VersioningType.FULL, 1024, 409600);
   }
 
   @RepeatedTest(1)
@@ -42,8 +47,18 @@ public final class JsonNodeTrxAsyncCommitTest {
   }
 
   @RepeatedTest(1)
-  public void testIncrementalVersioning() {
+  public void testDifferentialVersioningSimple() {
+    testSimple(VersioningType.DIFFERENTIAL, 1024, 40960);
+  }
+
+  @RepeatedTest(1)
+  public void testIncrementalVersioning1() {
     test(VersioningType.INCREMENTAL, 1024, 409600);
+  }
+
+  @RepeatedTest(1)
+  public void testIncrementalVersioningSimple() {
+    testSimple(VersioningType.INCREMENTAL, 1024, 4096000);
   }
 
   @RepeatedTest(1)

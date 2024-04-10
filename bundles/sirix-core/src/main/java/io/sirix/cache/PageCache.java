@@ -42,6 +42,7 @@ public final class PageCache implements Cache<PageReference, Page> {
   public void put(PageReference key, Page value) {
     if (!(value instanceof RevisionRootPage) && !(value instanceof PathSummaryPage) && !(value instanceof PathPage)
         && !(value instanceof CASPage) && !(value instanceof NamePage)) {
+      assert key.getKey() != Constants.NULL_ID_LONG;
       pageCache.put(key, value);
     }
   }

@@ -31,6 +31,7 @@ package io.sirix.page;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
+import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.PageTrx;
 import io.sirix.index.IndexType;
@@ -495,55 +496,66 @@ public enum PageKind {
     @Override
     public void serializePage(final PageTrx pageTrx, final BytesOut<?> sink, final Page page,
         final SerializationType type) {
-      RevisionRootPage revisionRootPage = (RevisionRootPage) page;
-      sink.writeByte(REVISIONROOTPAGE.id);
-      sink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
-
-      Page delegate = revisionRootPage.delegate();
-      PageKind.serializeDelegate(pageTrx.getRevisionNumber(), sink, delegate, type);
-
-      //initial variables from RevisionRootPage, to serialize
-      final Instant commitTimestamp = revisionRootPage.getCommitTimestamp();
-      final int revision = revisionRootPage.getRevision();
-      final long maxNodeKeyInDocumentIndex = revisionRootPage.getMaxNodeKeyInDocumentIndex();
-      final long maxNodeKeyInChangedNodesIndex = revisionRootPage.getMaxNodeKeyInChangedNodesIndex();
-      final long maxNodeKeyInRecordToRevisionsIndex = revisionRootPage.getMaxNodeKeyInRecordToRevisionsIndex();
-      final String commitMessage = revisionRootPage.getCommitMessage();
-      final int currentMaxLevelOfDocumentIndexIndirectPages =
-          revisionRootPage.getCurrentMaxLevelOfDocumentIndexIndirectPages();
-      final int currentMaxLevelOfChangedNodesIndirectPages =
-          revisionRootPage.getCurrentMaxLevelOfChangedNodesIndexIndirectPages();
-      final int currentMaxLevelOfRecordToRevisionsIndirectPages =
-          revisionRootPage.getCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();
-      final long revisionTimestamp =
-          commitTimestamp == null ? Instant.now().toEpochMilli() : commitTimestamp.toEpochMilli();
-      revisionRootPage.setRevisionTimestamp(revisionTimestamp);
-
-      sink.writeInt(revision);
-      sink.writeLong(maxNodeKeyInDocumentIndex);
-      sink.writeLong(maxNodeKeyInChangedNodesIndex);
-      sink.writeLong(maxNodeKeyInRecordToRevisionsIndex);
-      sink.writeLong(revisionTimestamp);
-      sink.writeBoolean(commitMessage != null);
-
-      if (commitMessage != null) {
-        final byte[] commitMessageBytes = commitMessage.getBytes(Constants.DEFAULT_ENCODING);
-        sink.writeInt(commitMessageBytes.length);
-        sink.write(commitMessageBytes);
+      try {
+        ((InternalResourceSession<?,?>) pageTrx.getResourceSession()).getRevisionRootPageLock().acquire();
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
       }
 
-      sink.writeByte((byte) currentMaxLevelOfDocumentIndexIndirectPages);
-      sink.writeByte((byte) currentMaxLevelOfChangedNodesIndirectPages);
-      sink.writeByte((byte) currentMaxLevelOfRecordToRevisionsIndirectPages);
+      try {
 
-      final Optional<User> user = revisionRootPage.getUser();
-      final boolean hasUser = user.isPresent();
-      sink.writeBoolean(hasUser);
+        RevisionRootPage revisionRootPage = (RevisionRootPage) page;
+        sink.writeByte(REVISIONROOTPAGE.id);
+        sink.writeByte(pageTrx.getResourceSession().getResourceConfig().getBinaryEncodingVersion().byteVersion());
 
-      if (hasUser) {
-        var currUser = user.get();
-        sink.writeUtf8(currUser.getName());
-        sink.writeUtf8(currUser.getId().toString());
+        Page delegate = revisionRootPage.delegate();
+        PageKind.serializeDelegate(pageTrx.getRevisionNumber(), sink, delegate, type);
+
+        //initial variables from RevisionRootPage, to serialize
+        final Instant commitTimestamp = revisionRootPage.getCommitTimestamp();
+        final int revision = revisionRootPage.getRevision();
+        final long maxNodeKeyInDocumentIndex = revisionRootPage.getMaxNodeKeyInDocumentIndex();
+        final long maxNodeKeyInChangedNodesIndex = revisionRootPage.getMaxNodeKeyInChangedNodesIndex();
+        final long maxNodeKeyInRecordToRevisionsIndex = revisionRootPage.getMaxNodeKeyInRecordToRevisionsIndex();
+        final String commitMessage = revisionRootPage.getCommitMessage();
+        final int currentMaxLevelOfDocumentIndexIndirectPages =
+            revisionRootPage.getCurrentMaxLevelOfDocumentIndexIndirectPages();
+        final int currentMaxLevelOfChangedNodesIndirectPages =
+            revisionRootPage.getCurrentMaxLevelOfChangedNodesIndexIndirectPages();
+        final int currentMaxLevelOfRecordToRevisionsIndirectPages =
+            revisionRootPage.getCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();
+        final long revisionTimestamp =
+            commitTimestamp == null ? Instant.now().toEpochMilli() : commitTimestamp.toEpochMilli();
+        revisionRootPage.setRevisionTimestamp(revisionTimestamp);
+
+        sink.writeInt(revision);
+        sink.writeLong(maxNodeKeyInDocumentIndex);
+        sink.writeLong(maxNodeKeyInChangedNodesIndex);
+        sink.writeLong(maxNodeKeyInRecordToRevisionsIndex);
+        sink.writeLong(revisionTimestamp);
+        sink.writeBoolean(commitMessage != null);
+
+        if (commitMessage != null) {
+          final byte[] commitMessageBytes = commitMessage.getBytes(Constants.DEFAULT_ENCODING);
+          sink.writeInt(commitMessageBytes.length);
+          sink.write(commitMessageBytes);
+        }
+
+        sink.writeByte((byte) currentMaxLevelOfDocumentIndexIndirectPages);
+        sink.writeByte((byte) currentMaxLevelOfChangedNodesIndirectPages);
+        sink.writeByte((byte) currentMaxLevelOfRecordToRevisionsIndirectPages);
+
+        final Optional<User> user = revisionRootPage.getUser();
+        final boolean hasUser = user.isPresent();
+        sink.writeBoolean(hasUser);
+
+        if (hasUser) {
+          var currUser = user.get();
+          sink.writeUtf8(currUser.getName());
+          sink.writeUtf8(currUser.getId().toString());
+        }
+      } finally {
+        ((InternalResourceSession<?,?>) pageTrx.getResourceSession()).getRevisionRootPageLock().release();
       }
     }
 

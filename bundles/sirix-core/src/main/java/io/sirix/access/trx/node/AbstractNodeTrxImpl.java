@@ -327,7 +327,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // Reset modification counter.
       modificationCount = 0L;
 
-      ((InternalResourceSession<?, ?>) getResourceSession()).getRevisionRootPageLock().acquire();
+      //((InternalResourceSession<?, ?>) getResourceSession()).getRevisionRootPageLock().acquire();
 
       final int revisionNumber = getRevisionNumber();
 

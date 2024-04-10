@@ -194,16 +194,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         final PageContainer cont = formerTrxIntentLog.get(reference);
         page = cont == null ? null : cont.getComplete();
         if (page != null) {
-          if (page instanceof IndirectPage indirectPage) {
-            page = new IndirectPage(indirectPage);
-          } else if (page instanceof PathSummaryPage pathSummaryPage) {
-            page = new PathSummaryPage(pathSummaryPage);
-          } else if (page instanceof PathPage pathPage) {
-            page = new PathPage(pathPage);
-          } else if (page instanceof CASPage casPage) {
-            page = new CASPage(casPage);
-          } else if (page instanceof NamePage namePage) {
-            page = new NamePage(namePage);
+          switch (page) {
+            case IndirectPage indirectPage -> page = new IndirectPage(indirectPage);
+            case PathSummaryPage pathSummaryPage -> page = new PathSummaryPage(pathSummaryPage);
+            case PathPage pathPage -> page = new PathPage(pathPage);
+            case CASPage casPage -> page = new CASPage(casPage);
+            case NamePage namePage -> page = new NamePage(namePage);
+            default -> {
+            }
           }
           return page;
         }
@@ -230,7 +228,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   private void putIntoPageCache(PageReference reference, Page page) {
-    if (!(page instanceof UberPage)) {
+    if ((trxIntentLog != null && page instanceof IndirectPage) || (trxIntentLog == null
+        && !(page instanceof UberPage))) {
       // Put page into buffer manager.
       resourceBufferManager.getPageCache().put(reference, page);
     }
@@ -671,7 +670,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     if (trxIntentLog == null) {
       final var pageFromBufferManager = resourceBufferManager.getPageCache().get(pageReference);
       if (pageFromBufferManager != null) {
-//        assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) pageFromBufferManager).getRevision();
+        //        assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) pageFromBufferManager).getRevision();
         return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) pageFromBufferManager);
       }
     }
@@ -681,8 +680,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                                                         .whenComplete((page, exception) -> {
                                                                           pageReadOnlyTrx.close();
                                                                           if (trxIntentLog == null) {
-//                                                                            assert pageFragmentKey.revision()
-//                                                                                == ((KeyValuePage<DataRecord>) page).getRevision();
+                                                                            //                                                                            assert pageFragmentKey.revision()
+                                                                            //                                                                                == ((KeyValuePage<DataRecord>) page).getRevision();
                                                                             resourceBufferManager.getPageCache()
                                                                                                  .put(pageReference,
                                                                                                       page);

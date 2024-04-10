@@ -47,6 +47,7 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
 
   @Override
   public void put(PageReference key, @NonNull KeyValueLeafPage value) {
+    assert key.getKey() != Constants.NULL_ID_LONG;
     pageCache.put(key, value);
   }
 

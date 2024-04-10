@@ -25,8 +25,6 @@ import com.google.common.base.MoreObjects;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.settings.Constants;
-import it.unimi.dsi.fastutil.ints.Int2ObjectArrayMap;
-import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectRBTreeMap;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
@@ -123,7 +121,7 @@ public final class PageReference {
    * @param key the page fragment key to add.
    * @return this instance
    */
-  public PageReference addPageFragment(final int revision, final PageFragmentKey key) {
+  public synchronized PageReference addPageFragment(final int revision, final PageFragmentKey key) {
     pageFragments.merge(revision, List.of(key), (previous, current) -> {
       var list = new ArrayList<>(previous);
       list.addAll(current);
@@ -137,7 +135,7 @@ public final class PageReference {
    * @param key the page fragment key to add.
    * @return this instance
    */
-  public PageReference setFirstPageFragment(final int revision, final PageFragmentKey key) {
+  public synchronized PageReference setFirstPageFragment(final int revision, final PageFragmentKey key) {
     pageFragments.merge(revision, List.of(key), (previous, current) -> {
       var list = new ArrayList<PageFragmentKey>();
       list.addAll(current);
@@ -153,15 +151,15 @@ public final class PageReference {
    * Get the page fragments keys.
    * @return the page fragments keys
    */
-  public List<PageFragmentKey> getPageFragments(final int revision) {
+  public synchronized List<PageFragmentKey> getPageFragments(final int revision) {
     return pageFragments.getOrDefault(revision, List.of());
   }
 
-  public List<PageFragmentKey> getMostRecentPageFragments() {
+  public synchronized List<PageFragmentKey> getMostRecentPageFragments() {
     return pageFragments.isEmpty() ? List.of() : pageFragments.get(pageFragments.lastIntKey());
   }
 
-  public Int2ObjectRBTreeMap<List<PageFragmentKey>> getPageFragments() {
+  public synchronized Int2ObjectRBTreeMap<List<PageFragmentKey>> getPageFragments() {
     return pageFragments;
   }
 
@@ -170,7 +168,7 @@ public final class PageReference {
    * @param previousPageFragmentKeys the previous page fragment keys to set
    * @return this instance
    */
-  public PageReference setPageFragments(final Int2ObjectRBTreeMap<List<PageFragmentKey>> previousPageFragmentKeys) {
+  public synchronized PageReference setPageFragments(final Int2ObjectRBTreeMap<List<PageFragmentKey>> previousPageFragmentKeys) {
     pageFragments = previousPageFragmentKeys;
     return this;
   }
