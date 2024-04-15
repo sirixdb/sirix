@@ -584,10 +584,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
       if (reference.getKey() == Constants.NULL_ID_LONG) {
         final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey, indexType, pageRtx);
-        final KeyValueLeafPage modifyPage = new KeyValueLeafPage(completePage);
+        final KeyValueLeafPage modifyPage = new KeyValueLeafPage(recordPageKey, indexType, pageRtx);
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
       } else {
         pageContainer = dereferenceRecordPageForModification(reference);
+        return pageContainer;
       }
 
       assert pageContainer != null;

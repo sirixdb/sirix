@@ -197,15 +197,15 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
 
     if (page != null) {
+      putIntoPageCache(reference, page);
       reference.setPage(page);
-      putIntoPageCacheIfItIsNotAWriteTrx(reference, page);
     }
     return page;
   }
 
-  private void putIntoPageCacheIfItIsNotAWriteTrx(PageReference reference, Page page) {
-    assert reference.getLogKey() == Constants.NULL_ID_INT;
-    if (trxIntentLog == null && !(page instanceof UberPage)) {
+  private void putIntoPageCache(PageReference reference, Page page) {
+    if ((trxIntentLog != null && page instanceof IndirectPage) || (trxIntentLog == null
+        && !(page instanceof UberPage))) {
       // Put page into buffer manager.
       resourceBufferManager.getPageCache().put(reference, page);
     }
@@ -446,9 +446,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
 
     // Fourth: Try to get from resource buffer manager.
-    Page recordPageFromBuffer = getFromBufferManager(indexLogKey, pageReferenceToRecordPage);
-    if (recordPageFromBuffer != null) {
-      return recordPageFromBuffer;
+    if (trxIntentLog == null || indexLogKey.getIndexType() != IndexType.PATH_SUMMARY) {
+      Page recordPageFromBuffer = getFromBufferManager(indexLogKey, pageReferenceToRecordPage);
+      if (recordPageFromBuffer != null) {
+        return recordPageFromBuffer;
+      }
     }
 
     if (pageReferenceToRecordPage.getKey() == Constants.NULL_ID_LONG) {
@@ -490,7 +492,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       pageReferenceToRecordPage.setPage(recordPageFromBuffer);
       return recordPageFromBuffer;
     }
-    
+
     return null;
   }
 
@@ -525,9 +527,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final VersioningType versioningApproach = resourceConfig.versioningType;
     final Page completePage = versioningApproach.combineRecordPages(pages, maxRevisionsToRestore, this);
 
-    if (trxIntentLog == null) {
-      resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, (KeyValueLeafPage) completePage);
-    }
+    resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, (KeyValueLeafPage) completePage);
 
     pageReferenceToRecordPage.setPage(completePage);
     setMostRecentlyReadRecordPage(indexLogKey, completePage);

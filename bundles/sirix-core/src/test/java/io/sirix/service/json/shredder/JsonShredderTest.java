@@ -68,7 +68,12 @@ public final class JsonShredderTest {
   @Test
   public void testChicagoDescendantAxis() {
     if (Files.notExists(PATHS.PATH1.getFile())) {
-      testChicago();
+      logger.info("start");
+      final var jsonPath = JSON.resolve("cityofchicago.json");
+      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+        createResource(jsonPath, database, false);
+      }
     }
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -116,12 +121,12 @@ public final class JsonShredderTest {
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
   @Disabled
   @Test
-  public void testChicago() {
+  public void testShredderAndTraverseChicago() {
     logger.info("start");
     final var jsonPath = JSON.resolve("cityofchicago.json");
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-      createResource(jsonPath, database);
+      createResource(jsonPath, database, true);
       //      database.removeResource(JsonTestHelper.RESOURCE);
       //
       //      createResource(jsonPath, database);
@@ -137,7 +142,7 @@ public final class JsonShredderTest {
     }
   }
 
-  private void createResource(Path jsonPath, Database<JsonResourceSession> database) {
+  private void createResource(Path jsonPath, Database<JsonResourceSession> database, boolean doTraverse) {
     var stopWatch = new StopWatch();
     stopWatch.start();
     database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
@@ -148,13 +153,31 @@ public final class JsonShredderTest {
                                                  .storeChildCount(true)
                                                  .hashKind(HashType.ROLLING)
                                                  .useTextCompression(false)
-                                                 .storageType(StorageType.FILE_CHANNEL)
+                                                 .storageType(StorageType.MEMORY_MAPPED)
                                                  .useDeweyIDs(false)
                                                  .byteHandlerPipeline(new ByteHandlerPipeline(new LZ4Compressor()))
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx(262_144 << 3)) {
       trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
+
+      if (doTraverse) {
+        trx.moveToDocumentRoot();
+        logger.info("Max node key: " + trx.getMaxNodeKey());
+
+        Axis axis = new DescendantAxis(trx);
+
+        int count = 0;
+
+        while (axis.hasNext()) {
+          axis.nextLong();
+
+          if (count % 5_000_000L == 0) {
+            logger.info(STR."node: \{axis.getTrx().getNode()}");
+          }
+          count++;
+        }
+      }
     }
 
     logger.info(STR." done [\{stopWatch.getTime(TimeUnit.SECONDS)} s].");
