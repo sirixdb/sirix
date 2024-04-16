@@ -83,7 +83,7 @@ public final class PageReference {
    *
    * @param page deserialized page
    */
-  public void setPage(final @Nullable Page page) {
+  public synchronized void setPage(final @Nullable Page page) {
     this.page = page;
   }
 
@@ -92,7 +92,7 @@ public final class PageReference {
    *
    * @return in-memory instance of deserialized page
    */
-  public Page getPage() {
+  public synchronized Page getPage() {
     return page;
   }
 
@@ -101,7 +101,7 @@ public final class PageReference {
    *
    * @return start offset in file
    */
-  public long getKey() {
+  public synchronized long getKey() {
     return key;
   }
 
@@ -110,7 +110,7 @@ public final class PageReference {
    *
    * @param key key of this reference set by the persistent storage
    */
-  public PageReference setKey(final long key) {
+  public synchronized PageReference setKey(final long key) {
     hash = 0;
     this.key = key;
     return this;
@@ -178,7 +178,7 @@ public final class PageReference {
    *
    * @return log key
    */
-  public int getLogKey() {
+  public synchronized int getLogKey() {
     return logKey;
   }
 
@@ -188,7 +188,7 @@ public final class PageReference {
    * @param key key of this reference set by the transaction intent log.
    * @return this instance
    */
-  public PageReference setLogKey(final int key) {
+  public synchronized PageReference setLogKey(final int key) {
     hash = 0;
     logKey = key;
     return this;
@@ -205,7 +205,7 @@ public final class PageReference {
   }
 
   @Override
-  public int hashCode() {
+  public synchronized int hashCode() {
     if (hash == 0) {
       hash = Objects.hash(logKey, key);
     }
@@ -213,18 +213,18 @@ public final class PageReference {
   }
 
   @Override
-  public boolean equals(final @Nullable Object other) {
+  public synchronized boolean equals(final @Nullable Object other) {
     if (other instanceof PageReference otherPageRef) {
       return otherPageRef.logKey == logKey && otherPageRef.key == key;
     }
     return false;
   }
 
-  public void setHash(byte[] hashInBytes) {
+  public synchronized void setHash(byte[] hashInBytes) {
     this.hashInBytes = hashInBytes;
   }
 
-  public byte[] getHash() {
+  public synchronized byte[] getHash() {
     return hashInBytes;
   }
 }
