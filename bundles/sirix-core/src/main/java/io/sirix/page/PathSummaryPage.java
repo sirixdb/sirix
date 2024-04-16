@@ -44,12 +44,16 @@ import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 
+import java.util.concurrent.Semaphore;
+
 /**
  * Page to hold references to a path summary.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class PathSummaryPage extends AbstractForwardingPage {
+
+  private final Semaphore lock = new Semaphore(1);
 
   /**
    * The references page instance.
@@ -79,18 +83,25 @@ public final class PathSummaryPage extends AbstractForwardingPage {
    * Clone/copy constructor
    */
   public PathSummaryPage(final PathSummaryPage pathSummaryPage) {
-    final Page pageDelegate = pathSummaryPage.delegate();
+    var lock = pathSummaryPage.getLock();
 
-    if (pageDelegate instanceof ReferencesPage4) {
-      delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
-    } else if (pageDelegate instanceof BitmapReferencesPage) {
-      delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
-    } else if (pageDelegate instanceof FullReferencesPage) {
-      delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+    lock.acquireUninterruptibly();
+
+    try {
+      final Page pageDelegate = pathSummaryPage.delegate();
+
+      if (pageDelegate instanceof ReferencesPage4) {
+        delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
+      } else if (pageDelegate instanceof BitmapReferencesPage) {
+        delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
+      } else if (pageDelegate instanceof FullReferencesPage) {
+        delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+      }
+      this.maxNodeKeys = pathSummaryPage.maxNodeKeys;
+      this.currentMaxLevelsOfIndirectPages = pathSummaryPage.currentMaxLevelsOfIndirectPages;
+    } finally {
+      lock.release();
     }
-    this.maxNodeKeys = pathSummaryPage.maxNodeKeys;
-    this.currentMaxLevelsOfIndirectPages =
-        pathSummaryPage.currentMaxLevelsOfIndirectPages;
   }
 
   /**
@@ -105,6 +116,10 @@ public final class PathSummaryPage extends AbstractForwardingPage {
     this.delegate = delegate;
     this.maxNodeKeys = maxNodeKeys;
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
+  }
+
+  public Semaphore getLock() {
+    return lock;
   }
 
   /**

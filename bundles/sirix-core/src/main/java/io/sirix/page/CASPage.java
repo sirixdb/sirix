@@ -44,12 +44,16 @@ import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 
+import java.util.concurrent.Semaphore;
+
 /**
  * Page to hold references to a content and value summary.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class CASPage extends AbstractForwardingPage {
+
+  private final Semaphore lock = new Semaphore(1);
 
   /**
    * The references page instance.
@@ -76,17 +80,25 @@ public final class CASPage extends AbstractForwardingPage {
   }
 
   public CASPage(final CASPage casPage) {
-    final Page pageDelegate = casPage.delegate();
+    var lock = casPage.getLock();
 
-    if (pageDelegate instanceof ReferencesPage4) {
-      delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
-    } else if (pageDelegate instanceof BitmapReferencesPage) {
-      delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
-    } else if (pageDelegate instanceof FullReferencesPage) {
-      delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+    lock.acquireUninterruptibly();
+
+    try {
+      final Page pageDelegate = casPage.delegate();
+
+      if (pageDelegate instanceof ReferencesPage4) {
+        delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
+      } else if (pageDelegate instanceof BitmapReferencesPage) {
+        delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
+      } else if (pageDelegate instanceof FullReferencesPage) {
+        delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+      }
+      maxNodeKeys = casPage.maxNodeKeys;
+      currentMaxLevelsOfIndirectPages = casPage.currentMaxLevelsOfIndirectPages;
+    } finally {
+      lock.release();
     }
-    maxNodeKeys = casPage.maxNodeKeys;
-    currentMaxLevelsOfIndirectPages = casPage.currentMaxLevelsOfIndirectPages;
   }
 
   /**
@@ -100,6 +112,10 @@ public final class CASPage extends AbstractForwardingPage {
     this.delegate = delegate;
     this.maxNodeKeys = maxNodeKeys;
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
+  }
+
+  public Semaphore getLock() {
+    return lock;
   }
 
   @Override

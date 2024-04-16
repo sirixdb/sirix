@@ -25,7 +25,6 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.node.IndexController;
-import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.PageTrx;
@@ -393,6 +392,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
                                                                                                .getKey())));
       }
 
+      getBufferManager().getPageCache().remove(reference);
+      if (page instanceof KeyValuePage<?>) {
+        getBufferManager().getRecordPageCache().remove(reference);
+      }
+
       // Recursively commit indirectly referenced pages and then write self.
       page.commit(this);
       storagePageReaderWriter.write(this, reference, page, bufferBytes);
@@ -563,7 +567,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     return pageContainerCacheForTrxIntentLog.computeIfAbsent(new IndexLogKey(indexType,
                                                                              recordPageKey,
                                                                              indexNumber,
-                                                                             newRevisionRootPage.getRevision()), (unused) -> {
+                                                                             newRevisionRootPage.getRevision()), (_) -> {
       final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
       final var leafPageReference =
           pageRtx.getLeafPageReference(pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);

@@ -49,10 +49,14 @@ import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 
+import java.util.concurrent.Semaphore;
+
 /**
  * The name page holds all names and their keys for a revision. Furthermore, it has references to name indexes.
  */
 public final class NamePage extends AbstractForwardingPage {
+
+  private final Semaphore lock = new Semaphore(1);
 
   /**
    * Offset of reference to attributes index-tree.
@@ -141,24 +145,36 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   public NamePage(final NamePage namePage) {
-    final Page pageDelegate = namePage.delegate();
+    var lock = namePage.getLock();
 
-    if (pageDelegate instanceof ReferencesPage4) {
-      delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
-    } else if (pageDelegate instanceof BitmapReferencesPage) {
-      delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
-    } else if (pageDelegate instanceof FullReferencesPage) {
-      delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+    lock.acquireUninterruptibly();
+
+    try {
+      final Page pageDelegate = namePage.delegate();
+
+      if (pageDelegate instanceof ReferencesPage4) {
+        delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
+      } else if (pageDelegate instanceof BitmapReferencesPage) {
+        delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
+      } else if (pageDelegate instanceof FullReferencesPage) {
+        delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+      }
+
+      maxNodeKeys = namePage.maxNodeKeys;
+      currentMaxLevelsOfIndirectPages = namePage.currentMaxLevelsOfIndirectPages;
+      attributes = namePage.attributes;
+      elements = namePage.elements;
+      namespaces = namePage.namespaces;
+      processingInstructions = namePage.processingInstructions;
+      jsonObjectKeys = namePage.jsonObjectKeys;
+      numberOfArrays = namePage.numberOfArrays;
+    } finally {
+      lock.release();
     }
+  }
 
-    maxNodeKeys = namePage.maxNodeKeys;
-    currentMaxLevelsOfIndirectPages = namePage.currentMaxLevelsOfIndirectPages;
-    attributes = namePage.attributes;
-    elements = namePage.elements;
-    namespaces = namePage.namespaces;
-    processingInstructions = namePage.processingInstructions;
-    jsonObjectKeys = namePage.jsonObjectKeys;
-    numberOfArrays = namePage.numberOfArrays;
+  public Semaphore getLock() {
+    return lock;
   }
 
   /**

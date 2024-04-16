@@ -44,12 +44,16 @@ import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 
+import java.util.concurrent.Semaphore;
+
 /**
  * Page to hold references to a value summary.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class PathPage extends AbstractForwardingPage {
+
+  private final Semaphore lock = new Semaphore(1);
 
   /**
    * The references page instance.
@@ -73,6 +77,10 @@ public final class PathPage extends AbstractForwardingPage {
     delegate = new ReferencesPage4();
     maxNodeKeys = new Int2LongOpenHashMap();
     currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
+  }
+
+  public Semaphore getLock() {
+    return lock;
   }
 
   /**
@@ -100,17 +108,25 @@ public final class PathPage extends AbstractForwardingPage {
   }
 
   public PathPage(final PathPage pathPage) {
-    final Page pageDelegate = pathPage.delegate();
+    var lock = pathPage.getLock();
 
-    if (pageDelegate instanceof ReferencesPage4) {
-      delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
-    } else if (pageDelegate instanceof BitmapReferencesPage) {
-      delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
-    } else if (pageDelegate instanceof FullReferencesPage) {
-      delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+    lock.acquireUninterruptibly();
+
+    try {
+      final Page pageDelegate = pathPage.delegate();
+
+      if (pageDelegate instanceof ReferencesPage4) {
+        delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
+      } else if (pageDelegate instanceof BitmapReferencesPage) {
+        delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
+      } else if (pageDelegate instanceof FullReferencesPage) {
+        delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+      }
+      this.maxNodeKeys = pathPage.maxNodeKeys;
+      this.currentMaxLevelsOfIndirectPages = pathPage.currentMaxLevelsOfIndirectPages;
+    } finally {
+      lock.release();
     }
-    this.maxNodeKeys = pathPage.maxNodeKeys;
-    this.currentMaxLevelsOfIndirectPages = pathPage.currentMaxLevelsOfIndirectPages;
   }
 
   @Override
