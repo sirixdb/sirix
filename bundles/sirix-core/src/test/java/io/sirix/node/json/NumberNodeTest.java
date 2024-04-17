@@ -82,8 +82,8 @@ public class NumberNodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx);
-    final NumberNode node2 = (NumberNode) NodeKind.NUMBER_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx);
+    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
+    final NumberNode node2 = (NumberNode) NodeKind.NUMBER_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

@@ -91,12 +91,13 @@ public class DocumentRootNodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx);
+    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
     final XmlDocumentRootNode node2 = (XmlDocumentRootNode) NodeKind.XML_DOCUMENT.deserialize(data,
                                                                                               node.getNodeKey(),
                                                                                               node.getDeweyID()
                                                                                                   .toBytes(),
-                                                                                              pageReadTrx);
+                                                                                              pageReadTrx.getResourceSession()
+                                                                                                         .getResourceConfig());
     check(node2);
   }
 

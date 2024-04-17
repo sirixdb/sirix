@@ -84,9 +84,12 @@ public class NamespaceNodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx);
-    final NamespaceNode node2 =
-        (NamespaceNode) NodeKind.NAMESPACE.deserialize(data, node.getNodeKey(), node.getDeweyID().toBytes(), pageReadTrx);
+    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
+    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(data,
+                                                                               node.getNodeKey(),
+                                                                               node.getDeweyID().toBytes(),
+                                                                               pageReadTrx.getResourceSession()
+                                                                                          .getResourceConfig());
     check(node2);
   }
 

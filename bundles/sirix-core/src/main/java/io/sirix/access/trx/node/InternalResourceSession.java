@@ -1,6 +1,7 @@
 package io.sirix.access.trx.node;
 
 import io.sirix.api.*;
+import io.sirix.io.Reader;
 import io.sirix.page.UberPage;
 
 import java.nio.file.Path;
@@ -22,6 +23,8 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
      */
     NO
   }
+
+  Reader createReader();
 
   Path getCommitFile();
 

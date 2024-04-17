@@ -23,6 +23,7 @@ package io.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.AbstractReader;
@@ -77,14 +78,13 @@ public final class FileChannelReader extends AbstractReader {
   public FileChannelReader(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter,
       final Cache<Integer, RevisionFileData> cache) {
-    super (handler, pagePersistenter, type);
+    super(handler, pagePersistenter, type);
     this.dataFileChannel = dataFileChannel;
     this.revisionsOffsetFileChannel = revisionsOffsetFileChannel;
     this.cache = cache;
   }
 
-  public Page read(final @NonNull PageReference reference,
-      final @Nullable PageReadOnlyTrx pageReadTrx) {
+  public Page read(final @NonNull PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
       // Read page from file.
       ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
@@ -102,7 +102,7 @@ public final class FileChannelReader extends AbstractReader {
       final byte[] page = buffer.array();
 
       // Perform byte operations.
-      return deserialize(pageReadTrx, page);
+      return deserialize(resourceConfiguration, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -118,7 +118,7 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   @Override
-  public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
+  public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     try {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
@@ -134,7 +134,7 @@ public final class FileChannelReader extends AbstractReader {
       buffer.get(page);
 
       // Perform byte operations.
-      return (RevisionRootPage) deserialize(pageReadTrx, page);
+      return (RevisionRootPage) deserialize(resourceConfiguration, page);
     } catch (IOException e) {
       throw new SirixIOException(e);
     }
