@@ -56,11 +56,17 @@ public class CacheTestHelper {
     PAGE_READ_TRX = Holder.openResourceManager().getResourceManager().beginPageReadOnlyTrx();
     PAGES = new KeyValueLeafPage[LRUCache.CACHE_CAPACITY + 1][VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
-      final KeyValueLeafPage page = new KeyValueLeafPage(i, IndexType.DOCUMENT, PAGE_READ_TRX);
+      final KeyValueLeafPage page = new KeyValueLeafPage(i,
+                                                         IndexType.DOCUMENT,
+                                                         PAGE_READ_TRX.getResourceSession().getResourceConfig(),
+                                                         PAGE_READ_TRX.getRevisionNumber());
       final KeyValueLeafPage[] revs = new KeyValueLeafPage[VERSIONSTORESTORE];
 
       for (int j = 0; j < VERSIONSTORESTORE; j++) {
-        PAGES[i][j + 1] = new KeyValueLeafPage(i, IndexType.DOCUMENT, PAGE_READ_TRX);
+        PAGES[i][j + 1] = new KeyValueLeafPage(i,
+                                               IndexType.DOCUMENT,
+                                               PAGE_READ_TRX.getResourceSession().getResourceConfig(),
+                                               PAGE_READ_TRX.getRevisionNumber());
         revs[j] = PAGES[i][j + 1];
       }
       PAGES[i][0] = page;

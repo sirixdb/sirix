@@ -90,11 +90,11 @@ public class AttributeNodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadOnlyTrx);
+    node.getKind().serialize(data, node, pageReadOnlyTrx.getResourceSession().getResourceConfig());
     final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(data,
                                                                                node.getNodeKey(),
                                                                                node.getDeweyID().toBytes(),
-                                                                               pageReadOnlyTrx);
+                                                                               pageReadOnlyTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

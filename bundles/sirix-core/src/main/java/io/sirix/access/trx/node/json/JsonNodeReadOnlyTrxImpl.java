@@ -323,8 +323,14 @@ public final class JsonNodeReadOnlyTrxImpl
 
     final var currentNode = getCurrentNode();
     if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
-      final int nameKey = ((ObjectKeyNode) currentNode).getNameKey();
+      final var currentObjectKeyNode = (ObjectKeyNode) currentNode;
+      if (currentObjectKeyNode.getName() != null) {
+        return currentObjectKeyNode.getName();
+      }
+
+      final int nameKey = currentObjectKeyNode.getNameKey();
       final String localName = nameKey == -1 ? "" : pageReadOnlyTrx.getName(nameKey, currentNode.getKind());
+      ((ObjectKeyNode) currentNode).setName(localName);
       return new QNm(localName);
     }
 

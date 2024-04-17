@@ -140,25 +140,25 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Constructor which initializes a new {@link KeyValueLeafPage}.
    *
-   * @param recordPageKey   base key assigned to this node page
-   * @param indexType       the index type
-   * @param pageReadOnlyTrx the page reading transaction
+   * @param recordPageKey  base key assigned to this node page
+   * @param indexType      the index type
+   * @param resourceConfig the resource configuration
    */
   public KeyValueLeafPage(final @NonNegative long recordPageKey, final IndexType indexType,
-      final PageReadOnlyTrx pageReadOnlyTrx) {
+      final ResourceConfiguration resourceConfig, final int revisionNumber) {
     // Assertions instead of requireNonNull(...) checks as it's part of the
     // internal flow.
-    assert pageReadOnlyTrx != null : "The page reading trx must not be null!";
+    assert resourceConfig != null : "The resource config must not be null!";
 
     this.references = new ConcurrentHashMap<>();
     this.recordPageKey = recordPageKey;
     this.records = new DataRecord[Constants.NDP_NODE_COUNT];
     this.slots = new byte[Constants.NDP_NODE_COUNT][];
     this.indexType = indexType;
-    this.resourceConfig = pageReadOnlyTrx.getResourceSession().getResourceConfig();
+    this.resourceConfig = resourceConfig;
     this.recordPersister = resourceConfig.recordPersister;
     this.deweyIds = new byte[Constants.NDP_NODE_COUNT][];
-    this.revision = pageReadOnlyTrx.getRevisionNumber();
+    this.revision = revisionNumber;
     this.areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
   }
 
@@ -334,7 +334,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public void commit(@NonNull PageTrx pageWriteTrx) {
-    addReferences(pageWriteTrx);
+    addReferences(pageWriteTrx.getResourceSession().getResourceConfig());
 
     for (final PageReference reference : references.values()) {
       if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
@@ -345,10 +345,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   // Add references to OverflowPages.
-  public void addReferences(final PageReadOnlyTrx pageReadOnlyTrx) {
+  public void addReferences(final ResourceConfiguration resourceConfiguration) {
     if (!addedReferences) {
       if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
-        processEntries(pageReadOnlyTrx, records);
+        processEntries(resourceConfiguration, records);
         for (int i = 0; i < records.length; i++) {
           final DataRecord record = records[i];
           if (record != null && record.getDeweyID() != null && record.getNodeKey() != 0) {
@@ -356,14 +356,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
           }
         }
       } else {
-        processEntries(pageReadOnlyTrx, records);
+        processEntries(resourceConfiguration, records);
       }
 
       addedReferences = true;
     }
   }
 
-  private void processEntries(final PageReadOnlyTrx pageReadOnlyTrx, final DataRecord[] records) {
+  private void processEntries(final ResourceConfiguration resourceConfiguration, final DataRecord[] records) {
     var out = Bytes.elasticHeapByteBuffer(30);
     for (final DataRecord record : records) {
       if (record == null) {
@@ -373,7 +373,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       final var offset = PageReadOnlyTrx.recordPageOffset(recordID);
 
       // Must be either a normal record or one which requires an overflow page.
-      recordPersister.serialize(out, record, pageReadOnlyTrx);
+      recordPersister.serialize(out, record, resourceConfiguration);
       final var data = out.toByteArray();
       out.clear();
       if (data.length > PageConstants.MAX_RECORD_SIZE) {
@@ -399,7 +399,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public <C extends KeyValuePage<DataRecord>> C newInstance(final long recordPageKey,
       @NonNull final IndexType indexType, @NonNull final PageReadOnlyTrx pageReadTrx) {
-    return (C) new KeyValueLeafPage(recordPageKey, indexType, pageReadTrx);
+    return (C) new KeyValueLeafPage(recordPageKey,
+                                    indexType,
+                                    pageReadTrx.getResourceSession().getResourceConfig(),
+                                    pageReadTrx.getRevisionNumber());
   }
 
   @Override

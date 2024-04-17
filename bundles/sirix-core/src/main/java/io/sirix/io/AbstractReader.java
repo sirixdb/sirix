@@ -1,5 +1,6 @@
 package io.sirix.io;
 
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.PagePersister;
@@ -34,14 +35,14 @@ public abstract class AbstractReader implements Reader {
     this.type = type;
   }
 
-  public Page deserialize(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
+  public Page deserialize(ResourceConfiguration resourceConfiguration, byte[] page) throws IOException {
     // perform byte operations
     byte[] bytes;
     try (final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page))) {
       bytes = inputStream.readAllBytes();
     }
     wrappedForRead.write(bytes);
-    final var deserializedPage = pagePersister.deserializePage(pageReadTrx, wrappedForRead, type);
+    final var deserializedPage = pagePersister.deserializePage(resourceConfiguration, wrappedForRead, type);
     wrappedForRead.clear();
     return deserializedPage;
   }

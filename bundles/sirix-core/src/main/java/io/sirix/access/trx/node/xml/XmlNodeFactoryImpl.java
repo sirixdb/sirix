@@ -198,7 +198,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
     final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, content, false);
 
-    return pageTrx.createRecord(new PINode(structDel, nameDel, valDel, pageTrx), IndexType.DOCUMENT, -1);
+    return pageTrx.createRecord(new PINode(structDel, nameDel, valDel), IndexType.DOCUMENT, -1);
   }
 
   @Override
