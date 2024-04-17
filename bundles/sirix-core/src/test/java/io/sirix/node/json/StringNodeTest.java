@@ -66,11 +66,8 @@ public class StringNodeTest {
   public void test() throws IOException {
     // Create empty node.
     final byte[] value = { (byte) 17, (byte) 18 };
-    final NodeDelegate del = new NodeDelegate(13,
-                                              14,
-                                              LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER,
-                                              0,
-                                              SirixDeweyID.newRootID());
+    final NodeDelegate del =
+        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
@@ -81,8 +78,12 @@ public class StringNodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx);
-    final StringNode node2 = (StringNode) NodeKind.STRING_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx);
+    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
+    final StringNode node2 = (StringNode) NodeKind.STRING_VALUE.deserialize(data,
+                                                                            node.getNodeKey(),
+                                                                            null,
+                                                                            pageTrx.getResourceSession()
+                                                                                   .getResourceConfig());
     check(node2);
   }
 

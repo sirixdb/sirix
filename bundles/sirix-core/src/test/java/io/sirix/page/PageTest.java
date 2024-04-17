@@ -65,11 +65,17 @@ public class PageTest {
   public void testByteRepresentation(final Page[] handlers) {
     for (final Page handler : handlers) {
       final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-      PageKind.getKind(handler.getClass()).serializePage(pageReadTrx, data, handler, SerializationType.DATA);
+      PageKind.getKind(handler.getClass())
+              .serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
+                             data,
+                             handler,
+                             SerializationType.DATA);
       //handler.serialize(pageReadTrx, data, SerializationType.DATA);
       final var pageBytes = data.toByteArray();
-      final Page serializedPage =
-          PageKind.getKind(handler.getClass()).deserializePage(pageReadTrx, Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
+      final Page serializedPage = PageKind.getKind(handler.getClass())
+                                          .deserializePage(pageReadTrx.getResourceSession().getResourceConfig(),
+                                                           Bytes.wrapForRead(data.toByteArray()),
+                                                           SerializationType.DATA);
       //serializedPage.serialize(pageReadTrx, data, SerializationType.DATA);
       final var serializedPageBytes = data.toByteArray();
       assertArrayEquals("Check for " + handler.getClass() + " failed.", pageBytes, serializedPageBytes);
@@ -90,8 +96,10 @@ public class PageTest {
     // final RevisionRootPage revRootPage = new RevisionRootPage();
 
     // NodePage setup.
-    final KeyValueLeafPage nodePage =
-        new KeyValueLeafPage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE), IndexType.DOCUMENT, pageReadTrx);
+    final KeyValueLeafPage nodePage = new KeyValueLeafPage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE),
+                                                           IndexType.DOCUMENT,
+                                                           pageReadTrx.getResourceSession().getResourceConfig(),
+                                                           pageReadTrx.getRevisionNumber());
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();
       nodePage.setRecord(record);

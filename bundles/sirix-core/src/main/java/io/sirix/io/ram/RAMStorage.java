@@ -142,7 +142,7 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Page read(PageReference reference, @Nullable PageReadOnlyTrx pageReadTrx) {
+    public Page read(PageReference reference, @Nullable ResourceConfiguration resourceConfiguration) {
       return mResourceFileStorage.get(reference.getKey());
     }
 
@@ -156,7 +156,8 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Writer write(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
+    public Writer write(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
+        final Bytes<ByteBuffer> bufferedBytes) {
       final Page page = pageReference.getPage();
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey++, page);
@@ -165,8 +166,8 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Writer writeUberPageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
-        final Bytes<ByteBuffer> bufferedBytes) {
+    public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
+        final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
       final Page page = pageReference.getPage();
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey, page);
@@ -198,7 +199,7 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public RevisionRootPage readRevisionRootPage(int revision, PageReadOnlyTrx pageReadTrx) {
+    public RevisionRootPage readRevisionRootPage(int revision, ResourceConfiguration resourceConfiguration) {
       return mResourceRevisionRootsStorage.get(revision);
     }
   }

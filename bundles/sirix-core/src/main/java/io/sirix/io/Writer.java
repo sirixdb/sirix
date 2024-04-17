@@ -21,6 +21,7 @@
 
 package io.sirix.io;
 
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
@@ -32,7 +33,6 @@ import java.nio.ByteBuffer;
  * Interface to provide the abstract layer related to write access of the Sirix-backend.
  *
  * @author Sebastian Graf, University of Konstanz
- *
  */
 public interface Writer extends Reader {
 
@@ -47,22 +47,26 @@ public interface Writer extends Reader {
   /**
    * Writing a page related to the reference.
    *
+   * @param resourceConfiguration the resource configuration
    * @param pageReference that points to a page
-   * @param bufferedBytes  the bytes to write
-   * @throws SirixIOException exception to be thrown if something bad happens
+   * @param bufferedBytes the bytes to write
    * @return this writer instance
+   * @throws SirixIOException exception to be thrown if something bad happens
    */
-  Writer write(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference, Bytes<ByteBuffer> bufferedBytes);
+  Writer write(ResourceConfiguration resourceConfiguration, PageReference pageReference,
+      Bytes<ByteBuffer> bufferedBytes);
 
   /**
    * Write beacon for the first reference.
    *
+   * @param resourceConfiguration the resource configuration
    * @param pageReference that points to the beacon
-   * @param bufferedBytes  the bytes to write
-   * @throws SirixIOException if an I/O error occured
+   * @param bufferedBytes the bytes to write
    * @return this writer instance
+   * @throws SirixIOException if an I/O error occured
    */
-  Writer writeUberPageReference(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference, Bytes<ByteBuffer> bufferedBytes);
+  Writer writeUberPageReference(ResourceConfiguration resourceConfiguration, PageReference pageReference,
+      Bytes<ByteBuffer> bufferedBytes);
 
   /**
    * Truncate to a specific revision.

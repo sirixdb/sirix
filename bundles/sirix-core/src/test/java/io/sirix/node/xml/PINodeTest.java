@@ -21,8 +21,17 @@
 
 package io.sirix.node.xml;
 
+import io.sirix.Holder;
+import io.sirix.XmlTestHelper;
+import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.exception.SirixException;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
+import io.sirix.node.delegates.NameNodeDelegate;
+import io.sirix.node.delegates.NodeDelegate;
+import io.sirix.node.delegates.StructNodeDelegate;
+import io.sirix.node.delegates.ValueNodeDelegate;
+import io.sirix.settings.Constants;
 import io.sirix.utils.NamePageHash;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.hashing.LongHashFunction;
@@ -30,15 +39,6 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import io.sirix.Holder;
-import io.sirix.XmlTestHelper;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.exception.SirixException;
-import io.sirix.node.delegates.NameNodeDelegate;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
-import io.sirix.node.delegates.ValueNodeDelegate;
-import io.sirix.settings.Constants;
 
 import java.nio.ByteBuffer;
 
@@ -84,7 +84,7 @@ public class PINodeTest {
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
 
-    final PINode node = new PINode(structDel, nameDel, valDel, pageReadTrx);
+    final PINode node = new PINode(structDel, nameDel, valDel);
     var bytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(bytes));
 
@@ -93,15 +93,16 @@ public class PINodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx);
+    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
     final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(data,
                                                                               node.getNodeKey(),
                                                                               node.getDeweyID().toBytes(),
-                                                                              pageReadTrx);
+                                                                              pageReadTrx.getResourceSession()
+                                                                                         .getResourceConfig());
     check(node2);
   }
 
-  private final void check(final PINode node) {
+  private void check(final PINode node) {
     // Now compare.
     assertEquals(99L, node.getNodeKey());
     assertEquals(13L, node.getParentKey());

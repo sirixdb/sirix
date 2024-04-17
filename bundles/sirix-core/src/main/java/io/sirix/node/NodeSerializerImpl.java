@@ -19,24 +19,24 @@ import java.util.Arrays;
  */
 public final class NodeSerializerImpl implements DeweyIdSerializer {
   @Override
-  public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID, final byte[] deweyID,
-      final PageReadOnlyTrx pageReadTrx) {
+  public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
+      final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
     final byte id = source.readByte();
     final NodeKind enumKind = NodeKind.getKind(id);
-    return enumKind.deserialize(source, recordID, deweyID, pageReadTrx);
+    return enumKind.deserialize(source, recordID, deweyID, resourceConfiguration);
   }
 
   @Override
-  public void serialize(final BytesOut<?> sink, final DataRecord record, final PageReadOnlyTrx pageReadTrx) {
+  public void serialize(final BytesOut<?> sink, final DataRecord record,
+      final ResourceConfiguration resourceConfiguration) {
     final NodeKind nodeKind = (NodeKind) record.getKind();
     final byte id = nodeKind.getId();
     sink.writeByte(id);
-    nodeKind.serialize(sink, record, pageReadTrx);
+    nodeKind.serialize(sink, record, resourceConfiguration);
   }
 
   @Override
-  public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
-      ResourceConfiguration resourceConfig) {
+  public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
     if (resourceConfig.areDeweyIDsStored) {
       if (previousDeweyID != null) {
         final int cutOffSize = source.readByte();

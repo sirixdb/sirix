@@ -30,13 +30,14 @@ package io.sirix.io;
 
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.page.interfaces.Page;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
@@ -51,10 +52,14 @@ import java.util.concurrent.Executors;
  */
 public interface Reader extends AutoCloseable {
 
-  /** Hash function to use for hashing pages. */
+  /**
+   * Hash function to use for hashing pages.
+   */
   HashFunction hashFunction = Hashing.sha256();
 
-  /** Executor Service used for the async read. */
+  /**
+   * Executor Service used for the async read.
+   */
   ExecutorService POOL = Executors.newVirtualThreadPerTaskExecutor();
 
   /**
@@ -68,24 +73,25 @@ public interface Reader extends AutoCloseable {
   /**
    * Getting a reference for the given pointer.
    *
-   * @param key the reference for the page to be determined
-   * @param pageReadTrx {@link PageReadOnlyTrx} reference
+   * @param key    the reference for the page to be determined
+   * @param resourceConfiguration the resource configuration
    * @return a {@link BitmapReferencesPage} as the base for a page
    * @throws SirixIOException if something bad happens during read
    */
-  default CompletableFuture<? extends Page> readAsync(PageReference key, @Nullable PageReadOnlyTrx pageReadTrx) {
-    return CompletableFuture.supplyAsync(() -> read(key, pageReadTrx), POOL);
+  default CompletableFuture<? extends Page> readAsync(PageReference key,
+      @NonNull ResourceConfiguration resourceConfiguration) {
+    return CompletableFuture.supplyAsync(() -> read(key, resourceConfiguration), POOL);
   }
 
   /**
    * Getting a reference for the given pointer.
    *
-   * @param key the reference for the page to be determined
-   * @param pageReadTrx {@link PageReadOnlyTrx} reference
+   * @param key                   the reference for the page to be determined
+   * @param resourceConfiguration the resource configuration
    * @return a {@link BitmapReferencesPage} as the base for a page
    * @throws SirixIOException if something bad happens during read
    */
-  Page read(PageReference key, @Nullable PageReadOnlyTrx pageReadTrx);
+  Page read(PageReference key, @NonNull ResourceConfiguration resourceConfiguration);
 
   /**
    * Closing the storage.
@@ -98,11 +104,11 @@ public interface Reader extends AutoCloseable {
   /**
    * Read the revision root page.
    *
-   * @param revision the revision to read
-   * @param pageReadTrx the page reading transaction
+   * @param revision    the revision to read
+   * @param resourceConfiguration the resource configuration
    * @return the revision root page
    */
-  RevisionRootPage readRevisionRootPage(int revision, PageReadOnlyTrx pageReadTrx);
+  RevisionRootPage readRevisionRootPage(int revision, ResourceConfiguration resourceConfiguration);
 
   Instant readRevisionRootPageCommitTimestamp(int revision);
 

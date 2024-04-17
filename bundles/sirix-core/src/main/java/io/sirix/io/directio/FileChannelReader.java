@@ -23,6 +23,7 @@ package io.sirix.io.directio;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.*;
@@ -81,7 +82,7 @@ public final class FileChannelReader extends AbstractReader {
     this.cache = cache;
   }
 
-  public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
+  public Page read(final @NonNull PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
       // Read page from file.
       ByteBuffer buffer = DirectIOUtils.allocate(IOStorage.OTHER_BEACON);
@@ -89,7 +90,7 @@ public final class FileChannelReader extends AbstractReader {
       final long position = reference.getKey();
 
       dataFileChannel.read(buffer, position);
-     // DirectIOUtils.read(dataFileChannel, buffer, position);
+      // DirectIOUtils.read(dataFileChannel, buffer, position);
       buffer.flip();
       final int dataLength = buffer.getInt();
       buffer.clear();
@@ -102,7 +103,7 @@ public final class FileChannelReader extends AbstractReader {
       buffer.clear();
 
       // Perform byte operations.
-      return deserialize(pageReadTrx, page);
+      return deserialize(resourceConfiguration, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -118,7 +119,7 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   @Override
-  public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
+  public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     try {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
@@ -134,7 +135,7 @@ public final class FileChannelReader extends AbstractReader {
       buffer.get(page);
 
       // Perform byte operations.
-      return (RevisionRootPage) deserialize(pageReadTrx, page);
+      return (RevisionRootPage) deserialize(resourceConfiguration, page);
     } catch (IOException e) {
       throw new SirixIOException(e);
     }

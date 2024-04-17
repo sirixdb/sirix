@@ -66,8 +66,10 @@ public final class PageUtils {
   public static void createTree(final DatabaseType databaseType, @NonNull PageReference reference,
       final IndexType indexType, final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     // Create new record page.
-    final KeyValueLeafPage recordPage =
-        new KeyValueLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, pageReadTrx);
+    final KeyValueLeafPage recordPage = new KeyValueLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(),
+                                                             indexType,
+                                                             pageReadTrx.getResourceSession().getResourceConfig(),
+                                                             pageReadTrx.getRevisionNumber());
 
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceSession().getResourceConfig();
 

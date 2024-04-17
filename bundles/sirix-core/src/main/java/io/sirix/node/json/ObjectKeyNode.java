@@ -30,6 +30,7 @@ package io.sirix.node.json;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.brackit.query.atomic.QNm;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.NodeKind;
@@ -38,12 +39,10 @@ import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
+import io.sirix.node.xml.AbstractStructForwardingNode;
 import io.sirix.settings.Fixed;
 import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
-
-import io.sirix.node.xml.AbstractStructForwardingNode;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.nio.ByteBuffer;
@@ -99,7 +98,7 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     assert structDel != null;
     structNodeDelegate = structDel;
     this.nameKey = nameKey;
-    this.name = new QNm(name);
+    this.name = null;
     this.pathNodeKey = pathNodeKey;
   }
 

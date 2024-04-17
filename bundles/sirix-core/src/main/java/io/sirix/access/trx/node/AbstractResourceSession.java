@@ -215,6 +215,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
+  public Reader createReader() {
+    return storage.createReader();
+  }
+
   @Override
   public Cache<RBIndexKey, Node> getIndexCache() {
     return bufferManager.getIndexCache();

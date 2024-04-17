@@ -22,19 +22,19 @@
 package io.sirix.io.memorymapped;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.exception.SirixIOException;
+import io.sirix.io.AbstractReader;
+import io.sirix.io.IOStorage;
+import io.sirix.io.RevisionFileData;
+import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
-import io.sirix.exception.SirixIOException;
-import io.sirix.io.RevisionFileData;
-import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.interfaces.Page;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import io.sirix.io.AbstractReader;
-import io.sirix.io.IOStorage;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -79,7 +79,7 @@ public final class MMFileReader extends AbstractReader {
   }
 
   @Override
-  public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
+  public Page read(final @NonNull PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
       final long offset = reference.getKey() + LAYOUT_INT.byteSize();
       final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
@@ -88,14 +88,14 @@ public final class MMFileReader extends AbstractReader {
 
       MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
 
-      return deserialize(pageReadTrx, page);
+      return deserialize(resourceConfiguration, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
   @Override
-  public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
+  public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     try {
       //noinspection DataFlowIssue
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
@@ -106,7 +106,7 @@ public final class MMFileReader extends AbstractReader {
 
       MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, dataFileOffset + LAYOUT_INT.byteSize(), page, 0, dataLength);
 
-      return (RevisionRootPage) deserialize(pageReadTrx, page);
+      return (RevisionRootPage) deserialize(resourceConfiguration, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
