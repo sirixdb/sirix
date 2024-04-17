@@ -352,7 +352,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
-    storagePageReaderWriter.write(this, reference, bufferBytes);
+    storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, bufferBytes);
 
     container.getComplete().clearPage();
     page.clearPage();
@@ -387,7 +387,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       uberPage.commit(this);
 
       uberPageReference.setPage(uberPage);
-      storagePageReaderWriter.writeUberPageReference(this, uberPageReference, bufferBytes);
+      storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(),
+                                                     uberPageReference,
+                                                     bufferBytes);
       uberPageReference.setPage(null);
 
       final int revision = uberPage.getRevisionNumber();
@@ -435,18 +437,21 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   private void parallelSerializationOfKeyValuePages() {
+    final var resourceConfig = getResourceSession().getResourceConfig();
+
     log.getList()
        .parallelStream()
        .map(PageContainer::getModified)
        .filter(page -> page instanceof KeyValueLeafPage)
        .forEach(page -> {
          final var bytes = Bytes.elasticHeapByteBuffer(60_000);
-         PageKind.KEYVALUELEAFPAGE.serializePage(this, bytes, page, SerializationType.DATA);
+         PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
        });
   }
 
   private UberPage readUberPage() {
-    return (UberPage) storagePageReaderWriter.read(storagePageReaderWriter.readUberPageReference(), pageRtx);
+    return (UberPage) storagePageReaderWriter.read(storagePageReaderWriter.readUberPageReference(),
+                                                   getResourceSession().getResourceConfig());
   }
 
   private void createIfAbsent(final Path file) {
@@ -583,7 +588,10 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       }
 
       if (reference.getKey() == Constants.NULL_ID_LONG) {
-        final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey, indexType, pageRtx);
+        final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey,
+                                                                   indexType,
+                                                                   getResourceSession().getResourceConfig(),
+                                                                   pageRtx.getRevisionNumber());
         final KeyValueLeafPage modifyPage = new KeyValueLeafPage(completePage);
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
       } else {

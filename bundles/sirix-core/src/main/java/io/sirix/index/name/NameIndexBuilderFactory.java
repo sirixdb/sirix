@@ -29,6 +29,6 @@ public final class NameIndexBuilderFactory {
             indexDefinition.getID()
     );
 
-    return new NameIndexBuilder(includes, excludes, rbTreeWriter);
+    return new NameIndexBuilder(includes, excludes, rbTreeWriter, pageTrx);
   }
 }

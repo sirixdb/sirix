@@ -193,7 +193,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
 
     if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
-      page = pageReader.read(reference, this);
+      page = pageReader.read(reference, resourceSession.getResourceConfig());
     }
 
     if (page != null) {
@@ -268,6 +268,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     final var dataRecord = getValue(((KeyValueLeafPage) page), recordKey);
 
+    //noinspection unchecked
     return (V) checkItemIfDeleted(dataRecord);
   }
 
@@ -286,7 +287,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       try {
         final PageReference reference = page.getPageReference(nodeKey);
         if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
-          data = ((OverflowPage) pageReader.read(reference, this)).getData();
+          data = ((OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig())).getData();
         } else {
           return null;
         }
@@ -301,7 +302,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private DataRecord getDataRecord(long key, int offset, byte[] data, KeyValueLeafPage page) {
     byteBufferForRecords.clear();
     BytesUtils.doWrite(byteBufferForRecords, data);
-    var record = resourceConfig.recordPersister.deserialize(byteBufferForRecords, key, page.getDeweyId(offset), this);
+    var record =
+        resourceConfig.recordPersister.deserialize(byteBufferForRecords, key, page.getDeweyId(offset), resourceConfig);
     byteBufferForRecords.clear();
     page.setRecord(record);
     return record;
@@ -347,7 +349,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       final Cache<Integer, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
       RevisionRootPage revisionRootPage = cache.get(revisionKey);
       if (revisionRootPage == null) {
-        revisionRootPage = pageReader.readRevisionRootPage(revisionKey, this);
+        revisionRootPage = pageReader.readRevisionRootPage(revisionKey, resourceConfig);
         cache.put(revisionKey, revisionRootPage);
       }
       return revisionRootPage;
@@ -355,9 +357,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (revisionKey == 0 && uberPage.getRevisionRootReference() != null) {
         final var revisionRootPageReference = uberPage.getRevisionRootReference();
         final var pageContainer = trxIntentLog.get(revisionRootPageReference);
+        assert pageContainer != null;
         return (RevisionRootPage) pageContainer.getModified();
       }
-      return pageReader.readRevisionRootPage(revisionKey, this);
+      return pageReader.readRevisionRootPage(revisionKey, resourceConfig);
     }
   }
 
@@ -490,7 +493,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       pageReferenceToRecordPage.setPage(recordPageFromBuffer);
       return recordPageFromBuffer;
     }
-    
+
     return null;
   }
 
@@ -583,13 +586,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       page = (KeyValuePage<DataRecord>) resourceBufferManager.getPageCache().get(pageReferenceWithKey);
       //assert page == null || page.getRevision() == getRevisionNumber();
       if (page == null) {
-        page = (KeyValuePage<DataRecord>) pageReader.read(pageReferenceWithKey, this);
+        page = (KeyValuePage<DataRecord>) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
 
         assert pageReferenceWithKey.getLogKey() == Constants.NULL_ID_INT;
         resourceBufferManager.getPageCache().put(pageReferenceWithKey, page);
       }
     } else {
-      page = (KeyValuePage<DataRecord>) pageReader.read(pageReferenceWithKey, this);
+      page = (KeyValuePage<DataRecord>) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
     }
     pages.add(page);
 
@@ -623,25 +626,24 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) pageFromBufferManager);
       }
     }
-    final var pageReadOnlyTrx = resourceSession.beginPageReadOnlyTrx(pageFragmentKey.revision());
-    return (CompletableFuture<KeyValuePage<DataRecord>>) pageReadOnlyTrx.getReader()
-                                                                        .readAsync(pageReference, pageReadOnlyTrx)
-                                                                        .whenComplete((page, exception) -> {
-                                                                          pageReadOnlyTrx.close();
-                                                                          if (trxIntentLog == null) {
-                                                                            assert pageFragmentKey.revision()
-                                                                                == ((KeyValuePage<DataRecord>) page).getRevision();
-                                                                            resourceBufferManager.getPageCache()
-                                                                                                 .put(pageReference,
-                                                                                                      page);
-                                                                          }
-                                                                        });
+    final var reader = resourceSession.createReader();
+    return (CompletableFuture<KeyValuePage<DataRecord>>) reader.readAsync(pageReference,
+                                                                          resourceSession.getResourceConfig())
+                                                               .whenComplete((page, _) -> {
+                                                                 reader.close();
+                                                                 if (trxIntentLog == null) {
+                                                                   assert pageFragmentKey.revision()
+                                                                       == ((KeyValuePage<DataRecord>) page).getRevision();
+                                                                   resourceBufferManager.getPageCache()
+                                                                                        .put(pageReference, page);
+                                                                 }
+                                                               });
   }
 
   static CompletableFuture<List<KeyValuePage<DataRecord>>> sequence(
       List<CompletableFuture<KeyValuePage<DataRecord>>> listOfCompletableFutures) {
     return CompletableFuture.allOf(listOfCompletableFutures.toArray(new CompletableFuture[0]))
-                            .thenApply(v -> listOfCompletableFutures.stream()
+                            .thenApply(_ -> listOfCompletableFutures.stream()
                                                                     .map(CompletableFuture::join)
                                                                     .collect(Collectors.toList()));
   }

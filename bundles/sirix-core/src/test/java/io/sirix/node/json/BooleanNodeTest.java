@@ -79,8 +79,12 @@ public class BooleanNodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx);
-    final BooleanNode node2 = (BooleanNode) NodeKind.BOOLEAN_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx);
+    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
+    final BooleanNode node2 = (BooleanNode) NodeKind.BOOLEAN_VALUE.deserialize(data,
+                                                                               node.getNodeKey(),
+                                                                               null,
+                                                                               pageTrx.getResourceSession()
+                                                                                      .getResourceConfig());
     check(node2);
   }
 

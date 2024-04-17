@@ -70,9 +70,6 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   /** Delegate for structural node information. */
   private final StructNodeDelegate structNodeDelegate;
 
-  /** {@link PageReadOnlyTrx} reference. */
-  private final PageReadOnlyTrx pageReadTrx;
-
   private long hash;
 
   /**
@@ -83,7 +80,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
    * @param valueNodeDelegate {@link ValueNodeDelegate} to be set
    */
   public PINode(final long hashCode, final StructNodeDelegate structNodeDelegate, final NameNodeDelegate nameNodeDelegate,
-      final ValueNodeDelegate valueNodeDelegate, final PageReadOnlyTrx pageReadTrx) {
+      final ValueNodeDelegate valueNodeDelegate) {
     hash = hashCode;
     assert structNodeDelegate != null : "structNodeDelegate must not be null!";
     this.structNodeDelegate = structNodeDelegate;
@@ -91,8 +88,6 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
     this.nameNodeDelegate = nameNodeDelegate;
     assert valueNodeDelegate != null : "valDel must not be null!";
     this.valueNodeDelegate = valueNodeDelegate;
-    assert pageReadTrx != null : "pageReadTrx must not be null!";
-    this.pageReadTrx = pageReadTrx;
   }
 
   /**
@@ -103,16 +98,13 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
    * @param valueNodeDelegate {@link ValueNodeDelegate} to be set
    *
    */
-  public PINode(final StructNodeDelegate structNodeDelegate, final NameNodeDelegate nameNodeDelegate, final ValueNodeDelegate valueNodeDelegate,
-      final PageReadOnlyTrx pageReadTrx) {
+  public PINode(final StructNodeDelegate structNodeDelegate, final NameNodeDelegate nameNodeDelegate, final ValueNodeDelegate valueNodeDelegate) {
     assert structNodeDelegate != null : "structNodeDelegate must not be null!";
     this.structNodeDelegate = structNodeDelegate;
     assert nameNodeDelegate != null : "nameDel must not be null!";
     this.nameNodeDelegate = nameNodeDelegate;
     assert valueNodeDelegate != null : "valDel must not be null!";
     this.valueNodeDelegate = valueNodeDelegate;
-    assert pageReadTrx != null : "pageReadTrx must not be null!";
-    this.pageReadTrx = pageReadTrx;
   }
 
   @Override
@@ -277,16 +269,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
 
   @Override
   public QNm getName() {
-    final String uri = pageReadTrx.getName(nameNodeDelegate.getURIKey(), NodeKind.NAMESPACE);
-    final int prefixKey = nameNodeDelegate.getPrefixKey();
-    final String prefix = prefixKey == -1
-        ? ""
-        : pageReadTrx.getName(prefixKey, NodeKind.PROCESSING_INSTRUCTION);
-    final int localNameKey = nameNodeDelegate.getLocalNameKey();
-    final String localName = localNameKey == -1
-        ? ""
-        : pageReadTrx.getName(localNameKey, NodeKind.PROCESSING_INSTRUCTION);
-    return new QNm(uri, prefix, localName);
+    return null;
   }
 
   @Override

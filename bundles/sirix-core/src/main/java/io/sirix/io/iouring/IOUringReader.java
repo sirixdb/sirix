@@ -23,6 +23,7 @@ package io.sirix.io.iouring;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandler;
@@ -89,9 +90,10 @@ public final class IOUringReader extends AbstractReader {
     this.cache = cache;
   }
 
-  public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
+  public Page read(final @NonNull PageReference reference,
+      final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
-      return POOL.submit(() -> readPageFragment(reference, pageReadTrx)).get();
+      return POOL.submit(() -> readPageFragment(reference, resourceConfiguration)).get();
     } catch (InterruptedException | ExecutionException e) {
       throw new SirixIOException(e);
     }
@@ -99,12 +101,13 @@ public final class IOUringReader extends AbstractReader {
 
   @Override
   public CompletableFuture<? extends Page> readAsync(final @NonNull PageReference reference,
-      final @Nullable PageReadOnlyTrx pageReadTrx) {
-      return CompletableFuture.supplyAsync(() -> readPageFragment(reference, pageReadTrx), POOL);
+      final @Nullable ResourceConfiguration resourceConfiguration) {
+    return CompletableFuture.supplyAsync(() -> readPageFragment(reference, resourceConfiguration), POOL);
   }
 
   @NonNull
-  private Page readPageFragment(@NonNull PageReference reference, @Nullable PageReadOnlyTrx pageReadTrx) {
+  private Page readPageFragment(@NonNull PageReference reference,
+      @Nullable ResourceConfiguration resourceConfiguration) {
     try {
       // Read page from file.
       ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
@@ -123,14 +126,14 @@ public final class IOUringReader extends AbstractReader {
       buffer.get(page);
 
       // Perform byte operations.
-      return deserialize(pageReadTrx, page);
+      return deserialize(resourceConfiguration, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
   @Override
-  public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
+  public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     try {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
@@ -146,7 +149,7 @@ public final class IOUringReader extends AbstractReader {
       buffer.get(page);
 
       // Perform byte operations.
-      return (RevisionRootPage) deserialize(pageReadTrx, page);
+      return (RevisionRootPage) deserialize(resourceConfiguration, page);
     } catch (IOException e) {
       throw new SirixIOException(e);
     }

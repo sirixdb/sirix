@@ -81,14 +81,14 @@ public final class NodePageTest {
 
   @Test
   public void testSerializeDeserialize() throws IOException {
-    final KeyValueLeafPage page1 = new KeyValueLeafPage(0L, IndexType.DOCUMENT, pageReadTrx);
+    final KeyValueLeafPage page1 = new KeyValueLeafPage(0L,
+                                                        IndexType.DOCUMENT,
+                                                        pageReadTrx.getResourceSession().getResourceConfig(),
+                                                        pageReadTrx.getRevisionNumber());
     assertEquals(0L, page1.getPageKey());
 
-    final NodeDelegate del = new NodeDelegate(0,
-                                              1,
-                                              LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER,
-                                              0,
-                                              SirixDeweyID.newRootID());
+    final NodeDelegate del =
+        new NodeDelegate(0, 1, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12L, 4L, 3L, 1L, 0L);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
     final ElementNode node1 =
@@ -104,10 +104,14 @@ public final class NodePageTest {
 
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
     final PagePersister pagePersister = new PagePersister();
-    pagePersister.serializePage(pageReadTrx, data, page1, SerializationType.DATA);
-    final KeyValueLeafPage page2 = (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx,
-                                                                                    Bytes.wrapForRead(data.toByteArray()),
-                                                                                    SerializationType.DATA);
+    pagePersister.serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
+                                data,
+                                page1,
+                                SerializationType.DATA);
+    final KeyValueLeafPage page2 =
+        (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx.getResourceSession().getResourceConfig(),
+                                                         Bytes.wrapForRead(data.toByteArray()),
+                                                         SerializationType.DATA);
     // assertEquals(position, out.position());
     final ElementNode element = (ElementNode) pageReadTrx.getValue(page2, 0L);
 

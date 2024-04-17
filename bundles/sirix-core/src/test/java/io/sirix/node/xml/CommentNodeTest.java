@@ -48,10 +48,14 @@ import static org.junit.Assert.*;
  */
 public class CommentNodeTest {
 
-  /** {@link Holder} instance. */
+  /**
+   * {@link Holder} instance.
+   */
   private Holder holder;
 
-  /** Sirix {@link PageReadOnlyTrx} instance. */
+  /**
+   * Sirix {@link PageReadOnlyTrx} instance.
+   */
   private PageReadOnlyTrx pageReadTrx;
 
   @Before
@@ -84,9 +88,12 @@ public class CommentNodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx);
-    final CommentNode node2 =
-        (CommentNode) NodeKind.COMMENT.deserialize(data, node.getNodeKey(), node.getDeweyID().toBytes(), pageReadTrx);
+    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
+    final CommentNode node2 = (CommentNode) NodeKind.COMMENT.deserialize(data,
+                                                                         node.getNodeKey(),
+                                                                         node.getDeweyID().toBytes(),
+                                                                         pageReadTrx.getResourceSession()
+                                                                                    .getResourceConfig());
     check(node2);
   }
 
