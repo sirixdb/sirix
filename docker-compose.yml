@@ -2,30 +2,34 @@ version: '3'
 services:
   keycloak:
     image: quay.io/keycloak/keycloak:7.0.1
+    
     ports:
       - 8080:8080
       - 8433:8433
     environment:
       - KEYCLOAK_USER=admin
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
       - KEYCLOAK_PASSWORD=admin
       - KEYCLOAK_LOGLEVEL=DEBUG
       - KEYCLOAK_IMPORT=/opt/keycloak/realm-export.json
+      - KEYCLOAK_BIND_ADDRESS=0.0.0.0
+      - KEYCLOAK_MANAGEMENT_BIND_ADDRESS=0.0.0.0
     restart: always
     volumes:
       - ./bundles/sirix-rest-api/src/test/resources/realm-export.json:/opt/keycloak/realm-export.json
       - ./bundles/sirix-rest-api/src/test/resources/create-sirix-users.sh:/opt/jboss/startup-scripts/create-sirix-users.sh
-    command:
-      - "-b 0.0.0.0"
-      - "-bmanagement 0.0.0.0"
+    #command:
+     #- "-b 0.0.0.0"
+     # "-bmanagement 0.0.0.0"
     networks:
       - auth-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      test: "curl --fail  http://localhost:8080 || exit 1"
       interval: 30s
       timeout: 5s
       retries: 10
   server:
-    build: .
     image: sirixdb/sirix
     ports:
       - "9443:9443"
