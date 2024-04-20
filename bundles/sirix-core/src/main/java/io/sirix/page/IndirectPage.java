@@ -94,14 +94,14 @@ public final class IndirectPage extends AbstractForwardingPage {
   }
 
   @Override
-  public boolean setOrCreateReference(int offset, PageReference pageReference) {
+  public synchronized boolean setOrCreateReference(int offset, PageReference pageReference) {
     delegate = PageUtils.setReference(delegate, offset, pageReference);
 
     return false;
   }
 
   @Override
-  public PageReference getOrCreateReference(int offset) {
+  public synchronized PageReference getOrCreateReference(int offset) {
     PageReference reference = super.getOrCreateReference(offset);
 
     if (reference == null) {

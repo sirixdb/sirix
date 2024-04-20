@@ -1,6 +1,5 @@
 package io.sirix.cache;
 
-import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.longs.Long2ObjectArrayMap;
@@ -63,21 +62,17 @@ public final class TransactionIntentLog implements AutoCloseable {
   @Override
   public void close() {
     logKey = 0;
-    map.values()
-       .stream()
-       .filter(pageContainer -> pageContainer.getComplete() instanceof KeyValueLeafPage)
-       .forEach(pageContainer -> {
-         pageContainer.getModifiedAsUnorderedKeyValuePage().clearPage();
-         pageContainer.getCompleteAsUnorderedKeyValuePage().clearPage();
-       });
+//    map.values()
+//       .stream()
+//       .filter(pageContainer -> pageContainer.getComplete() instanceof KeyValueLeafPage)
+//       .forEach(pageContainer -> {
+//         pageContainer.getModifiedAsUnorderedKeyValuePage().clearPage();
+//         pageContainer.getCompleteAsUnorderedKeyValuePage().clearPage();
+//       });
     map.clear();
   }
 
   public int getMaxLogKey() {
     return logKey - 1;
-  }
-
-  public void remove(PageReference reference) {
-    map.remove(reference.getLogKey());
   }
 }

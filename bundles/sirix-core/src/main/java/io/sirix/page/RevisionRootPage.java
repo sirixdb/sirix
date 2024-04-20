@@ -45,6 +45,7 @@ import io.sirix.settings.Constants;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.Semaphore;
 
 import static java.util.Objects.requireNonNull;
 
@@ -52,6 +53,8 @@ import static java.util.Objects.requireNonNull;
  * Revision root page holds a reference to the name page as well as the static node page tree.
  */
 public final class RevisionRootPage extends AbstractForwardingPage {
+
+  private final Semaphore lock = new Semaphore(1);
 
   /**
    * Offset of indirect page reference.
@@ -209,19 +212,32 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param representRev              revision number to use
    */
   public RevisionRootPage(final RevisionRootPage committedRevisionRootPage, final @NonNegative int representRev) {
-    final Page pageDelegate = committedRevisionRootPage.delegate();
-    delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
-    revision = representRev;
-    user = committedRevisionRootPage.user;
-    maxNodeKeyInDocumentIndex = committedRevisionRootPage.maxNodeKeyInDocumentIndex;
-    maxNodeKeyInChangedNodesIndex = committedRevisionRootPage.maxNodeKeyInChangedNodesIndex;
-    maxNodeKeyInRecordToRevisionsIndex = committedRevisionRootPage.maxNodeKeyInRecordToRevisionsIndex;
-    revisionTimestamp = committedRevisionRootPage.revisionTimestamp;
-    commitMessage = committedRevisionRootPage.commitMessage;
-    currentMaxLevelOfDocumentIndexIndirectPages = committedRevisionRootPage.currentMaxLevelOfDocumentIndexIndirectPages;
-    currentMaxLevelOfChangedNodesIndirectPages = committedRevisionRootPage.currentMaxLevelOfChangedNodesIndirectPages;
-    currentMaxLevelOfRecordToRevisionsIndirectPages =
-        committedRevisionRootPage.currentMaxLevelOfRecordToRevisionsIndirectPages;
+    var lock = committedRevisionRootPage.getLock();
+
+    lock.acquireUninterruptibly();
+
+    try {
+      final Page pageDelegate = committedRevisionRootPage.delegate();
+      delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
+      revision = representRev;
+      user = committedRevisionRootPage.user;
+      maxNodeKeyInDocumentIndex = committedRevisionRootPage.maxNodeKeyInDocumentIndex;
+      maxNodeKeyInChangedNodesIndex = committedRevisionRootPage.maxNodeKeyInChangedNodesIndex;
+      maxNodeKeyInRecordToRevisionsIndex = committedRevisionRootPage.maxNodeKeyInRecordToRevisionsIndex;
+      revisionTimestamp = committedRevisionRootPage.revisionTimestamp;
+      commitMessage = committedRevisionRootPage.commitMessage;
+      currentMaxLevelOfDocumentIndexIndirectPages =
+          committedRevisionRootPage.currentMaxLevelOfDocumentIndexIndirectPages;
+      currentMaxLevelOfChangedNodesIndirectPages = committedRevisionRootPage.currentMaxLevelOfChangedNodesIndirectPages;
+      currentMaxLevelOfRecordToRevisionsIndirectPages =
+          committedRevisionRootPage.currentMaxLevelOfRecordToRevisionsIndirectPages;
+    } finally {
+      lock.release();
+    }
+  }
+
+  public Semaphore getLock() {
+    return lock;
   }
 
   /**

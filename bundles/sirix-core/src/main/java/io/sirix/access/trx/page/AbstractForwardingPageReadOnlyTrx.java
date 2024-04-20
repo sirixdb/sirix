@@ -6,6 +6,7 @@ import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.IndexLogKey;
+import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.io.Reader;
@@ -28,6 +29,11 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
    * Constructor for use by subclasses.
    */
   protected AbstractForwardingPageReadOnlyTrx() {
+  }
+
+  @Override
+  public TransactionIntentLog getFormerTrxIntentLog() {
+    return delegate().getFormerTrxIntentLog();
   }
 
   @Override

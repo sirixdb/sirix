@@ -1,6 +1,7 @@
 package io.sirix.api;
 
 import io.sirix.access.trx.node.CommitCredentials;
+import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.*;
@@ -264,4 +265,6 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @return the record or {@code null}
    */
   DataRecord getValue(KeyValueLeafPage page, long nodeKey);
+
+  TransactionIntentLog getFormerTrxIntentLog();
 }

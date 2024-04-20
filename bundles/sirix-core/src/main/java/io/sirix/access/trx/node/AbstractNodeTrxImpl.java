@@ -318,16 +318,14 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       if (pageTrx.getFormerLog() != null) {
         pageTrx.getFormerLog().close();
       }
-      // Reinstantiate everything.
 
+      // Reinstantiate everything.
       final var uberPage = pageTrx.getUberPage();
-      final var log = pageTrx.getLog();
+      final var log = new TransactionIntentLog(pageTrx.getLog());
       pageTrx.setLog(new TransactionIntentLog(log));
 
       // Reset modification counter.
       modificationCount = 0L;
-
-      //((InternalResourceSession<?, ?>) getResourceSession()).getRevisionRootPageLock().acquire();
 
       final int revisionNumber = getRevisionNumber();
 

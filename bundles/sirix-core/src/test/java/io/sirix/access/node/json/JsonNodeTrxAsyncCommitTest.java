@@ -8,6 +8,7 @@ import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.Axis;
 import io.sirix.axis.DescendantAxis;
+import io.sirix.io.StorageType;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,7 +63,12 @@ public final class JsonNodeTrxAsyncCommitTest {
   }
 
   @RepeatedTest(1)
-  public void testSlidingSnapshotVersioning() {
+  public void testSlidingSnapshotVersioning1() {
+    test(VersioningType.SLIDING_SNAPSHOT, 1024, 2050);
+  }
+
+  @RepeatedTest(1)
+  public void testSlidingSnapshotVersioning2() {
     test(VersioningType.SLIDING_SNAPSHOT, 1024, 409600);
   }
 
@@ -74,7 +80,8 @@ public final class JsonNodeTrxAsyncCommitTest {
                                                    .storeDiffs(false)
                                                    .hashKind(HashType.NONE)
                                                    .buildPathSummary(true)
-                                                  // .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   // .byteHandlerPipeline(new ByteHandlerPipeline())
                                                    .versioningApproach(versioningType)
                                                    .build());
       try (final var manager = database.beginResourceSession(resource);
@@ -104,6 +111,7 @@ public final class JsonNodeTrxAsyncCommitTest {
                                                    .hashKind(HashType.NONE)
                                                    .buildPathSummary(true)
                                                    .versioningApproach(versioningType)
+                                                   .storageType(StorageType.FILE_CHANNEL)
                                                    .build());
       try (final var manager = database.beginResourceSession(resource);
            final var wtx = manager.beginNodeTrx(maxNodeCount, 0, TimeUnit.SECONDS, true)) {

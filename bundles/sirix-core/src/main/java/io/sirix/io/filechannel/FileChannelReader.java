@@ -89,6 +89,10 @@ public final class FileChannelReader extends AbstractReader {
       // Read page from file.
       ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
 
+      if (reference.getKey() < 0) {
+        throw new SirixIOException("Key must be non-negative!");
+      }
+
       final long position = reference.getKey();
       dataFileChannel.read(buffer, position);
 

@@ -30,6 +30,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 
 /**
@@ -41,16 +42,24 @@ import java.util.Objects;
  */
 public final class PageReference {
 
-  /** In-memory deserialized page instance. */
+  /**
+   * In-memory deserialized page instance.
+   */
   private Page page;
 
-  /** Key in persistent storage. */
+  /**
+   * Key in persistent storage.
+   */
   private volatile long key = Constants.NULL_ID_LONG;
 
-  /** Log key. */
+  /**
+   * Log key.
+   */
   private volatile int logKey = Constants.NULL_ID_INT;
 
-  /** The hash in bytes, generated from the referenced page-fragment. */
+  /**
+   * The hash in bytes, generated from the referenced page-fragment.
+   */
   private byte[] hashInBytes;
 
   private Int2ObjectRBTreeMap<List<PageFragmentKey>> pageFragments;
@@ -118,6 +127,7 @@ public final class PageReference {
 
   /**
    * Add a page fragment key.
+   *
    * @param key the page fragment key to add.
    * @return this instance
    */
@@ -132,13 +142,13 @@ public final class PageReference {
 
   /**
    * Add a page fragment key.
+   *
    * @param key the page fragment key to add.
    * @return this instance
    */
   public synchronized PageReference setFirstPageFragment(final int revision, final PageFragmentKey key) {
     pageFragments.merge(revision, List.of(key), (previous, current) -> {
-      var list = new ArrayList<PageFragmentKey>();
-      list.addAll(current);
+      var list = new ArrayList<>(current);
       for (int i = previous.size() - 1; i > 0; i--) {
         list.add(previous.get(i));
       }
@@ -149,6 +159,7 @@ public final class PageReference {
 
   /**
    * Get the page fragments keys.
+   *
    * @return the page fragments keys
    */
   public synchronized List<PageFragmentKey> getPageFragments(final int revision) {
@@ -163,12 +174,30 @@ public final class PageReference {
     return pageFragments;
   }
 
+  public synchronized PageReference resetPageFragment(int revision) {
+    final PageFragmentKey first;
+    try {
+      first = pageFragments.getOrDefault(revision, List.of()).getFirst();
+
+      if (first != null) {
+        setFirstPageFragment(revision,
+                             new PageFragmentKeyImpl(first.revision(),
+                                                     new PageReference().setKey(first.pageReference().getKey())));
+      }
+    } catch (NoSuchElementException e) {
+      // Do nothing.
+    }
+    return this;
+  }
+
   /**
    * Set the page fragment keys.
+   *
    * @param previousPageFragmentKeys the previous page fragment keys to set
    * @return this instance
    */
-  public synchronized PageReference setPageFragments(final Int2ObjectRBTreeMap<List<PageFragmentKey>> previousPageFragmentKeys) {
+  public synchronized PageReference setPageFragments(
+      final Int2ObjectRBTreeMap<List<PageFragmentKey>> previousPageFragmentKeys) {
     pageFragments = previousPageFragmentKeys;
     return this;
   }
@@ -196,10 +225,7 @@ public final class PageReference {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("logKey", logKey)
-                      .add("key", key)
-                      .add("page", page)
+    return MoreObjects.toStringHelper(this).add("logKey", logKey).add("key", key).add("page", page)
                       //.add("pageFragments", pageFragments)
                       .toString();
   }

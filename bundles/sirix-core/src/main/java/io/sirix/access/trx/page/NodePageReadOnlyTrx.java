@@ -173,6 +173,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     namePage = revisionRootPageReader.getNamePage(this, rootPage);
   }
 
+  public TransactionIntentLog getFormerTrxIntentLog() {
+    return formerTrxIntentLog;
+  }
+
   public void setFormerTransactionIntentLog(TransactionIntentLog log) {
     formerTrxIntentLog = log;
   }

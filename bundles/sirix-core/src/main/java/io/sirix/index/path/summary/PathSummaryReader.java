@@ -108,6 +108,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
           this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
 
       if (currentNode == null) {
+        if (pageReadTrx.hasTrxIntentLog()) {
+          if (pageReadTrx.getFormerTrxIntentLog() == null || pageReadTrx.getFormerTrxIntentLog().getList().isEmpty()) {
+            System.out.println("Former log is null");
+          }
+        }
         throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
       }
 

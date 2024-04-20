@@ -382,15 +382,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
       // We need to create a new page fragment / page reference, as the current reference is going to be
       // committed and thus, the key changes (and the page fragment shares the same page reference up until now).
-      final PageFragmentKey first = reference.getPageFragments(newRevisionRootPage.getRevision()).isEmpty()
-          ? null
-          : reference.getPageFragments(newRevisionRootPage.getRevision()).getFirst();
-      if (first != null) {
-        reference.setFirstPageFragment(newRevisionRootPage.getRevision(),
-                                       new PageFragmentKeyImpl(first.revision(),
-                                                               new PageReference().setKey(first.pageReference()
-                                                                                               .getKey())));
-      }
+      reference.resetPageFragment(newRevisionRootPage.getRevision());
 
       getBufferManager().getPageCache().remove(reference);
       if (page instanceof KeyValuePage<?>) {
