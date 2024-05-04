@@ -45,13 +45,13 @@ import static org.junit.Assert.*;
  */
 public class ObjectNumberNodeTest {
 
-  private PageTrx pageWriteTrx;
+  private PageTrx pageTrx;
 
   @Before
   public void setUp() {
     JsonTestHelper.deleteEverything();
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageWriteTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
+    pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
   @After
@@ -78,9 +78,9 @@ public class ObjectNumberNodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageWriteTrx);
+    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
     final ObjectNumberNode node2 =
-        (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(data, node.getNodeKey(), null, pageWriteTrx);
+        (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

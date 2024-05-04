@@ -22,6 +22,7 @@
 package io.sirix.io.directio;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.*;
@@ -119,11 +120,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public FileChannelWriter write(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+  public FileChannelWriter write(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
       final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long offset = getOffset(bufferedBytes);
-      return writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, offset);
+      return writePageReference(resourceConfiguration, pageReference, bufferedBytes, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -144,15 +145,15 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @NonNull
-  private FileChannelWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
-      final Bytes<ByteBuffer> bufferedBytes, long offset) {
+  private FileChannelWriter writePageReference(final ResourceConfiguration resourceConfiguration,
+      final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
       final Page page = pageReference.getPage();
       assert page != null;
 
-      pagePersister.serializePage(pageReadOnlyTrx, byteBufferBytes, page, serializationType);
+      pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
       final var byteArray = byteBufferBytes.toByteArray();
 
       final byte[] serializedPage;
@@ -244,21 +245,22 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public Writer writeUberPageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
-      final Bytes<ByteBuffer> bufferedBytes) {
+  public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
+      final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
     try {
       if (bufferedBytes.writePosition() > 0) {
         flushBuffer(bufferedBytes);
       }
 
       isFirstUberPage = true;
-      writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, DirectIOUtils.BLOCK_SIZE);
+      writePageReference(resourceConfiguration, pageReference, bufferedBytes, DirectIOUtils.BLOCK_SIZE);
       isFirstUberPage = false;
-      writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, DirectIOUtils.BLOCK_SIZE * 2L);
+      writePageReference(resourceConfiguration, pageReference, bufferedBytes, DirectIOUtils.BLOCK_SIZE * 2L);
 
       @SuppressWarnings("DataFlowIssue") final var buffer = bufferedBytes.underlyingObject();
       buffer.limit((int) bufferedBytes.readLimit());
-      dataFileChannel.write(buffer.alignedSlice(DirectIOUtils.BLOCK_SIZE).order(ByteOrder.nativeOrder()), DirectIOUtils.BLOCK_SIZE);
+      dataFileChannel.write(buffer.alignedSlice(DirectIOUtils.BLOCK_SIZE).order(ByteOrder.nativeOrder()),
+                            DirectIOUtils.BLOCK_SIZE);
       dataFileChannel.force(false);
       bufferedBytes.clear();
     } catch (final IOException e) {
@@ -278,8 +280,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       offset = fileSize;
     }
 
-    @SuppressWarnings("DataFlowIssue") final var buffer =
-        bufferedBytes.underlyingObject();
+    @SuppressWarnings("DataFlowIssue") final var buffer = bufferedBytes.underlyingObject();
     buffer.limit((int) bufferedBytes.readLimit());
     dataFileChannel.write(buffer.alignedSlice(DirectIOUtils.BLOCK_SIZE).order(ByteOrder.nativeOrder()), offset);
     dataFileChannel.force(false);

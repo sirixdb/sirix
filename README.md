@@ -17,7 +17,7 @@
 
 **[Download ZIP](https://github.com/sirixdb/sirix/archive/master.zip)** | **[Join us on Discord](https://discord.gg/yC33wVpv7t)** | **[Community Forum](https://sirix.discourse.group/)** | **[Documentation](https://sirix.io/docs/index.html)** | **[Architecture & Concepts](https://sirix.io/docs/concepts.html)**
 
-**Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/series/how-to-contribute-to-an-open-source-project-on-github) and another tutorial: [How YOU can contribute to OSS, a beginners guide](https://dev.to/itnext/how-you-can-contribute-to-oss-36id)
+**Working on your first Pull Request?** You can learn how from this *free* series [How to Contribute to an Open Source Project on GitHub](https://egghead.io/courses/how-to-contribute-to-an-open-source-project-on-github) and another tutorial: [How YOU can contribute to OSS, a beginners guide](https://dev.to/itnext/how-you-can-contribute-to-oss-36id)
 
 >"Remember that you're lucky, even if you don't think you are because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
 

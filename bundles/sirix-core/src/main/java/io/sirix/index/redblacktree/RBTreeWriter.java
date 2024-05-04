@@ -122,6 +122,10 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
     this.pageTrx = pageTrx;
   }
 
+  public PageTrx getPageTrx() {
+    return pageTrx;
+  }
+
   /**
    * Get a new instance.
    *

@@ -155,7 +155,7 @@ private val authz: AuthorizationProvider){
 
             queryCtx.use {
                 if (manager != null && dbCollection != null && revisionNumber != null) {
-                    val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0]) as R
+                    @Suppress("UNCHECKED_CAST") val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0]) as R
 
                     rtx.use {
                         if (nodeId == null) {

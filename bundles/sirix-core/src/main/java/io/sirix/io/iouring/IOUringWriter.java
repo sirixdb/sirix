@@ -22,6 +22,7 @@
 package io.sirix.io.iouring;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.PageTrx;
 import io.sirix.exception.SirixIOException;
@@ -128,11 +129,11 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @Override
-  public IOUringWriter write(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
+  public IOUringWriter write(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
       final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long offset = getOffset(bufferedBytes);
-      return writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, offset);
+      return writePageReference(resourceConfiguration, pageReference, bufferedBytes, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -154,10 +155,10 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @NonNull
-  private IOUringWriter writePageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
-      Bytes<ByteBuffer> bufferedBytes, long offset) {
+  private IOUringWriter writePageReference(final ResourceConfiguration resourceConfiguration,
+      final PageReference pageReference, Bytes<ByteBuffer> bufferedBytes, long offset) {
     try {
-      POOL.submit(() -> writePage(pageReadOnlyTrx, pageReference, bufferedBytes, offset)).get();
+      POOL.submit(() -> writePage(resourceConfiguration, pageReference, bufferedBytes, offset)).get();
       return this;
     } catch (InterruptedException | ExecutionException e) {
       throw new SirixIOException(e);
@@ -165,7 +166,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @NonNull
-  private IOUringWriter writePage(PageReadOnlyTrx pageReadOnlyTrx, PageReference pageReference,
+  private IOUringWriter writePage(ResourceConfiguration resourceConfiguration, PageReference pageReference,
       Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
@@ -173,7 +174,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
       final Page page = pageReference.getPage();
       assert page != null;
 
-      pagePersister.serializePage(pageReadOnlyTrx, byteBufferBytes, page, serializationType);
+      pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
       final var byteArray = byteBufferBytes.toByteArray();
 
       final byte[] serializedPage;
@@ -212,10 +213,10 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
       final var pageBuffer = ByteBuffer.allocateDirect(serializedPage.length + IOStorage.OTHER_BEACON + offsetToAdd)
                                        .order(ByteOrder.nativeOrder());
 
-//      if (!(page instanceof UberPage) && offsetToAdd > 0) {
-//        var buffer = new byte[(int) offsetToAdd];
-//        pageBuffer.put(buffer);
-//      }
+      //      if (!(page instanceof UberPage) && offsetToAdd > 0) {
+      //        var buffer = new byte[(int) offsetToAdd];
+      //        pageBuffer.put(buffer);
+      //      }
 
       pageBuffer.putInt(serializedPage.length);
       pageBuffer.put(serializedPage);
@@ -291,12 +292,12 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @Override
-  public Writer writeUberPageReference(final PageReadOnlyTrx pageReadOnlyTrx, final PageReference pageReference,
-      Bytes<ByteBuffer> bufferedBytes) {
+  public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
+      final PageReference pageReference, Bytes<ByteBuffer> bufferedBytes) {
     isFirstUberPage = true;
-    writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, 0);
+    writePageReference(resourceConfiguration, pageReference, bufferedBytes, 0);
     isFirstUberPage = false;
-    writePageReference(pageReadOnlyTrx, pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
+    writePageReference(resourceConfiguration, pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
 
     dataFile.dataSync().join();
 

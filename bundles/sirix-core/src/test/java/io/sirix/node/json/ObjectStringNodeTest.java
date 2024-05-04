@@ -81,9 +81,9 @@ public class ObjectStringNodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx);
+    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
     final ObjectStringNode node2 =
-        (ObjectStringNode) NodeKind.OBJECT_STRING_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx);
+        (ObjectStringNode) NodeKind.OBJECT_STRING_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

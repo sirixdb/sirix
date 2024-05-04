@@ -77,11 +77,8 @@ public class ElementNodeTest {
 
   @Test
   public void testElementNode() {
-    final NodeDelegate del = new NodeDelegate(13,
-                                              14,
-                                              LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER,
-                                              0,
-                                              SirixDeweyID.newRootID());
+    final NodeDelegate del =
+        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12L, 17L, 16L, 1L, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 17, 18, 19, 1);
 
@@ -99,9 +96,12 @@ public class ElementNodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx);
-    final ElementNode node2 =
-        (ElementNode) NodeKind.ELEMENT.deserialize(data, node.getNodeKey(), node.getDeweyID().toBytes(), pageReadTrx);
+    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
+    final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(data,
+                                                                         node.getNodeKey(),
+                                                                         node.getDeweyID().toBytes(),
+                                                                         pageReadTrx.getResourceSession()
+                                                                                    .getResourceConfig());
     check(node2);
   }
 

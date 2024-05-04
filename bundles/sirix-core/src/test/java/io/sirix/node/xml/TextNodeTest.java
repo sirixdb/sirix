@@ -51,25 +51,25 @@ public class TextNodeTest {
   /**
    * {@link Holder} instance.
    */
-  private Holder mHolder;
+  private Holder holder;
 
   /**
    * Sirix {@link PageReadOnlyTrx} instance.
    */
-  private PageReadOnlyTrx mPageReadTrx;
+  private PageReadOnlyTrx pageReadTrx;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    mPageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceMgr();
+    pageReadTrx = holder.getResourceManager().beginPageReadOnlyTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
-    mPageReadTrx.close();
-    mHolder.close();
+    pageReadTrx.close();
+    holder.close();
   }
 
   @Test
@@ -88,9 +88,11 @@ public class TextNodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, mPageReadTrx);
-    final TextNode node2 =
-        (TextNode) NodeKind.TEXT.deserialize(data, node.getNodeKey(), node.getDeweyID().toBytes(), mPageReadTrx);
+    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
+    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(data,
+                                                                node.getNodeKey(),
+                                                                node.getDeweyID().toBytes(),
+                                                                pageReadTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

@@ -1,6 +1,7 @@
 package io.sirix.io;
 
 import com.google.common.collect.ForwardingObject;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
@@ -14,21 +15,24 @@ import java.util.concurrent.CompletableFuture;
  * Forwards all methods to the delegate.
  *
  * @author Johannes Lichtenberger, University of Konstanz
- *
  */
 public abstract class AbstractForwardingReader extends ForwardingObject implements Reader {
 
-  /** Constructor for use by subclasses. */
-  protected AbstractForwardingReader() {}
-
-  @Override
-  public Page read(PageReference reference, @Nullable PageReadOnlyTrx pageReadTrx) {
-    return delegate().read(reference, pageReadTrx);
+  /**
+   * Constructor for use by subclasses.
+   */
+  protected AbstractForwardingReader() {
   }
 
   @Override
-  public CompletableFuture<? extends Page> readAsync(PageReference reference, @Nullable PageReadOnlyTrx pageReadTrx) {
-    return delegate().readAsync(reference, pageReadTrx);
+  public Page read(PageReference reference, @Nullable ResourceConfiguration resourceConfiguration) {
+    return delegate().read(reference, resourceConfiguration);
+  }
+
+  @Override
+  public CompletableFuture<? extends Page> readAsync(PageReference reference,
+      @Nullable ResourceConfiguration resourceConfiguration) {
+    return delegate().readAsync(reference, resourceConfiguration);
   }
 
   @Override
@@ -37,8 +41,8 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
   }
 
   @Override
-  public RevisionRootPage readRevisionRootPage(int revision, PageReadOnlyTrx pageReadTrx) {
-    return delegate().readRevisionRootPage(revision, pageReadTrx);
+  public RevisionRootPage readRevisionRootPage(int revision, ResourceConfiguration resourceConfiguration) {
+    return delegate().readRevisionRootPage(revision, resourceConfiguration);
   }
 
   @Override

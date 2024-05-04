@@ -1,11 +1,13 @@
 package io.sirix.index.name;
 
+import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.visitor.VisitResultType;
 import io.sirix.index.SearchMode;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.RBTreeWriter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.node.json.ObjectKeyNode;
 import io.sirix.utils.LogWrapper;
 import io.brackit.query.atomic.QNm;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
@@ -21,11 +23,14 @@ public final class NameIndexBuilder {
   public Set<QNm> excludes;
   public RBTreeWriter<QNm, NodeReferences> indexWriter;
 
+  public PageReadOnlyTrx pageRtx;
+
   public NameIndexBuilder(final Set<QNm> includes, final Set<QNm> excludes,
-      final RBTreeWriter<QNm, NodeReferences> indexWriter) {
+      final RBTreeWriter<QNm, NodeReferences> indexWriter, final PageReadOnlyTrx pageRtx) {
     this.includes = includes;
     this.excludes = excludes;
     this.indexWriter = indexWriter;
+    this.pageRtx = pageRtx;
   }
 
   public VisitResultType build(QNm name, ImmutableNode node) {

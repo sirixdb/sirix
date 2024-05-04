@@ -24,6 +24,7 @@ package io.sirix.io.file;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
@@ -107,7 +108,8 @@ public final class FileReader implements Reader {
   }
 
   @Override
-  public Page read(final @NonNull PageReference reference, final @Nullable PageReadOnlyTrx pageReadTrx) {
+  public Page read(final @NonNull PageReference reference,
+      final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
       // Read page from file.
       dataFile.seek(reference.getKey());
@@ -116,17 +118,17 @@ public final class FileReader implements Reader {
       final byte[] page = new byte[dataLength];
       dataFile.read(page);
 
-      return getPage(pageReadTrx, page);
+      return getPage(resourceConfiguration, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
   @NonNull
-  private Page getPage(PageReadOnlyTrx pageReadTrx, byte[] page) throws IOException {
+  private Page getPage(ResourceConfiguration resourceConfiguration, byte[] page) throws IOException {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
     final Bytes<?> input = Bytes.wrapForRead(inputStream.readAllBytes());
-    final var deserializedPage = pagePersiter.deserializePage(pageReadTrx, input, serializationType);
+    final var deserializedPage = pagePersiter.deserializePage(resourceConfiguration, input, serializationType);
     input.clear();
     return deserializedPage;
   }
@@ -147,12 +149,12 @@ public final class FileReader implements Reader {
   }
 
   @Override
-  public RevisionRootPage readRevisionRootPage(final int revision, final PageReadOnlyTrx pageReadTrx) {
+  public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     try {
       final long offsetIntoDataFile;
 
       if (cache != null) {
-        offsetIntoDataFile = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
+        offsetIntoDataFile = cache.get(revision, (_) -> getRevisionFileData(revision)).offset();
       } else {
         offsetIntoDataFile = getRevisionFileData(revision).offset();
       }
@@ -168,7 +170,7 @@ public final class FileReader implements Reader {
           Bytes.wrapForRead(ByteBuffer.wrap(page)); //byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
 
       // Return reader required to instantiate and deserialize page.
-      return (RevisionRootPage) pagePersiter.deserializePage(pageReadTrx, input, serializationType);
+      return (RevisionRootPage) pagePersiter.deserializePage(resourceConfiguration, input, serializationType);
     } catch (IOException e) {
       throw new SirixIOException(e);
     }

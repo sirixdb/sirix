@@ -75,8 +75,11 @@ public class ArrayNodeTest {
 
     // Serialize and deserialize node.
     final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx);
-    final ArrayNode node2 = (ArrayNode) NodeKind.ARRAY.deserialize(data, node.getNodeKey(), null, pageTrx);
+    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
+    final ArrayNode node2 = (ArrayNode) NodeKind.ARRAY.deserialize(data,
+                                                                   node.getNodeKey(),
+                                                                   null,
+                                                                   pageTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 
