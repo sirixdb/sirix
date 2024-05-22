@@ -51,7 +51,7 @@ public final class JsonShredderTest {
 
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
-  private static final int NUMBER_OF_PROCESSORS = Runtime.getRuntime().availableProcessors() - 5;
+  private static final int NUMBER_OF_PROCESSORS = Runtime.getRuntime().availableProcessors();
 
   private static final ExecutorService THREAD_POOL =
       Executors.newFixedThreadPool(NUMBER_OF_PROCESSORS);
