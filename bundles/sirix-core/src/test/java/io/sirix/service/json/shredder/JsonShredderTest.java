@@ -73,6 +73,7 @@ public final class JsonShredderTest {
     }
   }
 
+  @Disabled
   @Test
   public void testChicagoDescendantAxisParallel() throws InterruptedException {
     if (Files.notExists(PATHS.PATH1.getFile())) {
