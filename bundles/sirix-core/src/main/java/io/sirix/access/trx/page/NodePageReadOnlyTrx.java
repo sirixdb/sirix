@@ -204,8 +204,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   private void putIntoPageCache(PageReference reference, Page page) {
-    if ((trxIntentLog != null && page instanceof IndirectPage) || (trxIntentLog == null
-        && !(page instanceof UberPage))) {
+    if (!(page instanceof UberPage)) {
       // Put page into buffer manager.
       resourceBufferManager.getPageCache().put(reference, page);
     }
