@@ -51,6 +51,7 @@ import io.sirix.node.json.NullNode;
 import io.sirix.node.json.*;
 import io.sirix.node.xml.*;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.service.xml.xpath.AtomicValue;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;

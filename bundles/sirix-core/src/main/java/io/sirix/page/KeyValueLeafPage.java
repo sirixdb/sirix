@@ -276,7 +276,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public synchronized void setSlot(byte[] recordData, int offset) {
+  public void setSlot(byte[] recordData, int offset) {
     slots[offset] = recordData;
   }
 

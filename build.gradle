@@ -96,7 +96,7 @@ subprojects {
         withSourcesJar()
         withJavadocJar()
         toolchain {
-            languageVersion = JavaLanguageVersion.of(21)
+            languageVersion = JavaLanguageVersion.of(22)
         }
     }
 
@@ -104,7 +104,7 @@ subprojects {
     javadoc {
         failOnError = false
         options {
-            addStringOption('-release', '21')
+            addStringOption('-release', '22')
             addBooleanOption('-enable-preview', true)
         }
     }
@@ -260,11 +260,13 @@ subprojects {
                  "--add-opens=java.base/java.io=ALL-UNNAMED",
                  "--add-opens=java.base/java.util=ALL-UNNAMED",
                  "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+                "-XX:+UnlockDiagnosticVMOptions",
+                "-XX:+DebugNonSafepoints",
                  //"-XX:+UseShenandoahGC",
-                 "-Xlog:gc*=debug:file=g1.log",
-                 "-XX:+UseZGC",
-                 "-XX:+ZGenerational",
-                 "-verbose:gc",
+            //     "-Xlog:gc*=debug:file=g1.log",
+//                 "-XX:+UseZGC",
+//                 "-XX:+ZGenerational",
+             //    "-verbose:gc",
                  "-XX:+HeapDumpOnOutOfMemoryError",
                  //"-XX:HeapDumpPath=heapdump.hprof",
                  "-XX:+UseStringDeduplication",
@@ -274,7 +276,7 @@ subprojects {
                  "-XX:MaxDirectMemorySize=1g",
                  "-XX:+UnlockExperimentalVMOptions",
                  "-XX:+AlwaysPreTouch",
-                 //"-XX:+UseLargePages",
+                 "-XX:+UseLargePages",
                  "-XX:ReservedCodeCacheSize=1000m",
                  "-XX:+UnlockDiagnosticVMOptions",
                //  "-XX:+PrintInlining",

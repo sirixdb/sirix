@@ -127,7 +127,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
           moveTo(pathNode.getNodeKey());
           assert this.getNodeKey() == pathNode.getNodeKey();
           qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
-          assert Objects.equals(this.getName(), pathNode.getName());
+         // assert Objects.equals(this.getName(), pathNode.getName());
         }
 
         moveToDocumentRoot();

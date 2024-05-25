@@ -85,7 +85,9 @@ public enum VersioningType {
         modifiedPage.setDeweyId(deweyIds[i], i);
       }
 
-      return PageContainer.getInstance(completePage, modifiedPage);
+      final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
+      log.put(reference, pageContainer);
+      return pageContainer;
     }
 
     @Override
