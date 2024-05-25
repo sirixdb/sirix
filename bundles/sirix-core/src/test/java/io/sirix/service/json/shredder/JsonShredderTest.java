@@ -34,6 +34,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -46,6 +50,11 @@ public final class JsonShredderTest {
   private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(JsonShredderTest.class));
 
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
+
+  private static final int NUMBER_OF_PROCESSORS = Runtime.getRuntime().availableProcessors();
+
+  private static final ExecutorService THREAD_POOL =
+      Executors.newFixedThreadPool(NUMBER_OF_PROCESSORS);
 
   @BeforeEach
   public void setUp() {
@@ -66,9 +75,79 @@ public final class JsonShredderTest {
 
   @Disabled
   @Test
+  public void testChicagoDescendantAxisParallel() throws InterruptedException {
+    if (Files.notExists(PATHS.PATH1.getFile())) {
+      logger.info("start");
+      final var jsonPath = JSON.resolve("cityofchicago.json");
+      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+        createResource(jsonPath, database, false);
+      }
+    }
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+
+    final var callableList = new ArrayList<Callable<Object>>(NUMBER_OF_PROCESSORS);
+
+    for (int i = 0; i < NUMBER_OF_PROCESSORS; i++) {
+      callableList.add(Executors.callable(() -> {
+        final var rtx = session.beginNodeReadOnlyTrx();
+
+        var stopWatch = new StopWatch();
+        logger.info("start");
+        stopWatch.start();
+        logger.info("Max node key: " + rtx.getMaxNodeKey());
+
+        Axis axis = new DescendantAxis(rtx);
+
+        int count = 0;
+
+        while (axis.hasNext()) {
+          axis.nextLong();
+
+          if (count % 5_000_000L == 0) {
+            logger.info("node: " + axis.getTrx().getNode());
+          }
+          count++;
+        }
+
+        logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
+
+        stopWatch = new StopWatch();
+        stopWatch.start();
+
+        logger.info("start");
+        axis = new PostOrderAxis(rtx);
+
+        count = 0;
+
+        while (axis.hasNext()) {
+          final var nodeKey = axis.nextLong();
+          if (count % 50_000_000L == 0) {
+            logger.info("nodeKey: " + nodeKey);
+          }
+          count++;
+        }
+
+        logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS)+ "s].");
+      }));
+    }
+
+    THREAD_POOL.invokeAll(callableList);
+    THREAD_POOL.shutdown();
+    THREAD_POOL.awaitTermination(20, TimeUnit.MINUTES);
+  }
+
+  @Disabled
+  @Test
   public void testChicagoDescendantAxis() {
     if (Files.notExists(PATHS.PATH1.getFile())) {
-      testChicago();
+      logger.info("start");
+      final var jsonPath = JSON.resolve("cityofchicago.json");
+      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+        createResource(jsonPath, database, false);
+      }
     }
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -84,12 +163,12 @@ public final class JsonShredderTest {
       while (axis.hasNext()) {
         final var nodeKey = axis.nextLong();
         if (count % 50_000_000L == 0) {
-          logger.info(STR."nodeKey: \{nodeKey}");
+          logger.info("nodeKey: " + nodeKey);
         }
         count++;
       }
 
-      logger.info(STR." done [\{stopWatch.getTime(TimeUnit.SECONDS)} s].");
+      logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
 
       stopWatch = new StopWatch();
       stopWatch.start();
@@ -102,12 +181,12 @@ public final class JsonShredderTest {
       while (axis.hasNext()) {
         final var nodeKey = axis.nextLong();
         if (count % 50_000_000L == 0) {
-          logger.info(STR."nodeKey: \{nodeKey}");
+          logger.info("nodeKey: " + nodeKey);
         }
         count++;
       }
 
-      logger.info(STR." done [\{stopWatch.getTime(TimeUnit.SECONDS)} s].");
+      logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
     }
   }
 
@@ -116,12 +195,12 @@ public final class JsonShredderTest {
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
   @Disabled
   @Test
-  public void testChicago() {
+  public void testShredderAndTraverseChicago() {
     logger.info("start");
     final var jsonPath = JSON.resolve("cityofchicago.json");
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-      createResource(jsonPath, database);
+      createResource(jsonPath, database, true);
       //      database.removeResource(JsonTestHelper.RESOURCE);
       //
       //      createResource(jsonPath, database);
@@ -137,7 +216,7 @@ public final class JsonShredderTest {
     }
   }
 
-  private void createResource(Path jsonPath, Database<JsonResourceSession> database) {
+  private void createResource(Path jsonPath, Database<JsonResourceSession> database, boolean doTraverse) {
     var stopWatch = new StopWatch();
     stopWatch.start();
     database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
@@ -148,16 +227,34 @@ public final class JsonShredderTest {
                                                  .storeChildCount(true)
                                                  .hashKind(HashType.ROLLING)
                                                  .useTextCompression(false)
-                                                 .storageType(StorageType.FILE_CHANNEL)
+                                                 .storageType(StorageType.MEMORY_MAPPED)
                                                  .useDeweyIDs(false)
                                                  .byteHandlerPipeline(new ByteHandlerPipeline(new LZ4Compressor()))
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx(262_144 << 3)) {
       trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
+
+      if (doTraverse) {
+        trx.moveToDocumentRoot();
+        logger.info("Max node key: " + trx.getMaxNodeKey());
+
+        Axis axis = new DescendantAxis(trx);
+
+        int count = 0;
+
+        while (axis.hasNext()) {
+          axis.nextLong();
+
+          if (count % 5_000_000L == 0) {
+            logger.info("node: " + axis.getTrx().getNode());
+          }
+          count++;
+        }
+      }
     }
 
-    logger.info(STR." done [\{stopWatch.getTime(TimeUnit.SECONDS)} s].");
+    logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
   }
 
   @Disabled
@@ -183,7 +280,7 @@ public final class JsonShredderTest {
         }
       }
     }
-    System.out.println(STR."Done in \{stopWatch.getTime(TimeUnit.MILLISECONDS)}ms");
+    System.out.println("Done in " + stopWatch.getTime(TimeUnit.MILLISECONDS) + "ms");
   }
 
   @Test

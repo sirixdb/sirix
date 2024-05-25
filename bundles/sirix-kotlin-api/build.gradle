@@ -35,5 +35,5 @@ dependencies {
 description = 'Kotlin API for SirixDB.'
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(22)
 }

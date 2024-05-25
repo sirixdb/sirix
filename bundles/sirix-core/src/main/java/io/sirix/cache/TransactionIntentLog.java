@@ -19,6 +19,11 @@ public final class TransactionIntentLog implements AutoCloseable {
   private final List<PageContainer> list;
 
   /**
+   * The buffer manager.
+   */
+  private final BufferManager bufferManager;
+
+  /**
    * The log key.
    */
   private int logKey;
@@ -28,7 +33,8 @@ public final class TransactionIntentLog implements AutoCloseable {
    *
    * @param maxInMemoryCapacity the maximum size of the in-memory map
    */
-  public TransactionIntentLog(final int maxInMemoryCapacity) {
+  public TransactionIntentLog(final BufferManager bufferManager, final int maxInMemoryCapacity) {
+    this.bufferManager = bufferManager;
     logKey = 0;
     list = new ArrayList<>(maxInMemoryCapacity);
   }
@@ -56,6 +62,9 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @param value a value to be associated with the specified key
    */
   public void put(final PageReference key, final PageContainer value) {
+    bufferManager.getRecordPageCache().remove(key);
+    bufferManager.getPageCache().remove(key);
+
     key.setKey(Constants.NULL_ID_LONG);
     key.setPage(null);
     key.setLogKey(logKey);

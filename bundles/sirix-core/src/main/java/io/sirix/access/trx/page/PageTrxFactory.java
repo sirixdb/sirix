@@ -104,7 +104,7 @@ public final class PageTrxFactory {
 
     final TreeModifierImpl treeModifier = new TreeModifierImpl();
     final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
-    final TransactionIntentLog log = logFactory.createTrxIntentLog(resourceConfig);
+    final TransactionIntentLog log = logFactory.createTrxIntentLog(bufferManager, resourceConfig);
 
     // Create revision tree if needed. Note: This must happen before the page read trx is created.
     if (uberPage.isBootstrap()) {
@@ -186,11 +186,6 @@ public final class PageTrxFactory {
         final Page deweyIDPage = pageRtx.getDeweyIDPage(newRevisionRootPage);
         log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
       }
-
-//      final Page indirectPage =
-//          pageRtx.dereferenceIndirectPageReference(newRevisionRootPage.getIndirectDocumentIndexPageReference());
-//      log.put(newRevisionRootPage.getIndirectDocumentIndexPageReference(),
-//              PageContainer.getInstance(indirectPage, indirectPage));
 
       final var revisionRootPageReference = new PageReference();
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));

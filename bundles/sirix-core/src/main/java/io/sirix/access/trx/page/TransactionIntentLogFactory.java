@@ -28,6 +28,7 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.BufferManager;
 import io.sirix.cache.TransactionIntentLog;
 
 /**
@@ -37,11 +38,12 @@ public interface TransactionIntentLogFactory {
 
   /**
    * Create a new transaction intent log
-   * 
+   *
+   * @param bufferManager the buffer manager
    * @param resourceConfig the resource configuration to get the path for the log and a byte handler
    *        pipeline
    * @return the transaction intent log instance
    * @throws NullPointerException if the {@code resourceConfig} parameter is null
    */
-  TransactionIntentLog createTrxIntentLog(ResourceConfiguration resourceConfig);
+  TransactionIntentLog createTrxIntentLog(BufferManager bufferManager, ResourceConfiguration resourceConfig);
 }
