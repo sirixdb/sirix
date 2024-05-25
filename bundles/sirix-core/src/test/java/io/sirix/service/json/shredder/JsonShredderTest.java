@@ -51,14 +51,14 @@ public final class JsonShredderTest {
 
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
-  //private static final int NUMBER_OF_PROCESSORS = Runtime.getRuntime().availableProcessors();
+  private static final int NUMBER_OF_PROCESSORS = Runtime.getRuntime().availableProcessors();
 
-  //private static final ExecutorService THREAD_POOL =
-    //  Executors.newFixedThreadPool(NUMBER_OF_PROCESSORS);
+  private static final ExecutorService THREAD_POOL =
+      Executors.newFixedThreadPool(NUMBER_OF_PROCESSORS);
 
   @BeforeEach
   public void setUp() {
-    // JsonTestHelper.deleteEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @AfterEach
@@ -71,6 +71,71 @@ public final class JsonShredderTest {
     try (final var jsonStringReader = JsonShredder.createStringReader("test")) {
       assertEquals("test", jsonStringReader.nextString());
     }
+  }
+
+  @Disabled
+  @Test
+  public void testChicagoDescendantAxisParallel() throws InterruptedException {
+    if (Files.notExists(PATHS.PATH1.getFile())) {
+      logger.info("start");
+      final var jsonPath = JSON.resolve("cityofchicago.json");
+      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+        createResource(jsonPath, database, false);
+      }
+    }
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+
+    final var callableList = new ArrayList<Callable<Object>>(NUMBER_OF_PROCESSORS);
+
+    for (int i = 0; i < NUMBER_OF_PROCESSORS; i++) {
+      callableList.add(Executors.callable(() -> {
+        final var rtx = session.beginNodeReadOnlyTrx();
+
+        var stopWatch = new StopWatch();
+        logger.info("start");
+        stopWatch.start();
+        logger.info("Max node key: " + rtx.getMaxNodeKey());
+
+        Axis axis = new DescendantAxis(rtx);
+
+        int count = 0;
+
+        while (axis.hasNext()) {
+          axis.nextLong();
+
+          if (count % 5_000_000L == 0) {
+            logger.info("node: " + axis.getTrx().getNode());
+          }
+          count++;
+        }
+
+        logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
+
+        stopWatch = new StopWatch();
+        stopWatch.start();
+
+        logger.info("start");
+        axis = new PostOrderAxis(rtx);
+
+        count = 0;
+
+        while (axis.hasNext()) {
+          final var nodeKey = axis.nextLong();
+          if (count % 50_000_000L == 0) {
+            logger.info("nodeKey: " + nodeKey);
+          }
+          count++;
+        }
+
+        logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS)+ "s].");
+      }));
+    }
+
+    THREAD_POOL.invokeAll(callableList);
+    THREAD_POOL.shutdown();
+    THREAD_POOL.awaitTermination(20, TimeUnit.MINUTES);
   }
 
   @Disabled
@@ -98,12 +163,12 @@ public final class JsonShredderTest {
       while (axis.hasNext()) {
         final var nodeKey = axis.nextLong();
         if (count % 50_000_000L == 0) {
-          logger.info(STR."nodeKey: \{nodeKey}");
+          logger.info("nodeKey: " + nodeKey);
         }
         count++;
       }
 
-      logger.info(STR." done [\{stopWatch.getTime(TimeUnit.SECONDS)} s].");
+      logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
 
       stopWatch = new StopWatch();
       stopWatch.start();
@@ -116,12 +181,12 @@ public final class JsonShredderTest {
       while (axis.hasNext()) {
         final var nodeKey = axis.nextLong();
         if (count % 50_000_000L == 0) {
-          logger.info(STR."nodeKey: \{nodeKey}");
+          logger.info("nodeKey: " + nodeKey);
         }
         count++;
       }
 
-      logger.info(STR." done [\{stopWatch.getTime(TimeUnit.SECONDS)} s].");
+      logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
     }
   }
 
@@ -182,14 +247,14 @@ public final class JsonShredderTest {
           axis.nextLong();
 
           if (count % 5_000_000L == 0) {
-            logger.info(STR."node: \{axis.getTrx().getNode()}");
+            logger.info("node: " + axis.getTrx().getNode());
           }
           count++;
         }
       }
     }
 
-    logger.info(STR." done [\{stopWatch.getTime(TimeUnit.SECONDS)} s].");
+    logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
   }
 
   @Disabled
@@ -215,7 +280,7 @@ public final class JsonShredderTest {
         }
       }
     }
-    System.out.println(STR."Done in \{stopWatch.getTime(TimeUnit.MILLISECONDS)}ms");
+    System.out.println("Done in " + stopWatch.getTime(TimeUnit.MILLISECONDS) + "ms");
   }
 
   @Test
