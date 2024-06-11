@@ -40,11 +40,12 @@ import static org.mockito.Mockito.*;
  * Helper class for testing the I/O interfaces.
  *
  * @author Sebastian Graf, University of Konstanz
- *
  */
 public final class IOTestHelper {
 
-  /** Private constructor. */
+  /**
+   * Private constructor.
+   */
   private IOTestHelper() {
   }
 
@@ -90,7 +91,10 @@ public final class IOTestHelper {
 
     verify(pageReadOnlyTrx, atMostOnce()).newBufferedBytesInstance();
     final Writer writer = fac.createWriter();
-    writer.writeUberPageReference(pageReadOnlyTrx.getResourceSession().getResourceConfig(), pageRef1, bufferedBytes);
+    writer.writeUberPageReference(pageReadOnlyTrx.getResourceSession().getResourceConfig(),
+                                  pageRef1,
+                                  page1,
+                                  bufferedBytes);
     final PageReference pageRef2 = writer.readUberPageReference();
     assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
                  ((UberPage) pageRef2.getPage()).getRevisionCount());

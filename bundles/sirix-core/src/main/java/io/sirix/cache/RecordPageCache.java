@@ -16,7 +16,7 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
 
   public RecordPageCache(final int maxSize) {
     final RemovalListener<PageReference, KeyValueLeafPage> removalListener =
-        (PageReference key, KeyValueLeafPage value, RemovalCause cause) -> {
+        (PageReference key, KeyValueLeafPage _, RemovalCause _) -> {
           key.setPage(null);
         };
 

@@ -131,7 +131,7 @@ public final class ConcurrentAxisTest {
    * Test concurrent.
    *
    */
-  @RepeatedTest(20)
+  @RepeatedTest(200)
   public void testConcurrent() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;

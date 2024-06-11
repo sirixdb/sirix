@@ -37,6 +37,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
@@ -142,7 +143,7 @@ public final class FileChannelReader extends AbstractReader {
 
   @Override
   public Instant readRevisionRootPageCommitTimestamp(int revision) {
-    return cache.get(revision, (unused) -> getRevisionFileData(revision)).timestamp();
+    return cache.get(revision, (_) -> getRevisionFileData(revision)).timestamp();
   }
 
   @Override
@@ -165,6 +166,12 @@ public final class FileChannelReader extends AbstractReader {
 
   @Override
   public void close() {
+    try {
+      dataFileChannel.close();
+      revisionsOffsetFileChannel.close();
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
 }

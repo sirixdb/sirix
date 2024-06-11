@@ -25,6 +25,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
+import io.sirix.page.interfaces.Page;
 import net.openhft.chronicle.bytes.Bytes;
 
 import java.nio.ByteBuffer;
@@ -48,24 +49,26 @@ public interface Writer extends Reader {
    * Writing a page related to the reference.
    *
    * @param resourceConfiguration the resource configuration
-   * @param pageReference that points to a page
-   * @param bufferedBytes the bytes to write
+   * @param pageReference         that points to a page
+   * @param page                  the page to write
+   * @param bufferedBytes         the bytes to write
    * @return this writer instance
    * @throws SirixIOException exception to be thrown if something bad happens
    */
-  Writer write(ResourceConfiguration resourceConfiguration, PageReference pageReference,
+  Writer write(ResourceConfiguration resourceConfiguration, PageReference pageReference, Page page,
       Bytes<ByteBuffer> bufferedBytes);
 
   /**
    * Write beacon for the first reference.
    *
    * @param resourceConfiguration the resource configuration
-   * @param pageReference that points to the beacon
-   * @param bufferedBytes the bytes to write
+   * @param pageReference         that points to the beacon
+   * @param page                  the page to write
+   * @param bufferedBytes         the bytes to write
    * @return this writer instance
    * @throws SirixIOException if an I/O error occured
    */
-  Writer writeUberPageReference(ResourceConfiguration resourceConfiguration, PageReference pageReference,
+  Writer writeUberPageReference(ResourceConfiguration resourceConfiguration, PageReference pageReference, Page page,
       Bytes<ByteBuffer> bufferedBytes);
 
   /**
