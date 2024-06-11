@@ -108,7 +108,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
-          cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
+          cache.get(revision, (_) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
 
       // Read page from file.
       final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
@@ -130,10 +130,10 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   @Override
   public IOUringWriter write(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
-      final Bytes<ByteBuffer> bufferedBytes) {
+      final Page page, final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long offset = getOffset(bufferedBytes);
-      return writePageReference(resourceConfiguration, pageReference, bufferedBytes, offset);
+      return writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -156,9 +156,9 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   @NonNull
   private IOUringWriter writePageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, Bytes<ByteBuffer> bufferedBytes, long offset) {
+      final PageReference pageReference, final Page page, Bytes<ByteBuffer> bufferedBytes, long offset) {
     try {
-      POOL.submit(() -> writePage(resourceConfiguration, pageReference, bufferedBytes, offset)).get();
+      POOL.submit(() -> writePage(resourceConfiguration, pageReference, page, bufferedBytes, offset)).get();
       return this;
     } catch (InterruptedException | ExecutionException e) {
       throw new SirixIOException(e);
@@ -167,13 +167,10 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   @NonNull
   private IOUringWriter writePage(ResourceConfiguration resourceConfiguration, PageReference pageReference,
-      Bytes<ByteBuffer> bufferedBytes, long offset) {
+      Page page, Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
-      final Page page = pageReference.getPage();
-      assert page != null;
-
       pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
       final var byteArray = byteBufferBytes.toByteArray();
 
@@ -293,11 +290,11 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   @Override
   public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, Bytes<ByteBuffer> bufferedBytes) {
+      final PageReference pageReference, final Page page, Bytes<ByteBuffer> bufferedBytes) {
     isFirstUberPage = true;
-    writePageReference(resourceConfiguration, pageReference, bufferedBytes, 0);
+    writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, 0);
     isFirstUberPage = false;
-    writePageReference(resourceConfiguration, pageReference, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
+    writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
 
     dataFile.dataSync().join();
 

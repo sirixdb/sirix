@@ -211,9 +211,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public void setRecord(@NonNull final DataRecord record) {
     addedReferences = false;
     final var offset = PageReadOnlyTrx.recordPageOffset(record.getNodeKey());
-    synchronized (records) {
-      records[offset] = record;
-    }
+    records[offset] = record;
   }
 
   /**

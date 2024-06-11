@@ -84,8 +84,8 @@ public final class StorageTest {
 
       try (final Writer writer = handler.createWriter()) {
         var ref = new PageReference();
-        ref.setPage(new UberPage());
-        writer.writeUberPageReference(null, ref, bytes);
+        var uberPage = new UberPage();
+        writer.writeUberPageReference(null, ref, uberPage, bytes);
       }
 
       assertTrue("writing a single page should mark the Storage as existing", handler.exists());
@@ -110,7 +110,7 @@ public final class StorageTest {
         // same instance check
         final PageReference pageRef2;
         try (final Writer writer = handler.createWriter()) {
-          pageRef2 = writer.writeUberPageReference(null, pageRef1, bytes).readUberPageReference();
+          pageRef2 = writer.writeUberPageReference(null, pageRef1, page1, bytes).readUberPageReference();
           assertEquals("Check for " + handler.getClass() + " failed.",
                        ((UberPage) pageRef1.getPage()).getRevisionCount(),
                        ((UberPage) pageRef2.getPage()).getRevisionCount());
