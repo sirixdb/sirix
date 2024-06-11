@@ -78,10 +78,6 @@ public final class MMStorage implements IOStorage {
 
   private final Path dataFilePath;
 
-  private FileChannel dataFileChannel;
-
-  private FileChannel revisionsOffsetFileChannel;
-
   /**
    * Constructor.
    *
@@ -120,10 +116,8 @@ public final class MMStorage implements IOStorage {
            final var revisionsOffsetFileChannel = FileChannel.open(revisionsOffsetFilePath)) {
         final var dataFileSegment =
             dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, dataFileSegmentFileSize, arena);
-        final var revisionsOffsetFileSegment = revisionsOffsetFileChannel.map(FileChannel.MapMode.READ_ONLY,
-                                                                              0,
-                                                                              revisionsOffsetSegmentFileSize,
-                                                                              arena);
+        final var revisionsOffsetFileSegment =
+            revisionsOffsetFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, revisionsOffsetSegmentFileSize, arena);
         return new MMFileReader(dataFileSegment,
                                 revisionsOffsetFileSegment,
                                 new ByteHandlerPipeline(byteHandlerPipeline),
@@ -169,8 +163,8 @@ public final class MMStorage implements IOStorage {
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
-      createDataFileChannelIfNotInitialized(dataFilePath);
-      createRevisionsOffsetFileChannelIfNotInitialized(revisionsOffsetFilePath);
+      final var dataFileChannel = createDataFileChannel(dataFilePath);
+      final var revisionsOffsetFileChannel = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
 
       final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
@@ -195,34 +189,16 @@ public final class MMStorage implements IOStorage {
     }
   }
 
-  private void createDataFileChannelIfNotInitialized(Path dataFilePath) throws IOException {
-    if (dataFileChannel == null) {
-      dataFileChannel = FileChannel.open(dataFilePath,
-                                         StandardOpenOption.READ,
-                                         StandardOpenOption.WRITE,
-                                         StandardOpenOption.SPARSE);
-    }
+  private FileChannel createDataFileChannel(Path dataFilePath) throws IOException {
+    return FileChannel.open(dataFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.SPARSE);
   }
 
-  private void createRevisionsOffsetFileChannelIfNotInitialized(Path revisionsOffsetFilePath) throws IOException {
-    if (revisionsOffsetFileChannel == null) {
-      revisionsOffsetFileChannel =
-          FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
-    }
+  private FileChannel createRevisionsOffsetFileChannel(Path revisionsOffsetFilePath) throws IOException {
+    return FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
   }
 
   @Override
   public void close() {
-    try {
-      if (revisionsOffsetFileChannel != null) {
-        revisionsOffsetFileChannel.close();
-      }
-      if (dataFileChannel != null) {
-        dataFileChannel.close();
-      }
-    } catch (final IOException e) {
-      throw new SirixIOException(e.getMessage(), e);
-    }
   }
 
   /**

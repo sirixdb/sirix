@@ -121,11 +121,11 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
    */
   @Override
   public FileWriter write(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
-      final Bytes<ByteBuffer> bufferedBytes) {
+      final Page page, final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long fileSize = dataFile.length();
       long offset = fileSize == 0 ? IOStorage.FIRST_BEACON : fileSize;
-      return writePageReference(resourceConfiguration, pageReference, offset);
+      return writePageReference(resourceConfiguration, pageReference, page, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -133,12 +133,10 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   @NonNull
   private FileWriter writePageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, long offset) {
+      final PageReference pageReference, final Page page, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
-      final Page page = pageReference.getPage();
-
       final byte[] serializedPage;
 
       try (final ByteArrayOutputStream output = new ByteArrayOutputStream(1_000)) {
@@ -230,11 +228,11 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   @Override
   public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
+      final PageReference pageReference, final Page page, final Bytes<ByteBuffer> bufferedBytes) {
     isFirstUberPage = true;
-    writePageReference(resourceConfiguration, pageReference, 0);
+    writePageReference(resourceConfiguration, pageReference, page,0);
     isFirstUberPage = false;
-    writePageReference(resourceConfiguration, pageReference, 100);
+    writePageReference(resourceConfiguration, pageReference, page,100);
     return this;
   }
 

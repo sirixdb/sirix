@@ -48,10 +48,6 @@ public final class FileChannelStorage implements IOStorage {
    */
   private final ByteHandlerPipeline byteHandlerPipeline;
 
-  private FileChannel revisionsOffsetFileChannel;
-
-  private FileChannel dataFileChannel;
-
   final Semaphore semaphore = new Semaphore(1);
 
   /**
@@ -85,8 +81,8 @@ public final class FileChannelStorage implements IOStorage {
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
       createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
-      createRevisionsOffsetFileChannelIfNotInitialized(revisionsOffsetFilePath);
-      createDataFileChannelIfNotInitialized(dataFilePath);
+      final FileChannel revisionsOffsetFileChannel = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
+      final FileChannel dataFileChannel = createDataFileChannel(dataFilePath);
 
       return new FileChannelReader(dataFileChannel,
                                    revisionsOffsetFileChannel,
@@ -101,18 +97,12 @@ public final class FileChannelStorage implements IOStorage {
     }
   }
 
-  private void createDataFileChannelIfNotInitialized(Path dataFilePath) throws IOException {
-    if (dataFileChannel == null) {
-      dataFileChannel =
-          FileChannel.open(dataFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.SPARSE);
-    }
+  private FileChannel createDataFileChannel(Path dataFilePath) throws IOException {
+    return FileChannel.open(dataFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.SPARSE);
   }
 
-  private void createRevisionsOffsetFileChannelIfNotInitialized(Path revisionsOffsetFilePath) throws IOException {
-    if (revisionsOffsetFileChannel == null) {
-      revisionsOffsetFileChannel =
-          FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
-    }
+  private FileChannel createRevisionsOffsetFileChannel(Path revisionsOffsetFilePath) throws IOException {
+    return FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
   }
 
   private Path createDirectoriesAndFile() throws IOException {
@@ -139,8 +129,8 @@ public final class FileChannelStorage implements IOStorage {
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
       createRevisionsOffsetFileIfNotExists(revisionsOffsetFilePath);
-      createRevisionsOffsetFileChannelIfNotInitialized(revisionsOffsetFilePath);
-      createDataFileChannelIfNotInitialized(dataFilePath);
+      final FileChannel revisionsOffsetFileChannel = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
+      final FileChannel dataFileChannel = createDataFileChannel(dataFilePath);
 
       final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
@@ -173,14 +163,7 @@ public final class FileChannelStorage implements IOStorage {
 
   @Override
   public void close() {
-    try {
-      if (revisionsOffsetFileChannel != null) {
-        revisionsOffsetFileChannel.close();
-      }
-      dataFileChannel.close();
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
+    // Do nothing.
   }
 
   /**

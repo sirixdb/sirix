@@ -348,11 +348,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     final var page = container.getModified();
 
-    reference.setPage(page);
-
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
-    storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, bufferBytes);
+    storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
 
     container.getComplete().clearPage();
     page.clearPage();
@@ -386,11 +384,10 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       // Recursively write indirectly referenced pages.
       uberPage.commit(this);
 
-      uberPageReference.setPage(uberPage);
       storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(),
                                                      uberPageReference,
+                                                     uberPage,
                                                      bufferBytes);
-      uberPageReference.setPage(null);
 
       final int revision = uberPage.getRevisionNumber();
       serializeIndexDefinitions(revision);

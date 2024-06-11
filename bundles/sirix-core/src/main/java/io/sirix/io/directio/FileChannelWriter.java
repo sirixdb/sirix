@@ -121,10 +121,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   @Override
   public FileChannelWriter write(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
-      final Bytes<ByteBuffer> bufferedBytes) {
+      final Page page, final Bytes<ByteBuffer> bufferedBytes) {
     try {
       final long offset = getOffset(bufferedBytes);
-      return writePageReference(resourceConfiguration, pageReference, bufferedBytes, offset);
+      return writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -146,13 +146,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   @NonNull
   private FileChannelWriter writePageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes, long offset) {
+      final PageReference pageReference, final Page page, final Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
-      final Page page = pageReference.getPage();
-      assert page != null;
-
       pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
       final var byteArray = byteBufferBytes.toByteArray();
 
@@ -246,16 +243,16 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   @Override
   public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, final Bytes<ByteBuffer> bufferedBytes) {
+      final PageReference pageReference, final Page page, final Bytes<ByteBuffer> bufferedBytes) {
     try {
       if (bufferedBytes.writePosition() > 0) {
         flushBuffer(bufferedBytes);
       }
 
       isFirstUberPage = true;
-      writePageReference(resourceConfiguration, pageReference, bufferedBytes, DirectIOUtils.BLOCK_SIZE);
+      writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, DirectIOUtils.BLOCK_SIZE);
       isFirstUberPage = false;
-      writePageReference(resourceConfiguration, pageReference, bufferedBytes, DirectIOUtils.BLOCK_SIZE * 2L);
+      writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, DirectIOUtils.BLOCK_SIZE * 2L);
 
       @SuppressWarnings("DataFlowIssue") final var buffer = bufferedBytes.underlyingObject();
       buffer.limit((int) bufferedBytes.readLimit());
