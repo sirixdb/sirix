@@ -119,6 +119,8 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
     } else {
       pathSummaryWriter = null;
     }
+    String bootstrapServers = "localhost:9092"; // Example Kafka broker address
+    String topic = databaseName;
 
     // Synchronize commit and other public methods if needed.
     final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
@@ -135,7 +137,7 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
                                nodeFactory,
                                afterCommitState,
                                new RecordToRevisionsIndex(pageTrx),
-                               isAutoCommitting);
+                               isAutoCommitting,new KafkaChangeProducer(bootstrapServers, topic));
   }
 
   @SuppressWarnings("unchecked")
