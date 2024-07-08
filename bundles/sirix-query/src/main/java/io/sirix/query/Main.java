@@ -258,25 +258,6 @@ public final class Main {
     return strbuf.isEmpty() ? null : strbuf.toString();
   }
 
-  //  private static String readStringFromScannerWithEndMark() {
-  //    final Scanner scanner = new Scanner(System.in);
-  //    final StringBuilder strbuf = new StringBuilder();
-  //
-  //    for (int i = 0; scanner.hasNextLine(); i++) {
-  //      final String line = scanner.nextLine();
-  //
-  //      if (line.isEmpty())
-  //        break;
-  //
-  //      if (i != 0) {
-  //        strbuf.append(System.lineSeparator());
-  //      }
-  //      strbuf.append(line);
-  //    }
-  //
-  //    return strbuf.isEmpty() ? null : strbuf.toString();
-  //  }
-
   private static String readString() throws IOException {
     int r;
     ByteArrayOutputStream payload = new ByteArrayOutputStream();
