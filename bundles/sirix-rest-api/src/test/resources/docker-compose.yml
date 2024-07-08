@@ -1,21 +1,24 @@
 version: '3.4'
 services:
   keycloak:
-    image: quay.io/keycloak/keycloak:7.0.1
+    build: .
     ports:
       - 8080:8080
     environment:
-      - KEYCLOAK_USER=admin
-      - KEYCLOAK_PASSWORD=admin
-      - KEYCLOAK_LOGLEVEL=DEBUG
-      - KEYCLOAK_IMPORT=/opt/keycloak/realm-export.json
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KC_LOG_LEVEL=DEBUG
+      - KC_IMPORT=/opt/keycloak/data/import/realm-export.json
     restart: always
     volumes:
-      - ./realm-export.json:/opt/keycloak/realm-export.json
-      - ./create-sirix-users.sh:/opt/jboss/startup-scripts/create-sirix-users.sh
-    command:
-      - "-b 0.0.0.0"
-      - "-bmanagement 0.0.0.0"
+      - ./realm-export.json:/opt/keycloak/data/import/realm-export.json
+    entrypoint: ["/opt/keycloak/scripts/wait-for-keycloak.sh"]
+    command: >
+      start-dev
+      --import-realm
+      --http-relative-path=/
+      --hostname-strict=false
+      --proxy=edge
     networks:
       - auth-network
     healthcheck:
@@ -26,4 +29,3 @@ services:
 networks:
   auth-network:
     driver: bridge
-
