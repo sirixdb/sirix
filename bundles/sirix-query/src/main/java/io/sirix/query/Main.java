@@ -27,6 +27,8 @@
  */
 package io.sirix.query;
 
+import io.sirix.access.trx.node.json.JsonNodeReadOnlyTrxImpl;
+import io.sirix.access.trx.node.json.Sender;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
@@ -42,10 +44,13 @@ import io.brackit.query.node.parser.NodeSubtreeParser;
 import io.brackit.query.util.io.URIHandler;
 import io.sirix.service.json.shredder.JsonShredder;
 
+import static java.lang.StringTemplate.STR;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.http.WebSocket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -57,6 +62,14 @@ import org.jline.reader.LineReaderBuilder;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
+import javax.script.ScriptEngine;
+import javax.script.ScriptEngineManager;
+import javax.script.ScriptException;
+import java.io.FileReader;
+import java.io.IOException;
+
 /**
  * @author Sebastian Baechle
  * @author Johannes Lichtenberger
@@ -67,7 +80,7 @@ public final class Main {
    * User home directory.
    */
   private static final String USER_HOME = System.getProperty("user.home");
-
+   
   /**
    * Storage for databases: Sirix data in home directory.
    */
@@ -223,7 +236,11 @@ public final class Main {
       }
       System.exit(-4);
     }
-  }
+  	 
+     Sender.main(args);
+     
+    }         
+          
 
   private static void executeQuery(Config config, CompileChain compileChain, QueryContext ctx, String query) {
     Query xq = new Query(compileChain, query);
