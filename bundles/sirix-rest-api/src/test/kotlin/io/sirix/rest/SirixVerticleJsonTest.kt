@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit
 
 
 @ExtendWith(VertxExtension::class)
-@DisplayName("Integration test")
+@DisplayName("JSON Integration test")
 class SirixVerticleJsonTest {
     private val server = "https://localhost:9443"
     private val serverPath = "/database/json-resource"
