@@ -9,6 +9,8 @@ until curl -sf http://localhost:8080 > /dev/null; do
   sleep 5
 done
 
+sleep 20
+
 # Keycloak is ready, run the create-sirix-users.sh script
 /opt/keycloak/scripts/create-sirix-users.sh
 
