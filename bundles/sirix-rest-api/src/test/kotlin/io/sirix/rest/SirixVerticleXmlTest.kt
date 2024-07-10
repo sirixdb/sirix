@@ -26,7 +26,7 @@ import org.junit.jupiter.api.extension.ExtendWith
 import java.util.concurrent.TimeUnit
 
 @ExtendWith(VertxExtension::class)
-@DisplayName("Integration test")
+@DisplayName("XML Integration test")
 class SirixVerticleXmlTest {
     private val server = "https://localhost:9443"
     private val serverPath = "/database/resource1"
@@ -193,7 +193,7 @@ class SirixVerticleXmlTest {
                 }
 
                 if (testContext.failed()) {
-                    throw testContext.causeOfFailure();
+                    throw testContext.causeOfFailure()
                 }
             }
         }
@@ -268,7 +268,7 @@ class SirixVerticleXmlTest {
                 }
 
                 if (testContext.failed()) {
-                    throw testContext.causeOfFailure();
+                    throw testContext.causeOfFailure()
                 }
             }
         }
@@ -407,7 +407,7 @@ class SirixVerticleXmlTest {
                 }
 
                 if (testContext.failed()) {
-                    throw testContext.causeOfFailure();
+                    throw testContext.causeOfFailure()
                 }
             }
         }
@@ -486,7 +486,7 @@ class SirixVerticleXmlTest {
                 }
 
                 if (testContext.failed()) {
-                    throw testContext.causeOfFailure();
+                    throw testContext.causeOfFailure()
                 }
             }
         }
@@ -572,7 +572,7 @@ class SirixVerticleXmlTest {
                 }
 
                 if (testContext.failed()) {
-                    throw testContext.causeOfFailure();
+                    throw testContext.causeOfFailure()
                 }
             }
         }
@@ -668,7 +668,7 @@ class SirixVerticleXmlTest {
                 }
 
                 if (testContext.failed()) {
-                    throw testContext.causeOfFailure();
+                    throw testContext.causeOfFailure()
                 }
             }
         }
@@ -757,7 +757,7 @@ class SirixVerticleXmlTest {
                 }
 
                 if (testContext.failed()) {
-                    throw testContext.causeOfFailure();
+                    throw testContext.causeOfFailure()
                 }
             }
         }
@@ -860,7 +860,7 @@ class SirixVerticleXmlTest {
                 }
 
                 if (testContext.failed()) {
-                    throw testContext.causeOfFailure();
+                    throw testContext.causeOfFailure()
                 }
             }
         }
@@ -942,7 +942,7 @@ class SirixVerticleXmlTest {
                 }
 
                 if (testContext.failed()) {
-                    throw testContext.causeOfFailure();
+                    throw testContext.causeOfFailure()
                 }
             }
         }
@@ -1050,7 +1050,7 @@ class SirixVerticleXmlTest {
                 }
 
                 if (testContext.failed()) {
-                    throw testContext.causeOfFailure();
+                    throw testContext.causeOfFailure()
                 }
             }
         }
