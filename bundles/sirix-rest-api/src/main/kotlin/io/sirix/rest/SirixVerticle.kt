@@ -201,21 +201,21 @@ class SirixVerticle : CoroutineVerticle() {
         post("/")
             .handler(BodyHandler.create())
             .coroutineHandler {
-                io.sirix.rest.Auth(keycloak, authz, AuthRole.VIEW).handle(it)
+                Auth(keycloak, authz, AuthRole.VIEW).handle(it)
                 it.next()
             }.coroutineHandler {
                 GetHandler(location, keycloak, authz).handle(it)
             }
 
         get("/").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             GetHandler(location, keycloak, authz).handle(it)
         }
 
         delete("/").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.DELETE).handle(it)
+            Auth(keycloak, authz, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
             DeleteHandler(location, authz).handle(it)
@@ -226,14 +226,14 @@ class SirixVerticle : CoroutineVerticle() {
             .consumes("multipart/form-data")
             .handler(BodyHandler.create())
             .coroutineHandler {
-                io.sirix.rest.Auth(keycloak, authz, AuthRole.CREATE).handle(it)
+                Auth(keycloak, authz, AuthRole.CREATE).handle(it)
                 it.next()
             }.coroutineHandler {
                 CreateMultipleResources(location).handle(it)
             }
 
         get("/:database").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             GetHandler(location, keycloak, authz).handle(it)
@@ -243,20 +243,20 @@ class SirixVerticle : CoroutineVerticle() {
             .consumes("application/xml")
             .handler(BodyHandler.create())
             .coroutineHandler {
-                io.sirix.rest.Auth(keycloak, authz, AuthRole.CREATE).handle(it)
+                Auth(keycloak, authz, AuthRole.CREATE).handle(it)
                 it.next()
             }.coroutineHandler {
                 XmlCreate(location, false).handle(it)
             }
         put("/:database").consumes("application/json").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.CREATE).handle(it)
+            Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.coroutineHandler {
             JsonCreate(location, true).handle(it)
         }
 
         delete("/:database").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.DELETE).handle(it)
+            Auth(keycloak, authz, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
             DeleteHandler(location, authz).handle(it)
@@ -264,14 +264,14 @@ class SirixVerticle : CoroutineVerticle() {
 
         // "/:database/:resource"
         head("/:database/:resource").produces("application/xml").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             XmlHead(location).handle(it)
         }
 
         head("/:database/:resource").produces("application/json").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             JsonHead(location).handle(it)
@@ -282,7 +282,7 @@ class SirixVerticle : CoroutineVerticle() {
             .produces("application/xml")
             .handler(BodyHandler.create())
             .coroutineHandler {
-                io.sirix.rest.Auth(keycloak, authz, AuthRole.MODIFY).handle(it)
+                Auth(keycloak, authz, AuthRole.MODIFY).handle(it)
                 it.next()
             }.coroutineHandler {
                 XmlUpdate(location).handle(it)
@@ -292,7 +292,7 @@ class SirixVerticle : CoroutineVerticle() {
             .produces("application/json")
             .handler(BodyHandler.create())
             .coroutineHandler {
-                io.sirix.rest.Auth(keycloak, authz, AuthRole.MODIFY).handle(it)
+                Auth(keycloak, authz, AuthRole.MODIFY).handle(it)
                 it.next()
             }.coroutineHandler {
                 JsonUpdate(location).handle(it)
@@ -301,34 +301,34 @@ class SirixVerticle : CoroutineVerticle() {
         post("/:database/:resource")
             .handler(BodyHandler.create())
             .coroutineHandler {
-                io.sirix.rest.Auth(keycloak, authz, AuthRole.VIEW).handle(it)
+                Auth(keycloak, authz, AuthRole.VIEW).handle(it)
                 it.next()
             }.coroutineHandler {
                 GetHandler(location, keycloak, authz).handle(it)
             }
 
         get("/:database/:resource").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             GetHandler(location, keycloak, authz).handle(it)
         }
 
         put("/:database/:resource").consumes("application/xml").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.CREATE).handle(it)
+            Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.coroutineHandler {
             XmlCreate(location, false).handle(it)
         }
         put("/:database/:resource").consumes("application/json").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.CREATE).handle(it)
+            Auth(keycloak, authz, AuthRole.CREATE).handle(it)
             it.next()
         }.coroutineHandler {
             JsonCreate(location, false).handle(it)
         }
 
         delete("/:database/:resource").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.DELETE).handle(it)
+            Auth(keycloak, authz, AuthRole.DELETE).handle(it)
             it.next()
         }.coroutineHandler {
             DeleteHandler(location, authz).handle(it)
@@ -336,19 +336,19 @@ class SirixVerticle : CoroutineVerticle() {
 
         // "/:database/:resource/subroutes"
         get("/:database/:resource/history").produces("application/json").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             HistoryHandler(location).handle(it)
         }
         get("/:database/:resource/diff").produces("application/json").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             DiffHandler(location).handle(it)
         }
         get("/:database/:resource/pathSummary").produces("application/json").coroutineHandler {
-            io.sirix.rest.Auth(keycloak, authz, AuthRole.VIEW).handle(it)
+            Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()
         }.coroutineHandler {
             PathSummaryHandler(location).handle(it)
