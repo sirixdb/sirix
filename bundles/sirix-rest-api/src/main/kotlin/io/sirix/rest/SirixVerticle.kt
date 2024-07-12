@@ -438,7 +438,7 @@ class SirixVerticle : CoroutineVerticle() {
     }
 
     private fun response(response: HttpServerResponse, statusCode: Int, failureMessage: String?) {
-        response.setStatusCode(statusCode).end("Failure calling the RESTful API: $failureMessage")
+        response.setStatusCode(statusCode).end("Failure calling the RESTful API (statusCode: $statusCode) -- $failureMessage")
     }
 
     /**
