@@ -17,6 +17,8 @@ jobs:
   Test:
     name: Run tests
     runs-on: ubuntu-latest
+    env:
+        GITHUB_ACTIONS: true
     steps:
       - name: Checkout
         uses: actions/checkout@v2

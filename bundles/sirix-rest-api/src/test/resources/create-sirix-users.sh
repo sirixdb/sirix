@@ -6,11 +6,18 @@ USERNAME="admin"
 PASSWORD="admin"
 ROLES="create,modify,delete,view"
 
+# Determine if running in GitHub Actions or locally
+if [ "$GITHUB_ACTIONS" == "true" ]; then
+  KEYCLOAK_HOST="keycloak"
+else
+  KEYCLOAK_HOST="localhost"
+fi
+
 user_exists() {
   $KEYCLOAK_HOME/bin/kcadm.sh get users -r "$REALM" -q "username=$USERNAME" --fields username | grep -q "\"username\" : \"$USERNAME\""
 }
 
-$KEYCLOAK_HOME/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user "$USERNAME" --password "$PASSWORD"
+$KEYCLOAK_HOME/bin/kcadm.sh config credentials --server http://$KEYCLOAK_HOST:8080 --realm master --user "$USERNAME" --password "$PASSWORD"
 
 if user_exists; then
   echo "User '$USERNAME' already exists in realm '$REALM'."
