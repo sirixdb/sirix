@@ -4,7 +4,6 @@ services:
     ports:
       - 8080:8080
     environment:
-      - KC_HEALTH_ENABLED=true
       - KEYCLOAK_ADMIN=admin
       - KEYCLOAK_ADMIN_PASSWORD=admin
       - KC_LOG_LEVEL=DEBUG
@@ -22,12 +21,10 @@ services:
     networks:
       - auth-network
     healthcheck:
-      # Unsuccessful attempts:
-      test: [ "CMD", "curl", "--head", "fsS", "http://0.0.0.0:8080/health/ready" ]
-      start_period: 10s
-      interval: 5s
-      timeout: 2s
-      retries: 15
+      test: [ "CMD", "curl", "-f", "http://keycloak:8080/realms/master" ]
+      interval: 60s
+      timeout: 20s
+      retries: 10
 networks:
   auth-network:
     driver: bridge
