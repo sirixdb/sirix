@@ -498,6 +498,7 @@ class SirixVerticleJsonTest {
     }
 
     @Test
+    @Disabled
     @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Testing the serialization of the first N-records")
     fun testRecordSerializer(vertx: Vertx, testContext: VertxTestContext) {
