@@ -64,8 +64,8 @@ jobs:
     needs: Test
     runs-on: ubuntu-latest
     env:
-      SONATYPE_NEXUS_USERNAME: ${{ secrets.SONATYPE_NEXUS_USERNAME }}
-      SONATYPE_NEXUS_PASSWORD: ${{ secrets.SONATYPE_NEXUS_PASSWORD }}
+      SONATYPE_NEXUS_USERNAME: ${{ secrets.SONATYPE_USERNAME_TOKEN }}
+      SONATYPE_NEXUS_PASSWORD: ${{ secrets.SONATYPE_PASSWORD_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v2
