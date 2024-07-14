@@ -11,7 +11,7 @@ services:
       - KC_IMPORT=/opt/keycloak/data/import/realm-export.json
     restart: always
     volumes:
-      - ./bundles/sirix-rest-api/src/test/resources/realm-export.json:/opt/keycloak/realm-export.json
+      - ./bundles/sirix-rest-api/src/test/resources/realm-export.json:/opt/keycloak/data/import/realm-export.json 
     entrypoint: ["/opt/keycloak/scripts/wait-for-keycloak.sh"]
     command: >
       start-dev
