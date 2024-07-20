@@ -16,14 +16,15 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
 
   public RecordPageCache(final int maxSize) {
     final RemovalListener<PageReference, KeyValueLeafPage> removalListener =
-        (PageReference key, KeyValueLeafPage _, RemovalCause _) -> {
+        (PageReference key, KeyValueLeafPage _, RemovalCause cause) -> {
           key.setPage(null);
         };
 
     pageCache = Caffeine.newBuilder()
+                        .initialCapacity(maxSize)
                         .maximumSize(maxSize)
                         .expireAfterAccess(5, TimeUnit.MINUTES)
-                        .scheduler(scheduler)
+                        //.scheduler(scheduler)
                         .removalListener(removalListener)
                         .build();
   }

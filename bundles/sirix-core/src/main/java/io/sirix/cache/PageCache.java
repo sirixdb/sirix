@@ -6,9 +6,11 @@ import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import org.checkerframework.checker.nullness.qual.PolyNull;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 public final class PageCache implements Cache<PageReference, Page> {
 
@@ -20,11 +22,18 @@ public final class PageCache implements Cache<PageReference, Page> {
     };
 
     pageCache = Caffeine.newBuilder()
+                        .initialCapacity(maxSize)
                         .maximumSize(maxSize)
+                        .executor(Runnable::run)
                         .expireAfterAccess(5, TimeUnit.MINUTES)
-                        .scheduler(scheduler)
+//                        .scheduler(scheduler)
                         .removalListener(removalListener)
                         .build();
+  }
+
+  @Override
+  public Page get(PageReference key, Function<? super PageReference, ? extends @PolyNull Page> mappingFunction) {
+    return pageCache.get(key, mappingFunction);
   }
 
   @Override

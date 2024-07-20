@@ -197,8 +197,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public DataRecord getRecord(long key) {
-    int offset = PageReadOnlyTrx.recordPageOffset(key);
+  public DataRecord getRecord(int offset) {
+    //int offset = PageReadOnlyTrx.recordPageOffset(key);
     return records[offset];
   }
 

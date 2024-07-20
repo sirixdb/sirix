@@ -59,7 +59,7 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
 
   V[] records();
 
-  V getRecord(long key);
+  V getRecord(int offset);
 
   Set<Entry<Long, PageReference>> referenceEntrySet();
 

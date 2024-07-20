@@ -185,7 +185,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     if (trxIntentLog == null) {
       assert reference.getLogKey() == Constants.NULL_ID_INT;
-      page = resourceBufferManager.getPageCache().get(reference);
+      page = resourceBufferManager.getPageCache().get(reference, pageReference -> {
+        try {
+          return pageReader.read(pageReference, resourceSession.getResourceConfig());
+        } catch (final SirixIOException e) {
+          throw new IllegalStateException(e);
+        }
+      });
       if (page != null) {
         reference.setPage(page);
         return page;
@@ -206,7 +212,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private void putIntoPageCache(PageReference reference, Page page) {
     if (!(page instanceof UberPage)) {
       // Put page into buffer manager.
-      resourceBufferManager.getPageCache().put(reference, page);
+      resourceBufferManager.getPageCache().putIfAbsent(reference, page);
     }
   }
 
@@ -582,14 +588,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     KeyValuePage<DataRecord> page;
 
     if (trxIntentLog == null) {
-      page = (KeyValuePage<DataRecord>) resourceBufferManager.getPageCache().get(pageReferenceWithKey);
-      //assert page == null || page.getRevision() == getRevisionNumber();
-      if (page == null) {
-        page = (KeyValuePage<DataRecord>) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
-
-        assert pageReferenceWithKey.getLogKey() == Constants.NULL_ID_INT;
-        resourceBufferManager.getPageCache().put(pageReferenceWithKey, page);
-      }
+      page = (KeyValuePage<DataRecord>) resourceBufferManager.getPageCache()
+                                                             .get(pageReferenceWithKey,
+                                                                  _ -> pageReader.read(pageReferenceWithKey,
+                                                                                       resourceSession.getResourceConfig()));
     } else {
       page = (KeyValuePage<DataRecord>) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
     }
