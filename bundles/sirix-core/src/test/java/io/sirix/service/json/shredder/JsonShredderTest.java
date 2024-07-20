@@ -51,7 +51,7 @@ public final class JsonShredderTest {
 
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
-  private static final int NUMBER_OF_PROCESSORS = Runtime.getRuntime().availableProcessors();
+  private static final int NUMBER_OF_PROCESSORS = 3;
 
   private static final ExecutorService THREAD_POOL =
       Executors.newFixedThreadPool(NUMBER_OF_PROCESSORS);
@@ -76,14 +76,14 @@ public final class JsonShredderTest {
   @Disabled
   @Test
   public void testChicagoDescendantAxisParallel() throws InterruptedException {
-    if (Files.notExists(PATHS.PATH1.getFile())) {
-      logger.info("start");
-      final var jsonPath = JSON.resolve("cityofchicago.json");
-      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
-      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-        createResource(jsonPath, database, false);
-      }
-    }
+//    if (Files.notExists(PATHS.PATH1.getFile())) {
+//      logger.info("start");
+//      final var jsonPath = JSON.resolve("cityofchicago.json");
+//      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+//      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+//        createResource(jsonPath, database, false);
+//      }
+//    }
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
 
@@ -103,10 +103,10 @@ public final class JsonShredderTest {
         int count = 0;
 
         while (axis.hasNext()) {
-          axis.nextLong();
+          final var nodeKey = axis.nextLong();
 
-          if (count % 5_000_000L == 0) {
-            logger.info("node: " + axis.getTrx().getNode());
+          if (count % 50_000_000L == 0) {
+            logger.info("nodeKey: " + nodeKey);
           }
           count++;
         }
@@ -141,14 +141,14 @@ public final class JsonShredderTest {
   @Disabled
   @Test
   public void testChicagoDescendantAxis() {
-    if (Files.notExists(PATHS.PATH1.getFile())) {
-      logger.info("start");
-      final var jsonPath = JSON.resolve("cityofchicago.json");
-      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
-      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-        createResource(jsonPath, database, false);
-      }
-    }
+//    if (Files.notExists(PATHS.PATH1.getFile())) {
+//      logger.info("start");
+//      final var jsonPath = JSON.resolve("cityofchicago.json");
+//      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+//      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+//        createResource(jsonPath, database, false);
+//      }
+//    }
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
@@ -227,7 +227,7 @@ public final class JsonShredderTest {
                                                  .storeChildCount(true)
                                                  .hashKind(HashType.ROLLING)
                                                  .useTextCompression(false)
-                                                 .storageType(StorageType.MEMORY_MAPPED)
+                                                 .storageType(StorageType.FILE_CHANNEL)
                                                  .useDeweyIDs(false)
                                                  .byteHandlerPipeline(new ByteHandlerPipeline(new LZ4Compressor()))
                                                  .build());

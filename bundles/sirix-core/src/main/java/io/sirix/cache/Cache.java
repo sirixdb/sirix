@@ -23,8 +23,10 @@ package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Scheduler;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.PolyNull;
 
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * Interface for all upcoming cache implementations. Can be a weak one, a LRU-based one or a
@@ -39,6 +41,23 @@ import java.util.Map;
  */
 public interface Cache<K, V> {
   Scheduler scheduler = Scheduler.systemScheduler();
+
+  default void putIfAbsent(K key, V value) {
+    if (get(key) == null) {
+      put(key, value);
+    }
+  }
+
+  default V get(K key, Function<? super K, ? extends @PolyNull V> mappingFunction) {
+    V value = get(key);
+    if (value == null) {
+      value = mappingFunction.apply(key);
+      if (value != null) {
+        put(key, value);
+      }
+    }
+    return value;
+  }
 
   /**
    * Clearing the cache. That is removing all elements.
