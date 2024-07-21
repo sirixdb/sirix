@@ -25,8 +25,7 @@ public final class PageCache implements Cache<PageReference, Page> {
                         .initialCapacity(maxSize)
                         .maximumSize(maxSize)
                         .executor(Runnable::run)
-                        .expireAfterAccess(5, TimeUnit.MINUTES)
-//                        .scheduler(scheduler)
+                        .scheduler(scheduler)
                         .removalListener(removalListener)
                         .build();
   }

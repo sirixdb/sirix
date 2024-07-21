@@ -194,8 +194,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       });
       if (page != null) {
         reference.setPage(page);
-        return page;
       }
+      return page;
     }
 
     if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
@@ -455,15 +455,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     // Fourth: Try to get from resource buffer manager.
     if (trxIntentLog == null || indexLogKey.getIndexType() != IndexType.PATH_SUMMARY) {
-      Page recordPageFromBuffer = getFromBufferManager(indexLogKey, pageReferenceToRecordPage);
-      if (recordPageFromBuffer != null) {
-        return recordPageFromBuffer;
-      }
-    }
-
-    if (pageReferenceToRecordPage.getKey() == Constants.NULL_ID_LONG) {
-      // No persistent key set to load page from durable storage.
-      return null;
+      return getFromBufferManager(indexLogKey, pageReferenceToRecordPage);
     }
 
     return loadDataPageFromDurableStorageAndCombinePageFragments(indexLogKey, pageReferenceToRecordPage);
@@ -493,7 +485,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   @Nullable
   private Page getFromBufferManager(@NonNull IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
-    final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
+    final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache()
+                                                           .get(pageReferenceToRecordPage,
+                                                                _ -> (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(
+                                                                    indexLogKey,
+                                                                    pageReferenceToRecordPage));
 
     if (recordPageFromBuffer != null) {
       setMostRecentlyReadRecordPage(indexLogKey, recordPageFromBuffer);
@@ -524,6 +520,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   @Nullable
   private Page loadDataPageFromDurableStorageAndCombinePageFragments(@NonNull IndexLogKey indexLogKey,
       PageReference pageReferenceToRecordPage) {
+    if (pageReferenceToRecordPage.getKey() == Constants.NULL_ID_LONG) {
+      // No persistent key set to load page from durable storage.
+      return null;
+    }
+
     // Load list of page "fragments" from persistent storage.
     final List<KeyValuePage<DataRecord>> pages = getPageFragments(pageReferenceToRecordPage);
 
@@ -534,8 +535,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final int maxRevisionsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
     final VersioningType versioningApproach = resourceConfig.versioningType;
     final Page completePage = versioningApproach.combineRecordPages(pages, maxRevisionsToRestore, this);
-
-    resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, (KeyValueLeafPage) completePage);
 
     pageReferenceToRecordPage.setPage(completePage);
     setMostRecentlyReadRecordPage(indexLogKey, completePage);
@@ -635,8 +634,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                                                  if (trxIntentLog == null) {
                                                                    assert pageFragmentKey.revision()
                                                                        == ((KeyValuePage<DataRecord>) page).getRevision();
-                                                                   resourceBufferManager.getPageCache()
-                                                                                        .put(pageReference, page);
+                                                                   synchronized (resourceBufferManager.getPageCache()) {
+                                                                     resourceBufferManager.getPageCache()
+                                                                                          .putIfAbsent(pageReference,
+                                                                                                       page);
+                                                                   }
                                                                  }
                                                                });
   }
