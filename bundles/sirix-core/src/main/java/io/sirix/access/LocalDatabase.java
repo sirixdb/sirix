@@ -119,11 +119,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   private void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
-    if (resourceConfig.getStorageType() == StorageType.MEMORY_MAPPED) {
-      bufferManagers.put(resourceFile, new BufferManagerImpl(10_000, 1_000, 5_000, 50_000, 500, 20));
-    } else {
-      bufferManagers.put(resourceFile, new BufferManagerImpl(50_000, 1_000, 5_000, 50_000, 500, 20));
-    }
+    bufferManagers.put(resourceFile, new BufferManagerImpl(10_000, 1_000, 5_000, 50_000, 500, 20));
   }
 
   @Override

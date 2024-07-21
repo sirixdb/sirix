@@ -42,7 +42,7 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
 
   public RevisionRootPageCache(final int maxSize) {
     pageCache =
-        Caffeine.newBuilder().maximumSize(maxSize).expireAfterAccess(5, TimeUnit.MINUTES).scheduler(scheduler).build();
+        Caffeine.newBuilder().maximumSize(maxSize).scheduler(scheduler).build();
   }
 
   @Override

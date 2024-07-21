@@ -6,9 +6,11 @@ import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.PolyNull;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 public final class RecordPageCache implements Cache<PageReference, KeyValueLeafPage> {
 
@@ -23,8 +25,7 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
     pageCache = Caffeine.newBuilder()
                         .initialCapacity(maxSize)
                         .maximumSize(maxSize)
-                        .expireAfterAccess(5, TimeUnit.MINUTES)
-                        //.scheduler(scheduler)
+                        .scheduler(scheduler)
                         .removalListener(removalListener)
                         .build();
   }
@@ -43,6 +44,12 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
     //    }
 
     return keyValueLeafPage;
+  }
+
+  @Override
+  public KeyValueLeafPage get(PageReference key,
+      Function<? super PageReference, ? extends @PolyNull KeyValueLeafPage> mappingFunction) {
+    return pageCache.get(key, mappingFunction);
   }
 
   @Override
