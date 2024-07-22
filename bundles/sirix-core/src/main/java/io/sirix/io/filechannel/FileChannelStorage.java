@@ -18,8 +18,6 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Factory to provide file channel access as a backend.
@@ -48,8 +46,6 @@ public final class FileChannelStorage implements IOStorage {
    */
   private final ByteHandlerPipeline byteHandlerPipeline;
 
-  final Semaphore semaphore = new Semaphore(1);
-
   /**
    * Revision file data cache.
    */
@@ -71,12 +67,6 @@ public final class FileChannelStorage implements IOStorage {
   @Override
   public Reader createReader() {
     try {
-      final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
-
-      if (!sempahoreAcquired) {
-        throw new IllegalStateException("Couldn't acquire semaphore.");
-      }
-
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
@@ -90,10 +80,8 @@ public final class FileChannelStorage implements IOStorage {
                                    SerializationType.DATA,
                                    new PagePersister(),
                                    cache.synchronous());
-    } catch (final IOException | InterruptedException e) {
+    } catch (final IOException e) {
       throw new SirixIOException(e);
-    } finally {
-      semaphore.release();
     }
   }
 
@@ -119,12 +107,6 @@ public final class FileChannelStorage implements IOStorage {
   @Override
   public Writer createWriter() {
     try {
-      final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
-
-      if (!sempahoreAcquired) {
-        throw new IllegalStateException("Couldn't acquire semaphore.");
-      }
-
       final Path dataFilePath = createDirectoriesAndFile();
       final Path revisionsOffsetFilePath = getRevisionFilePath();
 
@@ -148,10 +130,8 @@ public final class FileChannelStorage implements IOStorage {
                                    pagePersister,
                                    cache,
                                    reader);
-    } catch (final IOException | InterruptedException e) {
+    } catch (final IOException e) {
       throw new SirixIOException(e);
-    } finally {
-      semaphore.release();
     }
   }
 
