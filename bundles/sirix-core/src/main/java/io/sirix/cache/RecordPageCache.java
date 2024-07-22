@@ -24,6 +24,7 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
 
     pageCache = Caffeine.newBuilder()
                         .initialCapacity(maxSize)
+                        .executor(Runnable::run)
                         .maximumSize(maxSize)
                         .scheduler(scheduler)
                         .removalListener(removalListener)

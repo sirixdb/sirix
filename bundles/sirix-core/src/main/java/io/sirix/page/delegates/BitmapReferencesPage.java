@@ -54,8 +54,6 @@ public final class BitmapReferencesPage implements Page {
    */
   private final BitSet bitmap;
 
-  private final BitSet offsetBitmap;
-
   /**
    * Constructor to initialize instance.
    *
@@ -67,7 +65,6 @@ public final class BitmapReferencesPage implements Page {
 
     references = new GapList<>(8);
     bitmap = new BitSet(numberOfEntriesAtMax);
-    offsetBitmap = new BitSet(bitmap.size());
 
     final var offsets = pageToCopy.getOffsets();
     final var pageReferences = pageToCopy.getReferences();
@@ -100,7 +97,6 @@ public final class BitmapReferencesPage implements Page {
 
     references = new GapList<>(initialSize);
     bitmap = new BitSet(referenceCount);
-    offsetBitmap = new BitSet(bitmap.size());
   }
 
   /**
@@ -115,7 +111,6 @@ public final class BitmapReferencesPage implements Page {
     final DeserializedBitmapReferencesPageTuple tuple = type.deserializeBitmapReferencesPage(referenceCount, in);
     references = tuple.getReferences();
     bitmap = tuple.getBitmap();
-    offsetBitmap = new BitSet(bitmap.size());
   }
 
   /**
@@ -125,7 +120,6 @@ public final class BitmapReferencesPage implements Page {
    */
   public BitmapReferencesPage(final Page pageToClone, final BitSet bitSet) {
     bitmap = (BitSet) bitSet.clone();
-    offsetBitmap = new BitSet(bitmap.size());
 
     final int length = pageToClone.getReferences().size();
 
@@ -193,7 +187,8 @@ public final class BitmapReferencesPage implements Page {
     return pageReference;
   }
 
-  private synchronized int index(final int offset) {
+  private int index(final int offset) {
+    var offsetBitmap = new BitSet(bitmap.size());
     offsetBitmap.clear();
     offsetBitmap.set(offset);
 
