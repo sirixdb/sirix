@@ -105,6 +105,7 @@ final class JsonNodeTrxImpl extends
    * A factory that creates new {@link PageTrx} instances.
    */
   private final String databaseName;
+  private final KafkaChangeProducer kafka;
 
   /**
    * Json DeweyID manager.
@@ -152,6 +153,7 @@ final class JsonNodeTrxImpl extends
   private static final String INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE =
       "Insert is not allowed if parent node is not an array node!";
 
+
   /**
    * Constructor.
    *
@@ -173,7 +175,7 @@ final class JsonNodeTrxImpl extends
       @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter, @NonNegative final int maxNodeCount,
       @Nullable final Lock transactionLock, final Duration afterCommitDelay, @NonNull final JsonNodeHashing nodeHashing,
       final JsonNodeFactory nodeFactory, @NonNull final AfterCommitState afterCommitState,
-      final RecordToRevisionsIndex nodeToRevisionsIndex, final boolean isAutoCommitting) {
+      final RecordToRevisionsIndex nodeToRevisionsIndex, final boolean isAutoCommitting,final KafkaChangeProducer kafka) {
     super(new JsonNodeTrxThreadFactory(),
           resourceManager.getResourceConfig().hashType,
           nodeReadTrx,
@@ -188,7 +190,7 @@ final class JsonNodeTrxImpl extends
           afterCommitDelay,
           maxNodeCount);
     this.databaseName = requireNonNull(databaseName);
-
+    this.kafka=kafka;
     hashFunction = resourceManager.getResourceConfig().nodeHashFunction;
     storeChildCount = resourceManager.getResourceConfig().storeChildCount();
 
@@ -200,6 +202,8 @@ final class JsonNodeTrxImpl extends
     deweyIDManager = new JsonDeweyIDManager(this);
     storeNodeHistory = resourceManager.getResourceConfig().storeNodeHistory();
   }
+  
+  
 
   @Override
   public JsonNodeTrx insertSubtreeAsFirstChild(final JsonReader reader) {
@@ -2530,7 +2534,7 @@ final class JsonNodeTrxImpl extends
   // ////////////////////////////////////////////////////////////
   // end of remove operation
   // ////////////////////////////////////////////////////////////
-
+  
   @Override
   protected void serializeUpdateDiffs(final int revisionNumber) {
     if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
@@ -2552,6 +2556,7 @@ final class JsonNodeTrxImpl extends
                                            "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber + ".json");
       try {
         Files.writeString(diff, jsonDiff, CREATE);
+        kafka.sendChange("revision_" + revisionNumber, jsonDiff);
       } catch (final IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -2562,6 +2567,7 @@ final class JsonNodeTrxImpl extends
         updateOperationsUnordered.clear();
       }
     }
+    
   }
 
   @Override
