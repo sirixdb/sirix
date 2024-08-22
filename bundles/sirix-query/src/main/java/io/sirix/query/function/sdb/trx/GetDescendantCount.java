@@ -12,7 +12,8 @@ import io.sirix.query.function.sdb.SDBFun;
 
 /**
  * <p>
- * Function for retrieving the number of descendants of the current node. Supported signature is:
+ * Function for retrieving the number of descendants of the current node.
+ * Supported signature is:
  * </p>
  * <ul>
  * <li><code>sdb:descendant-count($doc as xs:structured-item) as xs:int</code></li>
@@ -23,23 +24,25 @@ import io.sirix.query.function.sdb.SDBFun;
  */
 public final class GetDescendantCount extends AbstractFunction {
 
-  /** Get number of descendants function name. */
-  public final static QNm GET_DESCENDANT_COUNT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "descendant-count");
+	/** Get number of descendants function name. */
+	public final static QNm GET_DESCENDANT_COUNT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "descendant-count");
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public GetDescendantCount(QNm name, Signature signature) {
-    super(name, signature, true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public GetDescendantCount(QNm name, Signature signature) {
+		super(name, signature, true);
+	}
 
-  @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+	@Override
+	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
+		final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
-    return new Int64(doc.getTrx().getDescendantCount());
-  }
+		return new Int64(doc.getTrx().getDescendantCount());
+	}
 }

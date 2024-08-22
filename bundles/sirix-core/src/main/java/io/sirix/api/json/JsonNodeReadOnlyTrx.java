@@ -12,76 +12,77 @@ import io.sirix.api.ResourceSession;
 import java.util.List;
 
 public interface JsonNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
-  @Override
-  String getValue();
+	@Override
+	String getValue();
 
-  boolean isObject();
+	boolean isObject();
 
-  boolean isObjectKey();
+	boolean isObjectKey();
 
-  boolean isArray();
+	boolean isArray();
 
-  boolean isStringValue();
+	boolean isStringValue();
 
-  boolean isNumberValue();
+	boolean isNumberValue();
 
-  boolean isNullValue();
+	boolean isNullValue();
 
-  boolean isBooleanValue();
+	boolean isBooleanValue();
 
-  @Override
-  boolean moveTo(long nodeKey);
+	@Override
+	boolean moveTo(long nodeKey);
 
-  @Override
-  boolean moveToDocumentRoot();
+	@Override
+	boolean moveToDocumentRoot();
 
-  @Override
-  boolean moveToFirstChild();
+	@Override
+	boolean moveToFirstChild();
 
-  @Override
-  boolean moveToLastChild();
+	@Override
+	boolean moveToLastChild();
 
-  @Override
-  boolean moveToLeftSibling();
+	@Override
+	boolean moveToLeftSibling();
 
-  @Override
-  boolean moveToParent();
+	@Override
+	boolean moveToParent();
 
-  @Override
-  boolean moveToRightSibling();
+	@Override
+	boolean moveToRightSibling();
 
-  @Override
-  boolean moveToPrevious();
+	@Override
+	boolean moveToPrevious();
 
-  @Override
-  boolean moveToNext();
+	@Override
+	boolean moveToNext();
 
-  @Override
-  boolean moveToNextFollowing();
+	@Override
+	boolean moveToNextFollowing();
 
-  /**
-   * Accept a visitor.
-   *
-   * @param visitor {@link JsonNodeVisitor} implementation
-   * @return {@link VisitResultType} value
-   */
-  VisitResult acceptVisitor(JsonNodeVisitor visitor);
+	/**
+	 * Accept a visitor.
+	 *
+	 * @param visitor
+	 *            {@link JsonNodeVisitor} implementation
+	 * @return {@link VisitResultType} value
+	 */
+	VisitResult acceptVisitor(JsonNodeVisitor visitor);
 
-  /**
-   * Get the {@link ResourceSession} this instance is bound to.
-   *
-   * @return the resource manager
-   */
-  @Override
-  JsonResourceSession getResourceSession();
+	/**
+	 * Get the {@link ResourceSession} this instance is bound to.
+	 *
+	 * @return the resource manager
+	 */
+	@Override
+	JsonResourceSession getResourceSession();
 
-  boolean getBooleanValue();
+	boolean getBooleanValue();
 
-  Number getNumberValue();
+	Number getNumberValue();
 
-  int getNameKey();
+	int getNameKey();
 
-  List<JsonObject> getUpdateOperations();
+	List<JsonObject> getUpdateOperations();
 
-  List<JsonObject> getUpdateOperationsInSubtreeOfNode(SirixDeweyID deweyID, long maxDepth);
+	List<JsonObject> getUpdateOperationsInSubtreeOfNode(SirixDeweyID deweyID, long maxDepth);
 }

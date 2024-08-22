@@ -23,165 +23,167 @@ import static java.util.Objects.requireNonNull;
  *
  */
 public class ImmutableText implements ImmutableValueNode, ImmutableStructNode, ImmutableXmlNode {
-  /** Mutable {@link TextNode}. */
-  private final TextNode node;
+	/** Mutable {@link TextNode}. */
+	private final TextNode node;
 
-  /**
-   * Private constructor.
-   *
-   * @param node {@link TextNode} to wrap
-   */
-  private ImmutableText(final TextNode node) {
-    this.node = requireNonNull(node);
-  }
+	/**
+	 * Private constructor.
+	 *
+	 * @param node
+	 *            {@link TextNode} to wrap
+	 */
+	private ImmutableText(final TextNode node) {
+		this.node = requireNonNull(node);
+	}
 
-  /**
-   * Get an immutable text node instance.
-   *
-   * @param node the mutable {@link TextNode} to wrap
-   * @return immutable text node instance
-   */
-  public static ImmutableText of(final TextNode node) {
-    return new ImmutableText(node);
-  }
+	/**
+	 * Get an immutable text node instance.
+	 *
+	 * @param node
+	 *            the mutable {@link TextNode} to wrap
+	 * @return immutable text node instance
+	 */
+	public static ImmutableText of(final TextNode node) {
+		return new ImmutableText(node);
+	}
 
-  @Override
-  public int getTypeKey() {
-    return node.getTypeKey();
-  }
+	@Override
+	public int getTypeKey() {
+		return node.getTypeKey();
+	}
 
-  @Override
-  public boolean isSameItem(final @Nullable Node pOther) {
-    return node.isSameItem(pOther);
-  }
+	@Override
+	public boolean isSameItem(final @Nullable Node pOther) {
+		return node.isSameItem(pOther);
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
-    return visitor.visit(this);
-  }
+	@Override
+	public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
+		return visitor.visit(this);
+	}
 
-  @Override
-  public long getHash() {
-    return node.getHash();
-  }
+	@Override
+	public long getHash() {
+		return node.getHash();
+	}
 
-  @Override
-  public long getParentKey() {
-    return node.getParentKey();
-  }
+	@Override
+	public long getParentKey() {
+		return node.getParentKey();
+	}
 
-  @Override
-  public boolean hasParent() {
-    return node.hasParent();
-  }
+	@Override
+	public boolean hasParent() {
+		return node.hasParent();
+	}
 
-  @Override
-  public long getNodeKey() {
-    return node.getNodeKey();
-  }
+	@Override
+	public long getNodeKey() {
+		return node.getNodeKey();
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return node.getKind();
-  }
+	@Override
+	public NodeKind getKind() {
+		return node.getKind();
+	}
 
-  @Override
-  public int getPreviousRevisionNumber() {
-    return node.getPreviousRevisionNumber();
-  }
+	@Override
+	public int getPreviousRevisionNumber() {
+		return node.getPreviousRevisionNumber();
+	}
 
-  @Override
-  public int getLastModifiedRevisionNumber() {
-    return node.getLastModifiedRevisionNumber();
-  }
+	@Override
+	public int getLastModifiedRevisionNumber() {
+		return node.getLastModifiedRevisionNumber();
+	}
 
-  @Override
-  public boolean hasFirstChild() {
-    return node.hasFirstChild();
-  }
+	@Override
+	public boolean hasFirstChild() {
+		return node.hasFirstChild();
+	}
 
-  @Override
-  public boolean hasLastChild() {
-    return false;
-  }
+	@Override
+	public boolean hasLastChild() {
+		return false;
+	}
 
-  @Override
-  public boolean hasLeftSibling() {
-    return node.hasLeftSibling();
-  }
+	@Override
+	public boolean hasLeftSibling() {
+		return node.hasLeftSibling();
+	}
 
-  @Override
-  public boolean hasRightSibling() {
-    return node.hasRightSibling();
-  }
+	@Override
+	public boolean hasRightSibling() {
+		return node.hasRightSibling();
+	}
 
-  @Override
-  public long getChildCount() {
-    return node.getChildCount();
-  }
+	@Override
+	public long getChildCount() {
+		return node.getChildCount();
+	}
 
-  @Override
-  public long getDescendantCount() {
-    return node.getDescendantCount();
-  }
+	@Override
+	public long getDescendantCount() {
+		return node.getDescendantCount();
+	}
 
-  @Override
-  public long getFirstChildKey() {
-    return node.getFirstChildKey();
-  }
+	@Override
+	public long getFirstChildKey() {
+		return node.getFirstChildKey();
+	}
 
-  @Override
-  public long getLastChildKey() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public long getLastChildKey() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public long getLeftSiblingKey() {
-    return node.getLeftSiblingKey();
-  }
+	@Override
+	public long getLeftSiblingKey() {
+		return node.getLeftSiblingKey();
+	}
 
-  @Override
-  public long getRightSiblingKey() {
-    return node.getRightSiblingKey();
-  }
+	@Override
+	public long getRightSiblingKey() {
+		return node.getRightSiblingKey();
+	}
 
-  @Override
-  public byte[] getRawValue() {
-    return node.getRawValue();
-  }
+	@Override
+	public byte[] getRawValue() {
+		return node.getRawValue();
+	}
 
-  @Override
-  public String getValue() {
-    return node.getValue();
-  }
+	@Override
+	public String getValue() {
+		return node.getValue();
+	}
 
-  @Override
-  public SirixDeweyID getDeweyID() {
-    return node.getDeweyID();
-  }
+	@Override
+	public SirixDeweyID getDeweyID() {
+		return node.getDeweyID();
+	}
 
-  @Override
-  public boolean equals(Object obj) {
-    return node.equals(obj);
-  }
+	@Override
+	public boolean equals(Object obj) {
+		return node.equals(obj);
+	}
 
-  @Override
-  public int hashCode() {
-    return node.hashCode();
-  }
+	@Override
+	public int hashCode() {
+		return node.hashCode();
+	}
 
-  @Override
-  public String toString() {
-    return node.toString();
-  }
+	@Override
+	public String toString() {
+		return node.toString();
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    return node.computeHash(bytes);
-  }
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		return node.computeHash(bytes);
+	}
 
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    return node.getDeweyIDAsBytes();
-  }
+	@Override
+	public byte[] getDeweyIDAsBytes() {
+		return node.getDeweyIDAsBytes();
+	}
 }

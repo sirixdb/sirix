@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -26,59 +26,63 @@ import io.sirix.exception.SirixXPathException;
 
 /**
  * <p>
- * A single type defines a type the a single item can have. It consists of an atomic type and a
- * optional interrogation that, when present indicates that the item can also be the empty sequence.
+ * A single type defines a type the a single item can have. It consists of an
+ * atomic type and a optional interrogation that, when present indicates that
+ * the item can also be the empty sequence.
  * </p>
  */
 public class SingleType {
 
-  private Type mAtomicType;
+	private Type mAtomicType;
 
-  private final boolean mhasInterogation;
+	private final boolean mhasInterogation;
 
-  /**
-   * Constructor.
-   * 
-   * @param atomic string representation of the atomic value
-   * @param mIntero true, if interrogation sign is present
-   * @throws SirixXPathException
-   */
-  public SingleType(final String atomic, final boolean mIntero) throws SirixXPathException {
+	/**
+	 * Constructor.
+	 *
+	 * @param atomic
+	 *            string representation of the atomic value
+	 * @param mIntero
+	 *            true, if interrogation sign is present
+	 * @throws SirixXPathException
+	 */
+	public SingleType(final String atomic, final boolean mIntero) throws SirixXPathException {
 
-    // get atomic type
-    mAtomicType = null; // TODO. = null is not good style
-    for (Type type : Type.values()) {
-      if (type.getStringRepr().equals(atomic)) {
-        mAtomicType = type;
-        break;
-      }
-    }
+		// get atomic type
+		mAtomicType = null; // TODO. = null is not good style
+		for (Type type : Type.values()) {
+			if (type.getStringRepr().equals(atomic)) {
+				mAtomicType = type;
+				break;
+			}
+		}
 
-    if (mAtomicType == null) {
-      throw EXPathError.XPST0051.getEncapsulatedException();
-    }
+		if (mAtomicType == null) {
+			throw EXPathError.XPST0051.getEncapsulatedException();
+		}
 
-    mhasInterogation = mIntero;
-  }
+		mhasInterogation = mIntero;
+	}
 
-  /**
-   * Gets the atomic type.
-   * 
-   * @return atomic type.
-   */
-  public Type getAtomic() {
+	/**
+	 * Gets the atomic type.
+	 *
+	 * @return atomic type.
+	 */
+	public Type getAtomic() {
 
-    return mAtomicType;
-  }
+		return mAtomicType;
+	}
 
-  /**
-   * Specifies, whether interrogation sign is present and therefore the empty sequence is valid too.
-   * 
-   * @return true, if interrogation sign is present.
-   */
-  public boolean hasInterogation() {
+	/**
+	 * Specifies, whether interrogation sign is present and therefore the empty
+	 * sequence is valid too.
+	 *
+	 * @return true, if interrogation sign is present.
+	 */
+	public boolean hasInterogation() {
 
-    return mhasInterogation;
-  }
+		return mhasInterogation;
+	}
 
 }

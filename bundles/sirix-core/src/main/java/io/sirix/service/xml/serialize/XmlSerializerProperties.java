@@ -36,55 +36,55 @@ import java.util.concurrent.ConcurrentMap;
  */
 public final class XmlSerializerProperties {
 
-  // ============== Class constants. =================
+	// ============== Class constants. =================
 
-  /** NO maps to false. */
-  private static final boolean NO = false;
+	/** NO maps to false. */
+	private static final boolean NO = false;
 
-  // ============ Shredding constants. ===============
+	// ============ Shredding constants. ===============
 
-  /** Serialize TT-ID: yes/no. */
-  public static final Object[] S_ID = {"serialize-id", NO};
+	/** Serialize TT-ID: yes/no. */
+	public static final Object[] S_ID = {"serialize-id", NO};
 
-  /** Serialization parameter: yes/no. */
-  public static final Object[] S_INDENT = {"indent", NO};
+	/** Serialization parameter: yes/no. */
+	public static final Object[] S_INDENT = {"indent", NO};
 
-  /** Specific serialization parameter: number of spaces to indent. */
-  public static final Object[] S_INDENT_SPACES = {"indent-spaces", 2};
+	/** Specific serialization parameter: number of spaces to indent. */
+	public static final Object[] S_INDENT_SPACES = {"indent-spaces", 2};
 
-  /** Serialize REST: yes/no. */
-  public static final Object[] S_REST = {"serialize-rest", NO};
+	/** Serialize REST: yes/no. */
+	public static final Object[] S_REST = {"serialize-rest", NO};
 
-  /** Serialize XML declaration: yes/no. */
-  public static final Object[] S_XMLDECL = {"xmldecl", NO};
+	/** Serialize XML declaration: yes/no. */
+	public static final Object[] S_XMLDECL = {"xmldecl", NO};
 
-  /** Properties. */
-  private final ConcurrentMap<String, Object> mProps = new ConcurrentHashMap<>();
+	/** Properties. */
+	private final ConcurrentMap<String, Object> mProps = new ConcurrentHashMap<>();
 
-  /**
-   * Constructor.
-   */
-  public XmlSerializerProperties() {
-    try {
-      for (final Field f : getClass().getFields()) {
-        final Object obj = f.get(null);
-        if (!(obj instanceof final Object[] arr)) {
-          continue;
-        }
-        mProps.put(arr[0].toString(), arr[1]);
-      }
-    } catch (final IllegalArgumentException | IllegalAccessException e) {
-      e.printStackTrace();
-    }
-  }
+	/**
+	 * Constructor.
+	 */
+	public XmlSerializerProperties() {
+		try {
+			for (final Field f : getClass().getFields()) {
+				final Object obj = f.get(null);
+				if (!(obj instanceof final Object[] arr)) {
+					continue;
+				}
+				mProps.put(arr[0].toString(), arr[1]);
+			}
+		} catch (final IllegalArgumentException | IllegalAccessException e) {
+			e.printStackTrace();
+		}
+	}
 
-  /**
-   * Get properties map.
-   *
-   * @return ConcurrentMap with key/value property pairs.
-   */
-  public ConcurrentMap<String, Object> getProps() {
-    return mProps;
-  }
+	/**
+	 * Get properties map.
+	 *
+	 * @return ConcurrentMap with key/value property pairs.
+	 */
+	public ConcurrentMap<String, Object> getProps() {
+		return mProps;
+	}
 
 }

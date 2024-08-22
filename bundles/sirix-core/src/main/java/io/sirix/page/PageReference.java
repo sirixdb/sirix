@@ -33,168 +33,174 @@ import java.util.Objects;
 
 /**
  * <p>
- * Page reference pointing to a page. This might be on stable storage pointing to the start byte in
- * a file, including the length in bytes, and the checksum of the serialized page. Or it might be an
- * immediate reference to an in-memory instance of the deserialized page.
+ * Page reference pointing to a page. This might be on stable storage pointing
+ * to the start byte in a file, including the length in bytes, and the checksum
+ * of the serialized page. Or it might be an immediate reference to an in-memory
+ * instance of the deserialized page.
  * </p>
  */
 public final class PageReference {
 
-  /** In-memory deserialized page instance. */
-  private volatile Page page;
+	/** In-memory deserialized page instance. */
+	private volatile Page page;
 
-  /** Key in persistent storage. */
-  private long key = Constants.NULL_ID_LONG;
+	/** Key in persistent storage. */
+	private long key = Constants.NULL_ID_LONG;
 
-  /** Log key. */
-  private int logKey = Constants.NULL_ID_INT;
+	/** Log key. */
+	private int logKey = Constants.NULL_ID_INT;
 
-  /** The hash in bytes, generated from the referenced page-fragment. */
-  private byte[] hashInBytes;
+	/** The hash in bytes, generated from the referenced page-fragment. */
+	private byte[] hashInBytes;
 
-  private List<PageFragmentKey> pageFragments;
+	private List<PageFragmentKey> pageFragments;
 
-  private int hash;
+	private int hash;
 
-  /**
-   * Default constructor setting up an uninitialized page reference.
-   */
-  public PageReference() {
-    pageFragments = new ArrayList<>();
-  }
+	/**
+	 * Default constructor setting up an uninitialized page reference.
+	 */
+	public PageReference() {
+		pageFragments = new ArrayList<>();
+	}
 
-  /**
-   * Copy constructor.
-   *
-   * @param reference {@link PageReference} to copy
-   */
-  public PageReference(final PageReference reference) {
-    logKey = reference.logKey;
-    page = reference.page;
-    key = reference.key;
-    hashInBytes = reference.hashInBytes;
-    pageFragments = reference.pageFragments;
-    hash = reference.hash;
-  }
+	/**
+	 * Copy constructor.
+	 *
+	 * @param reference
+	 *            {@link PageReference} to copy
+	 */
+	public PageReference(final PageReference reference) {
+		logKey = reference.logKey;
+		page = reference.page;
+		key = reference.key;
+		hashInBytes = reference.hashInBytes;
+		pageFragments = reference.pageFragments;
+		hash = reference.hash;
+	}
 
-  /**
-   * Set in-memory instance of deserialized page.
-   *
-   * @param page deserialized page
-   */
-  public void setPage(final @Nullable Page page) {
-    this.page = page;
-  }
+	/**
+	 * Set in-memory instance of deserialized page.
+	 *
+	 * @param page
+	 *            deserialized page
+	 */
+	public void setPage(final @Nullable Page page) {
+		this.page = page;
+	}
 
-  /**
-   * Get in-memory instance of deserialized page.
-   *
-   * @return in-memory instance of deserialized page
-   */
-  public Page getPage() {
-    return page;
-  }
+	/**
+	 * Get in-memory instance of deserialized page.
+	 *
+	 * @return in-memory instance of deserialized page
+	 */
+	public Page getPage() {
+		return page;
+	}
 
-  /**
-   * Get start byte offset in file.
-   *
-   * @return start offset in file
-   */
-  public long getKey() {
-    return key;
-  }
+	/**
+	 * Get start byte offset in file.
+	 *
+	 * @return start offset in file
+	 */
+	public long getKey() {
+		return key;
+	}
 
-  /**
-   * Set start byte offset in file.
-   *
-   * @param key key of this reference set by the persistent storage
-   */
-  public PageReference setKey(final long key) {
-    hash = 0;
-    this.key = key;
-    return this;
-  }
+	/**
+	 * Set start byte offset in file.
+	 *
+	 * @param key
+	 *            key of this reference set by the persistent storage
+	 */
+	public PageReference setKey(final long key) {
+		hash = 0;
+		this.key = key;
+		return this;
+	}
 
-  /**
-   * Add a page fragment key.
-   * @param key the page fragment key to add.
-   * @return this instance
-   */
-  public PageReference addPageFragment(final PageFragmentKey key) {
-    pageFragments.add(key);
-    return this;
-  }
+	/**
+	 * Add a page fragment key.
+	 *
+	 * @param key
+	 *            the page fragment key to add.
+	 * @return this instance
+	 */
+	public PageReference addPageFragment(final PageFragmentKey key) {
+		pageFragments.add(key);
+		return this;
+	}
 
-  /**
-   * Get the page fragments keys.
-   * @return the page fragments keys
-   */
-  public List<PageFragmentKey> getPageFragments() {
-    return pageFragments;
-  }
+	/**
+	 * Get the page fragments keys.
+	 *
+	 * @return the page fragments keys
+	 */
+	public List<PageFragmentKey> getPageFragments() {
+		return pageFragments;
+	}
 
-  /**
-   * Set the page fragment keys.
-   * @param previousPageFragmentKeys the previous page fragment keys to set
-   * @return this instance
-   */
-  public PageReference setPageFragments(final List<PageFragmentKey> previousPageFragmentKeys) {
-    pageFragments = previousPageFragmentKeys;
-    return this;
-  }
+	/**
+	 * Set the page fragment keys.
+	 *
+	 * @param previousPageFragmentKeys
+	 *            the previous page fragment keys to set
+	 * @return this instance
+	 */
+	public PageReference setPageFragments(final List<PageFragmentKey> previousPageFragmentKeys) {
+		pageFragments = previousPageFragmentKeys;
+		return this;
+	}
 
-  /**
-   * Get in-memory log-key.
-   *
-   * @return log key
-   */
-  public int getLogKey() {
-    return logKey;
-  }
+	/**
+	 * Get in-memory log-key.
+	 *
+	 * @return log key
+	 */
+	public int getLogKey() {
+		return logKey;
+	}
 
-  /**
-   * Set in-memory log-key.
-   *
-   * @param key key of this reference set by the transaction intent log.
-   * @return this instance
-   */
-  public PageReference setLogKey(final int key) {
-    hash = 0;
-    logKey = key;
-    return this;
-  }
+	/**
+	 * Set in-memory log-key.
+	 *
+	 * @param key
+	 *            key of this reference set by the transaction intent log.
+	 * @return this instance
+	 */
+	public PageReference setLogKey(final int key) {
+		hash = 0;
+		logKey = key;
+		return this;
+	}
 
-  @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("logKey", logKey)
-                      .add("key", key)
-                      .add("page", page)
-                      .add("pageFragments", pageFragments)
-                      .toString();
-  }
+	@Override
+	public String toString() {
+		return MoreObjects.toStringHelper(this).add("logKey", logKey).add("key", key).add("page", page)
+				.add("pageFragments", pageFragments).toString();
+	}
 
-  @Override
-  public int hashCode() {
-    if (hash == 0) {
-      hash = Objects.hash(logKey, key);
-    }
-    return hash;
-  }
+	@Override
+	public int hashCode() {
+		if (hash == 0) {
+			hash = Objects.hash(logKey, key);
+		}
+		return hash;
+	}
 
-  @Override
-  public boolean equals(final @Nullable Object other) {
-    if (other instanceof PageReference otherPageRef) {
-      return otherPageRef.logKey == logKey && otherPageRef.key == key;
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(final @Nullable Object other) {
+		if (other instanceof PageReference otherPageRef) {
+			return otherPageRef.logKey == logKey && otherPageRef.key == key;
+		}
+		return false;
+	}
 
-  public void setHash(byte[] hashInBytes) {
-    this.hashInBytes = hashInBytes;
-  }
+	public void setHash(byte[] hashInBytes) {
+		this.hashInBytes = hashInBytes;
+	}
 
-  public byte[] getHash() {
-    return hashInBytes;
-  }
+	public byte[] getHash() {
+		return hashInBytes;
+	}
 }

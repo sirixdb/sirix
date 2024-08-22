@@ -25,13 +25,13 @@ import io.sirix.node.NodeKind;
 
 public final class NullValue implements ObjectRecordValue<Void> {
 
-  @Override
-  public Void getValue() {
-    return null;
-  }
+	@Override
+	public Void getValue() {
+		return null;
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.NULL_VALUE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.NULL_VALUE;
+	}
 }

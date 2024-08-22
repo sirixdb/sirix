@@ -1,6 +1,6 @@
 /**
  * Base package for Query bundle.
- * 
+ *
  * @author Johannes Lichtenberger
  *
  */

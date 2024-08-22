@@ -54,105 +54,107 @@ import java.util.concurrent.locks.ReentrantLock;
  * Provides node transactions on different revisions of JSON resources.
  */
 public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx>
-    implements JsonResourceSession, InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> {
+		implements
+			JsonResourceSession,
+			InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
-  /**
-   * {@link JsonIndexController}s used for this session.
-   */
-  private final ConcurrentMap<Integer, JsonIndexController> rtxIndexControllers;
+	/**
+	 * {@link JsonIndexController}s used for this session.
+	 */
+	private final ConcurrentMap<Integer, JsonIndexController> rtxIndexControllers;
 
-  /**
-   * {@link JsonIndexController}s used for this session.
-   */
-  private final ConcurrentMap<Integer, JsonIndexController> wtxIndexControllers;
+	/**
+	 * {@link JsonIndexController}s used for this session.
+	 */
+	private final ConcurrentMap<Integer, JsonIndexController> wtxIndexControllers;
 
-  /**
-   * The name of the database on which this instance operates.
-   */
-  private final String databaseName;
+	/**
+	 * The name of the database on which this instance operates.
+	 */
+	private final String databaseName;
 
-  /**
-   * Constructor.
-   *
-   * @param resourceStore  the resource store with which this manager has been created
-   * @param resourceConf   {@link DatabaseConfiguration} for general setting about the storage
-   * @param bufferManager  the cache of in-memory pages shared amongst all node transactions
-   * @param storage        the storage itself, used for I/O
-   * @param uberPage       the UberPage, which is the main entry point into a resource
-   * @param writeLock      the write lock, which ensures, that only a single read-write transaction is
-   *                       opened on a resource
-   * @param user           a user, which interacts with SirixDB, might be {@code null}
-   * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
-   */
-  @Inject
-  JsonResourceSessionImpl(final ResourceStore<JsonResourceSession> resourceStore,
-      final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
-      final UberPage uberPage, final Semaphore writeLock, final User user, @DatabaseName final String databaseName,
-      final PageTrxFactory pageTrxFactory) {
-    super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
+	/**
+	 * Constructor.
+	 *
+	 * @param resourceStore
+	 *            the resource store with which this manager has been created
+	 * @param resourceConf
+	 *            {@link DatabaseConfiguration} for general setting about the
+	 *            storage
+	 * @param bufferManager
+	 *            the cache of in-memory pages shared amongst all node transactions
+	 * @param storage
+	 *            the storage itself, used for I/O
+	 * @param uberPage
+	 *            the UberPage, which is the main entry point into a resource
+	 * @param writeLock
+	 *            the write lock, which ensures, that only a single read-write
+	 *            transaction is opened on a resource
+	 * @param user
+	 *            a user, which interacts with SirixDB, might be {@code null}
+	 * @param pageTrxFactory
+	 *            A factory that creates new {@link PageTrx} instances.
+	 */
+	@Inject
+	JsonResourceSessionImpl(final ResourceStore<JsonResourceSession> resourceStore,
+			final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
+			final UberPage uberPage, final Semaphore writeLock, final User user,
+			@DatabaseName final String databaseName, final PageTrxFactory pageTrxFactory) {
+		super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
 
-    this.databaseName = databaseName;
-    rtxIndexControllers = new ConcurrentHashMap<>();
-    wtxIndexControllers = new ConcurrentHashMap<>();
-  }
+		this.databaseName = databaseName;
+		rtxIndexControllers = new ConcurrentHashMap<>();
+		wtxIndexControllers = new ConcurrentHashMap<>();
+	}
 
-  @Override
-  public InternalJsonNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx,
-      Node documentNode) {
-    return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableJsonNode) documentNode);
-  }
+	@Override
+	public InternalJsonNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx,
+			Node documentNode) {
+		return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableJsonNode) documentNode);
+	}
 
-  @Override
-  public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount,
-      Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
-    // The node read-only transaction.
-    final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, pageTrx, documentNode);
+	@Override
+	public JsonNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount,
+			Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
+		// The node read-only transaction.
+		final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, pageTrx, documentNode);
 
-    // Node factory.
-    final JsonNodeFactory nodeFactory = new JsonNodeFactoryImpl(getResourceConfig().nodeHashFunction, pageTrx);
+		// Node factory.
+		final JsonNodeFactory nodeFactory = new JsonNodeFactoryImpl(getResourceConfig().nodeHashFunction, pageTrx);
 
-    // Path summary.
-    final boolean buildPathSummary = getResourceConfig().withPathSummary;
-    final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter;
-    if (buildPathSummary) {
-      pathSummaryWriter = new PathSummaryWriter<>(pageTrx, this, nodeFactory, nodeReadOnlyTrx);
-    } else {
-      pathSummaryWriter = null;
-    }
+		// Path summary.
+		final boolean buildPathSummary = getResourceConfig().withPathSummary;
+		final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter;
+		if (buildPathSummary) {
+			pathSummaryWriter = new PathSummaryWriter<>(pageTrx, this, nodeFactory, nodeReadOnlyTrx);
+		} else {
+			pathSummaryWriter = null;
+		}
 
-    // Synchronize commit and other public methods if needed.
-    final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
-    final var lock = !autoCommitDelay.isZero() ? new ReentrantLock() : null;
-    final var resourceConfig = getResourceConfig();
-    return new JsonNodeTrxImpl(this.databaseName,
-                               this,
-                               nodeReadOnlyTrx,
-                               pathSummaryWriter,
-                               maxNodeCount,
-                               lock,
-                               autoCommitDelay,
-                               new JsonNodeHashing(resourceConfig, nodeReadOnlyTrx, pageTrx),
-                               nodeFactory,
-                               afterCommitState,
-                               new RecordToRevisionsIndex(pageTrx),
-                               isAutoCommitting);
-  }
+		// Synchronize commit and other public methods if needed.
+		final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
+		final var lock = !autoCommitDelay.isZero() ? new ReentrantLock() : null;
+		final var resourceConfig = getResourceConfig();
+		return new JsonNodeTrxImpl(this.databaseName, this, nodeReadOnlyTrx, pathSummaryWriter, maxNodeCount, lock,
+				autoCommitDelay, new JsonNodeHashing(resourceConfig, nodeReadOnlyTrx, pageTrx), nodeFactory,
+				afterCommitState, new RecordToRevisionsIndex(pageTrx), isAutoCommitting);
+	}
 
-  @SuppressWarnings("unchecked")
-  @Override
-  public synchronized JsonIndexController getRtxIndexController(final int revision) {
-    return rtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
-  }
+	@SuppressWarnings("unchecked")
+	@Override
+	public synchronized JsonIndexController getRtxIndexController(final int revision) {
+		return rtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
+	}
 
-  @SuppressWarnings("unchecked")
-  @Override
-  public synchronized JsonIndexController getWtxIndexController(final int revision) {
-    return wtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
-  }
+	@SuppressWarnings("unchecked")
+	@Override
+	public synchronized JsonIndexController getWtxIndexController(final int revision) {
+		return wtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
+	}
 
-  private JsonIndexController createIndexController(int revision) {
-    final var controller = new JsonIndexController();
-    initializeIndexController(revision, controller);
-    return controller;
-  }
+	private JsonIndexController createIndexController(int revision) {
+		final var controller = new JsonIndexController();
+		initializeIndexController(revision, controller);
+		return controller;
+	}
 }

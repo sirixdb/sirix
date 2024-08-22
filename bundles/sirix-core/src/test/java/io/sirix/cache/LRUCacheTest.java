@@ -37,33 +37,33 @@ import io.sirix.page.KeyValueLeafPage;
  */
 public class LRUCacheTest {
 
-  private Cache<Long, PageContainer> cache;
+	private Cache<Long, PageContainer> cache;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    cache = new LRUCache<>();
-    CacheTestHelper.setUp(cache);
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		cache = new LRUCache<>();
+		CacheTestHelper.setUp(cache);
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    cache.close();
-    CacheTestHelper.PAGE_READ_TRX.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		cache.close();
+		CacheTestHelper.PAGE_READ_TRX.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void test() {
-    for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
-      final PageContainer cont = cache.get((long) i);
-      final KeyValueLeafPage current = (KeyValueLeafPage) cont.getComplete();
-      assertEquals(CacheTestHelper.PAGES[i][0], current);
-    }
+	@Test
+	public void test() {
+		for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
+			final PageContainer cont = cache.get((long) i);
+			final KeyValueLeafPage current = (KeyValueLeafPage) cont.getComplete();
+			assertEquals(CacheTestHelper.PAGES[i][0], current);
+		}
 
-    final PageContainer page = cache.get(0L);
-    assertNull(page);
-  }
+		final PageContainer page = cache.get(0L);
+		assertNull(page);
+	}
 
 }

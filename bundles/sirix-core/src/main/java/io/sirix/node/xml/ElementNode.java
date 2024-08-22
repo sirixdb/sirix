@@ -60,328 +60,334 @@ import java.util.List;
  */
 public final class ElementNode extends AbstractStructForwardingNode implements NameNode, ImmutableXmlNode {
 
-  /**
-   * Delegate for name node information.
-   */
-  private final NameNodeDelegate nameNodeDelegate;
+	/**
+	 * Delegate for name node information.
+	 */
+	private final NameNodeDelegate nameNodeDelegate;
 
-  /**
-   * Keys of attributes.
-   */
-  private final LongList attributeKeys;
+	/**
+	 * Keys of attributes.
+	 */
+	private final LongList attributeKeys;
 
-  /**
-   * Keys of namespace declarations.
-   */
-  private final LongList namespaceKeys;
+	/**
+	 * Keys of namespace declarations.
+	 */
+	private final LongList namespaceKeys;
 
-  /**
-   * {@link StructNodeDelegate} reference.
-   */
-  private final StructNodeDelegate structNodeDelegate;
+	/**
+	 * {@link StructNodeDelegate} reference.
+	 */
+	private final StructNodeDelegate structNodeDelegate;
 
-  /**
-   * The qualified name.
-   */
-  private final QNm qNm;
+	/**
+	 * The qualified name.
+	 */
+	private final QNm qNm;
 
-  private long hash;
+	private long hash;
 
-  /**
-   * Constructor
-   *
-   * @param structDel        {@link StructNodeDelegate} to be set
-   * @param nameNodeDelegate {@link NameNodeDelegate} to be set
-   * @param attributeKeys    list of attribute keys
-   * @param namespaceKeys    keys of namespaces to be set
-   */
-  public ElementNode(final long hashCode, final StructNodeDelegate structDel, final NameNodeDelegate nameNodeDelegate,
-      final LongList attributeKeys, final LongList namespaceKeys, final QNm qNm) {
-    hash = hashCode;
-    assert structDel != null;
-    structNodeDelegate = structDel;
-    assert nameNodeDelegate != null;
-    this.nameNodeDelegate = nameNodeDelegate;
-    assert attributeKeys != null;
-    this.attributeKeys = attributeKeys;
-    assert namespaceKeys != null;
-    this.namespaceKeys = namespaceKeys;
-    assert qNm != null;
-    this.qNm = qNm;
-  }
+	/**
+	 * Constructor
+	 *
+	 * @param structDel
+	 *            {@link StructNodeDelegate} to be set
+	 * @param nameNodeDelegate
+	 *            {@link NameNodeDelegate} to be set
+	 * @param attributeKeys
+	 *            list of attribute keys
+	 * @param namespaceKeys
+	 *            keys of namespaces to be set
+	 */
+	public ElementNode(final long hashCode, final StructNodeDelegate structDel, final NameNodeDelegate nameNodeDelegate,
+			final LongList attributeKeys, final LongList namespaceKeys, final QNm qNm) {
+		hash = hashCode;
+		assert structDel != null;
+		structNodeDelegate = structDel;
+		assert nameNodeDelegate != null;
+		this.nameNodeDelegate = nameNodeDelegate;
+		assert attributeKeys != null;
+		this.attributeKeys = attributeKeys;
+		assert namespaceKeys != null;
+		this.namespaceKeys = namespaceKeys;
+		assert qNm != null;
+		this.qNm = qNm;
+	}
 
-  /**
-   * Constructor
-   *
-   * @param structDel        {@link StructNodeDelegate} to be set
-   * @param nameNodeDelegate {@link NameNodeDelegate} to be set
-   * @param attributeKeys    list of attribute keys
-   * @param namespaceKeys    keys of namespaces to be set
-   */
-  public ElementNode(final StructNodeDelegate structDel, final NameNodeDelegate nameNodeDelegate,
-      final LongList attributeKeys, final LongList namespaceKeys, final QNm qNm) {
-    assert structDel != null;
-    structNodeDelegate = structDel;
-    assert nameNodeDelegate != null;
-    this.nameNodeDelegate = nameNodeDelegate;
-    assert attributeKeys != null;
-    this.attributeKeys = attributeKeys;
-    assert namespaceKeys != null;
-    this.namespaceKeys = namespaceKeys;
-    assert qNm != null;
-    this.qNm = qNm;
-  }
+	/**
+	 * Constructor
+	 *
+	 * @param structDel
+	 *            {@link StructNodeDelegate} to be set
+	 * @param nameNodeDelegate
+	 *            {@link NameNodeDelegate} to be set
+	 * @param attributeKeys
+	 *            list of attribute keys
+	 * @param namespaceKeys
+	 *            keys of namespaces to be set
+	 */
+	public ElementNode(final StructNodeDelegate structDel, final NameNodeDelegate nameNodeDelegate,
+			final LongList attributeKeys, final LongList namespaceKeys, final QNm qNm) {
+		assert structDel != null;
+		structNodeDelegate = structDel;
+		assert nameNodeDelegate != null;
+		this.nameNodeDelegate = nameNodeDelegate;
+		assert attributeKeys != null;
+		this.attributeKeys = attributeKeys;
+		assert namespaceKeys != null;
+		this.namespaceKeys = namespaceKeys;
+		assert qNm != null;
+		this.qNm = qNm;
+	}
 
-  /**
-   * Getting the count of attributes.
-   *
-   * @return the count of attributes
-   */
-  public int getAttributeCount() {
-    return attributeKeys.size();
-  }
+	/**
+	 * Getting the count of attributes.
+	 *
+	 * @return the count of attributes
+	 */
+	public int getAttributeCount() {
+		return attributeKeys.size();
+	}
 
-  /**
-   * Getting the attribute key for an given index.
-   *
-   * @param index index of the attribute
-   * @return the attribute key
-   */
-  public long getAttributeKey(final @NonNegative int index) {
-    if (attributeKeys.size() <= index) {
-      return Fixed.NULL_NODE_KEY.getStandardProperty();
-    }
-    return attributeKeys.getLong(index);
-  }
+	/**
+	 * Getting the attribute key for an given index.
+	 *
+	 * @param index
+	 *            index of the attribute
+	 * @return the attribute key
+	 */
+	public long getAttributeKey(final @NonNegative int index) {
+		if (attributeKeys.size() <= index) {
+			return Fixed.NULL_NODE_KEY.getStandardProperty();
+		}
+		return attributeKeys.getLong(index);
+	}
 
-  /**
-   * Inserting an attribute.
-   *
-   * @param attrKey the new attribute key
-   */
-  public void insertAttribute(final @NonNegative long attrKey) {
-    attributeKeys.add(attrKey);
-  }
+	/**
+	 * Inserting an attribute.
+	 *
+	 * @param attrKey
+	 *            the new attribute key
+	 */
+	public void insertAttribute(final @NonNegative long attrKey) {
+		attributeKeys.add(attrKey);
+	}
 
-  /**
-   * Removing an attribute.
-   *
-   * @param attrNodeKey the key of the attribute to be removed
-   */
-  public void removeAttribute(final @NonNegative long attrNodeKey) {
-    attributeKeys.removeIf(key -> key == attrNodeKey);
-  }
+	/**
+	 * Removing an attribute.
+	 *
+	 * @param attrNodeKey
+	 *            the key of the attribute to be removed
+	 */
+	public void removeAttribute(final @NonNegative long attrNodeKey) {
+		attributeKeys.removeIf(key -> key == attrNodeKey);
+	}
 
-  /**
-   * Getting the count of namespaces.
-   *
-   * @return the count of namespaces
-   */
-  public int getNamespaceCount() {
-    return namespaceKeys.size();
-  }
+	/**
+	 * Getting the count of namespaces.
+	 *
+	 * @return the count of namespaces
+	 */
+	public int getNamespaceCount() {
+		return namespaceKeys.size();
+	}
 
-  /**
-   * Getting the namespace key for a given index.
-   *
-   * @param namespaceKey index of the namespace
-   * @return the namespace key
-   */
-  public long getNamespaceKey(final @NonNegative int namespaceKey) {
-    if (namespaceKeys.size() <= namespaceKey) {
-      return Fixed.NULL_NODE_KEY.getStandardProperty();
-    }
-    return namespaceKeys.getLong(namespaceKey);
-  }
+	/**
+	 * Getting the namespace key for a given index.
+	 *
+	 * @param namespaceKey
+	 *            index of the namespace
+	 * @return the namespace key
+	 */
+	public long getNamespaceKey(final @NonNegative int namespaceKey) {
+		if (namespaceKeys.size() <= namespaceKey) {
+			return Fixed.NULL_NODE_KEY.getStandardProperty();
+		}
+		return namespaceKeys.getLong(namespaceKey);
+	}
 
-  /**
-   * Inserting a namespace.
-   *
-   * @param namespaceKey new namespace key
-   */
-  public void insertNamespace(final long namespaceKey) {
-    namespaceKeys.add(namespaceKey);
-  }
+	/**
+	 * Inserting a namespace.
+	 *
+	 * @param namespaceKey
+	 *            new namespace key
+	 */
+	public void insertNamespace(final long namespaceKey) {
+		namespaceKeys.add(namespaceKey);
+	}
 
-  /**
-   * Removing a namepsace.
-   *
-   * @param namespaceKey the key of the namespace to be removed
-   */
-  public void removeNamespace(final long namespaceKey) {
-    namespaceKeys.removeIf(key -> key == namespaceKey);
-  }
+	/**
+	 * Removing a namepsace.
+	 *
+	 * @param namespaceKey
+	 *            the key of the namespace to be removed
+	 */
+	public void removeNamespace(final long namespaceKey) {
+		namespaceKeys.removeIf(key -> key == namespaceKey);
+	}
 
-  @Override
-  public int getPrefixKey() {
-    return nameNodeDelegate.getPrefixKey();
-  }
+	@Override
+	public int getPrefixKey() {
+		return nameNodeDelegate.getPrefixKey();
+	}
 
-  @Override
-  public int getLocalNameKey() {
-    return nameNodeDelegate.getLocalNameKey();
-  }
+	@Override
+	public int getLocalNameKey() {
+		return nameNodeDelegate.getLocalNameKey();
+	}
 
-  @Override
-  public int getURIKey() {
-    return nameNodeDelegate.getURIKey();
-  }
+	@Override
+	public int getURIKey() {
+		return nameNodeDelegate.getURIKey();
+	}
 
-  @Override
-  public void setPrefixKey(final int prefixKey) {
-    nameNodeDelegate.setPrefixKey(prefixKey);
-  }
+	@Override
+	public void setPrefixKey(final int prefixKey) {
+		nameNodeDelegate.setPrefixKey(prefixKey);
+	}
 
-  @Override
-  public void setLocalNameKey(final int localNameKey) {
-    nameNodeDelegate.setLocalNameKey(localNameKey);
-  }
+	@Override
+	public void setLocalNameKey(final int localNameKey) {
+		nameNodeDelegate.setLocalNameKey(localNameKey);
+	}
 
-  @Override
-  public void setURIKey(final int uriKey) {
-    nameNodeDelegate.setURIKey(uriKey);
-  }
+	@Override
+	public void setURIKey(final int uriKey) {
+		nameNodeDelegate.setURIKey(uriKey);
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.ELEMENT;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.ELEMENT;
+	}
 
-  @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("nameDelegate", nameNodeDelegate)
-                      .add("nameSpaceKeys", namespaceKeys)
-                      .add("attributeKeys", attributeKeys)
-                      .add("structDelegate", structNodeDelegate)
-                      .toString();
-  }
+	@Override
+	public @NonNull String toString() {
+		return MoreObjects.toStringHelper(this).add("nameDelegate", nameNodeDelegate)
+				.add("nameSpaceKeys", namespaceKeys).add("attributeKeys", attributeKeys)
+				.add("structDelegate", structNodeDelegate).toString();
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
-    return visitor.visit(ImmutableElement.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
+		return visitor.visit(ImmutableElement.of(this));
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    bytes.clear();
+		bytes.clear();
 
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+		bytes.writeLong(nodeDelegate.getNodeKey()).writeLong(nodeDelegate.getParentKey())
+				.writeByte(nodeDelegate.getKind().getId());
 
-    bytes.writeLong(structNodeDelegate.getChildCount())
-         .writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
+		bytes.writeLong(structNodeDelegate.getChildCount()).writeLong(structNodeDelegate.getDescendantCount())
+				.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey())
+				.writeLong(structNodeDelegate.getFirstChildKey());
 
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
-    }
+		if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+			bytes.writeLong(structNodeDelegate.getLastChildKey());
+		}
 
-    bytes.writeInt(nameNodeDelegate.getPrefixKey())
-         .writeInt(nameNodeDelegate.getLocalNameKey())
-         .writeInt(nameNodeDelegate.getURIKey());
+		bytes.writeInt(nameNodeDelegate.getPrefixKey()).writeInt(nameNodeDelegate.getLocalNameKey())
+				.writeInt(nameNodeDelegate.getURIKey());
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
+		final var buffer = bytes.underlyingObject().rewind();
+		buffer.limit((int) bytes.readLimit());
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
-  }
+		return nodeDelegate.getHashFunction().hashBytes(buffer);
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    this.hash = hash;
-  }
+	@Override
+	public void setHash(final long hash) {
+		this.hash = hash;
+	}
 
-  @Override
-  public long getHash() {
-    if (hash == 0L) {
-      hash = computeHash(Bytes.elasticHeapByteBuffer());
-    }
-    return hash;
-  }
+	@Override
+	public long getHash() {
+		if (hash == 0L) {
+			hash = computeHash(Bytes.elasticHeapByteBuffer());
+		}
+		return hash;
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(delegate(), nameNodeDelegate);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(delegate(), nameNodeDelegate);
+	}
 
-  @Override
-  public boolean equals(final Object obj) {
-    return obj instanceof final ElementNode other && Objects.equal(delegate(), other.delegate()) && Objects.equal(
-        nameNodeDelegate,
-        other.nameNodeDelegate);
-  }
+	@Override
+	public boolean equals(final Object obj) {
+		return obj instanceof final ElementNode other && Objects.equal(delegate(), other.delegate())
+				&& Objects.equal(nameNodeDelegate, other.nameNodeDelegate);
+	}
 
-  /**
-   * Get a {@link List} with all attribute keys.
-   *
-   * @return unmodifiable view of {@link List} with all attribute keys
-   */
-  public List<Long> getAttributeKeys() {
-    return Collections.unmodifiableList(attributeKeys);
-  }
+	/**
+	 * Get a {@link List} with all attribute keys.
+	 *
+	 * @return unmodifiable view of {@link List} with all attribute keys
+	 */
+	public List<Long> getAttributeKeys() {
+		return Collections.unmodifiableList(attributeKeys);
+	}
 
-  /**
-   * Get a {@link List} with all namespace keys.
-   *
-   * @return unmodifiable view of {@link List} with all namespace keys
-   */
-  public List<Long> getNamespaceKeys() {
-    return Collections.unmodifiableList(namespaceKeys);
-  }
+	/**
+	 * Get a {@link List} with all namespace keys.
+	 *
+	 * @return unmodifiable view of {@link List} with all namespace keys
+	 */
+	public List<Long> getNamespaceKeys() {
+		return Collections.unmodifiableList(namespaceKeys);
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return structNodeDelegate.getNodeDelegate();
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return structNodeDelegate.getNodeDelegate();
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return structNodeDelegate;
+	}
 
-  /**
-   * Get name node delegate.
-   *
-   * @return snapshot of the name node delegate (new instance)
-   */
-  @NonNull
-  public NameNodeDelegate getNameNodeDelegate() {
-    return new NameNodeDelegate(nameNodeDelegate);
-  }
+	/**
+	 * Get name node delegate.
+	 *
+	 * @return snapshot of the name node delegate (new instance)
+	 */
+	@NonNull
+	public NameNodeDelegate getNameNodeDelegate() {
+		return new NameNodeDelegate(nameNodeDelegate);
+	}
 
-  @Override
-  public void setPathNodeKey(final @NonNegative long pathNodeKey) {
-    nameNodeDelegate.setPathNodeKey(pathNodeKey);
-  }
+	@Override
+	public void setPathNodeKey(final @NonNegative long pathNodeKey) {
+		nameNodeDelegate.setPathNodeKey(pathNodeKey);
+	}
 
-  @Override
-  public long getPathNodeKey() {
-    return nameNodeDelegate.getPathNodeKey();
-  }
+	@Override
+	public long getPathNodeKey() {
+		return nameNodeDelegate.getPathNodeKey();
+	}
 
-  @Override
-  public QNm getName() {
-    return qNm;
-  }
+	@Override
+	public QNm getName() {
+		return qNm;
+	}
 
-  @Override
-  public SirixDeweyID getDeweyID() {
-    return structNodeDelegate.getNodeDelegate().getDeweyID();
-  }
+	@Override
+	public SirixDeweyID getDeweyID() {
+		return structNodeDelegate.getNodeDelegate().getDeweyID();
+	}
 
-  @Override
-  public int getTypeKey() {
-    return structNodeDelegate.getNodeDelegate().getTypeKey();
-  }
+	@Override
+	public int getTypeKey() {
+		return structNodeDelegate.getNodeDelegate().getTypeKey();
+	}
 
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    return structNodeDelegate.getDeweyIDAsBytes();
-  }
+	@Override
+	public byte[] getDeweyIDAsBytes() {
+		return structNodeDelegate.getDeweyIDAsBytes();
+	}
 }

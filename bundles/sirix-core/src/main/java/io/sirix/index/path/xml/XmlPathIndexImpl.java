@@ -9,27 +9,27 @@ import io.sirix.index.path.summary.PathSummaryReader;
 
 public final class XmlPathIndexImpl implements XmlPathIndex {
 
-  private final PathIndexBuilderFactory pathIndexBuilderFactory;
+	private final PathIndexBuilderFactory pathIndexBuilderFactory;
 
-  private final PathIndexListenerFactory pathIndexListenerFactory;
+	private final PathIndexListenerFactory pathIndexListenerFactory;
 
-  public XmlPathIndexImpl() {
-    pathIndexBuilderFactory = new PathIndexBuilderFactory(DatabaseType.XML);
-    pathIndexListenerFactory = new PathIndexListenerFactory(DatabaseType.XML);
-  }
+	public XmlPathIndexImpl() {
+		pathIndexBuilderFactory = new PathIndexBuilderFactory(DatabaseType.XML);
+		pathIndexListenerFactory = new PathIndexListenerFactory(DatabaseType.XML);
+	}
 
-  @Override
-  public XmlPathIndexBuilder createBuilder(final PageTrx pageTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    final var builderDelegate = pathIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
-    return new XmlPathIndexBuilder(builderDelegate);
-  }
+	@Override
+	public XmlPathIndexBuilder createBuilder(final PageTrx pageTrx, final PathSummaryReader pathSummaryReader,
+			final IndexDef indexDef) {
+		final var builderDelegate = pathIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
+		return new XmlPathIndexBuilder(builderDelegate);
+	}
 
-  @Override
-  public XmlPathIndexListener createListener(final PageTrx pageTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    final var listenerDelegate = pathIndexListenerFactory.create(pageTrx, pathSummaryReader, indexDef);
-    return new XmlPathIndexListener(listenerDelegate);
-  }
+	@Override
+	public XmlPathIndexListener createListener(final PageTrx pageTrx, final PathSummaryReader pathSummaryReader,
+			final IndexDef indexDef) {
+		final var listenerDelegate = pathIndexListenerFactory.create(pageTrx, pathSummaryReader, indexDef);
+		return new XmlPathIndexListener(listenerDelegate);
+	}
 
 }

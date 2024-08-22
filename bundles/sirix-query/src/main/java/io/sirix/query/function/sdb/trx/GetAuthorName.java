@@ -12,7 +12,8 @@ import io.sirix.query.function.sdb.SDBFun;
 
 /**
  * <p>
- * Function for retrieving the author name of the current item. Supported signature is:
+ * Function for retrieving the author name of the current item. Supported
+ * signature is:
  * </p>
  * <ul>
  * <li><code>sdb:author-name($doc as xs:structured-item) as xs:string</code></li>
@@ -23,25 +24,27 @@ import io.sirix.query.function.sdb.SDBFun;
  */
 public final class GetAuthorName extends AbstractFunction {
 
-  /** Get the author name. */
-  public final static QNm AUTHOR_NAME = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "author-name");
+	/** Get the author name. */
+	public final static QNm AUTHOR_NAME = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "author-name");
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public GetAuthorName(QNm name, Signature signature) {
-    super(name, signature, true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public GetAuthorName(QNm name, Signature signature) {
+		super(name, signature, true);
+	}
 
-  @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+	@Override
+	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
+		final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
-    final var author = doc.getTrx().getUser();
+		final var author = doc.getTrx().getUser();
 
-    return author.map(user -> new Str(user.getName())).orElse(null);
-  }
+		return author.map(user -> new Str(user.getName())).orElse(null);
+	}
 }

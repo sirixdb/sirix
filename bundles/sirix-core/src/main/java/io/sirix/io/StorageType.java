@@ -41,118 +41,118 @@ import java.util.concurrent.ConcurrentMap;
  * @author Johannes Lichtenberger
  */
 public enum StorageType {
-  /**
-   * In memory backend.
-   */
-  IN_MEMORY {
-    @Override
-    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      return new RAMStorage(resourceConf);
-    }
-  },
+	/**
+	 * In memory backend.
+	 */
+	IN_MEMORY {
+		@Override
+		public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+			return new RAMStorage(resourceConf);
+		}
+	},
 
-  /**
-   * {@link RandomAccessFile} backend.
-   */
-  FILE {
-    @Override
-    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final var storage = new FileStorage(resourceConf, cache);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      return storage;
-    }
-  },
+	/**
+	 * {@link RandomAccessFile} backend.
+	 */
+	FILE {
+		@Override
+		public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+			final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
+			final var storage = new FileStorage(resourceConf, cache);
+			storage.loadRevisionFileDataIntoMemory(cache);
+			return storage;
+		}
+	},
 
-  /**
-   * FileChannel backend.
-   */
-  FILE_CHANNEL {
-    @Override
-    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final var storage = new FileChannelStorage(resourceConf, cache);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      return storage;
-    }
-  },
+	/**
+	 * FileChannel backend.
+	 */
+	FILE_CHANNEL {
+		@Override
+		public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+			final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
+			final var storage = new FileChannelStorage(resourceConf, cache);
+			storage.loadRevisionFileDataIntoMemory(cache);
+			return storage;
+		}
+	},
 
-  DIRECT_IO {
-    @Override
-    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final var storage = new io.sirix.io.directio.FileChannelStorage(resourceConf, cache);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      return storage;
-    }
-  },
+	DIRECT_IO {
+		@Override
+		public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+			final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
+			final var storage = new io.sirix.io.directio.FileChannelStorage(resourceConf, cache);
+			storage.loadRevisionFileDataIntoMemory(cache);
+			return storage;
+		}
+	},
 
-  /**
-   * Memory mapped backend.
-   */
-  MEMORY_MAPPED {
-    @Override
-    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final var storage = new MMStorage(resourceConf, cache);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      return storage;
-    }
-  },
+	/**
+	 * Memory mapped backend.
+	 */
+	MEMORY_MAPPED {
+		@Override
+		public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+			final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
+			final var storage = new MMStorage(resourceConf, cache);
+			storage.loadRevisionFileDataIntoMemory(cache);
+			return storage;
+		}
+	},
 
-  IO_URING {
-    @Override
-    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final var storage = new IOUringStorage(resourceConf, cache);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      return storage;
-    }
-  };
+	IO_URING {
+		@Override
+		public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+			final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
+			final var storage = new IOUringStorage(resourceConf, cache);
+			storage.loadRevisionFileDataIntoMemory(cache);
+			return storage;
+		}
+	};
 
-  public static final ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> CACHE_REPOSITORY =
-      new ConcurrentHashMap<>();
+	public static final ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> CACHE_REPOSITORY = new ConcurrentHashMap<>();
 
-  public static StorageType fromString(String storageType) {
-    for (final var type : values()) {
-      if (type.name().equalsIgnoreCase(storageType)) {
-        return type;
-      }
-    }
-    throw new IllegalArgumentException("No constant with name " + storageType + " found");
-  }
+	public static StorageType fromString(String storageType) {
+		for (final var type : values()) {
+			if (type.name().equalsIgnoreCase(storageType)) {
+				return type;
+			}
+		}
+		throw new IllegalArgumentException("No constant with name " + storageType + " found");
+	}
 
-  /**
-   * Get an instance of the storage backend.
-   *
-   * @param resourceConf {@link ResourceConfiguration} reference
-   * @return instance of a storage backend specified within the {@link ResourceConfiguration}
-   * @throws SirixIOException if an IO-error occured
-   */
-  public abstract IOStorage getInstance(final ResourceConfiguration resourceConf);
+	/**
+	 * Get an instance of the storage backend.
+	 *
+	 * @param resourceConf
+	 *            {@link ResourceConfiguration} reference
+	 * @return instance of a storage backend specified within the
+	 *         {@link ResourceConfiguration}
+	 * @throws SirixIOException
+	 *             if an IO-error occured
+	 */
+	public abstract IOStorage getInstance(final ResourceConfiguration resourceConf);
 
-  /**
-   * Factory method to retrieve suitable {@link IOStorage} instances based upon the suitable
-   * {@link ResourceConfiguration}.
-   *
-   * @param resourceConf determining the storage
-   * @return an implementation of the {@link IOStorage} interface
-   * @throws SirixIOException     if an IO-exception occurs
-   * @throws NullPointerException if {@code resourceConf} is {@code null}
-   */
-  public static IOStorage getStorage(final ResourceConfiguration resourceConf) {
-    return resourceConf.storageType.getInstance(resourceConf);
-  }
+	/**
+	 * Factory method to retrieve suitable {@link IOStorage} instances based upon
+	 * the suitable {@link ResourceConfiguration}.
+	 *
+	 * @param resourceConf
+	 *            determining the storage
+	 * @return an implementation of the {@link IOStorage} interface
+	 * @throws SirixIOException
+	 *             if an IO-exception occurs
+	 * @throws NullPointerException
+	 *             if {@code resourceConf} is {@code null}
+	 */
+	public static IOStorage getStorage(final ResourceConfiguration resourceConf) {
+		return resourceConf.storageType.getInstance(resourceConf);
+	}
 
-  private static AsyncCache<Integer, RevisionFileData> getIntegerRevisionFileDataAsyncCache(
-      ResourceConfiguration resourceConf) {
-    final var resourcePath = resourceConf.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-                                                      .resolve(IOStorage.FILENAME);
-    return StorageType.CACHE_REPOSITORY.computeIfAbsent(resourcePath, path -> Caffeine.newBuilder().buildAsync());
-  }
+	private static AsyncCache<Integer, RevisionFileData> getIntegerRevisionFileDataAsyncCache(
+			ResourceConfiguration resourceConf) {
+		final var resourcePath = resourceConf.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+				.resolve(IOStorage.FILENAME);
+		return StorageType.CACHE_REPOSITORY.computeIfAbsent(resourcePath, path -> Caffeine.newBuilder().buildAsync());
+	}
 }

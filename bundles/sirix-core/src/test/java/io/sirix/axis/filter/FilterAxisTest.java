@@ -36,53 +36,53 @@ import io.sirix.exception.SirixException;
 
 public class FilterAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testNameAxisTest() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
+	@Test
+	public void testNameAxisTest() throws SirixException {
+		final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
-    rtx.moveToDocumentRoot();
-    AbsAxisTest.testAxisConventions(
-        new FilterAxis(new DescendantAxis(rtx), new XmlNameFilter(rtx, "b")), new long[] {5L, 9L});
-  }
+		rtx.moveToDocumentRoot();
+		AbsAxisTest.testAxisConventions(new FilterAxis(new DescendantAxis(rtx), new XmlNameFilter(rtx, "b")),
+				new long[]{5L, 9L});
+	}
 
-  @Test
-  public void testValueAxisTest() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
+	@Test
+	public void testValueAxisTest() throws SirixException {
+		final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
-    rtx.moveToDocumentRoot();
-    AbsAxisTest.testAxisConventions(
-        new FilterAxis(new DescendantAxis(rtx), new ValueFilter(rtx, "foo")), new long[] {6L});
-  }
+		rtx.moveToDocumentRoot();
+		AbsAxisTest.testAxisConventions(new FilterAxis(new DescendantAxis(rtx), new ValueFilter(rtx, "foo")),
+				new long[]{6L});
+	}
 
-  @Test
-  public void testValueAndNameAxisTest() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
+	@Test
+	public void testValueAndNameAxisTest() throws SirixException {
+		final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
-    rtx.moveTo(1L);
-    AbsAxisTest.testAxisConventions(
-        new FilterAxis(new AttributeAxis(rtx), new XmlNameFilter(rtx, "i"), new ValueFilter(rtx, "j")),
-        new long[] {3L});
+		rtx.moveTo(1L);
+		AbsAxisTest.testAxisConventions(
+				new FilterAxis(new AttributeAxis(rtx), new XmlNameFilter(rtx, "i"), new ValueFilter(rtx, "j")),
+				new long[]{3L});
 
-    rtx.moveTo(9L);
-    AbsAxisTest.testAxisConventions(
-        new FilterAxis(new AttributeAxis(rtx), new XmlNameFilter(rtx, "y"), new ValueFilter(rtx, "y")),
-        new long[] {});
+		rtx.moveTo(9L);
+		AbsAxisTest.testAxisConventions(
+				new FilterAxis(new AttributeAxis(rtx), new XmlNameFilter(rtx, "y"), new ValueFilter(rtx, "y")),
+				new long[]{});
 
-  }
+	}
 
 }

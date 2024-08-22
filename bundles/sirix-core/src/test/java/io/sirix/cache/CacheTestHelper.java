@@ -34,49 +34,47 @@ import io.sirix.page.KeyValueLeafPage;
  */
 public class CacheTestHelper {
 
-  /**
-   * Page reading transaction.
-   */
-  public static PageReadOnlyTrx PAGE_READ_TRX;
+	/**
+	 * Page reading transaction.
+	 */
+	public static PageReadOnlyTrx PAGE_READ_TRX;
 
-  /**
-   * Unordered record pages.
-   */
-  protected static KeyValueLeafPage[][] PAGES;
+	/**
+	 * Unordered record pages.
+	 */
+	protected static KeyValueLeafPage[][] PAGES;
 
-  private static final int VERSIONSTORESTORE = 3;
+	private static final int VERSIONSTORESTORE = 3;
 
-  /**
-   * Setup the cache.
-   *
-   * @param cache cache to fill
-   * @throws SirixException if setting up Sirix session fails
-   */
-  public static void setUp(final Cache<Long, PageContainer> cache) throws SirixException {
-    PAGE_READ_TRX = Holder.openResourceManager().getResourceManager().beginPageReadOnlyTrx();
-    PAGES = new KeyValueLeafPage[LRUCache.CACHE_CAPACITY + 1][VERSIONSTORESTORE + 1];
-    for (int i = 0; i < PAGES.length; i++) {
-      final KeyValueLeafPage page = new KeyValueLeafPage(i,
-                                                         IndexType.DOCUMENT,
-                                                         PAGE_READ_TRX.getResourceSession().getResourceConfig(),
-                                                         PAGE_READ_TRX.getRevisionNumber());
-      final KeyValueLeafPage[] revs = new KeyValueLeafPage[VERSIONSTORESTORE];
+	/**
+	 * Setup the cache.
+	 *
+	 * @param cache
+	 *            cache to fill
+	 * @throws SirixException
+	 *             if setting up Sirix session fails
+	 */
+	public static void setUp(final Cache<Long, PageContainer> cache) throws SirixException {
+		PAGE_READ_TRX = Holder.openResourceManager().getResourceManager().beginPageReadOnlyTrx();
+		PAGES = new KeyValueLeafPage[LRUCache.CACHE_CAPACITY + 1][VERSIONSTORESTORE + 1];
+		for (int i = 0; i < PAGES.length; i++) {
+			final KeyValueLeafPage page = new KeyValueLeafPage(i, IndexType.DOCUMENT,
+					PAGE_READ_TRX.getResourceSession().getResourceConfig(), PAGE_READ_TRX.getRevisionNumber());
+			final KeyValueLeafPage[] revs = new KeyValueLeafPage[VERSIONSTORESTORE];
 
-      for (int j = 0; j < VERSIONSTORESTORE; j++) {
-        PAGES[i][j + 1] = new KeyValueLeafPage(i,
-                                               IndexType.DOCUMENT,
-                                               PAGE_READ_TRX.getResourceSession().getResourceConfig(),
-                                               PAGE_READ_TRX.getRevisionNumber());
-        revs[j] = PAGES[i][j + 1];
-      }
-      PAGES[i][0] = page;
-      cache.put((long) i, PageContainer.getInstance(page, page));
-    }
-  }
+			for (int j = 0; j < VERSIONSTORESTORE; j++) {
+				PAGES[i][j + 1] = new KeyValueLeafPage(i, IndexType.DOCUMENT,
+						PAGE_READ_TRX.getResourceSession().getResourceConfig(), PAGE_READ_TRX.getRevisionNumber());
+				revs[j] = PAGES[i][j + 1];
+			}
+			PAGES[i][0] = page;
+			cache.put((long) i, PageContainer.getInstance(page, page));
+		}
+	}
 
-  @Test
-  public void dummy() {
-    // Only for dummy purposes.
-  }
+	@Test
+	public void dummy() {
+		// Only for dummy purposes.
+	}
 
 }

@@ -22,9 +22,6 @@ package io.sirix.page.interfaces;
 
 import io.sirix.api.PageTrx;
 import io.sirix.page.PageReference;
-import io.sirix.page.delegates.BitmapReferencesPage;
-import io.sirix.page.delegates.FullReferencesPage;
-import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.settings.Constants;
 import org.checkerframework.checker.index.qual.NonNegative;
 
@@ -39,73 +36,80 @@ import java.util.List;
  */
 public interface Page extends Closeable {
 
-  default Page clearPage() {
-    return this;
-  }
+	default Page clearPage() {
+		return this;
+	}
 
-  /**
-   * Get all page references.
-   *
-   * @return all page references
-   */
-  List<PageReference> getReferences();
+	/**
+	 * Get all page references.
+	 *
+	 * @return all page references
+	 */
+	List<PageReference> getReferences();
 
-  /**
-   * Commit page.
-   *
-   * @param pageWriteTrx {@link PageTrx} implementation
-   */
-  default void commit(PageTrx pageWriteTrx) {
-    final var references = getReferences();
-    //    final var log = pageWriteTrx.getLog();
-    //    final List<CompletableFuture<Void>> futures = new ArrayList<>(references.size());
-    //    for (final PageReference reference : references) {
-    //      if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
-    //          || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
-    //        final PageContainer container = log.get(reference, pageWriteTrx);
-    //
-    //        assert container != null;
-    //
-    //        final Page page = container.getModified();
-    //
-    //        assert page != null;
-    //
-    //        if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
-    //          final var byteBufferBytes = Bytes.elasticByteBuffer(10_000);
-    //          futures.add(CompletableFuture.runAsync(() -> unorderedKeyValuePage.serialize(byteBufferBytes,
-    //                                                                                       SerializationType.DATA)));
-    //        }
-    //      }
-    //    }
-    //
-    //    CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()])).join();
+	/**
+	 * Commit page.
+	 *
+	 * @param pageWriteTrx
+	 *            {@link PageTrx} implementation
+	 */
+	default void commit(PageTrx pageWriteTrx) {
+		final var references = getReferences();
+		// final var log = pageWriteTrx.getLog();
+		// final List<CompletableFuture<Void>> futures = new
+		// ArrayList<>(references.size());
+		// for (final PageReference reference : references) {
+		// if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
+		// || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
+		// final PageContainer container = log.get(reference, pageWriteTrx);
+		//
+		// assert container != null;
+		//
+		// final Page page = container.getModified();
+		//
+		// assert page != null;
+		//
+		// if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
+		// final var byteBufferBytes = Bytes.elasticByteBuffer(10_000);
+		// futures.add(CompletableFuture.runAsync(() ->
+		// unorderedKeyValuePage.serialize(byteBufferBytes,
+		// SerializationType.DATA)));
+		// }
+		// }
+		// }
+		//
+		// CompletableFuture.allOf(futures.toArray(new
+		// CompletableFuture[futures.size()])).join();
 
-    for (final PageReference reference : references) {
-      if (reference.getLogKey() != Constants.NULL_ID_INT) {
-        pageWriteTrx.commit(reference);
-      }
-    }
-  }
+		for (final PageReference reference : references) {
+			if (reference.getLogKey() != Constants.NULL_ID_INT) {
+				pageWriteTrx.commit(reference);
+			}
+		}
+	}
 
-  /**
-   * Get the {@link PageReference} at the specified offset
-   *
-   * @param offset the offset
-   * @return the {@link PageReference} at the specified offset
-   */
-  PageReference getOrCreateReference(@NonNegative int offset);
+	/**
+	 * Get the {@link PageReference} at the specified offset
+	 *
+	 * @param offset
+	 *            the offset
+	 * @return the {@link PageReference} at the specified offset
+	 */
+	PageReference getOrCreateReference(@NonNegative int offset);
 
-  /**
-   * Set the reference at the specified offset
-   *
-   * @param offset        the offset
-   * @param pageReference the page reference
-   * @return {@code true}, if the page is already full, {@code false} otherwise
-   */
-  boolean setOrCreateReference(int offset, PageReference pageReference);
+	/**
+	 * Set the reference at the specified offset
+	 *
+	 * @param offset
+	 *            the offset
+	 * @param pageReference
+	 *            the page reference
+	 * @return {@code true}, if the page is already full, {@code false} otherwise
+	 */
+	boolean setOrCreateReference(int offset, PageReference pageReference);
 
-  @Override
-  default void close() {
-    // Nothing to do.
-  }
+	@Override
+	default void close() {
+		// Nothing to do.
+	}
 }

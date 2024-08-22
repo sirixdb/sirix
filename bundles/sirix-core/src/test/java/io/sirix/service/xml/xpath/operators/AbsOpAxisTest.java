@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -38,45 +38,45 @@ import io.sirix.service.xml.xpath.types.Type;
 
 public class AbsOpAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.deleteEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.deleteEverything();
+	}
 
-  @Test
-  public final void testHasNext() throws SirixException {
+	@Test
+	public final void testHasNext() throws SirixException {
 
-    final AtomicValue item1 = new AtomicValue(1.0, Type.DOUBLE);
-    final AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
+		final AtomicValue item1 = new AtomicValue(1.0, Type.DOUBLE);
+		final AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
 
-    AbstractAxis op1 =
-        new LiteralExpr(holder.getXmlNodeReadTrx(), holder.getXmlNodeReadTrx().getItemList().addItem(item1));
-    AbstractAxis op2 =
-        new LiteralExpr(holder.getXmlNodeReadTrx(), holder.getXmlNodeReadTrx().getItemList().addItem(item2));
-    AbstractObAxis axis = new DivOpAxis(holder.getXmlNodeReadTrx(), op1, op2);
+		AbstractAxis op1 = new LiteralExpr(holder.getXmlNodeReadTrx(),
+				holder.getXmlNodeReadTrx().getItemList().addItem(item1));
+		AbstractAxis op2 = new LiteralExpr(holder.getXmlNodeReadTrx(),
+				holder.getXmlNodeReadTrx().getItemList().addItem(item2));
+		AbstractObAxis axis = new DivOpAxis(holder.getXmlNodeReadTrx(), op1, op2);
 
-    assertEquals(true, axis.hasNext());
-    assertEquals(holder.getXmlNodeReadTrx().keyForName("xs:double"), holder.getXmlNodeReadTrx().getTypeKey());
-    assertEquals(false, axis.hasNext());
+		assertEquals(true, axis.hasNext());
+		assertEquals(holder.getXmlNodeReadTrx().keyForName("xs:double"), holder.getXmlNodeReadTrx().getTypeKey());
+		assertEquals(false, axis.hasNext());
 
-    // here both operands are the empty sequence
-    axis = new DivOpAxis(holder.getXmlNodeReadTrx(), op1, op2);
-    assertEquals(true, axis.hasNext());
-    axis.next();
-    assertThat(Double.NaN, is(Double.parseDouble(holder.getXmlNodeReadTrx().getValue())));
-    assertEquals(holder.getXmlNodeReadTrx().keyForName("xs:double"), holder.getXmlNodeReadTrx().getTypeKey());
-    assertEquals(false, axis.hasNext());
+		// here both operands are the empty sequence
+		axis = new DivOpAxis(holder.getXmlNodeReadTrx(), op1, op2);
+		assertEquals(true, axis.hasNext());
+		axis.next();
+		assertThat(Double.NaN, is(Double.parseDouble(holder.getXmlNodeReadTrx().getValue())));
+		assertEquals(holder.getXmlNodeReadTrx().keyForName("xs:double"), holder.getXmlNodeReadTrx().getTypeKey());
+		assertEquals(false, axis.hasNext());
 
-  }
+	}
 
 }

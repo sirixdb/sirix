@@ -17,36 +17,35 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class SelectParentTest {
 
-  @BeforeEach
-  protected void setUp() {
-    JsonTestHelper.deleteEverything();
-  }
+	@BeforeEach
+	protected void setUp() {
+		JsonTestHelper.deleteEverything();
+	}
 
-  @AfterEach
-  protected void tearDown() {
-    JsonTestHelper.closeEverything();
-  }
+	@AfterEach
+	protected void tearDown() {
+		JsonTestHelper.closeEverything();
+	}
 
-  @Test
-  public void test() throws IOException {
-    // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+	@Test
+	public void test() throws IOException {
+		// Initialize query context and store.
+		try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+				.location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+				final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+				final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
-      // Use Query to store a JSON string into the store.
-      final String storeQuery = "jn:store('json-path1','mydoc.jn','[\"bla\", \"blubb\"]')";
-      new Query(chain, storeQuery).evaluate(ctx);
+			// Use Query to store a JSON string into the store.
+			final String storeQuery = "jn:store('json-path1','mydoc.jn','[\"bla\", \"blubb\"]')";
+			new Query(chain, storeQuery).evaluate(ctx);
 
-      // Use Query to load a JSON database/resource.
-      final String openQuery = "sdb:select-parent(jn:doc('json-path1','mydoc.jn')[1])";
+			// Use Query to load a JSON database/resource.
+			final String openQuery = "sdb:select-parent(jn:doc('json-path1','mydoc.jn')[1])";
 
-      try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-        new Query(chain, openQuery).serialize(ctx, printWriter);
-        assertEquals("[\"bla\",\"blubb\"]", out.toString());
-      }
-    }
-  }
+			try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
+				new Query(chain, openQuery).serialize(ctx, printWriter);
+				assertEquals("[\"bla\",\"blubb\"]", out.toString());
+			}
+		}
+	}
 }

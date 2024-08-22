@@ -22,8 +22,8 @@ import java.util.Optional;
 
 /**
  * <p>
- * Function for finding a path index. If successful, this function returns the path-index number.
- * Otherwise it returns -1.
+ * Function for finding a path index. If successful, this function returns the
+ * path-index number. Otherwise it returns -1.
  * </p>
  * <p>
  * Supported signatures are:
@@ -39,34 +39,36 @@ import java.util.Optional;
  */
 public final class FindCASIndex extends AbstractFunction {
 
-  /** CAS index function name. */
-  public final static QNm FIND_CAS_INDEX = new QNm(XMLFun.XML_NSURI, XMLFun.XML_PREFIX, "find-cas-index");
+	/** CAS index function name. */
+	public final static QNm FIND_CAS_INDEX = new QNm(XMLFun.XML_NSURI, XMLFun.XML_PREFIX, "find-cas-index");
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public FindCASIndex(QNm name, Signature signature) {
-    super(name, signature, true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public FindCASIndex(QNm name, Signature signature) {
+		super(name, signature, true);
+	}
 
-  @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final XmlDBNode doc = (XmlDBNode) args[0];
-    final XmlNodeReadOnlyTrx rtx = doc.getTrx();
-    final XmlIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
+	@Override
+	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
+		final XmlDBNode doc = (XmlDBNode) args[0];
+		final XmlNodeReadOnlyTrx rtx = doc.getTrx();
+		final XmlIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
-    if (controller == null) {
-      throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
-    }
+		if (controller == null) {
+			throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
+		}
 
-    final QNm name = new QNm(Namespaces.XS_NSURI, ((Str) args[1]).stringValue());
-    final Type type = sctx.getTypes().resolveAtomicType(name);
-    final Path<QNm> path = Path.parse(((Str) args[2]).stringValue());
-    final Optional<IndexDef> indexDef = controller.getIndexes().findCASIndex(path, type);
+		final QNm name = new QNm(Namespaces.XS_NSURI, ((Str) args[1]).stringValue());
+		final Type type = sctx.getTypes().resolveAtomicType(name);
+		final Path<QNm> path = Path.parse(((Str) args[2]).stringValue());
+		final Optional<IndexDef> indexDef = controller.getIndexes().findCASIndex(path, type);
 
-    return indexDef.map(def -> new Int32(def.getID())).orElseGet(() -> new Int32(-1));
-  }
+		return indexDef.map(def -> new Int32(def.getID())).orElseGet(() -> new Int32(-1));
+	}
 }

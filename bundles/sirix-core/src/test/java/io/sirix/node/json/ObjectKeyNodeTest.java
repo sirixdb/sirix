@@ -47,61 +47,58 @@ import static org.junit.Assert.assertTrue;
  */
 public class ObjectKeyNodeTest {
 
-  private PageTrx pageTrx;
+	private PageTrx pageTrx;
 
-  private Database<JsonResourceSession> database;
+	private Database<JsonResourceSession> database;
 
-  @Before
-  public void setUp() throws SirixException {
-    JsonTestHelper.deleteEverything();
-    database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		JsonTestHelper.deleteEverything();
+		database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+		pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    JsonTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		JsonTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testNode() {
-    // Create empty node.
-    final int nameKey = pageTrx.createNameKey("foobar", NodeKind.OBJECT_KEY);
-    final String name = "foobar";
+	@Test
+	public void testNode() {
+		// Create empty node.
+		final int nameKey = pageTrx.createNameKey("foobar", NodeKind.OBJECT_KEY);
+		final String name = "foobar";
 
-    final long pathNodeKey = 12;
-    final NodeDelegate del =
-        new NodeDelegate(14, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 17L, 16L, 15L, 0L, 0L);
-    final ObjectKeyNode node = new ObjectKeyNode(strucDel, nameKey, name, pathNodeKey);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
-    check(node, nameKey);
+		final long pathNodeKey = 12;
+		final NodeDelegate del = new NodeDelegate(14, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0,
+				SirixDeweyID.newRootID());
+		final StructNodeDelegate strucDel = new StructNodeDelegate(del, 17L, 16L, 15L, 0L, 0L);
+		final ObjectKeyNode node = new ObjectKeyNode(strucDel, nameKey, name, pathNodeKey);
+		var bytes = Bytes.elasticHeapByteBuffer();
+		node.setHash(node.computeHash(bytes));
+		check(node, nameKey);
 
-    // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final ObjectKeyNode node2 = (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(data,
-                                                                                node.getNodeKey(),
-                                                                                null,
-                                                                                pageTrx.getResourceSession()
-                                                                                       .getResourceConfig());
-    check(node2, nameKey);
-  }
+		// Serialize and deserialize node.
+		final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+		node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
+		final ObjectKeyNode node2 = (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(data, node.getNodeKey(), null,
+				pageTrx.getResourceSession().getResourceConfig());
+		check(node2, nameKey);
+	}
 
-  private void check(final ObjectKeyNode node, final int nameKey) {
-    // Now compare.
-    assertEquals(14L, node.getNodeKey());
-    assertEquals(13L, node.getParentKey());
-    assertEquals(17L, node.getFirstChildKey());
-    assertEquals(16L, node.getRightSiblingKey());
+	private void check(final ObjectKeyNode node, final int nameKey) {
+		// Now compare.
+		assertEquals(14L, node.getNodeKey());
+		assertEquals(13L, node.getParentKey());
+		assertEquals(17L, node.getFirstChildKey());
+		assertEquals(16L, node.getRightSiblingKey());
 
-    assertEquals(nameKey, node.getNameKey());
-   //assertEquals("foobar", node.getName().getLocalName());
-    assertEquals(NodeKind.OBJECT_KEY, node.getKind());
-    assertTrue(node.hasFirstChild());
-    assertTrue(node.hasParent());
-    assertTrue(node.hasRightSibling());
-  }
+		assertEquals(nameKey, node.getNameKey());
+		// assertEquals("foobar", node.getName().getLocalName());
+		assertEquals(NodeKind.OBJECT_KEY, node.getKind());
+		assertTrue(node.hasFirstChild());
+		assertTrue(node.hasParent());
+		assertTrue(node.hasRightSibling());
+	}
 
 }

@@ -29,84 +29,93 @@ import java.util.Map;
 import java.util.function.Function;
 
 /**
- * Interface for all upcoming cache implementations. Can be a weak one, a LRU-based one or a
- * persistent. However, clear, put and get must to be provided. Instances of this class are used
- * with {@code PageReadTrx} as well as with {@code PageWriteTrx}.
+ * Interface for all upcoming cache implementations. Can be a weak one, a
+ * LRU-based one or a persistent. However, clear, put and get must to be
+ * provided. Instances of this class are used with {@code PageReadTrx} as well
+ * as with {@code PageWriteTrx}.
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  *
- * @param <K> the key
- * @param <V> the value
+ * @param <K>
+ *            the key
+ * @param <V>
+ *            the value
  */
 public interface Cache<K, V> {
-  Scheduler scheduler = Scheduler.systemScheduler();
+	Scheduler scheduler = Scheduler.systemScheduler();
 
-  default void putIfAbsent(K key, V value) {
-    if (get(key) == null) {
-      put(key, value);
-    }
-  }
+	default void putIfAbsent(K key, V value) {
+		if (get(key) == null) {
+			put(key, value);
+		}
+	}
 
-  default V get(K key, Function<? super K, ? extends @PolyNull V> mappingFunction) {
-    V value = get(key);
-    if (value == null) {
-      value = mappingFunction.apply(key);
-      if (value != null) {
-        put(key, value);
-      }
-    }
-    return value;
-  }
+	default V get(K key, Function<? super K, ? extends @PolyNull V> mappingFunction) {
+		V value = get(key);
+		if (value == null) {
+			value = mappingFunction.apply(key);
+			if (value != null) {
+				put(key, value);
+			}
+		}
+		return value;
+	}
 
-  /**
-   * Clearing the cache. That is removing all elements.
-   */
-  void clear();
+	/**
+	 * Clearing the cache. That is removing all elements.
+	 */
+	void clear();
 
-  /**
-   * Getting a value related to a given key.
-   *
-   * @param key the key for the requested {@link PageContainer}
-   * @return {@link PageContainer} instance related to this key
-   */
-  V get(K key);
+	/**
+	 * Getting a value related to a given key.
+	 *
+	 * @param key
+	 *            the key for the requested {@link PageContainer}
+	 * @return {@link PageContainer} instance related to this key
+	 */
+	V get(K key);
 
-  /**
-   * Putting a key/value into the cache.
-   *
-   * @param key for putting the page in the cache
-   * @param value should be putted in the cache as well
-   */
-  void put(K key, @NonNull V value);
+	/**
+	 * Putting a key/value into the cache.
+	 *
+	 * @param key
+	 *            for putting the page in the cache
+	 * @param value
+	 *            should be putted in the cache as well
+	 */
+	void put(K key, @NonNull V value);
 
-  /**
-   * Put all entries from a map into the cache.
-   *
-   * @param map map with entries to put into the cache
-   */
-  void putAll(Map<? extends K, ? extends V> map);
+	/**
+	 * Put all entries from a map into the cache.
+	 *
+	 * @param map
+	 *            map with entries to put into the cache
+	 */
+	void putAll(Map<? extends K, ? extends V> map);
 
-  /**
-   * Save all entries of this cache in the secondary cache without removing them.
-   */
-  void toSecondCache();
+	/**
+	 * Save all entries of this cache in the secondary cache without removing them.
+	 */
+	void toSecondCache();
 
-  /**
-   * Get all entries corresponding to the keys.
-   *
-   * @param keys {@link Iterable} of keys
-   * @return {@link Map} instance with corresponding values
-   */
-  Map<K, V> getAll(Iterable<? extends K> keys);
+	/**
+	 * Get all entries corresponding to the keys.
+	 *
+	 * @param keys
+	 *            {@link Iterable} of keys
+	 * @return {@link Map} instance with corresponding values
+	 */
+	Map<K, V> getAll(Iterable<? extends K> keys);
 
-  /**
-   * Remove key from storage.
-   *
-   * @param key key to remove
-   */
-  void remove(K key);
+	/**
+	 * Remove key from storage.
+	 *
+	 * @param key
+	 *            key to remove
+	 */
+	void remove(K key);
 
-  /** Close a cache, might be a file handle for persistent caches. */
-  void close();
+	/** Close a cache, might be a file handle for persistent caches. */
+	void close();
 }

@@ -16,147 +16,160 @@ package io.sirix.index.art;
  */
 abstract class InnerNode extends Node {
 
-  static final int PESSIMISTIC_PATH_COMPRESSION_LIMIT = 8;
+	static final int PESSIMISTIC_PATH_COMPRESSION_LIMIT = 8;
 
-  // max limit of 8 bytes (Pessimistic)
-  final byte[] prefixKeys;
+	// max limit of 8 bytes (Pessimistic)
+	final byte[] prefixKeys;
 
-  // Optimistic
-  int prefixLen; // 4 bytes
+	// Optimistic
+	int prefixLen; // 4 bytes
 
-  // TODO: we could save space by making this a byte and returning
-  // Byte.toUnsignedInt wherever comparison with it is done.
-  short noOfChildren;
+	// TODO: we could save space by making this a byte and returning
+	// Byte.toUnsignedInt wherever comparison with it is done.
+	short noOfChildren;
 
-  final Node[] children;
+	final Node[] children;
 
-  InnerNode(int size) {
-    prefixKeys = new byte[PESSIMISTIC_PATH_COMPRESSION_LIMIT];
-    children = new Node[size + 1];
-  }
+	InnerNode(int size) {
+		prefixKeys = new byte[PESSIMISTIC_PATH_COMPRESSION_LIMIT];
+		children = new Node[size + 1];
+	}
 
-  // copy ctor. called when growing/shrinking
-  InnerNode(InnerNode node, int size) {
-    super(node);
-    children = new Node[size + 1];
-    // copy header
-    this.noOfChildren = node.noOfChildren;
-    this.prefixLen = node.prefixLen;
-    this.prefixKeys = node.prefixKeys;
+	// copy ctor. called when growing/shrinking
+	InnerNode(InnerNode node, int size) {
+		super(node);
+		children = new Node[size + 1];
+		// copy header
+		this.noOfChildren = node.noOfChildren;
+		this.prefixLen = node.prefixLen;
+		this.prefixKeys = node.prefixKeys;
 
-    // copy leaf & replace uplink
-    children[size] = node.getLeaf();
-    if (children[size] != null) {
-      replaceUplink(this, children[size]);
-    }
-  }
+		// copy leaf & replace uplink
+		children[size] = node.getLeaf();
+		if (children[size] != null) {
+			replaceUplink(this, children[size]);
+		}
+	}
 
-  public void setLeaf(LeafNode<?, ?> leaf) {
-    children[children.length - 1] = leaf;
-    createUplink(this, leaf);
-  }
+	public void setLeaf(LeafNode<?, ?> leaf) {
+		children[children.length - 1] = leaf;
+		createUplink(this, leaf);
+	}
 
-  public void removeLeaf() {
-    removeUplink(children[children.length - 1]);
-    children[children.length - 1] = null;
-  }
+	public void removeLeaf() {
+		removeUplink(children[children.length - 1]);
+		children[children.length - 1] = null;
+	}
 
-  public boolean hasLeaf() {
-    return children[children.length - 1] != null;
-  }
+	public boolean hasLeaf() {
+		return children[children.length - 1] != null;
+	}
 
-  public LeafNode<?, ?> getLeaf() {
-    return (LeafNode<?, ?>) children[children.length - 1];
-  }
+	public LeafNode<?, ?> getLeaf() {
+		return (LeafNode<?, ?>) children[children.length - 1];
+	}
 
-  @Override
-  public Node firstOrLeaf() {
-    if (hasLeaf()) {
-      return getLeaf();
-    }
-    return first();
-  }
+	@Override
+	public Node firstOrLeaf() {
+		if (hasLeaf()) {
+			return getLeaf();
+		}
+		return first();
+	}
 
-  Node[] getChildren() {
-    return children;
-  }
+	Node[] getChildren() {
+		return children;
+	}
 
-  /**
-   * @return no of children this Node has
-   */
-  public short size() {
-    return noOfChildren;
-  }
+	/**
+	 * @return no of children this Node has
+	 */
+	public short size() {
+		return noOfChildren;
+	}
 
-  /**
-   * @param partialKey search if this node has an entry for given partialKey
-   * @return if it does, then return the following child pointer.
-   * Returns null if there is no corresponding entry.
-   */
-  abstract Node findChild(byte partialKey);
+	/**
+	 * @param partialKey
+	 *            search if this node has an entry for given partialKey
+	 * @return if it does, then return the following child pointer. Returns null if
+	 *         there is no corresponding entry.
+	 */
+	abstract Node findChild(byte partialKey);
 
-  /**
-   * @param partialKey the partial key of the inner node
-   * @return a child which is equal or greater than given partial key, or null if there is no such child
-   */
-  abstract Node ceil(byte partialKey);
+	/**
+	 * @param partialKey
+	 *            the partial key of the inner node
+	 * @return a child which is equal or greater than given partial key, or null if
+	 *         there is no such child
+	 */
+	abstract Node ceil(byte partialKey);
 
-  /**
-   * @param partialKey the partial key of the inner node
-   * @return a child which is equal or lesser than given partial key, or null if there is no such child
-   */
-  abstract Node floor(byte partialKey);
+	/**
+	 * @param partialKey
+	 *            the partial key of the inner node
+	 * @return a child which is equal or lesser than given partial key, or null if
+	 *         there is no such child
+	 */
+	abstract Node floor(byte partialKey);
 
-  /**
-   * Note: caller needs to check if {@link InnerNode} {@link #isFull()} before calling this.
-   * If it is full then call {@link #grow()} followed by {@link #addChild(byte, Node)} on the new node.
-   *
-   * @param partialKey partialKey to be mapped
-   * @param child      the child node to be added
-   */
-  abstract void addChild(byte partialKey, Node child);
+	/**
+	 * Note: caller needs to check if {@link InnerNode} {@link #isFull()} before
+	 * calling this. If it is full then call {@link #grow()} followed by
+	 * {@link #addChild(byte, Node)} on the new node.
+	 *
+	 * @param partialKey
+	 *            partialKey to be mapped
+	 * @param child
+	 *            the child node to be added
+	 */
+	abstract void addChild(byte partialKey, Node child);
 
-  /**
-   * @param partialKey for which the child pointer mapping is to be updated
-   * @param newChild   the new mapping to be added for given partialKey
-   */
-  abstract void replace(byte partialKey, Node newChild);
+	/**
+	 * @param partialKey
+	 *            for which the child pointer mapping is to be updated
+	 * @param newChild
+	 *            the new mapping to be added for given partialKey
+	 */
+	abstract void replace(byte partialKey, Node newChild);
 
-  /**
-   * @param partialKey for which the child pointer mapping is to be removed
-   */
-  abstract void removeChild(byte partialKey);
+	/**
+	 * @param partialKey
+	 *            for which the child pointer mapping is to be removed
+	 */
+	abstract void removeChild(byte partialKey);
 
-  /**
-   * creates and returns the next larger node type with the same mappings as this node
-   *
-   * @return a new node with the same mappings
-   */
-  abstract InnerNode grow();
+	/**
+	 * creates and returns the next larger node type with the same mappings as this
+	 * node
+	 *
+	 * @return a new node with the same mappings
+	 */
+	abstract InnerNode grow();
 
-  abstract boolean shouldShrink();
+	abstract boolean shouldShrink();
 
-  /**
-   * creates and returns the a smaller node type with the same mappings as this node
-   *
-   * @return a smaller node with the same mappings
-   */
-  abstract InnerNode shrink();
+	/**
+	 * creates and returns the a smaller node type with the same mappings as this
+	 * node
+	 *
+	 * @return a smaller node with the same mappings
+	 */
+	abstract InnerNode shrink();
 
-  /**
-   * @return true if Node has reached it's capacity
-   */
-  abstract boolean isFull();
+	/**
+	 * @return true if Node has reached it's capacity
+	 */
+	abstract boolean isFull();
 
-  /**
-   * @return returns the smallest child node for the partialKey strictly greater than the partialKey passed.
-   * Returns null if no such child.
-   */
-  abstract Node greater(byte partialKey);
+	/**
+	 * @return returns the smallest child node for the partialKey strictly greater
+	 *         than the partialKey passed. Returns null if no such child.
+	 */
+	abstract Node greater(byte partialKey);
 
-  /**
-   * @return returns the greatest child node for the partialKey strictly lesser than the partialKey passed.
-   * Returns null if no such child.
-   */
-  abstract Node lesser(byte partialKey);
+	/**
+	 * @return returns the greatest child node for the partialKey strictly lesser
+	 *         than the partialKey passed. Returns null if no such child.
+	 */
+	abstract Node lesser(byte partialKey);
 }

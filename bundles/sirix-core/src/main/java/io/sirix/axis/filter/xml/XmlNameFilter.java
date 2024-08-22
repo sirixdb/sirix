@@ -28,57 +28,60 @@ import io.sirix.axis.filter.AbstractFilter;
 
 /**
  * //todo duplicate description as to that of
+ *
  * @see PathNameFilter
- * <p>
- * Match qname of ELEMENT or ATTRIBUTE by key.
- * </p>
+ *      <p>
+ *      Match qname of ELEMENT or ATTRIBUTE by key.
+ *      </p>
  */
 public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
-  /** Key of local name to test. */
-  private final int mLocalNameKey;
+	/** Key of local name to test. */
+	private final int mLocalNameKey;
 
-  /** Key of prefix to test. */
-  private final int mPrefixKey;
+	/** Key of prefix to test. */
+	private final int mPrefixKey;
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx the node trx/node cursor this filter is bound to
-   * @param name name to check
-   */
-  public XmlNameFilter(final XmlNodeReadOnlyTrx rtx, final QNm name) {
-    super(rtx);
-    mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty())
-        ? -1
-        : rtx.keyForName(name.getPrefix());
-    mLocalNameKey = rtx.keyForName(name.getLocalName());
-  }
+	/**
+	 * Default constructor.
+	 *
+	 * @param rtx
+	 *            the node trx/node cursor this filter is bound to
+	 * @param name
+	 *            name to check
+	 */
+	public XmlNameFilter(final XmlNodeReadOnlyTrx rtx, final QNm name) {
+		super(rtx);
+		mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty()) ? -1 : rtx.keyForName(name.getPrefix());
+		mLocalNameKey = rtx.keyForName(name.getLocalName());
+	}
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
-   * @param name name to check
-   */
-  public XmlNameFilter(final XmlNodeReadOnlyTrx rtx, final String name) {
-    super(rtx);
-    final int index = name.indexOf(":");
-    if (index != -1) {
-      mPrefixKey = rtx.keyForName(name.substring(0, index));
-    } else {
-      mPrefixKey = -1;
-    }
+	/**
+	 * Default constructor.
+	 *
+	 * @param rtx
+	 *            {@link XmlNodeReadOnlyTrx} this filter is bound to
+	 * @param name
+	 *            name to check
+	 */
+	public XmlNameFilter(final XmlNodeReadOnlyTrx rtx, final String name) {
+		super(rtx);
+		final int index = name.indexOf(":");
+		if (index != -1) {
+			mPrefixKey = rtx.keyForName(name.substring(0, index));
+		} else {
+			mPrefixKey = -1;
+		}
 
-    mLocalNameKey = rtx.keyForName(name.substring(index + 1));
-  }
+		mLocalNameKey = rtx.keyForName(name.substring(index + 1));
+	}
 
-  @Override
-  public boolean filter() {
-    boolean returnVal = false;
-    if (getTrx().isNameNode()) {
-      returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
-    }
-    return returnVal;
-  }
+	@Override
+	public boolean filter() {
+		boolean returnVal = false;
+		if (getTrx().isNameNode()) {
+			returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
+		}
+		return returnVal;
+	}
 }

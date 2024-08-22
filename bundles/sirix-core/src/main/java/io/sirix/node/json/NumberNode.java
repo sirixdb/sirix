@@ -43,24 +43,26 @@ import io.sirix.node.interfaces.StructNode;
  */
 public final class NumberNode extends AbstractNumberNode {
 
-  /**
-   * Constructor.
-   *
-   * @param number the number value
-   * @param structNodeDelegate delegate for {@link StructNode} implementation
-   */
-  public NumberNode(final Number number, final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate, number);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param number
+	 *            the number value
+	 * @param structNodeDelegate
+	 *            delegate for {@link StructNode} implementation
+	 */
+	public NumberNode(final Number number, final StructNodeDelegate structNodeDelegate) {
+		super(structNodeDelegate, number);
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.NUMBER_VALUE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.NUMBER_VALUE;
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(ImmutableNumberNode.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+		return visitor.visit(ImmutableNumberNode.of(this));
+	}
 
 }

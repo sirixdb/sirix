@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -27,208 +27,208 @@ package io.sirix.service.xml.xpath;
  */
 public enum DupState {
 
-  /** State of the HiddersMichiels - automaton. */
-  MAX1 {
+	/** State of the HiddersMichiels - automaton. */
+	MAX1 {
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public DupState updateDupFollPreSib() {
+		/**
+		 * {@inheritDoc}
+		 */
+		@Override
+		public DupState updateDupFollPreSib() {
 
-      return DupState.GENSIB;
-    }
+			return DupState.GENSIB;
+		}
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public DupState updateDupAncestor() {
+		/**
+		 * {@inheritDoc}
+		 */
+		@Override
+		public DupState updateDupAncestor() {
 
-      return DupState.LIN;
-    }
+			return DupState.LIN;
+		}
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public DupState updateDupChild() {
+		/**
+		 * {@inheritDoc}
+		 */
+		@Override
+		public DupState updateDupChild() {
 
-      return DupState.GENSIB;
-    }
+			return DupState.GENSIB;
+		}
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public DupState updateDupFollPre() {
+		/**
+		 * {@inheritDoc}
+		 */
+		@Override
+		public DupState updateDupFollPre() {
 
-      DupState.nodup = true;
-      return DupState.NO;
-    }
+			DupState.nodup = true;
+			return DupState.NO;
+		}
 
-  },
+	},
 
-  /** State of the HiddersMichiels - automaton. */
-  LIN {
+	/** State of the HiddersMichiels - automaton. */
+	LIN {
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public DupState updateDupFollPreSib() {
+		/**
+		 * {@inheritDoc}
+		 */
+		@Override
+		public DupState updateDupFollPreSib() {
 
-      return DupState.SIB;
+			return DupState.SIB;
 
-    }
+		}
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public DupState updateDupDesc() {
+		/**
+		 * {@inheritDoc}
+		 */
+		@Override
+		public DupState updateDupDesc() {
 
-      DupState.nodup = false;
-      return DupState.NO;
-    }
+			DupState.nodup = false;
+			return DupState.NO;
+		}
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public DupState updateDupChild() {
+		/**
+		 * {@inheritDoc}
+		 */
+		@Override
+		public DupState updateDupChild() {
 
-      return DupState.NO;
-    }
+			return DupState.NO;
+		}
 
-  },
+	},
 
-  /** State of the HiddersMichiels - automaton. */
-  GENSIB {
+	/** State of the HiddersMichiels - automaton. */
+	GENSIB {
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public DupState updateDupParent() {
+		/**
+		 * {@inheritDoc}
+		 */
+		@Override
+		public DupState updateDupParent() {
 
-      DupState.nodup = false;
-      return DupState.NO;
-    }
-  },
+			DupState.nodup = false;
+			return DupState.NO;
+		}
+	},
 
-  /** State of the HiddersMichiels - automaton. */
-  SIB {
+	/** State of the HiddersMichiels - automaton. */
+	SIB {
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public DupState updateDupParent() {
+		/**
+		 * {@inheritDoc}
+		 */
+		@Override
+		public DupState updateDupParent() {
 
-      DupState.nodup = false;
-      return DupState.NO;
-    }
+			DupState.nodup = false;
+			return DupState.NO;
+		}
 
-  },
+	},
 
-  /** State of the HiddersMichiels - automaton. */
-  NO {
+	/** State of the HiddersMichiels - automaton. */
+	NO {
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public DupState updateDupDesc() {
+		/**
+		 * {@inheritDoc}
+		 */
+		@Override
+		public DupState updateDupDesc() {
 
-      DupState.nodup = false;
-      return DupState.NO;
-    }
+			DupState.nodup = false;
+			return DupState.NO;
+		}
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public DupState updateDupParent() {
+		/**
+		 * {@inheritDoc}
+		 */
+		@Override
+		public DupState updateDupParent() {
 
-      DupState.nodup = false;
-      return DupState.NO;
-    }
-  };
+			DupState.nodup = false;
+			return DupState.NO;
+		}
+	};
 
-  /** Is true, if the expression is still duplicate free. */
-  static boolean nodup = true;
+	/** Is true, if the expression is still duplicate free. */
+	static boolean nodup = true;
 
-  /**
-   * Changes the state according to a child step.
-   * 
-   * @return the updated duplicate state
-   */
-  public DupState updateDupChild() {
+	/**
+	 * Changes the state according to a child step.
+	 *
+	 * @return the updated duplicate state
+	 */
+	public DupState updateDupChild() {
 
-    return this;
-  }
+		return this;
+	}
 
-  /**
-   * Changes the state according to a parent step.
-   * 
-   * @return the updated duplicate state
-   */
-  public DupState updateDupParent() {
+	/**
+	 * Changes the state according to a parent step.
+	 *
+	 * @return the updated duplicate state
+	 */
+	public DupState updateDupParent() {
 
-    return this;
-  }
+		return this;
+	}
 
-  /**
-   * Changes the state according to a descendant, descendant-or-self step.
-   * 
-   * @return the updated duplicate state
-   */
-  public DupState updateDupDesc() {
+	/**
+	 * Changes the state according to a descendant, descendant-or-self step.
+	 *
+	 * @return the updated duplicate state
+	 */
+	public DupState updateDupDesc() {
 
-    return DupState.NO;
-  }
+		return DupState.NO;
+	}
 
-  /**
-   * Changes the state according to a following /preceding step.
-   * 
-   * @return the updated duplicate state
-   */
-  public DupState updateDupFollPre() {
+	/**
+	 * Changes the state according to a following /preceding step.
+	 *
+	 * @return the updated duplicate state
+	 */
+	public DupState updateDupFollPre() {
 
-    DupState.nodup = false;
-    return DupState.NO;
-  }
+		DupState.nodup = false;
+		return DupState.NO;
+	}
 
-  /**
-   * Changes the state according to a following-sibling/preceding-sibling step.
-   * 
-   * @return the updated duplicate state
-   */
-  public DupState updateDupFollPreSib() {
+	/**
+	 * Changes the state according to a following-sibling/preceding-sibling step.
+	 *
+	 * @return the updated duplicate state
+	 */
+	public DupState updateDupFollPreSib() {
 
-    DupState.nodup = false;
-    return DupState.NO;
-  }
+		DupState.nodup = false;
+		return DupState.NO;
+	}
 
-  /**
-   * Changes the state according to a ancestor step.
-   * 
-   * @return the updated duplicate state
-   */
-  public DupState updateDupAncestor() {
+	/**
+	 * Changes the state according to a ancestor step.
+	 *
+	 * @return the updated duplicate state
+	 */
+	public DupState updateDupAncestor() {
 
-    DupState.nodup = false;
-    return DupState.NO;
-  }
+		DupState.nodup = false;
+		return DupState.NO;
+	}
 
-  /**
-   * Changes the state according to a union step.
-   * 
-   * @return the updated duplicate state
-   */
-  public DupState updateUnion() {
-    DupState.nodup = false;
-    return this;
-  }
+	/**
+	 * Changes the state according to a union step.
+	 *
+	 * @return the updated duplicate state
+	 */
+	public DupState updateUnion() {
+		DupState.nodup = false;
+		return this;
+	}
 }

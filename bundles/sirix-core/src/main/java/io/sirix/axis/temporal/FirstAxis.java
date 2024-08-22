@@ -15,47 +15,50 @@ import static java.util.Objects.requireNonNull;
  *
  */
 public final class FirstAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
-    extends AbstractTemporalAxis<R, W> {
+		extends
+			AbstractTemporalAxis<R, W> {
 
-  /** Sirix {@link ResourceSession}. */
-  private final ResourceSession<R, W> resourceSession;
+	/** Sirix {@link ResourceSession}. */
+	private final ResourceSession<R, W> resourceSession;
 
-  /** Node key to lookup and retrieve. */
-  private final long nodeKey;
+	/** Node key to lookup and retrieve. */
+	private final long nodeKey;
 
-  /** Determines if it's the first call. */
-  private boolean first;
+	/** Determines if it's the first call. */
+	private boolean first;
 
-  /**
-   * Constructor.
-   *
-   * @param resourceSession the resource manager
-   * @param rtx the transactional cursor
-   */
-  public FirstAxis(final ResourceSession<R, W> resourceSession, final R rtx) {
-    this.resourceSession = requireNonNull(resourceSession);
-    nodeKey = rtx.getNodeKey();
-    first = true;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param resourceSession
+	 *            the resource manager
+	 * @param rtx
+	 *            the transactional cursor
+	 */
+	public FirstAxis(final ResourceSession<R, W> resourceSession, final R rtx) {
+		this.resourceSession = requireNonNull(resourceSession);
+		nodeKey = rtx.getNodeKey();
+		first = true;
+	}
 
-  @Override
-  protected R computeNext() {
-    if (first) {
-      first = false;
-      final R rtx = resourceSession.beginNodeReadOnlyTrx(1);
-      if (rtx.moveTo(nodeKey)) {
-        return rtx;
-      } else {
-        rtx.close();
-        return endOfData();
-      }
-    } else {
-      return endOfData();
-    }
-  }
+	@Override
+	protected R computeNext() {
+		if (first) {
+			first = false;
+			final R rtx = resourceSession.beginNodeReadOnlyTrx(1);
+			if (rtx.moveTo(nodeKey)) {
+				return rtx;
+			} else {
+				rtx.close();
+				return endOfData();
+			}
+		} else {
+			return endOfData();
+		}
+	}
 
-  @Override
-  public ResourceSession<R, W> getResourceManager() {
-    return resourceSession;
-  }
+	@Override
+	public ResourceSession<R, W> getResourceManager() {
+		return resourceSession;
+	}
 }

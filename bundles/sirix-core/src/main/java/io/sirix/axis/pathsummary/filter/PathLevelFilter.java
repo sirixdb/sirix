@@ -35,13 +35,15 @@ import java.util.function.Predicate;
 
 /**
  * Filters path nodes based on a level.
- * @param level the level to match
+ *
+ * @param level
+ *            the level to match
  *
  * @author Johannes Lichtenberger
  */
 public record PathLevelFilter(@NonNegative int level) implements Predicate<PathNode> {
-  @Override
-  public boolean test(PathNode pathNode) {
-    return level == pathNode.getLevel();
-  }
+	@Override
+	public boolean test(PathNode pathNode) {
+		return level == pathNode.getLevel();
+	}
 }

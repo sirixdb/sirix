@@ -35,23 +35,25 @@ import io.sirix.node.interfaces.StructNode;
  */
 public final class BooleanNode extends AbstractBooleanNode {
 
-  /**
-   * Constructor.
-   *
-   * @param boolValue the boolean value
-   * @param structNodeDelegate delegate for {@link StructNode} implementation
-   */
-  public BooleanNode(final boolean boolValue, final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate, boolValue);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param boolValue
+	 *            the boolean value
+	 * @param structNodeDelegate
+	 *            delegate for {@link StructNode} implementation
+	 */
+	public BooleanNode(final boolean boolValue, final StructNodeDelegate structNodeDelegate) {
+		super(structNodeDelegate, boolValue);
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.BOOLEAN_VALUE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.BOOLEAN_VALUE;
+	}
 
-  @Override
-  public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
-    return visitor.visit(ImmutableBooleanNode.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
+		return visitor.visit(ImmutableBooleanNode.of(this));
+	}
 }

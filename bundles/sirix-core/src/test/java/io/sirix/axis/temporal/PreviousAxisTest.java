@@ -22,38 +22,38 @@ import com.google.common.collect.testing.IteratorTester;
  */
 public final class PreviousAxisTest {
 
-  /** Number of iterations. */
-  private static final int ITERATIONS = 5;
+	/** Number of iterations. */
+	private static final int ITERATIONS = 5;
 
-  /** The {@link Holder} instance. */
-  private Holder holder;
+	/** The {@link Holder} instance. */
+	private Holder holder;
 
-  @Before
-  public void setUp() {
-    XmlTestHelper.deleteEverything();
-    try (final XmlNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
-      XmlDocumentCreator.createVersioned(wtx);
-    }
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() {
+		XmlTestHelper.deleteEverything();
+		try (final XmlNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
+			XmlDocumentCreator.createVersioned(wtx);
+		}
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testAxis() {
-    final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
-    final XmlNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+	@Test
+	public void testAxis() {
+		final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+		final XmlNodeReadOnlyTrx secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx(2);
 
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx), null) {
-      @Override
-      protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-        return new PreviousAxis<>(secondRtx.getResourceSession(), secondRtx);
-      }
-    }.test();
-  }
+		new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx), null) {
+			@Override
+			protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
+				return new PreviousAxis<>(secondRtx.getResourceSession(), secondRtx);
+			}
+		}.test();
+	}
 
 }

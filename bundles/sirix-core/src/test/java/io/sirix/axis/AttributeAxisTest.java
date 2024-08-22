@@ -34,89 +34,89 @@ import io.sirix.XmlTestHelper;
 
 public class AttributeAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testIterate() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
+	@Test
+	public void testIterate() throws SirixException {
+		final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
-    rtx.moveToDocumentRoot();
-    AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[] {});
+		rtx.moveToDocumentRoot();
+		AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[]{});
 
-    rtx.moveTo(1L);
-    AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[] {3L});
+		rtx.moveTo(1L);
+		AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[]{3L});
 
-    rtx.moveTo(9L);
-    AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[] {10L});
+		rtx.moveTo(9L);
+		AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[]{10L});
 
-    rtx.moveTo(12L);
-    AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[] {});
+		rtx.moveTo(12L);
+		AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[]{});
 
-    rtx.moveTo(2L);
-    AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[] {});
-  }
+		rtx.moveTo(2L);
+		AbsAxisTest.testAxisConventions(new AttributeAxis(rtx), new long[]{});
+	}
 
-  @Test
-  public void testMultipleAttributes() throws SirixException {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
-    final long nodeKey = wtx.insertElementAsFirstChild(new QNm("foo")).getNodeKey();
-    wtx.insertAttribute(new QNm("foo0"), "0");
-    wtx.moveTo(nodeKey);
-    wtx.insertAttribute(new QNm("foo1"), "1");
-    wtx.moveTo(nodeKey);
-    wtx.insertAttribute(new QNm("foo2"), "2");
+	@Test
+	public void testMultipleAttributes() throws SirixException {
+		final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+		final long nodeKey = wtx.insertElementAsFirstChild(new QNm("foo")).getNodeKey();
+		wtx.insertAttribute(new QNm("foo0"), "0");
+		wtx.moveTo(nodeKey);
+		wtx.insertAttribute(new QNm("foo1"), "1");
+		wtx.moveTo(nodeKey);
+		wtx.insertAttribute(new QNm("foo2"), "2");
 
-    Assert.assertEquals(true, wtx.moveTo(nodeKey));
+		Assert.assertEquals(true, wtx.moveTo(nodeKey));
 
-    Assert.assertEquals(true, wtx.moveToAttribute(0));
-    Assert.assertEquals("0", wtx.getValue());
-    Assert.assertEquals(new QNm("foo0"), wtx.getName());
+		Assert.assertEquals(true, wtx.moveToAttribute(0));
+		Assert.assertEquals("0", wtx.getValue());
+		Assert.assertEquals(new QNm("foo0"), wtx.getName());
 
-    Assert.assertEquals(true, wtx.moveToParent());
-    Assert.assertEquals(true, wtx.moveToAttribute(1));
-    Assert.assertEquals("1", wtx.getValue());
-    Assert.assertEquals(new QNm("foo1"), wtx.getName());
+		Assert.assertEquals(true, wtx.moveToParent());
+		Assert.assertEquals(true, wtx.moveToAttribute(1));
+		Assert.assertEquals("1", wtx.getValue());
+		Assert.assertEquals(new QNm("foo1"), wtx.getName());
 
-    Assert.assertEquals(true, wtx.moveToParent());
-    Assert.assertEquals(true, wtx.moveToAttribute(2));
-    Assert.assertEquals("2", wtx.getValue());
-    Assert.assertEquals(new QNm("foo2"), wtx.getName());
+		Assert.assertEquals(true, wtx.moveToParent());
+		Assert.assertEquals(true, wtx.moveToAttribute(2));
+		Assert.assertEquals("2", wtx.getValue());
+		Assert.assertEquals(new QNm("foo2"), wtx.getName());
 
-    Assert.assertEquals(true, wtx.moveTo(nodeKey));
-    final AbstractAxis axis = new AttributeAxis(wtx);
+		Assert.assertEquals(true, wtx.moveTo(nodeKey));
+		final AbstractAxis axis = new AttributeAxis(wtx);
 
-    Assert.assertEquals(true, axis.hasNext());
-    axis.nextLong();
-    Assert.assertEquals(nodeKey + 1, wtx.getNodeKey());
-    Assert.assertEquals(new QNm("foo0"), wtx.getName());
-    Assert.assertEquals("0", wtx.getValue());
+		Assert.assertEquals(true, axis.hasNext());
+		axis.nextLong();
+		Assert.assertEquals(nodeKey + 1, wtx.getNodeKey());
+		Assert.assertEquals(new QNm("foo0"), wtx.getName());
+		Assert.assertEquals("0", wtx.getValue());
 
-    Assert.assertEquals(true, axis.hasNext());
-    axis.nextLong();
-    Assert.assertEquals(nodeKey + 2, wtx.getNodeKey());
-    Assert.assertEquals(new QNm("foo1"), wtx.getName());
-    Assert.assertEquals("1", wtx.getValue());
+		Assert.assertEquals(true, axis.hasNext());
+		axis.nextLong();
+		Assert.assertEquals(nodeKey + 2, wtx.getNodeKey());
+		Assert.assertEquals(new QNm("foo1"), wtx.getName());
+		Assert.assertEquals("1", wtx.getValue());
 
-    Assert.assertEquals(true, axis.hasNext());
-    axis.nextLong();
-    Assert.assertEquals(nodeKey + 3, wtx.getNodeKey());
-    Assert.assertEquals(new QNm("foo2"), wtx.getName());
-    Assert.assertEquals("2", wtx.getValue());
+		Assert.assertEquals(true, axis.hasNext());
+		axis.nextLong();
+		Assert.assertEquals(nodeKey + 3, wtx.getNodeKey());
+		Assert.assertEquals(new QNm("foo2"), wtx.getName());
+		Assert.assertEquals("2", wtx.getValue());
 
-    wtx.rollback();
-    wtx.close();
-  }
+		wtx.rollback();
+		wtx.close();
+	}
 }

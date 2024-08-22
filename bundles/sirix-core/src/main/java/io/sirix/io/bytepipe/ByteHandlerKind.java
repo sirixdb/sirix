@@ -40,129 +40,130 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public enum ByteHandlerKind {
-  DEFLATE_COMPRESSOR(DeflateCompressor.class) {
-    @Override
-    public ByteHandler deserialize(JsonReader reader) {
-      return callDefaultConstructor(reader, DeflateCompressor.class.getName());
-    }
+	DEFLATE_COMPRESSOR(DeflateCompressor.class) {
+		@Override
+		public ByteHandler deserialize(JsonReader reader) {
+			return callDefaultConstructor(reader, DeflateCompressor.class.getName());
+		}
 
-    @Override
-    public void serialize(ByteHandler byteHandler, JsonWriter writer) throws IOException {
-      serializeDefaultConstructor(byteHandler, writer);
-    }
-  },
+		@Override
+		public void serialize(ByteHandler byteHandler, JsonWriter writer) throws IOException {
+			serializeDefaultConstructor(byteHandler, writer);
+		}
+	},
 
-  SNAPPY_COMPRESSOR(SnappyCompressor.class) {
-    @Override
-    public ByteHandler deserialize(JsonReader reader) {
-      return callDefaultConstructor(reader, SnappyCompressor.class.getName());
-    }
+	SNAPPY_COMPRESSOR(SnappyCompressor.class) {
+		@Override
+		public ByteHandler deserialize(JsonReader reader) {
+			return callDefaultConstructor(reader, SnappyCompressor.class.getName());
+		}
 
-    @Override
-    public void serialize(ByteHandler byteHandler, JsonWriter writer) throws IOException {
-      serializeDefaultConstructor(byteHandler, writer);
-    }
-  },
+		@Override
+		public void serialize(ByteHandler byteHandler, JsonWriter writer) throws IOException {
+			serializeDefaultConstructor(byteHandler, writer);
+		}
+	},
 
-  LZ4_COMPRESSOR(LZ4Compressor.class) {
-    @Override
-    public ByteHandler deserialize(JsonReader reader) {
-      return callDefaultConstructor(reader, LZ4Compressor.class.getName());
-    }
+	LZ4_COMPRESSOR(LZ4Compressor.class) {
+		@Override
+		public ByteHandler deserialize(JsonReader reader) {
+			return callDefaultConstructor(reader, LZ4Compressor.class.getName());
+		}
 
-    @Override
-    public void serialize(ByteHandler byteHandler, JsonWriter writer) throws IOException {
-      serializeDefaultConstructor(byteHandler, writer);
-    }
-  },
+		@Override
+		public void serialize(ByteHandler byteHandler, JsonWriter writer) throws IOException {
+			serializeDefaultConstructor(byteHandler, writer);
+		}
+	},
 
-  ENCRYPTOR(Encryptor.class) {
-    @Override
-    public ByteHandler deserialize(JsonReader reader) {
-      try {
-        final Class<?> handlerClazz = Encryptor.class;
-        final Constructor<?> handlerCons = handlerClazz.getConstructor(Path.class);
-        final Path path = Paths.get(reader.nextString());
-        return (ByteHandler) handlerCons.newInstance(path);
-      } catch (InstantiationException | IllegalAccessException | IllegalArgumentException
-          | InvocationTargetException | IOException | NoSuchMethodException | SecurityException e) {
-        throw new IllegalStateException(e);
-      }
-    }
+	ENCRYPTOR(Encryptor.class) {
+		@Override
+		public ByteHandler deserialize(JsonReader reader) {
+			try {
+				final Class<?> handlerClazz = Encryptor.class;
+				final Constructor<?> handlerCons = handlerClazz.getConstructor(Path.class);
+				final Path path = Paths.get(reader.nextString());
+				return (ByteHandler) handlerCons.newInstance(path);
+			} catch (InstantiationException | IllegalAccessException | IllegalArgumentException
+					| InvocationTargetException | IOException | NoSuchMethodException | SecurityException e) {
+				throw new IllegalStateException(e);
+			}
+		}
 
-    @Override
-    public void serialize(ByteHandler byteHandler, JsonWriter writer) {
-      try {
-        writer.beginObject();
-        writer.name(byteHandler.getClass().getName());
-        writer.value(((Encryptor) byteHandler).getResourcePath().toString());
-        writer.endObject();
-      } catch (IllegalArgumentException | IOException e) {
-        throw new IllegalStateException(e);
-      }
-    }
-  };
+		@Override
+		public void serialize(ByteHandler byteHandler, JsonWriter writer) {
+			try {
+				writer.beginObject();
+				writer.name(byteHandler.getClass().getName());
+				writer.value(((Encryptor) byteHandler).getResourcePath().toString());
+				writer.endObject();
+			} catch (IllegalArgumentException | IOException e) {
+				throw new IllegalStateException(e);
+			}
+		}
+	};
 
-  public abstract ByteHandler deserialize(JsonReader reader) throws IOException;
+	public abstract ByteHandler deserialize(JsonReader reader) throws IOException;
 
-  public abstract void serialize(ByteHandler byteHandler, JsonWriter writer) throws IOException;
+	public abstract void serialize(ByteHandler byteHandler, JsonWriter writer) throws IOException;
 
-  /** Mapping of class -> byte handler kind. */
-  private static final Map<Class<? extends ByteHandler>, ByteHandlerKind> INSTANCEFORCLASS =
-      new HashMap<>();
+	/** Mapping of class -> byte handler kind. */
+	private static final Map<Class<? extends ByteHandler>, ByteHandlerKind> INSTANCEFORCLASS = new HashMap<>();
 
-  static {
-    for (final ByteHandlerKind byteHandler : values()) {
-      INSTANCEFORCLASS.put(byteHandler.mClass, byteHandler);
-    }
-  }
+	static {
+		for (final ByteHandlerKind byteHandler : values()) {
+			INSTANCEFORCLASS.put(byteHandler.mClass, byteHandler);
+		}
+	}
 
-  /** Class. */
-  private final Class<? extends ByteHandler> mClass;
+	/** Class. */
+	private final Class<? extends ByteHandler> mClass;
 
-  /**
-   * Constructor.
-   *
-   * @param clazz class
-   */
-  ByteHandlerKind(final Class<? extends ByteHandler> clazz) {
-    mClass = clazz;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param clazz
+	 *            class
+	 */
+	ByteHandlerKind(final Class<? extends ByteHandler> clazz) {
+		mClass = clazz;
+	}
 
-  private static void serializeDefaultConstructor(ByteHandler byteHandler, JsonWriter writer)
-      throws IOException {
-    writer.beginObject();
-    writer.name(byteHandler.getClass().getName());
-    writer.nullValue();
-    writer.endObject();
-  }
+	private static void serializeDefaultConstructor(ByteHandler byteHandler, JsonWriter writer) throws IOException {
+		writer.beginObject();
+		writer.name(byteHandler.getClass().getName());
+		writer.nullValue();
+		writer.endObject();
+	}
 
-  private static ByteHandler callDefaultConstructor(JsonReader reader, String className) {
-    try {
-      reader.nextNull();
-      final Class<?> handlerClazz = Class.forName(className);
-      final Constructor<?> handlerCons = handlerClazz.getConstructors()[0];
-      return (ByteHandler) handlerCons.newInstance();
-    } catch (ClassNotFoundException | InstantiationException | IllegalAccessException
-        | IllegalArgumentException | InvocationTargetException | IOException e) {
-      throw new IllegalStateException(e);
-    }
-  }
+	private static ByteHandler callDefaultConstructor(JsonReader reader, String className) {
+		try {
+			reader.nextNull();
+			final Class<?> handlerClazz = Class.forName(className);
+			final Constructor<?> handlerCons = handlerClazz.getConstructors()[0];
+			return (ByteHandler) handlerCons.newInstance();
+		} catch (ClassNotFoundException | InstantiationException | IllegalAccessException | IllegalArgumentException
+				| InvocationTargetException | IOException e) {
+			throw new IllegalStateException(e);
+		}
+	}
 
-  /**
-   * Public method to get the related byte handler based on the class.
-   *
-   * @param clazz the class for the page
-   * @return the related page
-   */
-  public static @NonNull ByteHandlerKind getKind(final Class<? extends ByteHandler> clazz) {
-    final ByteHandlerKind byteHandler = INSTANCEFORCLASS.get(clazz);
-    if (byteHandler == null) {
-      throw new IllegalStateException();
-    }
-    return byteHandler;
-  }
+	/**
+	 * Public method to get the related byte handler based on the class.
+	 *
+	 * @param clazz
+	 *            the class for the page
+	 * @return the related page
+	 */
+	public static @NonNull ByteHandlerKind getKind(final Class<? extends ByteHandler> clazz) {
+		final ByteHandlerKind byteHandler = INSTANCEFORCLASS.get(clazz);
+		if (byteHandler == null) {
+			throw new IllegalStateException();
+		}
+		return byteHandler;
+	}
 }

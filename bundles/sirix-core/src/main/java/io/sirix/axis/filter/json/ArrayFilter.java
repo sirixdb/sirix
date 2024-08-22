@@ -32,18 +32,19 @@ import io.sirix.axis.filter.AbstractFilter;
  */
 public final class ArrayFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx Transaction this filter is bound to.
-   */
-  public ArrayFilter(final JsonNodeReadOnlyTrx rtx) {
-    super(rtx);
-  }
+	/**
+	 * Default constructor.
+	 *
+	 * @param rtx
+	 *            Transaction this filter is bound to.
+	 */
+	public ArrayFilter(final JsonNodeReadOnlyTrx rtx) {
+		super(rtx);
+	}
 
-  @Override
-  public final boolean filter() {
-    return getTrx().getKind() == NodeKind.ARRAY;
-  }
+	@Override
+	public final boolean filter() {
+		return getTrx().getKind() == NodeKind.ARRAY;
+	}
 
 }

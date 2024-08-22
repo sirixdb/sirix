@@ -30,21 +30,21 @@ import io.sirix.XmlTestHelper;
 import io.sirix.exception.SirixException;
 
 public class FileTest {
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    holder = Holder.openResourceManager();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		holder = Holder.openResourceManager();
+	}
 
-  @Test
-  public void testFirstRef() throws SirixException {
-    IOTestHelper.testReadWriteFirstRef(holder.getResourceManager().getResourceConfig());
-  }
+	@Test
+	public void testFirstRef() throws SirixException {
+		IOTestHelper.testReadWriteFirstRef(holder.getResourceManager().getResourceConfig());
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    IOTestHelper.clean();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		IOTestHelper.clean();
+	}
 }

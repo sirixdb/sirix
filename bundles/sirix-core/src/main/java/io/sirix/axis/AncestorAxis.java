@@ -28,57 +28,60 @@ import io.sirix.settings.Fixed;
 
 /**
  * <p>
- * Iterate over all descendants of kind ELEMENT or TEXT starting at a given node. Self is not
- * included.
+ * Iterate over all descendants of kind ELEMENT or TEXT starting at a given
+ * node. Self is not included.
  * </p>
  */
 public final class AncestorAxis extends AbstractAxis {
 
-  /**
-   * First touch of node.
-   */
-  private boolean mFirst;
+	/**
+	 * First touch of node.
+	 */
+	private boolean mFirst;
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param nodeCursor exclusive node cursor to iterate with
-   */
-  public AncestorAxis(final NodeCursor nodeCursor) {
-    super(nodeCursor);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param nodeCursor
+	 *            exclusive node cursor to iterate with
+	 */
+	public AncestorAxis(final NodeCursor nodeCursor) {
+		super(nodeCursor);
+	}
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param nodeCursor exclusive node cursor to iterate with
-   * @param includeSelf Is self included?
-   */
-  public AncestorAxis(final NodeCursor nodeCursor, final IncludeSelf includeSelf) {
-    super(nodeCursor, includeSelf);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param nodeCursor
+	 *            exclusive node cursor to iterate with
+	 * @param includeSelf
+	 *            Is self included?
+	 */
+	public AncestorAxis(final NodeCursor nodeCursor, final IncludeSelf includeSelf) {
+		super(nodeCursor, includeSelf);
+	}
 
-  @Override
-  public void reset(final @NonNegative long nodeKey) {
-    super.reset(nodeKey);
-    mFirst = true;
-  }
+	@Override
+	public void reset(final @NonNegative long nodeKey) {
+		super.reset(nodeKey);
+		mFirst = true;
+	}
 
-  @Override
-  protected long nextKey() {
-    final NodeCursor cursor = getCursor();
+	@Override
+	protected long nextKey() {
+		final NodeCursor cursor = getCursor();
 
-    // Self
-    if (mFirst && includeSelf() == IncludeSelf.YES) {
-      mFirst = false;
-      return cursor.getNodeKey();
-    }
+		// Self
+		if (mFirst && includeSelf() == IncludeSelf.YES) {
+			mFirst = false;
+			return cursor.getNodeKey();
+		}
 
-    if (cursor.getKind() != NodeKind.XML_DOCUMENT && cursor.hasParent()
-        && cursor.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-      return cursor.getParentKey();
-    }
+		if (cursor.getKind() != NodeKind.XML_DOCUMENT && cursor.hasParent()
+				&& cursor.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+			return cursor.getParentKey();
+		}
 
-    return done();
-  }
+		return done();
+	}
 }

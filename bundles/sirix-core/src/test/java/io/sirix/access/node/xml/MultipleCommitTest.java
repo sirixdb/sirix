@@ -40,93 +40,91 @@ import io.sirix.utils.XmlDocumentCreator;
 
 public class MultipleCommitTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    holder = Holder.generateWtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		holder = Holder.generateWtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void test() throws SirixException {
-    assertEquals(1L, holder.getXdmNodeWriteTrx().getRevisionNumber());
-    holder.getXdmNodeWriteTrx().commit();
+	@Test
+	public void test() throws SirixException {
+		assertEquals(1L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+		holder.getXdmNodeWriteTrx().commit();
 
-    holder.getXdmNodeWriteTrx().insertElementAsFirstChild(new QNm("foo"));
-    assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
-    holder.getXdmNodeWriteTrx().moveTo(1);
-    assertEquals(new QNm("foo"), holder.getXdmNodeWriteTrx().getName());
-    holder.getXdmNodeWriteTrx().rollback();
+		holder.getXdmNodeWriteTrx().insertElementAsFirstChild(new QNm("foo"));
+		assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+		holder.getXdmNodeWriteTrx().moveTo(1);
+		assertEquals(new QNm("foo"), holder.getXdmNodeWriteTrx().getName());
+		holder.getXdmNodeWriteTrx().rollback();
 
-    assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
-  }
+		assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+	}
 
-  @Test
-  public void testAutoCommit() throws SirixException {
-    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().commit();
+	@Test
+	public void testAutoCommit() throws SirixException {
+		XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
+		holder.getXdmNodeWriteTrx().commit();
 
-    final NodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    rtx.close();
-  }
+		final NodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+		rtx.close();
+	}
 
-  @Test
-  public void testRemove() throws SirixException {
-    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().commit();
-    assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+	@Test
+	public void testRemove() throws SirixException {
+		XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
+		holder.getXdmNodeWriteTrx().commit();
+		assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
 
-    holder.getXdmNodeWriteTrx().moveToDocumentRoot();
-    holder.getXdmNodeWriteTrx().moveToFirstChild();
-    holder.getXdmNodeWriteTrx().remove();
-    holder.getXdmNodeWriteTrx().commit();
-    assertEquals(3L, holder.getXdmNodeWriteTrx().getRevisionNumber());
-  }
+		holder.getXdmNodeWriteTrx().moveToDocumentRoot();
+		holder.getXdmNodeWriteTrx().moveToFirstChild();
+		holder.getXdmNodeWriteTrx().remove();
+		holder.getXdmNodeWriteTrx().commit();
+		assertEquals(3L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+	}
 
-  @Test
-  public void testAttributeRemove() throws SirixException {
-    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().commit();
-    holder.getXdmNodeWriteTrx().moveToDocumentRoot();
+	@Test
+	public void testAttributeRemove() throws SirixException {
+		XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
+		holder.getXdmNodeWriteTrx().commit();
+		holder.getXdmNodeWriteTrx().moveToDocumentRoot();
 
-    final AbstractAxis postorderAxis = new PostOrderAxis(holder.getXdmNodeWriteTrx());
-    while (postorderAxis.hasNext()) {
-      postorderAxis.nextLong();
-      if (holder.getXdmNodeWriteTrx().getKind() == NodeKind.ELEMENT
-          && holder.getXdmNodeWriteTrx().getAttributeCount() > 0) {
-        for (int i = 0, attrCount =
-            holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
-          holder.getXdmNodeWriteTrx().moveToAttribute(i);
-          holder.getXdmNodeWriteTrx().remove();
-        }
-      }
-    }
-    holder.getXdmNodeWriteTrx().commit();
-    holder.getXdmNodeWriteTrx().moveToDocumentRoot();
+		final AbstractAxis postorderAxis = new PostOrderAxis(holder.getXdmNodeWriteTrx());
+		while (postorderAxis.hasNext()) {
+			postorderAxis.nextLong();
+			if (holder.getXdmNodeWriteTrx().getKind() == NodeKind.ELEMENT
+					&& holder.getXdmNodeWriteTrx().getAttributeCount() > 0) {
+				for (int i = 0, attrCount = holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
+					holder.getXdmNodeWriteTrx().moveToAttribute(i);
+					holder.getXdmNodeWriteTrx().remove();
+				}
+			}
+		}
+		holder.getXdmNodeWriteTrx().commit();
+		holder.getXdmNodeWriteTrx().moveToDocumentRoot();
 
-    int attrTouch = 0;
-    final Axis descAxis = new DescendantAxis(holder.getXdmNodeWriteTrx());
-    while (descAxis.hasNext()) {
-      descAxis.nextLong();
-      if (holder.getXdmNodeWriteTrx().getKind() == NodeKind.ELEMENT) {
-        for (int i = 0, attrCount =
-            holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
-          if (holder.getXdmNodeWriteTrx().moveToAttribute(i)) {
-            attrTouch++;
-          } else {
-            throw new IllegalStateException("Should never occur!");
-          }
-        }
-      }
-    }
-    assertEquals(0, attrTouch);
+		int attrTouch = 0;
+		final Axis descAxis = new DescendantAxis(holder.getXdmNodeWriteTrx());
+		while (descAxis.hasNext()) {
+			descAxis.nextLong();
+			if (holder.getXdmNodeWriteTrx().getKind() == NodeKind.ELEMENT) {
+				for (int i = 0, attrCount = holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
+					if (holder.getXdmNodeWriteTrx().moveToAttribute(i)) {
+						attrTouch++;
+					} else {
+						throw new IllegalStateException("Should never occur!");
+					}
+				}
+			}
+		}
+		assertEquals(0, attrTouch);
 
-  }
+	}
 }

@@ -10,27 +10,25 @@ import io.sirix.index.path.summary.PathSummaryReader;
 
 public final class XmlCASIndexImpl implements XmlCASIndex {
 
-  private final CASIndexBuilderFactory casIndexBuilderFactory;
+	private final CASIndexBuilderFactory casIndexBuilderFactory;
 
-  private final CASIndexListenerFactory casIndexListenerFactory;
+	private final CASIndexListenerFactory casIndexListenerFactory;
 
-  public XmlCASIndexImpl() {
-    casIndexBuilderFactory = new CASIndexBuilderFactory(DatabaseType.XML);
-    casIndexListenerFactory = new CASIndexListenerFactory(DatabaseType.XML);
-  }
+	public XmlCASIndexImpl() {
+		casIndexBuilderFactory = new CASIndexBuilderFactory(DatabaseType.XML);
+		casIndexListenerFactory = new CASIndexListenerFactory(DatabaseType.XML);
+	}
 
-  @Override
-  public XmlCASIndexBuilder createBuilder(XmlNodeReadOnlyTrx rtx,
-      PageTrx pageTrx, PathSummaryReader pathSummaryReader,
-      IndexDef indexDef) {
-    final var indexBuilderDelegate = casIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
-    return new XmlCASIndexBuilder(indexBuilderDelegate, rtx);
-  }
+	@Override
+	public XmlCASIndexBuilder createBuilder(XmlNodeReadOnlyTrx rtx, PageTrx pageTrx,
+			PathSummaryReader pathSummaryReader, IndexDef indexDef) {
+		final var indexBuilderDelegate = casIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
+		return new XmlCASIndexBuilder(indexBuilderDelegate, rtx);
+	}
 
-  @Override
-  public XmlCASIndexListener createListener(PageTrx pageTrx,
-      PathSummaryReader pathSummaryReader, IndexDef indexDef) {
-    final var indexListenerDelegate = casIndexListenerFactory.create(pageTrx, pathSummaryReader, indexDef);
-    return new XmlCASIndexListener(indexListenerDelegate);
-  }
+	@Override
+	public XmlCASIndexListener createListener(PageTrx pageTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef) {
+		final var indexListenerDelegate = casIndexListenerFactory.create(pageTrx, pathSummaryReader, indexDef);
+		return new XmlCASIndexListener(indexListenerDelegate);
+	}
 }

@@ -8,67 +8,63 @@ import java.math.BigInteger;
 import static org.testng.AssertJUnit.assertTrue;
 import static org.testng.AssertJUnit.fail;
 
-
 public final class JsonNumberTest {
 
-  @Test
-  public void testFloat() {
-    double f = (double) Float.MAX_VALUE - 1;
-    String s = Double.toString(f);
-    Number n = JsonNumber.stringToNumber(s);
+	@Test
+	public void testFloat() {
+		double f = (double) Float.MAX_VALUE - 1;
+		String s = Double.toString(f);
+		Number n = JsonNumber.stringToNumber(s);
 
-    assertTrue("Expected type is Float", n instanceof Float);
-  }
+		assertTrue("Expected type is Float", n instanceof Float);
+	}
 
-  @Test
-  public void testDouble() {
-    Double d = Double.MAX_VALUE - 1;
-    String s = Double.toString(d);
-    Number n = JsonNumber.stringToNumber(s);
+	@Test
+	public void testDouble() {
+		Double d = Double.MAX_VALUE - 1;
+		String s = Double.toString(d);
+		Number n = JsonNumber.stringToNumber(s);
 
-    assertTrue("Expected type is Double", n instanceof Double);
-  }
+		assertTrue("Expected type is Double", n instanceof Double);
+	}
 
+	@Test
+	public void testLong() {
+		Long l = Long.MAX_VALUE - 1;
+		String s = Long.toString(l);
+		Number n = JsonNumber.stringToNumber(s);
 
-  @Test
-  public void testLong() {
-    Long l = Long.MAX_VALUE - 1;
-    String s = Long.toString(l);
-    Number n = JsonNumber.stringToNumber(s);
+		assertTrue("Expected type is Long", n instanceof Long);
+	}
 
-    assertTrue("Expected type is Long", n instanceof Long);
-  }
+	@Test
+	public void testInteger() {
+		Integer i = Integer.MAX_VALUE - 1;
+		String s = Integer.toString(i);
+		Number n = JsonNumber.stringToNumber(s);
 
+		assertTrue("Expected type is Integer", n instanceof Integer);
+	}
 
-  @Test
-  public void testInteger() {
-    Integer i = Integer.MAX_VALUE - 1;
-    String s = Integer.toString(i);
-    Number n = JsonNumber.stringToNumber(s);
+	@Test
+	public void testBigInteger() {
+		BigInteger b = BigInteger.valueOf(Long.MAX_VALUE).add(BigInteger.ONE);
+		String s = b.toString();
+		Number n = JsonNumber.stringToNumber(s);
 
-    assertTrue("Expected type is Integer", n instanceof Integer);
-  }
+		assertTrue("Expected type is BigInteger", n instanceof BigInteger);
+	}
 
+	@Test
+	public void testException() {
+		String s = ("1.0ae10");
 
-  @Test
-  public void testBigInteger() {
-    BigInteger b = BigInteger.valueOf(Long.MAX_VALUE).add(BigInteger.ONE);
-    String s = b.toString();
-    Number n = JsonNumber.stringToNumber(s);
-
-    assertTrue("Expected type is BigInteger", n instanceof BigInteger);
-  }
-
-  @Test
-  public void testException() {
-    String s = ("1.0ae10");
-
-    try {
-      JsonNumber.stringToNumber(s);
-      fail("Expected IllegalStateException to be thrown");
-    } catch (IllegalStateException e) {
-      assertTrue(true);
-    }
-  }
+		try {
+			JsonNumber.stringToNumber(s);
+			fail("Expected IllegalStateException to be thrown");
+		} catch (IllegalStateException e) {
+			assertTrue(true);
+		}
+	}
 
 }

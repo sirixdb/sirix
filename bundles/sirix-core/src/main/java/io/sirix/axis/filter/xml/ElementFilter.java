@@ -32,17 +32,18 @@ import io.sirix.axis.filter.AbstractFilter;
  */
 public final class ElementFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
-   */
-  public ElementFilter(final XmlNodeReadOnlyTrx rtx) {
-    super(rtx);
-  }
+	/**
+	 * Default constructor.
+	 *
+	 * @param rtx
+	 *            {@link XmlNodeReadOnlyTrx} this filter is bound to
+	 */
+	public ElementFilter(final XmlNodeReadOnlyTrx rtx) {
+		super(rtx);
+	}
 
-  @Override
-  public boolean filter() {
-    return getTrx().getKind() == NodeKind.ELEMENT;
-  }
+	@Override
+	public boolean filter() {
+		return getTrx().getKind() == NodeKind.ELEMENT;
+	}
 }

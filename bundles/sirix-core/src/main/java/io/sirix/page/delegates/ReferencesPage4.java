@@ -39,126 +39,130 @@ import java.util.List;
  */
 public final class ReferencesPage4 implements Page {
 
-  /**
-   * Page reference 1.
-   */
-  private final List<PageReference> references;
+	/**
+	 * Page reference 1.
+	 */
+	private final List<PageReference> references;
 
-  /**
-   * Page reference 4.
-   */
-  private final ShortList offsets;
+	/**
+	 * Page reference 4.
+	 */
+	private final ShortList offsets;
 
-  /**
-   * Constructor to initialize instance.
-   */
-  public ReferencesPage4() {
-    references = new ArrayList<>(4);
-    offsets = new ShortArrayList(4);
-  }
+	/**
+	 * Constructor to initialize instance.
+	 */
+	public ReferencesPage4() {
+		references = new ArrayList<>(4);
+		offsets = new ShortArrayList(4);
+	}
 
-  /**
-   * Constructor to initialize instance.
-   *
-   * @param in   input stream to read from
-   * @param type the serialization type
-   */
-  public ReferencesPage4(final BytesIn<?> in, final SerializationType type) {
-    final DeserializedReferencesPage4Tuple tuple = type.deserializeReferencesPage4(in);
-    references = tuple.references();
-    offsets = tuple.offsets();
-  }
+	/**
+	 * Constructor to initialize instance.
+	 *
+	 * @param in
+	 *            input stream to read from
+	 * @param type
+	 *            the serialization type
+	 */
+	public ReferencesPage4(final BytesIn<?> in, final SerializationType type) {
+		final DeserializedReferencesPage4Tuple tuple = type.deserializeReferencesPage4(in);
+		references = tuple.references();
+		offsets = tuple.offsets();
+	}
 
-  /**
-   * Constructor to initialize instance.
-   *
-   * @param pageToClone committed page
-   */
-  public ReferencesPage4(final ReferencesPage4 pageToClone) {
-    references = new ArrayList<>(4);
-    offsets = new ShortArrayList(4);
+	/**
+	 * Constructor to initialize instance.
+	 *
+	 * @param pageToClone
+	 *            committed page
+	 */
+	public ReferencesPage4(final ReferencesPage4 pageToClone) {
+		references = new ArrayList<>(4);
+		offsets = new ShortArrayList(4);
 
-    final var otherOffsets = pageToClone.getOffsets();
+		final var otherOffsets = pageToClone.getOffsets();
 
-    for (int offset = 0, size = otherOffsets.size(); offset < size; offset++) {
-      offsets.add(otherOffsets.getShort(offset));
-      final var pageReference = new PageReference();
-      final var pageReferenceToClone = pageToClone.getReferences().get(offset);
-      pageReference.setKey(pageReferenceToClone.getKey());
-      pageReference.setLogKey(pageReferenceToClone.getLogKey());
-      pageReference.setPage(pageReferenceToClone.getPage());
-      pageReference.setPageFragments(pageReferenceToClone.getPageFragments());
-      references.add(pageReference);
-    }
-  }
+		for (int offset = 0, size = otherOffsets.size(); offset < size; offset++) {
+			offsets.add(otherOffsets.getShort(offset));
+			final var pageReference = new PageReference();
+			final var pageReferenceToClone = pageToClone.getReferences().get(offset);
+			pageReference.setKey(pageReferenceToClone.getKey());
+			pageReference.setLogKey(pageReferenceToClone.getLogKey());
+			pageReference.setPage(pageReferenceToClone.getPage());
+			pageReference.setPageFragments(pageReferenceToClone.getPageFragments());
+			references.add(pageReference);
+		}
+	}
 
-  public ShortList getOffsets() {
-    return offsets;
-  }
+	public ShortList getOffsets() {
+		return offsets;
+	}
 
-  @Override
-  public List<PageReference> getReferences() {
-    return references;
-  }
+	@Override
+	public List<PageReference> getReferences() {
+		return references;
+	}
 
-  /**
-   * Get page reference of given offset.
-   *
-   * @param offset offset of page reference
-   * @return {@link PageReference} at given offset
-   */
-  @Override
-  public PageReference getOrCreateReference(final @NonNegative int offset) {
-    for (final var currOffset : offsets) {
-      if (currOffset == offset) {
-        return references.get(offset);
-      }
-    }
+	/**
+	 * Get page reference of given offset.
+	 *
+	 * @param offset
+	 *            offset of page reference
+	 * @return {@link PageReference} at given offset
+	 */
+	@Override
+	public PageReference getOrCreateReference(final @NonNegative int offset) {
+		for (final var currOffset : offsets) {
+			if (currOffset == offset) {
+				return references.get(offset);
+			}
+		}
 
-    if (offsets.size() < 4) {
-      offsets.add((short) offset);
-      final var newReference = new PageReference();
-      references.add(newReference);
-      return newReference;
-    }
+		if (offsets.size() < 4) {
+			offsets.add((short) offset);
+			final var newReference = new PageReference();
+			references.add(newReference);
+			return newReference;
+		}
 
-    return null;
-  }
+		return null;
+	}
 
-  @Override
-  public boolean setOrCreateReference(final int offset, final PageReference pageReference) {
-    for (int i = 0, count = offsets.size(); i < count; i++) {
-      if (offsets.getShort(i) == offset) {
-        references.set(i, pageReference);
-        return false;
-      }
-    }
+	@Override
+	public boolean setOrCreateReference(final int offset, final PageReference pageReference) {
+		for (int i = 0, count = offsets.size(); i < count; i++) {
+			if (offsets.getShort(i) == offset) {
+				references.set(i, pageReference);
+				return false;
+			}
+		}
 
-    if (offsets.size() < 4) {
-      offsets.add((short) offset);
-      references.add(pageReference);
-      return false;
-    }
+		if (offsets.size() < 4) {
+			offsets.add((short) offset);
+			references.add(pageReference);
+			return false;
+		}
 
-    return true;
-  }
+		return true;
+	}
 
-  @Override
-  public String toString() {
-    final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
-    for (final int offset : offsets) {
-      helper.add("offset", offset);
-    }
-    for (final PageReference ref : references) {
-      helper.add("reference", ref);
-    }
-    return helper.toString();
-  }
+	@Override
+	public String toString() {
+		final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
+		for (final int offset : offsets) {
+			helper.add("offset", offset);
+		}
+		for (final PageReference ref : references) {
+			helper.add("reference", ref);
+		}
+		return helper.toString();
+	}
 
-  @Override
-  public Page clearPage() {
-    offsets.clear();
-    references.clear();
-    return this;
-  }
+	@Override
+	public Page clearPage() {
+		offsets.clear();
+		references.clear();
+		return this;
+	}
 }

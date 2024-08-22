@@ -46,55 +46,53 @@ import static org.junit.Assert.*;
  */
 public class ArrayNodeTest {
 
-  private PageTrx pageTrx;
+	private PageTrx pageTrx;
 
-  private Database<JsonResourceSession> database;
+	private Database<JsonResourceSession> database;
 
-  @Before
-  public void setUp() {
-    JsonTestHelper.deleteEverything();
-    database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
-  }
+	@Before
+	public void setUp() {
+		JsonTestHelper.deleteEverything();
+		database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+		pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
+	}
 
-  @After
-  public void tearDown() {
-    JsonTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() {
+		JsonTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testNode() {
-    final NodeDelegate del =
-        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
-    final ArrayNode node = new ArrayNode(strucDel, 18);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
-    check(node);
+	@Test
+	public void testNode() {
+		final NodeDelegate del = new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0,
+				SirixDeweyID.newRootID());
+		final StructNodeDelegate strucDel = new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L,
+				15L, 0L, 0L);
+		final ArrayNode node = new ArrayNode(strucDel, 18);
+		var bytes = Bytes.elasticHeapByteBuffer();
+		node.setHash(node.computeHash(bytes));
+		check(node);
 
-    // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final ArrayNode node2 = (ArrayNode) NodeKind.ARRAY.deserialize(data,
-                                                                   node.getNodeKey(),
-                                                                   null,
-                                                                   pageTrx.getResourceSession().getResourceConfig());
-    check(node2);
-  }
+		// Serialize and deserialize node.
+		final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+		node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
+		final ArrayNode node2 = (ArrayNode) NodeKind.ARRAY.deserialize(data, node.getNodeKey(), null,
+				pageTrx.getResourceSession().getResourceConfig());
+		check(node2);
+	}
 
-  private void check(final ArrayNode node) {
-    // Now compare.
-    assertEquals(13L, node.getNodeKey());
-    assertEquals(14L, node.getParentKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-    assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(18L, node.getPathNodeKey());
+	private void check(final ArrayNode node) {
+		// Now compare.
+		assertEquals(13L, node.getNodeKey());
+		assertEquals(14L, node.getParentKey());
+		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
+		assertEquals(16L, node.getRightSiblingKey());
+		assertEquals(18L, node.getPathNodeKey());
 
-    assertEquals(NodeKind.ARRAY, node.getKind());
-    assertFalse(node.hasFirstChild());
-    assertTrue(node.hasParent());
-    assertTrue(node.hasRightSibling());
-  }
+		assertEquals(NodeKind.ARRAY, node.getKind());
+		assertFalse(node.hasFirstChild());
+		assertTrue(node.hasParent());
+		assertTrue(node.hasRightSibling());
+	}
 
 }

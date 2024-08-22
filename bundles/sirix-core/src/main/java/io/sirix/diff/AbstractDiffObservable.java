@@ -28,48 +28,49 @@ import io.sirix.exception.SirixException;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
- * Implements {@link DiffObservable}, which can be used for all classes, which implement the
- * {@link DiffObservable} interface.
+ * Implements {@link DiffObservable}, which can be used for all classes, which
+ * implement the {@link DiffObservable} interface.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
 abstract class AbstractDiffObservable implements DiffObservable {
 
-  /**
-   * {@link Set} of observers, which want to be notified of the encountered differences.
-   */
-  private final Set<DiffObserver> diffObservers;
+	/**
+	 * {@link Set} of observers, which want to be notified of the encountered
+	 * differences.
+	 */
+	private final Set<DiffObserver> diffObservers;
 
-  /**
-   * Default constructor.
-   */
-  AbstractDiffObservable() {
-    diffObservers = new HashSet<>();
-  }
+	/**
+	 * Default constructor.
+	 */
+	AbstractDiffObservable() {
+		diffObservers = new HashSet<>();
+	}
 
-  @Override
-  public final void fireDiff(final DiffFactory.DiffType diff, final @NonNull long newNodeKey,
-      final @NonNull long oldNodeKey, final @NonNull DiffDepth depth) {
-    for (final DiffObserver observer : diffObservers) {
-      observer.diffListener(diff, newNodeKey, oldNodeKey, depth);
-    }
-  }
+	@Override
+	public final void fireDiff(final DiffFactory.DiffType diff, final @NonNull long newNodeKey,
+			final @NonNull long oldNodeKey, final @NonNull DiffDepth depth) {
+		for (final DiffObserver observer : diffObservers) {
+			observer.diffListener(diff, newNodeKey, oldNodeKey, depth);
+		}
+	}
 
-  @Override
-  public final void done() throws SirixException {
-    for (final DiffObserver observer : diffObservers) {
-      observer.diffDone();
-    }
-  }
+	@Override
+	public final void done() throws SirixException {
+		for (final DiffObserver observer : diffObservers) {
+			observer.diffDone();
+		}
+	}
 
-  @Override
-  public final void addObserver(final DiffObserver observer) {
-    diffObservers.add(observer);
-  }
+	@Override
+	public final void addObserver(final DiffObserver observer) {
+		diffObservers.add(observer);
+	}
 
-  @Override
-  public final void removeObserver(final DiffObserver observer) {
-    diffObservers.remove(observer);
-  }
+	@Override
+	public final void removeObserver(final DiffObserver observer) {
+		diffObservers.remove(observer);
+	}
 }

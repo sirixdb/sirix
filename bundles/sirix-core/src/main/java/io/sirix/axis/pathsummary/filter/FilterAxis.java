@@ -43,51 +43,54 @@ import java.util.function.Predicate;
  */
 public final class FilterAxis extends AbstractAxis {
 
-  /**
-   * Axis to test.
-   */
-  private final AbstractAxis axis;
+	/**
+	 * Axis to test.
+	 */
+	private final AbstractAxis axis;
 
-  /**
-   * Test to apply to axis.
-   */
-  private final List<Predicate<PathNode>> axisFilter;
+	/**
+	 * Test to apply to axis.
+	 */
+	private final List<Predicate<PathNode>> axisFilter;
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param axis          axis to iterate over
-   * @param firstAxisTest test to perform for each node found with axis
-   * @param axisTests      tests to perform for each node found with axis
-   */
-  @SuppressWarnings("unlikely-arg-type")
-  @SafeVarargs
-  public FilterAxis(final AbstractAxis axis, final Predicate<PathNode> firstAxisTest,
-      final Predicate<PathNode>... axisTests) {
-    super(axis.getStartPathNode());
-    this.axis = axis;
-    axisFilter = new ArrayList<>();
-    axisFilter.add(firstAxisTest);
-    if (axisTests != null) {
-      Collections.addAll(axisFilter, axisTests);
-    }
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param axis
+	 *            axis to iterate over
+	 * @param firstAxisTest
+	 *            test to perform for each node found with axis
+	 * @param axisTests
+	 *            tests to perform for each node found with axis
+	 */
+	@SuppressWarnings("unlikely-arg-type")
+	@SafeVarargs
+	public FilterAxis(final AbstractAxis axis, final Predicate<PathNode> firstAxisTest,
+			final Predicate<PathNode>... axisTests) {
+		super(axis.getStartPathNode());
+		this.axis = axis;
+		axisFilter = new ArrayList<>();
+		axisFilter.add(firstAxisTest);
+		if (axisTests != null) {
+			Collections.addAll(axisFilter, axisTests);
+		}
+	}
 
-  @Override
-  protected PathNode nextNode() {
-    while (axis.hasNext()) {
-      final var node = axis.next();
-      boolean filterResult = true;
-      for (final Predicate<PathNode> filter : axisFilter) {
-        filterResult = filter.test(node);
-        if (!filterResult) {
-          break;
-        }
-      }
-      if (filterResult) {
-        return node;
-      }
-    }
-    return done();
-  }
+	@Override
+	protected PathNode nextNode() {
+		while (axis.hasNext()) {
+			final var node = axis.next();
+			boolean filterResult = true;
+			for (final Predicate<PathNode> filter : axisFilter) {
+				filterResult = filter.test(node);
+				if (!filterResult) {
+					break;
+				}
+			}
+			if (filterResult) {
+				return node;
+			}
+		}
+		return done();
+	}
 }

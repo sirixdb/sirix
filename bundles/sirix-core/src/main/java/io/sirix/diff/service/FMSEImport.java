@@ -52,107 +52,119 @@ import static java.util.Objects.requireNonNull;
  */
 public final class FMSEImport {
 
-  /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(FMSEImport.class));
+	/** {@link LogWrapper} reference. */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(FMSEImport.class));
 
-  /**
-   * Shredder new revision as temporal resource.
-   *
-   * @param resNewRev {@link File} reference for new revision (XML resource)
-   * @param newRev {@link File} reference for shreddered new revision (sirix resource)
-   * @throws SirixIOException if sirix fails to shredder the file
-   * @throws NullPointerException if {@code resNewRev} or {@code newRev} is {@code null}
-   */
-  public void shredder(final Path resNewRev, @NonNull final Path newRev) {
-    assert resNewRev != null;
-    assert newRev != null;
-    final var conf = new DatabaseConfiguration(newRev);
-    Databases.removeDatabase(newRev);
-    Databases.createXmlDatabase(conf);
+	/**
+	 * Shredder new revision as temporal resource.
+	 *
+	 * @param resNewRev
+	 *            {@link File} reference for new revision (XML resource)
+	 * @param newRev
+	 *            {@link File} reference for shreddered new revision (sirix
+	 *            resource)
+	 * @throws SirixIOException
+	 *             if sirix fails to shredder the file
+	 * @throws NullPointerException
+	 *             if {@code resNewRev} or {@code newRev} is {@code null}
+	 */
+	public void shredder(final Path resNewRev, @NonNull final Path newRev) {
+		assert resNewRev != null;
+		assert newRev != null;
+		final var conf = new DatabaseConfiguration(newRev);
+		Databases.removeDatabase(newRev);
+		Databases.createXmlDatabase(conf);
 
-    try (final var db = Databases.openXmlDatabase(newRev)) {
-      db.createResource(new ResourceConfiguration.Builder("shredded").buildPathSummary(true).useDeweyIDs(true).build());
-      try (final var resMgr = db.beginResourceSession("shredded");
-           final var wtx = resMgr.beginNodeTrx();
-           final var fis = new FileInputStream(resNewRev.toFile())) {
-        final var fileReader = XmlShredder.createFileReader(fis);
-        final var shredder =
-            new XmlShredder.Builder(wtx, fileReader, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-        shredder.call();
-      } catch (final IOException e) {
-        throw new SirixIOException(e.getCause());
-      }
-    }
-  }
+		try (final var db = Databases.openXmlDatabase(newRev)) {
+			db.createResource(
+					new ResourceConfiguration.Builder("shredded").buildPathSummary(true).useDeweyIDs(true).build());
+			try (final var resMgr = db.beginResourceSession("shredded");
+					final var wtx = resMgr.beginNodeTrx();
+					final var fis = new FileInputStream(resNewRev.toFile())) {
+				final var fileReader = XmlShredder.createFileReader(fis);
+				final var shredder = new XmlShredder.Builder(wtx, fileReader, InsertPosition.AS_FIRST_CHILD)
+						.commitAfterwards().build();
+				shredder.call();
+			} catch (final IOException e) {
+				throw new SirixIOException(e.getCause());
+			}
+		}
+	}
 
-  /**
-   * Import the data.
-   *
-   * @param resOldRev {@link File} for old revision (sirix resource)
-   * @param resNewRev {@link File} for new revision (XML resource)
-   * @param idName the QName of the ID to use for matching elements
-   */
-  public void xmlDataImport(final Path resOldRev, @NonNull final Path resNewRev, final QNm idName) {
-    importData(resOldRev, resNewRev, idName);
-  }
+	/**
+	 * Import the data.
+	 *
+	 * @param resOldRev
+	 *            {@link File} for old revision (sirix resource)
+	 * @param resNewRev
+	 *            {@link File} for new revision (XML resource)
+	 * @param idName
+	 *            the QName of the ID to use for matching elements
+	 */
+	public void xmlDataImport(final Path resOldRev, @NonNull final Path resNewRev, final QNm idName) {
+		importData(resOldRev, resNewRev, idName);
+	}
 
-  /**
-   * Import the data.
-   *
-   * @param resOldRev {@link File} for old revision (sirix resource)
-   * @param resNewRev {@link File} for new revision (XML resource)
-   */
-  private void xmlDataImport(final Path resOldRev, @NonNull final Path resNewRev) {
-    importData(resOldRev, resNewRev, null);
-  }
+	/**
+	 * Import the data.
+	 *
+	 * @param resOldRev
+	 *            {@link File} for old revision (sirix resource)
+	 * @param resNewRev
+	 *            {@link File} for new revision (XML resource)
+	 */
+	private void xmlDataImport(final Path resOldRev, @NonNull final Path resNewRev) {
+		importData(resOldRev, resNewRev, null);
+	}
 
-  private void importData(final Path resOldRev, final Path resNewRev, final QNm idName) {
-    try {
-      final var newRevTarget = Files.createTempDirectory(resNewRev.getFileName().toString());
-      if (Files.exists(newRevTarget)) {
-        SirixFiles.recursiveRemove(newRevTarget);
-      }
-      shredder(requireNonNull(resNewRev), newRevTarget);
+	private void importData(final Path resOldRev, final Path resNewRev, final QNm idName) {
+		try {
+			final var newRevTarget = Files.createTempDirectory(resNewRev.getFileName().toString());
+			if (Files.exists(newRevTarget)) {
+				SirixFiles.recursiveRemove(newRevTarget);
+			}
+			shredder(requireNonNull(resNewRev), newRevTarget);
 
-      try (final var databaseOld = Databases.openXmlDatabase(resOldRev);
-           final var resMgrOld = databaseOld.beginResourceSession("shredded");
-           final var wtx = resMgrOld.beginNodeTrx();
-           final var databaseNew = Databases.openXmlDatabase(newRevTarget);
-           final var resourceNew = databaseNew.beginResourceSession("shredded");
-           final var rtx = resourceNew.beginNodeReadOnlyTrx();
-           final var fmes = idName == null
-              ? FMSE.createInstance(new DefaultNodeComparisonFactory())
-              : FMSE.createWithIdentifier(idName, new DefaultNodeComparisonFactory())) {
-        fmes.diff(wtx, rtx);
-      }
-    } catch (final SirixException | IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
+			try (final var databaseOld = Databases.openXmlDatabase(resOldRev);
+					final var resMgrOld = databaseOld.beginResourceSession("shredded");
+					final var wtx = resMgrOld.beginNodeTrx();
+					final var databaseNew = Databases.openXmlDatabase(newRevTarget);
+					final var resourceNew = databaseNew.beginResourceSession("shredded");
+					final var rtx = resourceNew.beginNodeReadOnlyTrx();
+					final var fmes = idName == null
+							? FMSE.createInstance(new DefaultNodeComparisonFactory())
+							: FMSE.createWithIdentifier(idName, new DefaultNodeComparisonFactory())) {
+				fmes.diff(wtx, rtx);
+			}
+		} catch (final SirixException | IOException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+	}
 
-  /**
-   * Main entry point.
-   *
-   * @param args
-   *        <p>
-   *        arguments:
-   *        </p>
-   *        <ul>
-   *        <li>args[0] - path to resource to update</li>
-   *        <li>args[1] - path to new XML document</li>
-   *        </ul>
-   */
-  public static void main(final String[] args) {
-    if (args.length < 2 || args.length > 4) {
-      throw new IllegalArgumentException("Usage: FSME oldResource newXMLDocument [startNodeKeyOld] [startNodeKeyNew]");
-    }
+	/**
+	 * Main entry point.
+	 *
+	 * @param args
+	 *            <p>
+	 *            arguments:
+	 *            </p>
+	 *            <ul>
+	 *            <li>args[0] - path to resource to update</li>
+	 *            <li>args[1] - path to new XML document</li>
+	 *            </ul>
+	 */
+	public static void main(final String[] args) {
+		if (args.length < 2 || args.length > 4) {
+			throw new IllegalArgumentException(
+					"Usage: FSME oldResource newXMLDocument [startNodeKeyOld] [startNodeKeyNew]");
+		}
 
-    final var resOldRev = Paths.get(args[0]);
-    final var resNewRev = Paths.get(args[1]);
+		final var resOldRev = Paths.get(args[0]);
+		final var resNewRev = Paths.get(args[1]);
 
-    if (args.length == 3)
-      new FMSEImport().xmlDataImport(resOldRev, resNewRev, new QNm(args[2]));
-    else
-      new FMSEImport().xmlDataImport(resOldRev, resNewRev);
-  }
+		if (args.length == 3)
+			new FMSEImport().xmlDataImport(resOldRev, resNewRev, new QNm(args[2]));
+		else
+			new FMSEImport().xmlDataImport(resOldRev, resNewRev);
+	}
 }

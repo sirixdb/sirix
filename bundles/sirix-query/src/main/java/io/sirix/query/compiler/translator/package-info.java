@@ -1,6 +1,6 @@
 /**
  * Database translator.
- * 
+ *
  * @author Johannes Lichtenberger
  *
  */

@@ -16,66 +16,67 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public final class IsDeletedTest {
-  @BeforeEach
-  public void setUp() {
-    JsonTestHelper.deleteEverything();
-  }
+	@BeforeEach
+	public void setUp() {
+		JsonTestHelper.deleteEverything();
+	}
 
-  @AfterEach
-  public void tearDown() {
-    JsonTestHelper.deleteEverything();
-  }
+	@AfterEach
+	public void tearDown() {
+		JsonTestHelper.deleteEverything();
+	}
 
-  @Test
-  public void testIsDeletedTrue() {
-    try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").storeNodeHistory(true).build());
+	@Test
+	public void testIsDeletedTrue() {
+		try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
+			database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").storeNodeHistory(true).build());
 
-      try (final var manager = database.beginResourceSession("mydoc.jn"); final var wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
-        wtx.moveTo(2);
-        wtx.remove();
-        wtx.commit();
-      }
-    }
+			try (final var manager = database.beginResourceSession("mydoc.jn");
+					final var wtx = manager.beginNodeTrx()) {
+				wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
+				wtx.moveTo(2);
+				wtx.remove();
+				wtx.commit();
+			}
+		}
 
-    // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      // Use Query to load a JSON database/resource.
-      final String openQuery = "sdb:is-deleted(sdb:select-item(jn:doc('json-path1','mydoc.jn', 1), 2))";
+		// Initialize query context and store.
+		try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+				.location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+				final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+				final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+			// Use Query to load a JSON database/resource.
+			final String openQuery = "sdb:is-deleted(sdb:select-item(jn:doc('json-path1','mydoc.jn', 1), 2))";
 
-      final var sequence = new Query(chain, openQuery).execute(ctx);
-      assertTrue(sequence.booleanValue());
-    }
-  }
+			final var sequence = new Query(chain, openQuery).execute(ctx);
+			assertTrue(sequence.booleanValue());
+		}
+	}
 
-  @Test
-  public void testIsDeletedFalse() {
-    try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").storeNodeHistory(true).build());
+	@Test
+	public void testIsDeletedFalse() {
+		try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
+			database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").storeNodeHistory(true).build());
 
-      try (final var manager = database.beginResourceSession("mydoc.jn"); final var wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"), JsonNodeTrx.Commit.NO);
-        wtx.moveTo(2);
-        wtx.commit();
-      }
-    }
+			try (final var manager = database.beginResourceSession("mydoc.jn");
+					final var wtx = manager.beginNodeTrx()) {
+				wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"),
+						JsonNodeTrx.Commit.NO);
+				wtx.moveTo(2);
+				wtx.commit();
+			}
+		}
 
-    // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      // Use Query to load a JSON database/resource.
-      final String openQuery = "sdb:is-deleted(sdb:select-item(jn:doc('json-path1','mydoc.jn', 1), 2))";
+		// Initialize query context and store.
+		try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+				.location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+				final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+				final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+			// Use Query to load a JSON database/resource.
+			final String openQuery = "sdb:is-deleted(sdb:select-item(jn:doc('json-path1','mydoc.jn', 1), 2))";
 
-      final var sequence = new Query(chain, openQuery).execute(ctx);
-      assertFalse(sequence.booleanValue());
-    }
-  }
+			final var sequence = new Query(chain, openQuery).execute(ctx);
+			assertFalse(sequence.booleanValue());
+		}
+	}
 }

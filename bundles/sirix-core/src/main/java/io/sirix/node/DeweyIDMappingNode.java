@@ -14,27 +14,28 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  */
 public final class DeweyIDMappingNode extends AbstractForwardingNode {
 
-  /**
-   * Delegate for common data.
-   */
-  private final NodeDelegate mDelegate;
+	/**
+	 * Delegate for common data.
+	 */
+	private final NodeDelegate mDelegate;
 
-  /**
-   * Constructor.
-   *
-   * @param nodeDelegate node delegate
-   */
-  public DeweyIDMappingNode(final NodeDelegate nodeDelegate) {
-    mDelegate = requireNonNull(nodeDelegate);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param nodeDelegate
+	 *            node delegate
+	 */
+	public DeweyIDMappingNode(final NodeDelegate nodeDelegate) {
+		mDelegate = requireNonNull(nodeDelegate);
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.DEWEYIDMAPPING;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.DEWEYIDMAPPING;
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return mDelegate;
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return mDelegate;
+	}
 }

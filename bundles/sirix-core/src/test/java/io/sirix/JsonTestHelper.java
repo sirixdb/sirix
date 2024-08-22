@@ -44,202 +44,209 @@ import java.util.Random;
 import static org.junit.Assert.fail;
 
 /**
- * Helper class for offering convenient usage of the {@link JsonResourceSession} for test cases.
- * This includes instantiation of databases plus resources.
+ * Helper class for offering convenient usage of the {@link JsonResourceSession}
+ * for test cases. This includes instantiation of databases plus resources.
  *
  * @author Johannes Lichtenberger
  */
 public final class JsonTestHelper {
 
-  /**
-   * Temporary directory path.
-   */
-  private static final String TMPDIR = System.getProperty("java.io.tmpdir");
+	/**
+	 * Temporary directory path.
+	 */
+	private static final String TMPDIR = System.getProperty("java.io.tmpdir");
 
-  /**
-   * Common resource name.
-   */
-  public static final String RESOURCE = "shredded";
+	/**
+	 * Common resource name.
+	 */
+	public static final String RESOURCE = "shredded";
 
-  /**
-   * Paths where the data is stored to.
-   */
-  public enum PATHS {
-    // PATH1 (Sirix)
-    PATH1(Paths.get(TMPDIR, "sirix", "json-path1")),
+	/**
+	 * Paths where the data is stored to.
+	 */
+	public enum PATHS {
+		// PATH1 (Sirix)
+		PATH1(Paths.get(TMPDIR, "sirix", "json-path1")),
 
-    // PATH2 (Sirix)
-    PATH2(Paths.get(TMPDIR, "sirix", "json-path2")),
+		// PATH2 (Sirix)
+		PATH2(Paths.get(TMPDIR, "sirix", "json-path2")),
 
-    // PATH3 (JSON)
-    PATH3(Paths.get(TMPDIR, "json", "test.json"));
+		// PATH3 (JSON)
+		PATH3(Paths.get(TMPDIR, "json", "test.json"));
 
-    final Path file;
+		final Path file;
 
-    PATHS(final Path file) {
-      this.file = file;
-    }
+		PATHS(final Path file) {
+			this.file = file;
+		}
 
-    public Path getFile() {
-      return file;
-    }
-  }
+		public Path getFile() {
+			return file;
+		}
+	}
 
-  /**
-   * Common random instance for generating common tag names.
-   */
-  public final static Random random = new Random();
+	/**
+	 * Common random instance for generating common tag names.
+	 */
+	public final static Random random = new Random();
 
-  /**
-   * Path <=> Database instances.
-   */
-  private final static Map<Path, Database<JsonResourceSession>> INSTANCES = new HashMap<>();
+	/**
+	 * Path <=> Database instances.
+	 */
+	private final static Map<Path, Database<JsonResourceSession>> INSTANCES = new HashMap<>();
 
-  @Test
-  public void testDummy() {
-    // Just empty to ensure maven running
-  }
+	@Test
+	public void testDummy() {
+		// Just empty to ensure maven running
+	}
 
-  /**
-   * Getting a database and create one if not existing. This includes the creation of a resource with
-   * the settings in the builder as standard.
-   *
-   * @param file to be created
-   * @return a database-obj
-   */
-  @Ignore
-  public static Database<JsonResourceSession> getDatabase(final Path file) {
-    if (INSTANCES.containsKey(file)) {
-      return INSTANCES.get(file);
-    } else {
-      final DatabaseConfiguration config = new DatabaseConfiguration(file);
-      if (!Files.exists(file)) {
-        Databases.createJsonDatabase(config);
-      }
-      final var database = Databases.openJsonDatabase(file);
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
-      INSTANCES.put(file, database);
-      return database;
-    }
-  }
+	/**
+	 * Getting a database and create one if not existing. This includes the creation
+	 * of a resource with the settings in the builder as standard.
+	 *
+	 * @param file
+	 *            to be created
+	 * @return a database-obj
+	 */
+	@Ignore
+	public static Database<JsonResourceSession> getDatabase(final Path file) {
+		if (INSTANCES.containsKey(file)) {
+			return INSTANCES.get(file);
+		} else {
+			final DatabaseConfiguration config = new DatabaseConfiguration(file);
+			if (!Files.exists(file)) {
+				Databases.createJsonDatabase(config);
+			}
+			final var database = Databases.openJsonDatabase(file);
+			database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+			INSTANCES.put(file, database);
+			return database;
+		}
+	}
 
-  public static void createDatabase(final Path file) {
-    final DatabaseConfiguration config = new DatabaseConfiguration(file);
-    if (!Files.exists(file)) {
-      Databases.createJsonDatabase(config);
-    }
-  }
+	public static void createDatabase(final Path file) {
+		final DatabaseConfiguration config = new DatabaseConfiguration(file);
+		if (!Files.exists(file)) {
+			Databases.createJsonDatabase(config);
+		}
+	}
 
-  /**
-   * Getting a database and create one if not existing. This includes the creation of a resource with
-   * the settings in the builder as standard.
-   *
-   * @param file to be created
-   * @return a database-obj
-   */
-  @Ignore
-  public static Database<JsonResourceSession> getDatabaseWithDeweyIdsEnabled(final Path file) {
-    if (INSTANCES.containsKey(file)) {
-      return INSTANCES.get(file);
-    } else {
-      try {
-        final DatabaseConfiguration config = new DatabaseConfiguration(file);
-        if (!Files.exists(file)) {
-          Databases.createJsonDatabase(config);
-        }
-        final var database = Databases.openJsonDatabase(file);
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).build());
-        INSTANCES.put(file, database);
-        return database;
-      } catch (final SirixRuntimeException e) {
-        fail(e.toString());
-        return null;
-      }
-    }
-  }
+	/**
+	 * Getting a database and create one if not existing. This includes the creation
+	 * of a resource with the settings in the builder as standard.
+	 *
+	 * @param file
+	 *            to be created
+	 * @return a database-obj
+	 */
+	@Ignore
+	public static Database<JsonResourceSession> getDatabaseWithDeweyIdsEnabled(final Path file) {
+		if (INSTANCES.containsKey(file)) {
+			return INSTANCES.get(file);
+		} else {
+			try {
+				final DatabaseConfiguration config = new DatabaseConfiguration(file);
+				if (!Files.exists(file)) {
+					Databases.createJsonDatabase(config);
+				}
+				final var database = Databases.openJsonDatabase(file);
+				database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).build());
+				INSTANCES.put(file, database);
+				return database;
+			} catch (final SirixRuntimeException e) {
+				fail(e.toString());
+				return null;
+			}
+		}
+	}
 
-  /**
-   * Getting a database and create one if not existing. This includes the creation of a resource with
-   * the settings in the builder as standard.
-   *
-   * @param file to be created
-   * @return a database-obj
-   */
-  @Ignore
-  public static Database<JsonResourceSession> getDatabaseWithHashesEnabled(final Path file) {
-    if (INSTANCES.containsKey(file)) {
-      return INSTANCES.get(file);
-    } else {
-      try {
-        final DatabaseConfiguration config = new DatabaseConfiguration(file);
-        if (!Files.exists(file)) {
-          Databases.createJsonDatabase(config);
-        }
-        final var database = Databases.openJsonDatabase(file);
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).hashKind(HashType.ROLLING).build());
-        INSTANCES.put(file, database);
-        return database;
-      } catch (final SirixRuntimeException e) {
-        fail(e.toString());
-        return null;
-      }
-    }
-  }
+	/**
+	 * Getting a database and create one if not existing. This includes the creation
+	 * of a resource with the settings in the builder as standard.
+	 *
+	 * @param file
+	 *            to be created
+	 * @return a database-obj
+	 */
+	@Ignore
+	public static Database<JsonResourceSession> getDatabaseWithHashesEnabled(final Path file) {
+		if (INSTANCES.containsKey(file)) {
+			return INSTANCES.get(file);
+		} else {
+			try {
+				final DatabaseConfiguration config = new DatabaseConfiguration(file);
+				if (!Files.exists(file)) {
+					Databases.createJsonDatabase(config);
+				}
+				final var database = Databases.openJsonDatabase(file);
+				database.createResource(ResourceConfiguration.newBuilder(RESOURCE).hashKind(HashType.ROLLING).build());
+				INSTANCES.put(file, database);
+				return database;
+			} catch (final SirixRuntimeException e) {
+				fail(e.toString());
+				return null;
+			}
+		}
+	}
 
-  /**
-   * Deleting all resources as defined in the enum {@link PATHS}.
-   *
-   * @throws SirixException if anything went wrong
-   */
-  @Ignore
-  public static void deleteEverything() {
-    closeEverything();
-    Databases.removeDatabase(PATHS.PATH1.getFile());
-    Databases.removeDatabase(PATHS.PATH2.getFile());
-  }
+	/**
+	 * Deleting all resources as defined in the enum {@link PATHS}.
+	 *
+	 * @throws SirixException
+	 *             if anything went wrong
+	 */
+	@Ignore
+	public static void deleteEverything() {
+		closeEverything();
+		Databases.removeDatabase(PATHS.PATH1.getFile());
+		Databases.removeDatabase(PATHS.PATH2.getFile());
+	}
 
-  /**
-   * Closing all resources as defined in the enum {@link PATHS}.
-   *
-   * @throws SirixException if anything went wrong
-   */
-  @Ignore
-  public static void closeEverything() {
-    if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
-      final var database = INSTANCES.remove(PATHS.PATH1.getFile());
-      database.close();
-    }
-    if (INSTANCES.containsKey(PATHS.PATH2.getFile())) {
-      final var database = INSTANCES.remove(PATHS.PATH2.getFile());
-      database.close();
-    }
-  }
+	/**
+	 * Closing all resources as defined in the enum {@link PATHS}.
+	 *
+	 * @throws SirixException
+	 *             if anything went wrong
+	 */
+	@Ignore
+	public static void closeEverything() {
+		if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
+			final var database = INSTANCES.remove(PATHS.PATH1.getFile());
+			database.close();
+		}
+		if (INSTANCES.containsKey(PATHS.PATH2.getFile())) {
+			final var database = INSTANCES.remove(PATHS.PATH2.getFile());
+			database.close();
+		}
+	}
 
-  /**
-   * Creating a test document at {@link PATHS#PATH1}.
-   *
-   * @throws SirixException if anything went wrong
-   */
-  public static void createTestDocument() {
-    final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
-    try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         final JsonNodeTrx wtx = session.beginNodeTrx()) {
-      JsonDocumentCreator.create(wtx);
-      wtx.commit();
-    }
-  }
+	/**
+	 * Creating a test document at {@link PATHS#PATH1}.
+	 *
+	 * @throws SirixException
+	 *             if anything went wrong
+	 */
+	public static void createTestDocument() {
+		final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
+		try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+				final JsonNodeTrx wtx = session.beginNodeTrx()) {
+			JsonDocumentCreator.create(wtx);
+			wtx.commit();
+		}
+	}
 
-  /**
-   * Creating a test document at {@link PATHS#PATH1}.
-   *
-   * @throws SirixException if anything went wrong
-   */
-  public static void createTestDocumentWithDeweyIdsEnabled() {
-    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         final JsonNodeTrx wtx = session.beginNodeTrx()) {
-      JsonDocumentCreator.create(wtx);
-      wtx.commit();
-    }
-  }
+	/**
+	 * Creating a test document at {@link PATHS#PATH1}.
+	 *
+	 * @throws SirixException
+	 *             if anything went wrong
+	 */
+	public static void createTestDocumentWithDeweyIdsEnabled() {
+		final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
+		try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+				final JsonNodeTrx wtx = session.beginNodeTrx()) {
+			JsonDocumentCreator.create(wtx);
+			wtx.commit();
+		}
+	}
 }

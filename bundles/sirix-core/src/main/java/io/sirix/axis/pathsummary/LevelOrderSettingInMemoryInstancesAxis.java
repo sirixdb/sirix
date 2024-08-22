@@ -47,231 +47,235 @@ import static java.util.Objects.requireNonNull;
  */
 public final class LevelOrderSettingInMemoryInstancesAxis extends AbstractAxis {
 
-  /**
-   * The reader used to navigate.
-   */
-  private final PathSummaryReader reader;
+	/**
+	 * The reader used to navigate.
+	 */
+	private final PathSummaryReader reader;
 
-  /**
-   * {@link Deque} for remembering next nodeKey in document order.
-   */
-  private Deque<PathNode> firstChildren;
+	/**
+	 * {@link Deque} for remembering next nodeKey in document order.
+	 */
+	private Deque<PathNode> firstChildren;
 
-  /**
-   * Determines if {@code hasNext()} is called for the first time.
-   */
-  private boolean isFirst;
+	/**
+	 * Determines if {@code hasNext()} is called for the first time.
+	 */
+	private boolean isFirst;
 
-  /**
-   * Filter by level.
-   */
-  private int filterLevel = Integer.MAX_VALUE;
+	/**
+	 * Filter by level.
+	 */
+	private int filterLevel = Integer.MAX_VALUE;
 
-  /**
-   * Current level.
-   */
-  private int level;
+	/**
+	 * Current level.
+	 */
+	private int level;
 
-  /**
-   * Get a new builder instance.
-   *
-   * @param rtx the {@link PathSummaryReader} to iterate with
-   * @return {@link Builder} instance
-   */
-  public static Builder newBuilder(final PathSummaryReader rtx) {
-    return new Builder(rtx);
-  }
+	/**
+	 * Get a new builder instance.
+	 *
+	 * @param rtx
+	 *            the {@link PathSummaryReader} to iterate with
+	 * @return {@link Builder} instance
+	 */
+	public static Builder newBuilder(final PathSummaryReader rtx) {
+		return new Builder(rtx);
+	}
 
-  /**
-   * Builder.
-   */
-  public static class Builder {
-    /**
-     * Filter by level.
-     */
-    private int filterLevel = Integer.MAX_VALUE;
+	/**
+	 * Builder.
+	 */
+	public static class Builder {
+		/**
+		 * Filter by level.
+		 */
+		private int filterLevel = Integer.MAX_VALUE;
 
-    /**
-     * Sirix {@link PathSummaryReader}.
-     */
-    private final PathSummaryReader reader;
+		/**
+		 * Sirix {@link PathSummaryReader}.
+		 */
+		private final PathSummaryReader reader;
 
-    /**
-     * Determines if current start node to traversal should be included or not.
-     */
-    private IncludeSelf includeSelf = IncludeSelf.NO;
+		/**
+		 * Determines if current start node to traversal should be included or not.
+		 */
+		private IncludeSelf includeSelf = IncludeSelf.NO;
 
-    /**
-     * Constructor.
-     *
-     * @param pathSummaryReader Sirix {@link PathSummaryReader}
-     */
-    public Builder(final PathSummaryReader pathSummaryReader) {
-      this.reader = requireNonNull(pathSummaryReader);
-    }
+		/**
+		 * Constructor.
+		 *
+		 * @param pathSummaryReader
+		 *            Sirix {@link PathSummaryReader}
+		 */
+		public Builder(final PathSummaryReader pathSummaryReader) {
+			this.reader = requireNonNull(pathSummaryReader);
+		}
 
-    /**
-     * Determines that the current node should also be considered.
-     *
-     * @return this builder instance
-     */
-    public Builder includeSelf() {
-      includeSelf = IncludeSelf.YES;
-      return this;
-    }
+		/**
+		 * Determines that the current node should also be considered.
+		 *
+		 * @return this builder instance
+		 */
+		public Builder includeSelf() {
+			includeSelf = IncludeSelf.YES;
+			return this;
+		}
 
-    /**
-     * Determines the maximum level to filter.
-     *
-     * @param filterLevel maximum level to filter nodes
-     * @return this builder instance
-     */
-    public Builder filterLevel(final @NonNegative int filterLevel) {
-      checkArgument(filterLevel >= 0, "filterLevel must be >= 0!");
-      this.filterLevel = filterLevel;
-      return this;
-    }
+		/**
+		 * Determines the maximum level to filter.
+		 *
+		 * @param filterLevel
+		 *            maximum level to filter nodes
+		 * @return this builder instance
+		 */
+		public Builder filterLevel(final @NonNegative int filterLevel) {
+			checkArgument(filterLevel >= 0, "filterLevel must be >= 0!");
+			this.filterLevel = filterLevel;
+			return this;
+		}
 
-    /**
-     * Build a new instance.
-     *
-     * @return new instance
-     */
-    public LevelOrderSettingInMemoryInstancesAxis build() {
-      return new LevelOrderSettingInMemoryInstancesAxis(this);
-    }
-  }
+		/**
+		 * Build a new instance.
+		 *
+		 * @return new instance
+		 */
+		public LevelOrderSettingInMemoryInstancesAxis build() {
+			return new LevelOrderSettingInMemoryInstancesAxis(this);
+		}
+	}
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param builder the builder reference
-   */
-  private LevelOrderSettingInMemoryInstancesAxis(final Builder builder) {
-    super(builder.reader.getPathNode(), builder.includeSelf);
-    filterLevel = builder.filterLevel;
-    reader = builder.reader;
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param builder
+	 *            the builder reference
+	 */
+	private LevelOrderSettingInMemoryInstancesAxis(final Builder builder) {
+		super(builder.reader.getPathNode(), builder.includeSelf);
+		filterLevel = builder.filterLevel;
+		reader = builder.reader;
+	}
 
-  @Override
-  public void reset(final PathNode pathNode) {
-    super.reset(pathNode);
-    level = 0;
-    isFirst = true;
-    firstChildren = new ArrayDeque<>();
-    if (reader != null) {
-      reader.moveTo(pathNode.getNodeKey());
-    }
-  }
+	@Override
+	public void reset(final PathNode pathNode) {
+		super.reset(pathNode);
+		level = 0;
+		isFirst = true;
+		firstChildren = new ArrayDeque<>();
+		if (reader != null) {
+			reader.moveTo(pathNode.getNodeKey());
+		}
+	}
 
-  @Override
-  protected PathNode nextNode() {
-    // Determines if it's the first call to hasNext().
-    final long nodeKey = nextNode.getNodeKey();
-    reader.moveTo(nodeKey);
+	@Override
+	protected PathNode nextNode() {
+		// Determines if it's the first call to hasNext().
+		final long nodeKey = nextNode.getNodeKey();
+		reader.moveTo(nodeKey);
 
-    if (isFirst) {
-      isFirst = false;
+		if (isFirst) {
+			isFirst = false;
 
-      if (includeSelf() == IncludeSelf.YES) {
-        if (nextNode.getParent() == null && reader.hasParent()
-            && reader.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-          reader.moveToParent();
-          final PathNode parentNode = reader.getPathNode();
-          nextNode.setParent(parentNode);
-          reader.moveTo(nodeKey);
-        }
-        return nextNode;
-      } else {
-        if (nextNode.hasRightSibling()) {
-          return getRightSibling(nodeKey);
-        } else if (nextNode.hasFirstChild()) {
-          return getFirstChild(nodeKey);
-        } else {
-          return done();
-        }
-      }
-    }
-    // Follow right sibling if there is one.
-    if (nextNode.hasRightSibling()) {
-      // Add first child to queue.
-      if (nextNode.hasFirstChild()) {
-        firstChildren.add(getFirstChild(nodeKey));
-      }
+			if (includeSelf() == IncludeSelf.YES) {
+				if (nextNode.getParent() == null && reader.hasParent()
+						&& reader.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+					reader.moveToParent();
+					final PathNode parentNode = reader.getPathNode();
+					nextNode.setParent(parentNode);
+					reader.moveTo(nodeKey);
+				}
+				return nextNode;
+			} else {
+				if (nextNode.hasRightSibling()) {
+					return getRightSibling(nodeKey);
+				} else if (nextNode.hasFirstChild()) {
+					return getFirstChild(nodeKey);
+				} else {
+					return done();
+				}
+			}
+		}
+		// Follow right sibling if there is one.
+		if (nextNode.hasRightSibling()) {
+			// Add first child to queue.
+			if (nextNode.hasFirstChild()) {
+				firstChildren.add(getFirstChild(nodeKey));
+			}
 
-      return getRightSibling(nodeKey);
-    }
+			return getRightSibling(nodeKey);
+		}
 
-    // Add first child to queue.
-    if (nextNode.hasFirstChild()) {
-      firstChildren.add(getFirstChild(nodeKey));
-    }
+		// Add first child to queue.
+		if (nextNode.hasFirstChild()) {
+			firstChildren.add(getFirstChild(nodeKey));
+		}
 
-    // Then follow first child on stack.
-    if (!firstChildren.isEmpty()) {
-      level++;
+		// Then follow first child on stack.
+		if (!firstChildren.isEmpty()) {
+			level++;
 
-      // End traversal if level is reached.
-      if (level > filterLevel) {
-        return done();
-      }
+			// End traversal if level is reached.
+			if (level > filterLevel) {
+				return done();
+			}
 
-      final var pathNode = firstChildren.pop();
-      reader.moveTo(pathNode.getNodeKey());
-      return pathNode;
-    }
+			final var pathNode = firstChildren.pop();
+			reader.moveTo(pathNode.getNodeKey());
+			return pathNode;
+		}
 
-    // Then follow first child if there is one.
-    if (nextNode.hasFirstChild()) {
-      level++;
+		// Then follow first child if there is one.
+		if (nextNode.hasFirstChild()) {
+			level++;
 
-      // End traversal if level is reached.
-      if (level > filterLevel) {
-        return done();
-      }
+			// End traversal if level is reached.
+			if (level > filterLevel) {
+				return done();
+			}
 
-      return getFirstChild(nodeKey);
-    }
+			return getFirstChild(nodeKey);
+		}
 
-    return done();
-  }
+		return done();
+	}
 
-  private PathNode getFirstChild(long nodeKey) {
-    PathNode firstChild = nextNode.getFirstChild();
-    if (firstChild == null) {
-      reader.moveToFirstChild();
-      firstChild = reader.getPathNode();
-      nextNode.setFirstChild(firstChild);
-      reader.moveTo(nodeKey);
-    }
-    if (firstChild.getParent() == null) {
-      firstChild.setParent(nextNode);
-    }
-    return firstChild;
-  }
+	private PathNode getFirstChild(long nodeKey) {
+		PathNode firstChild = nextNode.getFirstChild();
+		if (firstChild == null) {
+			reader.moveToFirstChild();
+			firstChild = reader.getPathNode();
+			nextNode.setFirstChild(firstChild);
+			reader.moveTo(nodeKey);
+		}
+		if (firstChild.getParent() == null) {
+			firstChild.setParent(nextNode);
+		}
+		return firstChild;
+	}
 
-  private PathNode getRightSibling(long nodeKey) {
-    PathNode rightSibling = nextNode.getRightSibling();
-    if (rightSibling == null) {
-      reader.moveToRightSibling();
-      rightSibling = reader.getPathNode();
-      nextNode.setRightSibling(rightSibling);
-      reader.moveTo(nodeKey);
-    }
-    if (rightSibling.getLeftSibling() == null) {
-      var parentNode = nextNode.getParent();
-      rightSibling.setParent(parentNode);
-      rightSibling.setLeftSibling(nextNode);
-    }
-    return rightSibling;
-  }
+	private PathNode getRightSibling(long nodeKey) {
+		PathNode rightSibling = nextNode.getRightSibling();
+		if (rightSibling == null) {
+			reader.moveToRightSibling();
+			rightSibling = reader.getPathNode();
+			nextNode.setRightSibling(rightSibling);
+			reader.moveTo(nodeKey);
+		}
+		if (rightSibling.getLeftSibling() == null) {
+			var parentNode = nextNode.getParent();
+			rightSibling.setParent(parentNode);
+			rightSibling.setLeftSibling(nextNode);
+		}
+		return rightSibling;
+	}
 
-  /**
-   * Get the current level.
-   *
-   * @return the current level
-   */
-  public int getCurrentLevel() {
-    return level;
-  }
+	/**
+	 * Get the current level.
+	 *
+	 * @return the current level
+	 */
+	public int getCurrentLevel() {
+		return level;
+	}
 }

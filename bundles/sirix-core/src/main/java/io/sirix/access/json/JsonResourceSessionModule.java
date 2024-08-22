@@ -13,7 +13,7 @@ import io.sirix.dagger.ResourceSessionScope;
  */
 @Module
 public interface JsonResourceSessionModule {
-  @Binds
-  @ResourceSessionScope
-  JsonResourceSession resourceSession(JsonResourceSessionImpl resourceSession);
+	@Binds
+	@ResourceSessionScope
+	JsonResourceSession resourceSession(JsonResourceSessionImpl resourceSession);
 }

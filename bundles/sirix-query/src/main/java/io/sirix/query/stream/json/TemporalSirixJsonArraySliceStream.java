@@ -20,47 +20,52 @@ import static java.util.Objects.requireNonNull;
  */
 public final class TemporalSirixJsonArraySliceStream implements Stream<JsonDBArraySlice> {
 
-  /** Temporal axis. */
-  private final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis;
+	/** Temporal axis. */
+	private final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis;
 
-  /** The {@link JsonDBCollection} reference. */
-  private final JsonDBCollection collection;
+	/** The {@link JsonDBCollection} reference. */
+	private final JsonDBCollection collection;
 
-  private final int fromIndex;
+	private final int fromIndex;
 
-  private final int toIndex;
+	private final int toIndex;
 
-  /**
-   * Constructor.
-   *
-   * @param axis Sirix {@link Axis}
-   * @param collection {@link XmlDBCollection} the nodes belong to
-   * @param fromIndex the from index
-   * @param toIndex the to index
-   */
-  public TemporalSirixJsonArraySliceStream(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
-      final JsonDBCollection collection, final int fromIndex, final int toIndex) {
-    this.axis = requireNonNull(axis);
-    this.collection = requireNonNull(collection);
-    this.fromIndex = fromIndex;
-    this.toIndex = toIndex;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param axis
+	 *            Sirix {@link Axis}
+	 * @param collection
+	 *            {@link XmlDBCollection} the nodes belong to
+	 * @param fromIndex
+	 *            the from index
+	 * @param toIndex
+	 *            the to index
+	 */
+	public TemporalSirixJsonArraySliceStream(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
+			final JsonDBCollection collection, final int fromIndex, final int toIndex) {
+		this.axis = requireNonNull(axis);
+		this.collection = requireNonNull(collection);
+		this.fromIndex = fromIndex;
+		this.toIndex = toIndex;
+	}
 
-  @Override
-  public JsonDBArraySlice next() {
-    if (axis.hasNext()) {
-      final var rtx = axis.next();
-      return new JsonDBArraySlice(rtx, collection, fromIndex, toIndex);
-    }
+	@Override
+	public JsonDBArraySlice next() {
+		if (axis.hasNext()) {
+			final var rtx = axis.next();
+			return new JsonDBArraySlice(rtx, collection, fromIndex, toIndex);
+		}
 
-    return null;
-  }
+		return null;
+	}
 
-  @Override
-  public void close() {}
+	@Override
+	public void close() {
+	}
 
-  @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this).add("axis", axis).toString();
-  }
+	@Override
+	public String toString() {
+		return MoreObjects.toStringHelper(this).add("axis", axis).toString();
+	}
 }

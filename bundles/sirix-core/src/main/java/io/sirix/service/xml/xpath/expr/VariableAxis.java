@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -33,72 +33,76 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
- * Evaluated the given binding sequence, the variable is bound to and stores in a list that can be
- * accessed by other sequences and notifies its observers, as soon as a new value of the binding
- * sequence has been evaluated.
+ * Evaluated the given binding sequence, the variable is bound to and stores in
+ * a list that can be accessed by other sequences and notifies its observers, as
+ * soon as a new value of the binding sequence has been evaluated.
  * </p>
  */
 public class VariableAxis extends AbstractAxis {
 
-  /** Sequence that defines the values, the variable is bound to. */
-  private final Axis mBindingSeq;
+	/** Sequence that defines the values, the variable is bound to. */
+	private final Axis mBindingSeq;
 
-  private final List<VarRefExpr> mVarRefs;
+	private final List<VarRefExpr> mVarRefs;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param pRtx exclusive (immutable) trx to iterate with
-   * @param pInSeq sequence, the variable is bound to
-   */
-  public VariableAxis(final XmlNodeReadOnlyTrx pRtx, @NonNull final Axis pInSeq) {
-    super(pRtx);
-    mBindingSeq = requireNonNull(pInSeq);
-    mVarRefs = new ArrayList<>();
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 *
+	 * @param pRtx
+	 *            exclusive (immutable) trx to iterate with
+	 * @param pInSeq
+	 *            sequence, the variable is bound to
+	 */
+	public VariableAxis(final XmlNodeReadOnlyTrx pRtx, @NonNull final Axis pInSeq) {
+		super(pRtx);
+		mBindingSeq = requireNonNull(pInSeq);
+		mVarRefs = new ArrayList<>();
+	}
 
-  @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    if (mBindingSeq != null) {
-      mBindingSeq.reset(pNodeKey);
-    }
-  }
+	@Override
+	public void reset(final long pNodeKey) {
+		super.reset(pNodeKey);
+		if (mBindingSeq != null) {
+			mBindingSeq.reset(pNodeKey);
+		}
+	}
 
-  @Override
-  public boolean hasNext() {
-    if (isNext()) {
-      return true;
-    }
+	@Override
+	public boolean hasNext() {
+		if (isNext()) {
+			return true;
+		}
 
-    resetToLastKey();
+		resetToLastKey();
 
-    if (mBindingSeq.hasNext()) {
-      key = mBindingSeq.next();
-      notifyObs();
-      return true;
-    }
+		if (mBindingSeq.hasNext()) {
+			key = mBindingSeq.next();
+			notifyObs();
+			return true;
+		}
 
-    resetToStartKey();
-    return false;
-  }
+		resetToStartKey();
+		return false;
+	}
 
-  /**
-   * Tell all observers that a new item of the binding sequence has been evaluated.
-   */
-  private void notifyObs() {
-    for (final VarRefExpr varRef : mVarRefs) {
-      varRef.update(asXmlNodeReadTrx().getNodeKey());
-    }
-  }
+	/**
+	 * Tell all observers that a new item of the binding sequence has been
+	 * evaluated.
+	 */
+	private void notifyObs() {
+		for (final VarRefExpr varRef : mVarRefs) {
+			varRef.update(asXmlNodeReadTrx().getNodeKey());
+		}
+	}
 
-  /**
-   * Add an observer to the list.
-   * 
-   * @param pObserver axis that wants to be notified of any change of this axis
-   */
-  public void addObserver(final VarRefExpr pObserver) {
-    mVarRefs.add(requireNonNull(pObserver));
-  }
+	/**
+	 * Add an observer to the list.
+	 *
+	 * @param pObserver
+	 *            axis that wants to be notified of any change of this axis
+	 */
+	public void addObserver(final VarRefExpr pObserver) {
+		mVarRefs.add(requireNonNull(pObserver));
+	}
 
 }

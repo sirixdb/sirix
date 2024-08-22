@@ -52,107 +52,101 @@ import java.util.concurrent.locks.ReentrantLock;
  * Provides node transactions on different revisions of XML resources.
  */
 public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx>
-    implements XmlResourceSession, InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> {
+		implements
+			XmlResourceSession,
+			InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
-  /**
-   * {@link XmlIndexController}s used for this session.
-   */
-  private final ConcurrentMap<Integer, XmlIndexController> rtxIndexControllers;
+	/**
+	 * {@link XmlIndexController}s used for this session.
+	 */
+	private final ConcurrentMap<Integer, XmlIndexController> rtxIndexControllers;
 
-  /**
-   * {@link XmlIndexController}s used for this session.
-   */
-  private final ConcurrentMap<Integer, XmlIndexController> wtxIndexControllers;
+	/**
+	 * {@link XmlIndexController}s used for this session.
+	 */
+	private final ConcurrentMap<Integer, XmlIndexController> wtxIndexControllers;
 
-  /**
-   * Package private constructor.
-   *
-   * @param resourceStore  the resource store with which this manager has been created
-   * @param resourceConf   {@link DatabaseConfiguration} for general setting about the storage
-   * @param bufferManager  the cache of in-memory pages shared amongst all node transactions
-   * @param storage        the storage itself, used for I/O
-   * @param uberPage       the UberPage, which is the main entry point into a resource
-   * @param writeLock      the write lock, which ensures, that only a single read-write transaction is
-   *                       opened on a resource
-   * @param user           a user, which interacts with SirixDB, might be {@code null}
-   * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
-   */
-  @Inject
-  XmlResourceSessionImpl(final ResourceStore<XmlResourceSession> resourceStore,
-                         final ResourceConfiguration resourceConf,
-                         final BufferManager bufferManager,
-                         final IOStorage storage,
-                         final UberPage uberPage,
-                         final Semaphore writeLock,
-                         final User user,
-                         final PageTrxFactory pageTrxFactory) {
+	/**
+	 * Package private constructor.
+	 *
+	 * @param resourceStore
+	 *            the resource store with which this manager has been created
+	 * @param resourceConf
+	 *            {@link DatabaseConfiguration} for general setting about the
+	 *            storage
+	 * @param bufferManager
+	 *            the cache of in-memory pages shared amongst all node transactions
+	 * @param storage
+	 *            the storage itself, used for I/O
+	 * @param uberPage
+	 *            the UberPage, which is the main entry point into a resource
+	 * @param writeLock
+	 *            the write lock, which ensures, that only a single read-write
+	 *            transaction is opened on a resource
+	 * @param user
+	 *            a user, which interacts with SirixDB, might be {@code null}
+	 * @param pageTrxFactory
+	 *            A factory that creates new {@link PageTrx} instances.
+	 */
+	@Inject
+	XmlResourceSessionImpl(final ResourceStore<XmlResourceSession> resourceStore,
+			final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
+			final UberPage uberPage, final Semaphore writeLock, final User user, final PageTrxFactory pageTrxFactory) {
 
-    super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
+		super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
 
-    rtxIndexControllers = new ConcurrentHashMap<>();
-    wtxIndexControllers = new ConcurrentHashMap<>();
-  }
+		rtxIndexControllers = new ConcurrentHashMap<>();
+		wtxIndexControllers = new ConcurrentHashMap<>();
+	}
 
-  @Override
-  public XmlNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode) {
+	@Override
+	public XmlNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode) {
 
-    return new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXmlNode) documentNode);
-  }
+		return new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXmlNode) documentNode);
+	}
 
-  @Override
-  public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId,
-                                           PageTrx pageTrx,
-                                           int maxNodeCount,
-                                           Duration autoCommitDelay,
-                                           Node documentNode,
-                                           AfterCommitState afterCommitState) {
-    // The node read-only transaction.
-    final InternalXmlNodeReadOnlyTrx nodeReadTrx =
-        new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageTrx, (ImmutableXmlNode) documentNode);
+	@Override
+	public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount,
+			Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
+		// The node read-only transaction.
+		final InternalXmlNodeReadOnlyTrx nodeReadTrx = new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageTrx,
+				(ImmutableXmlNode) documentNode);
 
-    // Node factory.
-    final XmlNodeFactory nodeFactory = new XmlNodeFactoryImpl(this.getResourceConfig().nodeHashFunction, pageTrx);
+		// Node factory.
+		final XmlNodeFactory nodeFactory = new XmlNodeFactoryImpl(this.getResourceConfig().nodeHashFunction, pageTrx);
 
-    // Path summary.
-    final boolean buildPathSummary = getResourceConfig().withPathSummary;
-    final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter;
-    if (buildPathSummary) {
-      pathSummaryWriter = new PathSummaryWriter<>(pageTrx, this, nodeFactory, nodeReadTrx);
-    } else {
-      pathSummaryWriter = null;
-    }
-    // Synchronize commit and other public methods if needed.
-    final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
-    final var transactionLock = isAutoCommitting ? new ReentrantLock() : null;
-    final var resourceConfig = getResourceConfig();
-    return new XmlNodeTrxImpl(this,
-            nodeReadTrx,
-            pathSummaryWriter,
-            maxNodeCount,
-            transactionLock,
-            autoCommitDelay,
-            new XmlNodeHashing(resourceConfig, nodeReadTrx, pageTrx),
-            nodeFactory,
-            afterCommitState,
-            new RecordToRevisionsIndex(pageTrx)
-    );
-  }
+		// Path summary.
+		final boolean buildPathSummary = getResourceConfig().withPathSummary;
+		final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter;
+		if (buildPathSummary) {
+			pathSummaryWriter = new PathSummaryWriter<>(pageTrx, this, nodeFactory, nodeReadTrx);
+		} else {
+			pathSummaryWriter = null;
+		}
+		// Synchronize commit and other public methods if needed.
+		final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
+		final var transactionLock = isAutoCommitting ? new ReentrantLock() : null;
+		final var resourceConfig = getResourceConfig();
+		return new XmlNodeTrxImpl(this, nodeReadTrx, pathSummaryWriter, maxNodeCount, transactionLock, autoCommitDelay,
+				new XmlNodeHashing(resourceConfig, nodeReadTrx, pageTrx), nodeFactory, afterCommitState,
+				new RecordToRevisionsIndex(pageTrx));
+	}
 
-  @SuppressWarnings("unchecked")
-  @Override
-  public synchronized XmlIndexController getRtxIndexController(final int revision) {
-    return rtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
-  }
+	@SuppressWarnings("unchecked")
+	@Override
+	public synchronized XmlIndexController getRtxIndexController(final int revision) {
+		return rtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
+	}
 
-  @SuppressWarnings("unchecked")
-  @Override
-  public synchronized XmlIndexController getWtxIndexController(final int revision) {
-    return wtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
-  }
+	@SuppressWarnings("unchecked")
+	@Override
+	public synchronized XmlIndexController getWtxIndexController(final int revision) {
+		return wtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
+	}
 
-  private XmlIndexController createIndexController(int revision) {
-    final var controller = new XmlIndexController();
-    initializeIndexController(revision, controller);
-    return controller;
-  }
+	private XmlIndexController createIndexController(int revision) {
+		final var controller = new XmlIndexController();
+		initializeIndexController(revision, controller);
+		return controller;
+	}
 }

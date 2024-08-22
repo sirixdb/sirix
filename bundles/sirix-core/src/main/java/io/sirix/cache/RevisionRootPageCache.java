@@ -31,62 +31,61 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.page.RevisionRootPage;
 
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public final class RevisionRootPageCache implements Cache<Integer, RevisionRootPage> {
-  private final com.github.benmanes.caffeine.cache.Cache<Integer, RevisionRootPage> pageCache;
+	private final com.github.benmanes.caffeine.cache.Cache<Integer, RevisionRootPage> pageCache;
 
-  public RevisionRootPageCache(final int maxSize) {
-    pageCache =
-        Caffeine.newBuilder().maximumSize(maxSize).scheduler(scheduler).build();
-  }
+	public RevisionRootPageCache(final int maxSize) {
+		pageCache = Caffeine.newBuilder().maximumSize(maxSize).scheduler(scheduler).build();
+	}
 
-  @Override
-  public void clear() {
-    pageCache.invalidateAll();
-  }
+	@Override
+	public void clear() {
+		pageCache.invalidateAll();
+	}
 
-  @Override
-  public RevisionRootPage get(Integer key) {
-    var revisionRootPage = pageCache.getIfPresent(key);
+	@Override
+	public RevisionRootPage get(Integer key) {
+		var revisionRootPage = pageCache.getIfPresent(key);
 
-    if (revisionRootPage != null) {
-      revisionRootPage = new RevisionRootPage(revisionRootPage, revisionRootPage.getRevision());
-    }
+		if (revisionRootPage != null) {
+			revisionRootPage = new RevisionRootPage(revisionRootPage, revisionRootPage.getRevision());
+		}
 
-    return revisionRootPage;
-  }
+		return revisionRootPage;
+	}
 
-  @Override
-  public void put(Integer key, RevisionRootPage value) {
-    pageCache.put(key, value);
-  }
+	@Override
+	public void put(Integer key, RevisionRootPage value) {
+		pageCache.put(key, value);
+	}
 
-  @Override
-  public void putAll(Map<? extends Integer, ? extends RevisionRootPage> map) {
-    pageCache.putAll(map);
-  }
+	@Override
+	public void putAll(Map<? extends Integer, ? extends RevisionRootPage> map) {
+		pageCache.putAll(map);
+	}
 
-  @Override
-  public void toSecondCache() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void toSecondCache() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public Map<Integer, RevisionRootPage> getAll(Iterable<? extends Integer> keys) {
-    return pageCache.getAllPresent(keys);
-  }
+	@Override
+	public Map<Integer, RevisionRootPage> getAll(Iterable<? extends Integer> keys) {
+		return pageCache.getAllPresent(keys);
+	}
 
-  @Override
-  public void remove(Integer key) {
-    pageCache.invalidate(key);
-  }
+	@Override
+	public void remove(Integer key) {
+		pageCache.invalidate(key);
+	}
 
-  @Override
-  public void close() {
-  }
+	@Override
+	public void close() {
+	}
 }

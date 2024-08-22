@@ -33,42 +33,45 @@ import java.util.List;
 /**
  * Simple immutable data/value/bean class.
  *
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public final class DeserializedBitmapReferencesPageTuple {
-  /** The page references. */
-  private final List<PageReference> references;
+	/** The page references. */
+	private final List<PageReference> references;
 
-  /** The bitmap. */
-  private final BitSet bitmap;
+	/** The bitmap. */
+	private final BitSet bitmap;
 
-  /**
-   * Constructor.
-   *
-   * @param references the references
-   * @param bitmap the bitmap
-   */
-  public DeserializedBitmapReferencesPageTuple(final List<PageReference> references, final BitSet bitmap) {
-    this.references = references;
-    this.bitmap = bitmap;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param references
+	 *            the references
+	 * @param bitmap
+	 *            the bitmap
+	 */
+	public DeserializedBitmapReferencesPageTuple(final List<PageReference> references, final BitSet bitmap) {
+		this.references = references;
+		this.bitmap = bitmap;
+	}
 
-  /**
-   * Get the bitmap.
-   *
-   * @return the bitmap
-   */
-  public BitSet getBitmap() {
-    return bitmap;
-  }
+	/**
+	 * Get the bitmap.
+	 *
+	 * @return the bitmap
+	 */
+	public BitSet getBitmap() {
+		return bitmap;
+	}
 
-  /**
-   * Get the references.
-   *
-   * @return the references
-   */
-  public List<PageReference> getReferences() {
-    return references;
-  }
+	/**
+	 * Get the references.
+	 *
+	 * @return the references
+	 */
+	public List<PageReference> getReferences() {
+		return references;
+	}
 }

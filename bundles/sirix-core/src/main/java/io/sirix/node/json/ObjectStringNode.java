@@ -45,24 +45,26 @@ import io.sirix.node.interfaces.ValueNode;
  */
 public final class ObjectStringNode extends AbstractStringNode {
 
-  /**
-   * Constructor.
-   *
-   * @param valueNodeDelegate delegate for {@link ValueNode} implementation
-   * @param structNodeDelegate delegate for {@link StructNode} implementation
-   */
-  public ObjectStringNode(final ValueNodeDelegate valueNodeDelegate, final StructNodeDelegate structNodeDelegate) {
-    super(valueNodeDelegate, structNodeDelegate);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param valueNodeDelegate
+	 *            delegate for {@link ValueNode} implementation
+	 * @param structNodeDelegate
+	 *            delegate for {@link StructNode} implementation
+	 */
+	public ObjectStringNode(final ValueNodeDelegate valueNodeDelegate, final StructNodeDelegate structNodeDelegate) {
+		super(valueNodeDelegate, structNodeDelegate);
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.OBJECT_STRING_VALUE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.OBJECT_STRING_VALUE;
+	}
 
-  @Override
-  public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
-    return visitor.visit(ImmutableObjectStringNode.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
+		return visitor.visit(ImmutableObjectStringNode.of(this));
+	}
 
 }

@@ -16,18 +16,18 @@ import java.util.zip.InflaterInputStream;
  */
 public final class DeflateCompressor implements ByteHandler {
 
-  @Override
-  public OutputStream serialize(final OutputStream toSerialize) {
-    return new DeflaterOutputStream(toSerialize);
-  }
+	@Override
+	public OutputStream serialize(final OutputStream toSerialize) {
+		return new DeflaterOutputStream(toSerialize);
+	}
 
-  @Override
-  public InputStream deserialize(final InputStream toDeserialize) {
-    return new InflaterInputStream(toDeserialize);
-  }
+	@Override
+	public InputStream deserialize(final InputStream toDeserialize) {
+		return new InflaterInputStream(toDeserialize);
+	}
 
-  @Override
-  public ByteHandler getInstance() {
-    return new DeflateCompressor();
-  }
+	@Override
+	public ByteHandler getInstance() {
+		return new DeflateCompressor();
+	}
 }

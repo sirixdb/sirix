@@ -6,15 +6,17 @@ package io.sirix.page.interfaces;
  * @author Johannes Lichtenberger
  */
 public interface PageFragmentKey {
-  /**
-   * Get the offset key into the storage file.
-   * @return The offset key.
-   */
-  long key();
+	/**
+	 * Get the offset key into the storage file.
+	 *
+	 * @return The offset key.
+	 */
+	long key();
 
-  /**
-   * Get the revision number.
-   * @return The revision number.
-   */
-  int revision();
+	/**
+	 * Get the revision number.
+	 *
+	 * @return The revision number.
+	 */
+	int revision();
 }

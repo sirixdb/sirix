@@ -16,27 +16,24 @@ import java.util.Optional;
 import java.util.Set;
 
 public interface NameIndex<B, L extends ChangeListener> {
-  B createBuilder(PageTrx pageTrx, IndexDef indexDef);
+	B createBuilder(PageTrx pageTrx, IndexDef indexDef);
 
-  L createListener(PageTrx pageTrx, IndexDef indexDef);
+	L createListener(PageTrx pageTrx, IndexDef indexDef);
 
-  default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, NameFilter filter) {
-    final RBTreeReader<QNm, NodeReferences> reader =
-        RBTreeReader.getInstance(pageRtx.getResourceSession().getIndexCache(),
-                                 pageRtx,
-                                 indexDef.getType(),
-                                 indexDef.getID());
+	default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, NameFilter filter) {
+		final RBTreeReader<QNm, NodeReferences> reader = RBTreeReader.getInstance(
+				pageRtx.getResourceSession().getIndexCache(), pageRtx, indexDef.getType(), indexDef.getID());
 
-    if (filter.getIncludes().size() == 1 && filter.getExcludes().isEmpty()) {
-      final Optional<NodeReferences> optionalNodeReferences =
-          reader.get(filter.getIncludes().iterator().next(), SearchMode.EQUAL);
-      return Iterators.forArray(optionalNodeReferences.orElse(new NodeReferences()));
-    } else {
-      final Iterator<RBNodeKey<QNm>> iter =
-          reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-      final Set<Filter> setFilter = ImmutableSet.of(filter);
+		if (filter.getIncludes().size() == 1 && filter.getExcludes().isEmpty()) {
+			final Optional<NodeReferences> optionalNodeReferences = reader.get(filter.getIncludes().iterator().next(),
+					SearchMode.EQUAL);
+			return Iterators.forArray(optionalNodeReferences.orElse(new NodeReferences()));
+		} else {
+			final Iterator<RBNodeKey<QNm>> iter = reader.new RBNodeIterator(
+					Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+			final Set<Filter> setFilter = ImmutableSet.of(filter);
 
-      return new IndexFilterAxis<>(reader, iter, setFilter);
-    }
-  }
+			return new IndexFilterAxis<>(reader, iter, setFilter);
+		}
+	}
 }

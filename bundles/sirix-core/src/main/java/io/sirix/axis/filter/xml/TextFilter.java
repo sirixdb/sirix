@@ -33,18 +33,19 @@ import io.sirix.node.xml.TextNode;
  */
 public final class TextFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx transaction this filter is bound to
-   */
-  public TextFilter(final XmlNodeReadOnlyTrx rtx) {
-    super(rtx);
-  }
+	/**
+	 * Default constructor.
+	 *
+	 * @param rtx
+	 *            transaction this filter is bound to
+	 */
+	public TextFilter(final XmlNodeReadOnlyTrx rtx) {
+		super(rtx);
+	}
 
-  @Override
-  public final boolean filter() {
-    return getTrx().getKind() == NodeKind.TEXT;
-  }
+	@Override
+	public final boolean filter() {
+		return getTrx().getKind() == NodeKind.TEXT;
+	}
 
 }

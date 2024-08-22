@@ -30,84 +30,88 @@ import static java.util.Objects.requireNonNull;
 /**
  * Hash entry node.
  *
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public final class HashEntryNode implements DataRecord {
 
-  private final long nodeKey;
+	private final long nodeKey;
 
-  private final int key;
+	private final int key;
 
-  private final String value;
+	private final String value;
 
-  /**
-   * Constructor.
-   *
-   * @param nodeKey the node key
-   * @param key the integer hash code
-   * @param value the String value
-   */
-  public HashEntryNode(final long nodeKey, final int key, final String value) {
-    this.nodeKey = nodeKey;
-    this.key = key;
-    this.value = requireNonNull(value);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param nodeKey
+	 *            the node key
+	 * @param key
+	 *            the integer hash code
+	 * @param value
+	 *            the String value
+	 */
+	public HashEntryNode(final long nodeKey, final int key, final String value) {
+		this.nodeKey = nodeKey;
+		this.key = key;
+		this.value = requireNonNull(value);
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.HASH_ENTRY;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.HASH_ENTRY;
+	}
 
-  public int getKey() {
-    return key;
-  }
+	public int getKey() {
+		return key;
+	}
 
-  public String getValue() {
-    return value;
-  }
+	public String getValue() {
+		return value;
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(key, value);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(key, value);
+	}
 
-  @Override
-  public boolean equals(final Object obj) {
-    if (!(obj instanceof HashEntryNode))
-      return false;
+	@Override
+	public boolean equals(final Object obj) {
+		if (!(obj instanceof HashEntryNode))
+			return false;
 
-    final HashEntryNode other = (HashEntryNode) obj;
-    return Objects.equal(key, other.key) && Objects.equal(value, other.value);
-  }
+		final HashEntryNode other = (HashEntryNode) obj;
+		return Objects.equal(key, other.key) && Objects.equal(value, other.value);
+	}
 
-  @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this).add("key", key).add("value", value).toString();
-  }
+	@Override
+	public String toString() {
+		return MoreObjects.toStringHelper(this).add("key", key).add("value", value).toString();
+	}
 
-  @Override
-  public long getNodeKey() {
-    return nodeKey;
-  }
+	@Override
+	public long getNodeKey() {
+		return nodeKey;
+	}
 
-  @Override
-  public int getLastModifiedRevisionNumber() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public int getLastModifiedRevisionNumber() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public int getPreviousRevisionNumber() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public int getPreviousRevisionNumber() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public SirixDeweyID getDeweyID() {
-    return null;
-  }
+	@Override
+	public SirixDeweyID getDeweyID() {
+		return null;
+	}
 
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    return null;
-  }
+	@Override
+	public byte[] getDeweyIDAsBytes() {
+		return null;
+	}
 }

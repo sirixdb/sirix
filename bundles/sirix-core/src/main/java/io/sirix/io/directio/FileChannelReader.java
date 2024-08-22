@@ -41,7 +41,8 @@ import java.time.Instant;
 import java.util.Arrays;
 
 /**
- * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.
+ * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on
+ * a RandomAccessFile.
  *
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
@@ -49,123 +50,128 @@ import java.util.Arrays;
  */
 public final class FileChannelReader extends AbstractReader {
 
-  /**
-   * The hash function used to hash pages/page fragments.
-   */
-  final HashFunction hashFunction = Reader.hashFunction;
+	/**
+	 * The hash function used to hash pages/page fragments.
+	 */
+	final HashFunction hashFunction = Reader.hashFunction;
 
-  /**
-   * Data file channel.
-   */
-  private final FileChannel dataFileChannel;
+	/**
+	 * Data file channel.
+	 */
+	private final FileChannel dataFileChannel;
 
-  /**
-   * Revisions offset file channel.
-   */
-  private final FileChannel revisionsOffsetFileChannel;
+	/**
+	 * Revisions offset file channel.
+	 */
+	private final FileChannel revisionsOffsetFileChannel;
 
-  private final Cache<Integer, RevisionFileData> cache;
+	private final Cache<Integer, RevisionFileData> cache;
 
-  /**
-   * Constructor.
-   *
-   * @param dataFileChannel            the data file channel
-   * @param revisionsOffsetFileChannel the file, which holds pointers to the revision root pages
-   * @param handler                    {@link ByteHandler} instance
-   */
-  public FileChannelReader(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
-      final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter,
-      final Cache<Integer, RevisionFileData> cache) {
-    super(handler, pagePersistenter, type);
-    this.dataFileChannel = dataFileChannel;
-    this.revisionsOffsetFileChannel = revisionsOffsetFileChannel;
-    this.cache = cache;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param dataFileChannel
+	 *            the data file channel
+	 * @param revisionsOffsetFileChannel
+	 *            the file, which holds pointers to the revision root pages
+	 * @param handler
+	 *            {@link ByteHandler} instance
+	 */
+	public FileChannelReader(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
+			final ByteHandler handler, final SerializationType type, final PagePersister pagePersistenter,
+			final Cache<Integer, RevisionFileData> cache) {
+		super(handler, pagePersistenter, type);
+		this.dataFileChannel = dataFileChannel;
+		this.revisionsOffsetFileChannel = revisionsOffsetFileChannel;
+		this.cache = cache;
+	}
 
-  public Page read(final @NonNull PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
-    try {
-      // Read page from file.
-      ByteBuffer buffer = DirectIOUtils.allocate(IOStorage.OTHER_BEACON);
+	public Page read(final @NonNull PageReference reference,
+			final @Nullable ResourceConfiguration resourceConfiguration) {
+		try {
+			// Read page from file.
+			ByteBuffer buffer = DirectIOUtils.allocate(IOStorage.OTHER_BEACON);
 
-      final long position = reference.getKey();
+			final long position = reference.getKey();
 
-      dataFileChannel.read(buffer, position);
-      // DirectIOUtils.read(dataFileChannel, buffer, position);
-      buffer.flip();
-      final int dataLength = buffer.getInt();
-      buffer.clear();
+			dataFileChannel.read(buffer, position);
+			// DirectIOUtils.read(dataFileChannel, buffer, position);
+			buffer.flip();
+			final int dataLength = buffer.getInt();
+			buffer.clear();
 
-      buffer = DirectIOUtils.allocate(dataLength);
+			buffer = DirectIOUtils.allocate(dataLength);
 
-      DirectIOUtils.read(dataFileChannel, buffer, position + IOStorage.OTHER_BEACON);
-      buffer.flip();
-      final byte[] page = Arrays.copyOf(buffer.array(), dataLength);
-      buffer.clear();
+			DirectIOUtils.read(dataFileChannel, buffer, position + IOStorage.OTHER_BEACON);
+			buffer.flip();
+			final byte[] page = Arrays.copyOf(buffer.array(), dataLength);
+			buffer.clear();
 
-      // Perform byte operations.
-      return deserialize(resourceConfiguration, page);
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
-  }
+			// Perform byte operations.
+			return deserialize(resourceConfiguration, page);
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
+		}
+	}
 
-  @Override
-  public PageReference readUberPageReference() {
-    final PageReference uberPageReference = new PageReference();
-    uberPageReference.setKey(DirectIOUtils.BLOCK_SIZE);
-    final UberPage page = (UberPage) read(uberPageReference, null);
-    uberPageReference.setPage(page);
-    return uberPageReference;
-  }
+	@Override
+	public PageReference readUberPageReference() {
+		final PageReference uberPageReference = new PageReference();
+		uberPageReference.setKey(DirectIOUtils.BLOCK_SIZE);
+		final UberPage page = (UberPage) read(uberPageReference, null);
+		uberPageReference.setPage(page);
+		return uberPageReference;
+	}
 
-  @Override
-  public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
-    try {
-      final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
+	@Override
+	public RevisionRootPage readRevisionRootPage(final int revision,
+			final ResourceConfiguration resourceConfiguration) {
+		try {
+			final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
-      ByteBuffer buffer = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
-      dataFileChannel.read(buffer, dataFileOffset);
-      buffer.flip();
-      final int dataLength = buffer.getInt();
+			ByteBuffer buffer = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
+			dataFileChannel.read(buffer, dataFileOffset);
+			buffer.flip();
+			final int dataLength = buffer.getInt();
 
-      buffer = ByteBuffer.allocateDirect(dataLength).order(ByteOrder.nativeOrder());
-      dataFileChannel.read(buffer, dataFileOffset + 4);
-      buffer.flip();
-      final byte[] page = new byte[dataLength];
-      buffer.get(page);
+			buffer = ByteBuffer.allocateDirect(dataLength).order(ByteOrder.nativeOrder());
+			dataFileChannel.read(buffer, dataFileOffset + 4);
+			buffer.flip();
+			final byte[] page = new byte[dataLength];
+			buffer.get(page);
 
-      // Perform byte operations.
-      return (RevisionRootPage) deserialize(resourceConfiguration, page);
-    } catch (IOException e) {
-      throw new SirixIOException(e);
-    }
-  }
+			// Perform byte operations.
+			return (RevisionRootPage) deserialize(resourceConfiguration, page);
+		} catch (IOException e) {
+			throw new SirixIOException(e);
+		}
+	}
 
-  @Override
-  public Instant readRevisionRootPageCommitTimestamp(int revision) {
-    return cache.get(revision, (unused) -> getRevisionFileData(revision)).timestamp();
-  }
+	@Override
+	public Instant readRevisionRootPageCommitTimestamp(int revision) {
+		return cache.get(revision, (unused) -> getRevisionFileData(revision)).timestamp();
+	}
 
-  @Override
-  public RevisionFileData getRevisionFileData(int revision) {
-    try {
-      final var fileOffset = revision * 8 * 2 + IOStorage.FIRST_BEACON;
-      final ByteBuffer buffer = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
-      revisionsOffsetFileChannel.read(buffer, fileOffset);
-      buffer.position(8);
-      revisionsOffsetFileChannel.read(buffer, fileOffset + 8);
-      buffer.flip();
-      final var offset = buffer.getLong();
-      buffer.position(8);
-      final var timestamp = buffer.getLong();
-      return new RevisionFileData(offset, Instant.ofEpochMilli(timestamp));
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
-  }
+	@Override
+	public RevisionFileData getRevisionFileData(int revision) {
+		try {
+			final var fileOffset = revision * 8 * 2 + IOStorage.FIRST_BEACON;
+			final ByteBuffer buffer = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
+			revisionsOffsetFileChannel.read(buffer, fileOffset);
+			buffer.position(8);
+			revisionsOffsetFileChannel.read(buffer, fileOffset + 8);
+			buffer.flip();
+			final var offset = buffer.getLong();
+			buffer.position(8);
+			final var timestamp = buffer.getLong();
+			return new RevisionFileData(offset, Instant.ofEpochMilli(timestamp));
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
+	}
 
-  @Override
-  public void close() {
-  }
+	@Override
+	public void close() {
+	}
 
 }

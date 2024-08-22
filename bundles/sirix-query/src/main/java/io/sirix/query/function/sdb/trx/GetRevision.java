@@ -23,23 +23,25 @@ import io.sirix.query.function.sdb.SDBFun;
  */
 public final class GetRevision extends AbstractFunction {
 
-  /** Get most recent revision function name. */
-  public final static QNm REVISION = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "revision");
+	/** Get most recent revision function name. */
+	public final static QNm REVISION = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "revision");
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public GetRevision(final QNm name, final Signature signature) {
-    super(name, signature, true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public GetRevision(final QNm name, final Signature signature) {
+		super(name, signature, true);
+	}
 
-  @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+	@Override
+	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+		final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
-    return new Int32(doc.getTrx().getRevisionNumber());
-  }
+		return new Int32(doc.getTrx().getRevisionNumber());
+	}
 }

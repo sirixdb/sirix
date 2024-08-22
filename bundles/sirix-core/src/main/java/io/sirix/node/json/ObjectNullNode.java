@@ -34,26 +34,28 @@ import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.immutable.json.ImmutableObjectNullNode;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class ObjectNullNode extends AbstractNullNode {
 
-  /**
-   * Constructor.
-   *
-   * @param structNodeDelegate {@link StructNodeDelegate} to be set
-   */
-  public ObjectNullNode(final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param structNodeDelegate
+	 *            {@link StructNodeDelegate} to be set
+	 */
+	public ObjectNullNode(final StructNodeDelegate structNodeDelegate) {
+		super(structNodeDelegate);
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.OBJECT_NULL_VALUE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.OBJECT_NULL_VALUE;
+	}
 
-  @Override
-  public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
-    return visitor.visit(ImmutableObjectNullNode.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
+		return visitor.visit(ImmutableObjectNullNode.of(this));
+	}
 }

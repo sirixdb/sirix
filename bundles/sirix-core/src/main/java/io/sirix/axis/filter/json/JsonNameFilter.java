@@ -12,34 +12,38 @@ import io.sirix.axis.filter.AbstractFilter;
  */
 public final class JsonNameFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
-  /** Key of local name to test. */
-  private final QNm name;
+	/** Key of local name to test. */
+	private final QNm name;
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
-   * @param name name to check
-   */
-  public JsonNameFilter(final JsonNodeReadOnlyTrx rtx, final QNm name) {
-    super(rtx);
-    this.name = name;
-  }
+	/**
+	 * Default constructor.
+	 *
+	 * @param rtx
+	 *            {@link XmlNodeReadOnlyTrx} this filter is bound to
+	 * @param name
+	 *            name to check
+	 */
+	public JsonNameFilter(final JsonNodeReadOnlyTrx rtx, final QNm name) {
+		super(rtx);
+		this.name = name;
+	}
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
-   * @param name name to check
-   */
-  public JsonNameFilter(final JsonNodeReadOnlyTrx rtx, final String name) {
-    super(rtx);
-    this.name = new QNm(name);
-  }
+	/**
+	 * Default constructor.
+	 *
+	 * @param rtx
+	 *            {@link XmlNodeReadOnlyTrx} this filter is bound to
+	 * @param name
+	 *            name to check
+	 */
+	public JsonNameFilter(final JsonNodeReadOnlyTrx rtx, final String name) {
+		super(rtx);
+		this.name = new QNm(name);
+	}
 
-  @Override
-  public boolean filter() {
-    final JsonNodeReadOnlyTrx rtx = getTrx();
-    return rtx.isObjectKey() && name.equals(rtx.getName());
-  }
+	@Override
+	public boolean filter() {
+		final JsonNodeReadOnlyTrx rtx = getTrx();
+		return rtx.isObjectKey() && name.equals(rtx.getName());
+	}
 }

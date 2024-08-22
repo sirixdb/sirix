@@ -10,18 +10,18 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 
 final class XmlNameIndexListener implements ChangeListener {
 
-  private final NameIndexListener indexListener;
+	private final NameIndexListener indexListener;
 
-  XmlNameIndexListener(final NameIndexListener indexListener) {
-    this.indexListener = indexListener;
-  }
+	XmlNameIndexListener(final NameIndexListener indexListener) {
+		this.indexListener = indexListener;
+	}
 
-  @Override
-  public void listen(IndexController.ChangeType type, @NonNull ImmutableNode node, long pathNodeKey) {
-    if (node instanceof final NameNode nameNode) {
-      final QNm name = nameNode.getName();
+	@Override
+	public void listen(IndexController.ChangeType type, @NonNull ImmutableNode node, long pathNodeKey) {
+		if (node instanceof final NameNode nameNode) {
+			final QNm name = nameNode.getName();
 
-      indexListener.listen(type, nameNode, name);
-    }
-  }
+			indexListener.listen(type, nameNode, name);
+		}
+	}
 }

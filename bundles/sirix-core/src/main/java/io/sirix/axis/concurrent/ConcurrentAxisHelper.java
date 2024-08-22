@@ -32,61 +32,66 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
- * Is the helper for the ConcurrentAxis and realizes the concurrent evaluation of pipeline steps by
- * decoupling the given axis from the main thread and storing its results in a blocking queue so
- * establish a producer-consumer-relationship between the ConcurrentAxis and this one.
+ * Is the helper for the ConcurrentAxis and realizes the concurrent evaluation
+ * of pipeline steps by decoupling the given axis from the main thread and
+ * storing its results in a blocking queue so establish a
+ * producer-consumer-relationship between the ConcurrentAxis and this one.
  * </p>
  * <p>
- * This axis should only be used and instantiated by the ConcurrentAxis. Find more information on
- * how to use this framework in the ConcurrentAxis documentation.
+ * This axis should only be used and instantiated by the ConcurrentAxis. Find
+ * more information on how to use this framework in the ConcurrentAxis
+ * documentation.
  * </p>
  */
 public class ConcurrentAxisHelper implements Runnable {
 
-  /** Logger. */
-  public static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(ConcurrentAxisHelper.class));
+	/** Logger. */
+	public static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(ConcurrentAxisHelper.class));
 
-  /** {@link Axis} that computes the results. */
-  private final Axis axis;
+	/** {@link Axis} that computes the results. */
+	private final Axis axis;
 
-  /**
-   * Queue that stores result keys already computed by this axis. End of the result sequence is
-   * marked by the NULL_NODE_KEY. This is used for communication with the consumer.
-   */
-  private BlockingQueue<Long> results;
+	/**
+	 * Queue that stores result keys already computed by this axis. End of the
+	 * result sequence is marked by the NULL_NODE_KEY. This is used for
+	 * communication with the consumer.
+	 */
+	private BlockingQueue<Long> results;
 
-  /**
-   * Bind axis step to transaction. Make sure to create a new ReadTransaction instead of using the
-   * parameter rtx. Because of concurrency every axis has to have it's own transaction.
-   * 
-   * @param axis Axis to bind with
-   * @param results queue which has results related to the axis
-   */
-  public ConcurrentAxisHelper(final Axis axis, @NonNull final BlockingQueue<Long> results) {
-    this.axis = requireNonNull(axis);
-    this.results = requireNonNull(results);
-  }
+	/**
+	 * Bind axis step to transaction. Make sure to create a new ReadTransaction
+	 * instead of using the parameter rtx. Because of concurrency every axis has to
+	 * have it's own transaction.
+	 *
+	 * @param axis
+	 *            Axis to bind with
+	 * @param results
+	 *            queue which has results related to the axis
+	 */
+	public ConcurrentAxisHelper(final Axis axis, @NonNull final BlockingQueue<Long> results) {
+		this.axis = requireNonNull(axis);
+		this.results = requireNonNull(results);
+	}
 
-  @Override
-  public void run() {
-    // Compute all results of the given axis and store the results in the queue.
-    while (axis.hasNext()) {
-      final long nodeKey = axis.nextLong();
-      try {
-        // Store result in queue as soon as there is space left.
-        results.put(nodeKey);
-        // Wait until next thread arrives and exchange blocking queue.
-      } catch (final InterruptedException e) {
-        LOGWRAPPER.error(e.getMessage(), e);
-      }
-    }
+	@Override
+	public void run() {
+		// Compute all results of the given axis and store the results in the queue.
+		while (axis.hasNext()) {
+			final long nodeKey = axis.nextLong();
+			try {
+				// Store result in queue as soon as there is space left.
+				results.put(nodeKey);
+				// Wait until next thread arrives and exchange blocking queue.
+			} catch (final InterruptedException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
 
-    try {
-      // Mark end of result sequence by the NULL_NODE_KEY.
-      results.put(Fixed.NULL_NODE_KEY.getStandardProperty());
-    } catch (final InterruptedException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
+		try {
+			// Mark end of result sequence by the NULL_NODE_KEY.
+			results.put(Fixed.NULL_NODE_KEY.getStandardProperty());
+		} catch (final InterruptedException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+	}
 }

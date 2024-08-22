@@ -35,54 +35,62 @@ import static java.util.Objects.requireNonNull;
  */
 public final class ValueFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
-  /** Value test to do. */
-  private final byte[] mValue;
+	/** Value test to do. */
+	private final byte[] mValue;
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param rtx transaction this filter is bound to
-   * @param value value to find
-   */
-  public ValueFilter(final XmlNodeReadOnlyTrx rtx, final byte[] value) {
-    super(rtx);
-    mValue = requireNonNull(value);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param rtx
+	 *            transaction this filter is bound to
+	 * @param value
+	 *            value to find
+	 */
+	public ValueFilter(final XmlNodeReadOnlyTrx rtx, final byte[] value) {
+		super(rtx);
+		mValue = requireNonNull(value);
+	}
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param rtx Transaction to bind filter to.
-   * @param value Value to find.
-   */
-  public ValueFilter(final XmlNodeReadOnlyTrx rtx, final String value) {
-    this(rtx, TypedValue.getBytes(value));
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param rtx
+	 *            Transaction to bind filter to.
+	 * @param value
+	 *            Value to find.
+	 */
+	public ValueFilter(final XmlNodeReadOnlyTrx rtx, final String value) {
+		this(rtx, TypedValue.getBytes(value));
+	}
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param rtx Transaction to bind filter to.
-   * @param value Value to find.
-   */
-  public ValueFilter(final XmlNodeReadOnlyTrx rtx, final int value) {
-    this(rtx, TypedValue.getBytes(value));
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param rtx
+	 *            Transaction to bind filter to.
+	 * @param value
+	 *            Value to find.
+	 */
+	public ValueFilter(final XmlNodeReadOnlyTrx rtx, final int value) {
+		this(rtx, TypedValue.getBytes(value));
+	}
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param rtx Transaction to bind filter to.
-   * @param mValue Value to find.
-   */
-  public ValueFilter(final XmlNodeReadOnlyTrx rtx, final long mValue) {
-    this(rtx, TypedValue.getBytes(mValue));
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param rtx
+	 *            Transaction to bind filter to.
+	 * @param mValue
+	 *            Value to find.
+	 */
+	public ValueFilter(final XmlNodeReadOnlyTrx rtx, final long mValue) {
+		this(rtx, TypedValue.getBytes(mValue));
+	}
 
-  @Override
-  public final boolean filter() {
-    return (getTrx().getKind() == NodeKind.TEXT || getTrx().getKind() == NodeKind.ATTRIBUTE)
-        && (TypedValue.equals(getTrx().getValue(), mValue));
-  }
+	@Override
+	public final boolean filter() {
+		return (getTrx().getKind() == NodeKind.TEXT || getTrx().getKind() == NodeKind.ATTRIBUTE)
+				&& (TypedValue.equals(getTrx().getValue(), mValue));
+	}
 
 }

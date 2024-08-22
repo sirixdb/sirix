@@ -9,7 +9,7 @@ import io.sirix.api.NodeTrx;
  */
 public interface InternalNodeTrx<N extends NodeTrx> extends NodeTrx {
 
-    N setBulkInsertion(boolean bulkInsertion);
+	N setBulkInsertion(boolean bulkInsertion);
 
-    void adaptHashesInPostorderTraversal();
+	void adaptHashesInPostorderTraversal();
 }

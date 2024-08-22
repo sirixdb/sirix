@@ -36,7 +36,6 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.node.NodeKind;
@@ -61,234 +60,235 @@ import java.nio.ByteBuffer;
  */
 public final class PINode extends AbstractStructForwardingNode implements ValueNode, NameNode, ImmutableXmlNode {
 
-  /** Delegate for name node information. */
-  private final NameNodeDelegate nameNodeDelegate;
+	/** Delegate for name node information. */
+	private final NameNodeDelegate nameNodeDelegate;
 
-  /** Delegate for val node information. */
-  private final ValueNodeDelegate valueNodeDelegate;
+	/** Delegate for val node information. */
+	private final ValueNodeDelegate valueNodeDelegate;
 
-  /** Delegate for structural node information. */
-  private final StructNodeDelegate structNodeDelegate;
+	/** Delegate for structural node information. */
+	private final StructNodeDelegate structNodeDelegate;
 
-  private long hash;
+	private long hash;
 
-  /**
-   * Creating a processing instruction.
-   *
-   * @param structNodeDelegate {@link StructNodeDelegate} to be set
-   * @param nameNodeDelegate {@link NameNodeDelegate} to be set
-   * @param valueNodeDelegate {@link ValueNodeDelegate} to be set
-   */
-  public PINode(final long hashCode, final StructNodeDelegate structNodeDelegate, final NameNodeDelegate nameNodeDelegate,
-      final ValueNodeDelegate valueNodeDelegate) {
-    hash = hashCode;
-    assert structNodeDelegate != null : "structNodeDelegate must not be null!";
-    this.structNodeDelegate = structNodeDelegate;
-    assert nameNodeDelegate != null : "nameDel must not be null!";
-    this.nameNodeDelegate = nameNodeDelegate;
-    assert valueNodeDelegate != null : "valDel must not be null!";
-    this.valueNodeDelegate = valueNodeDelegate;
-  }
+	/**
+	 * Creating a processing instruction.
+	 *
+	 * @param structNodeDelegate
+	 *            {@link StructNodeDelegate} to be set
+	 * @param nameNodeDelegate
+	 *            {@link NameNodeDelegate} to be set
+	 * @param valueNodeDelegate
+	 *            {@link ValueNodeDelegate} to be set
+	 */
+	public PINode(final long hashCode, final StructNodeDelegate structNodeDelegate,
+			final NameNodeDelegate nameNodeDelegate, final ValueNodeDelegate valueNodeDelegate) {
+		hash = hashCode;
+		assert structNodeDelegate != null : "structNodeDelegate must not be null!";
+		this.structNodeDelegate = structNodeDelegate;
+		assert nameNodeDelegate != null : "nameDel must not be null!";
+		this.nameNodeDelegate = nameNodeDelegate;
+		assert valueNodeDelegate != null : "valDel must not be null!";
+		this.valueNodeDelegate = valueNodeDelegate;
+	}
 
-  /**
-   * Creating a processing instruction.
-   *
-   * @param structNodeDelegate {@link StructNodeDelegate} to be set
-   * @param nameNodeDelegate {@link NameNodeDelegate} to be set
-   * @param valueNodeDelegate {@link ValueNodeDelegate} to be set
-   *
-   */
-  public PINode(final StructNodeDelegate structNodeDelegate, final NameNodeDelegate nameNodeDelegate, final ValueNodeDelegate valueNodeDelegate) {
-    assert structNodeDelegate != null : "structNodeDelegate must not be null!";
-    this.structNodeDelegate = structNodeDelegate;
-    assert nameNodeDelegate != null : "nameDel must not be null!";
-    this.nameNodeDelegate = nameNodeDelegate;
-    assert valueNodeDelegate != null : "valDel must not be null!";
-    this.valueNodeDelegate = valueNodeDelegate;
-  }
+	/**
+	 * Creating a processing instruction.
+	 *
+	 * @param structNodeDelegate
+	 *            {@link StructNodeDelegate} to be set
+	 * @param nameNodeDelegate
+	 *            {@link NameNodeDelegate} to be set
+	 * @param valueNodeDelegate
+	 *            {@link ValueNodeDelegate} to be set
+	 *
+	 */
+	public PINode(final StructNodeDelegate structNodeDelegate, final NameNodeDelegate nameNodeDelegate,
+			final ValueNodeDelegate valueNodeDelegate) {
+		assert structNodeDelegate != null : "structNodeDelegate must not be null!";
+		this.structNodeDelegate = structNodeDelegate;
+		assert nameNodeDelegate != null : "nameDel must not be null!";
+		this.nameNodeDelegate = nameNodeDelegate;
+		assert valueNodeDelegate != null : "valDel must not be null!";
+		this.valueNodeDelegate = valueNodeDelegate;
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.PROCESSING_INSTRUCTION;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.PROCESSING_INSTRUCTION;
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    bytes.clear();
+		bytes.clear();
 
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+		bytes.writeLong(nodeDelegate.getNodeKey()).writeLong(nodeDelegate.getParentKey())
+				.writeByte(nodeDelegate.getKind().getId());
 
-    bytes.writeLong(structNodeDelegate.getChildCount())
-         .writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
+		bytes.writeLong(structNodeDelegate.getChildCount()).writeLong(structNodeDelegate.getDescendantCount())
+				.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey())
+				.writeLong(structNodeDelegate.getFirstChildKey());
 
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
-    }
+		if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+			bytes.writeLong(structNodeDelegate.getLastChildKey());
+		}
 
-    bytes.writeLong(nameNodeDelegate.getPrefixKey())
-         .writeLong(nameNodeDelegate.getLocalNameKey())
-         .writeLong(nameNodeDelegate.getURIKey());
+		bytes.writeLong(nameNodeDelegate.getPrefixKey()).writeLong(nameNodeDelegate.getLocalNameKey())
+				.writeLong(nameNodeDelegate.getURIKey());
 
-    bytes.writeUtf8(new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING));
+		bytes.writeUtf8(new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING));
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
+		final var buffer = bytes.underlyingObject().rewind();
+		buffer.limit((int) bytes.readLimit());
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
-  }
+		return nodeDelegate.getHashFunction().hashBytes(buffer);
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    this.hash = hash;
-  }
+	@Override
+	public void setHash(final long hash) {
+		this.hash = hash;
+	}
 
-  @Override
-  public long getHash() {
-    if (hash == 0L) {
-      hash = computeHash(Bytes.elasticHeapByteBuffer());
-    }
-    return hash;
-  }
+	@Override
+	public long getHash() {
+		if (hash == 0L) {
+			hash = computeHash(Bytes.elasticHeapByteBuffer());
+		}
+		return hash;
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
-    return visitor.visit(ImmutablePI.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
+		return visitor.visit(ImmutablePI.of(this));
+	}
 
-  @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("structDel", structNodeDelegate)
-                      .add("nameDel", nameNodeDelegate)
-                      .add("valDel", valueNodeDelegate)
-                      .toString();
-  }
+	@Override
+	public @NonNull String toString() {
+		return MoreObjects.toStringHelper(this).add("structDel", structNodeDelegate).add("nameDel", nameNodeDelegate)
+				.add("valDel", valueNodeDelegate).toString();
+	}
 
-  @Override
-  public int getPrefixKey() {
-    return nameNodeDelegate.getPrefixKey();
-  }
+	@Override
+	public int getPrefixKey() {
+		return nameNodeDelegate.getPrefixKey();
+	}
 
-  @Override
-  public int getLocalNameKey() {
-    return nameNodeDelegate.getLocalNameKey();
-  }
+	@Override
+	public int getLocalNameKey() {
+		return nameNodeDelegate.getLocalNameKey();
+	}
 
-  @Override
-  public int getURIKey() {
-    return nameNodeDelegate.getURIKey();
-  }
+	@Override
+	public int getURIKey() {
+		return nameNodeDelegate.getURIKey();
+	}
 
-  @Override
-  public void setPrefixKey(final int prefixKey) {
-    hash = 0L;
-    nameNodeDelegate.setPrefixKey(prefixKey);
-  }
+	@Override
+	public void setPrefixKey(final int prefixKey) {
+		hash = 0L;
+		nameNodeDelegate.setPrefixKey(prefixKey);
+	}
 
-  @Override
-  public void setLocalNameKey(final int localNameKey) {
-    hash = 0L;
-    nameNodeDelegate.setLocalNameKey(localNameKey);
-  }
+	@Override
+	public void setLocalNameKey(final int localNameKey) {
+		hash = 0L;
+		nameNodeDelegate.setLocalNameKey(localNameKey);
+	}
 
-  @Override
-  public void setURIKey(final int uriKey) {
-    hash = 0L;
-    nameNodeDelegate.setURIKey(uriKey);
-  }
+	@Override
+	public void setURIKey(final int uriKey) {
+		hash = 0L;
+		nameNodeDelegate.setURIKey(uriKey);
+	}
 
-  @Override
-  public byte[] getRawValue() {
-    return valueNodeDelegate.getRawValue();
-  }
+	@Override
+	public byte[] getRawValue() {
+		return valueNodeDelegate.getRawValue();
+	}
 
-  @Override
-  public void setRawValue(final byte[] value) {
-    hash = 0L;
-    valueNodeDelegate.setRawValue(value);
-  }
+	@Override
+	public void setRawValue(final byte[] value) {
+		hash = 0L;
+		valueNodeDelegate.setRawValue(value);
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(nameNodeDelegate, valueNodeDelegate);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(nameNodeDelegate, valueNodeDelegate);
+	}
 
-  @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof final PINode other) {
-      return Objects.equal(nameNodeDelegate, other.nameNodeDelegate) && Objects.equal(valueNodeDelegate, other.valueNodeDelegate);
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof final PINode other) {
+			return Objects.equal(nameNodeDelegate, other.nameNodeDelegate)
+					&& Objects.equal(valueNodeDelegate, other.valueNodeDelegate);
+		}
+		return false;
+	}
 
-  @Override
-  public void setPathNodeKey(final @NonNegative long pathNodeKey) {
-    hash = 0L;
-    nameNodeDelegate.setPathNodeKey(pathNodeKey);
-  }
+	@Override
+	public void setPathNodeKey(final @NonNegative long pathNodeKey) {
+		hash = 0L;
+		nameNodeDelegate.setPathNodeKey(pathNodeKey);
+	}
 
-  @Override
-  public long getPathNodeKey() {
-    return nameNodeDelegate.getPathNodeKey();
-  }
+	@Override
+	public long getPathNodeKey() {
+		return nameNodeDelegate.getPathNodeKey();
+	}
 
-  /**
-   * Getting the inlying {@link NameNodeDelegate}.
-   *
-   * @return the {@link NameNodeDelegate} instance
-   */
-  public NameNodeDelegate getNameNodeDelegate() {
-    return nameNodeDelegate;
-  }
+	/**
+	 * Getting the inlying {@link NameNodeDelegate}.
+	 *
+	 * @return the {@link NameNodeDelegate} instance
+	 */
+	public NameNodeDelegate getNameNodeDelegate() {
+		return nameNodeDelegate;
+	}
 
-  /**
-   * Getting the inlying {@link ValueNodeDelegate}.
-   *
-   * @return the {@link ValueNodeDelegate} instance
-   */
-  public ValueNodeDelegate getValNodeDelegate() {
-    return valueNodeDelegate;
-  }
+	/**
+	 * Getting the inlying {@link ValueNodeDelegate}.
+	 *
+	 * @return the {@link ValueNodeDelegate} instance
+	 */
+	public ValueNodeDelegate getValNodeDelegate() {
+		return valueNodeDelegate;
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return structNodeDelegate.getNodeDelegate();
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return structNodeDelegate.getNodeDelegate();
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return structNodeDelegate;
+	}
 
-  @Override
-  public QNm getName() {
-    return null;
-  }
+	@Override
+	public QNm getName() {
+		return null;
+	}
 
-  @Override
-  public String getValue() {
-    return new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING);
-  }
+	@Override
+	public String getValue() {
+		return new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING);
+	}
 
-  @Override
-  public SirixDeweyID getDeweyID() {
-    return structNodeDelegate.getNodeDelegate().getDeweyID();
-  }
+	@Override
+	public SirixDeweyID getDeweyID() {
+		return structNodeDelegate.getNodeDelegate().getDeweyID();
+	}
 
-  @Override
-  public int getTypeKey() {
-    return structNodeDelegate.getNodeDelegate().getTypeKey();
-  }
+	@Override
+	public int getTypeKey() {
+		return structNodeDelegate.getNodeDelegate().getTypeKey();
+	}
 
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    return structNodeDelegate.getDeweyIDAsBytes();
-  }
+	@Override
+	public byte[] getDeweyIDAsBytes() {
+		return structNodeDelegate.getDeweyIDAsBytes();
+	}
 }

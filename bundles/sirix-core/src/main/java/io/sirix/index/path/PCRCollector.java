@@ -5,5 +5,5 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 
 public interface PCRCollector {
-  PCRValue getPCRsForPaths(Set<Path<QNm>> paths);
+	PCRValue getPCRsForPaths(Set<Path<QNm>> paths);
 }

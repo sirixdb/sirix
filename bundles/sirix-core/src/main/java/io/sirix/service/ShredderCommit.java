@@ -32,26 +32,28 @@ import io.sirix.exception.SirixException;
  *
  */
 public enum ShredderCommit {
-  /** Auto commit afterwards. */
-  COMMIT {
-    @Override
-    public <T extends NodeTrx & NodeCursor> void commit(final T wtx) throws SirixException {
-      wtx.commit();
-    }
-  },
-  /** Do not commit after subtree has been shreddered. */
-  NOCOMMIT {
-    @Override
-    public <T extends NodeTrx & NodeCursor> void commit(final T wtx) throws SirixException {
-      // Do nothing.
-    }
-  };
+	/** Auto commit afterwards. */
+	COMMIT {
+		@Override
+		public <T extends NodeTrx & NodeCursor> void commit(final T wtx) throws SirixException {
+			wtx.commit();
+		}
+	},
+	/** Do not commit after subtree has been shreddered. */
+	NOCOMMIT {
+		@Override
+		public <T extends NodeTrx & NodeCursor> void commit(final T wtx) throws SirixException {
+			// Do nothing.
+		}
+	};
 
-  /**
-   * Determines if changes should be commited or not.
-   *
-   * @param wtx {@link NodeTrx} reference
-   * @throws SirixException if commiting changes fails
-   */
-  public abstract <T extends NodeTrx & NodeCursor> void commit(final T wtx) throws SirixException;
+	/**
+	 * Determines if changes should be commited or not.
+	 *
+	 * @param wtx
+	 *            {@link NodeTrx} reference
+	 * @throws SirixException
+	 *             if commiting changes fails
+	 */
+	public abstract <T extends NodeTrx & NodeCursor> void commit(final T wtx) throws SirixException;
 }

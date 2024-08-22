@@ -18,131 +18,131 @@ import java.util.Optional;
  * @author Joao Sousa
  */
 public interface ForwardingNodeReadOnlyTrx extends NodeReadOnlyTrx {
-    
-    NodeReadOnlyTrx delegate();
 
-    @Override
-    default long getId() {
-        return delegate().getId();
-    }
+	NodeReadOnlyTrx delegate();
 
-    @Override
-    default int getRevisionNumber() {
-        return delegate().getRevisionNumber();
-    }
+	@Override
+	default long getId() {
+		return delegate().getId();
+	}
 
-    @Override
-    default Instant getRevisionTimestamp() {
-        return delegate().getRevisionTimestamp();
-    }
+	@Override
+	default int getRevisionNumber() {
+		return delegate().getRevisionNumber();
+	}
 
-    @Override
-    default long getMaxNodeKey() {
-        return delegate().getMaxNodeKey();
-    }
+	@Override
+	default Instant getRevisionTimestamp() {
+		return delegate().getRevisionTimestamp();
+	}
 
-    @Override
-    default void close() {
-        delegate().close();
-    }
+	@Override
+	default long getMaxNodeKey() {
+		return delegate().getMaxNodeKey();
+	}
 
-    @Override
-    default long getNodeKey() {
-        return delegate().getNodeKey();
-    }
+	@Override
+	default void close() {
+		delegate().close();
+	}
 
-    @Override
-    default ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession() {
-        return delegate().getResourceSession();
-    }
+	@Override
+	default long getNodeKey() {
+		return delegate().getNodeKey();
+	}
 
-    @Override
-    default CommitCredentials getCommitCredentials() {
-        return delegate().getCommitCredentials();
-    }
+	@Override
+	default ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession() {
+		return delegate().getResourceSession();
+	}
 
-    @Override
-    default boolean moveTo(long key) {
-        return delegate().moveTo(key);
-    }
+	@Override
+	default CommitCredentials getCommitCredentials() {
+		return delegate().getCommitCredentials();
+	}
 
-    @Override
-    default PageReadOnlyTrx getPageTrx() {
-        return delegate().getPageTrx();
-    }
+	@Override
+	default boolean moveTo(long key) {
+		return delegate().moveTo(key);
+	}
 
-    @Override
-    default long getPathNodeKey() {
-        return delegate().getPathNodeKey();
-    }
+	@Override
+	default PageReadOnlyTrx getPageTrx() {
+		return delegate().getPageTrx();
+	}
 
-    @Override
-    default int keyForName(String name) {
-        return delegate().keyForName(name);
-    }
+	@Override
+	default long getPathNodeKey() {
+		return delegate().getPathNodeKey();
+	}
 
-    @Override
-    default String nameForKey(int key) {
-        return delegate().nameForKey(key);
-    }
+	@Override
+	default int keyForName(String name) {
+		return delegate().keyForName(name);
+	}
 
-    @Override
-    default long getDescendantCount() {
-        return delegate().getDescendantCount();
-    }
+	@Override
+	default String nameForKey(int key) {
+		return delegate().nameForKey(key);
+	}
 
-    @Override
-    default long getChildCount() {
-        return delegate().getChildCount();
-    }
+	@Override
+	default long getDescendantCount() {
+		return delegate().getDescendantCount();
+	}
 
-    @Override
-    default NodeKind getPathKind() {
-        return delegate().getPathKind();
-    }
+	@Override
+	default long getChildCount() {
+		return delegate().getChildCount();
+	}
 
-    @Override
-    default boolean isDocumentRoot() {
-        return delegate().isDocumentRoot();
-    }
+	@Override
+	default NodeKind getPathKind() {
+		return delegate().getPathKind();
+	}
 
-    @Override
-    default boolean isClosed() {
-        return delegate().isClosed();
-    }
+	@Override
+	default boolean isDocumentRoot() {
+		return delegate().isDocumentRoot();
+	}
 
-    @Override
-    default QNm getName() {
-        return delegate().getName();
-    }
+	@Override
+	default boolean isClosed() {
+		return delegate().isClosed();
+	}
 
-    @Override
-    default boolean hasChildren() {
-        return delegate().hasChildren();
-    }
+	@Override
+	default QNm getName() {
+		return delegate().getName();
+	}
 
-    @Override
-    default long getHash() {
-        return delegate().getHash();
-    }
+	@Override
+	default boolean hasChildren() {
+		return delegate().hasChildren();
+	}
 
-    @Override
-    default String getValue() {
-        return delegate().getValue();
-    }
+	@Override
+	default long getHash() {
+		return delegate().getHash();
+	}
 
-    @Override
-    default Optional<User> getUser() {
-        return delegate().getUser();
-    }
+	@Override
+	default String getValue() {
+		return delegate().getValue();
+	}
 
-    @Override
-    default boolean storeDeweyIDs() {
-        return delegate().storeDeweyIDs();
-    }
+	@Override
+	default Optional<User> getUser() {
+		return delegate().getUser();
+	}
 
-    @Override
-    default SirixDeweyID getDeweyID() {
-        return delegate().getDeweyID();
-    }
+	@Override
+	default boolean storeDeweyIDs() {
+		return delegate().storeDeweyIDs();
+	}
+
+	@Override
+	default SirixDeweyID getDeweyID() {
+		return delegate().getDeweyID();
+	}
 }

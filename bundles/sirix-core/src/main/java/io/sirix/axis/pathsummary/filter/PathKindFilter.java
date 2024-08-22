@@ -36,13 +36,15 @@ import java.util.function.Predicate;
 
 /**
  * Filters path nodes based on a path kind.
- * @param kind the kind to match
+ *
+ * @param kind
+ *            the kind to match
  *
  * @author Johannes Lichtenberger
  */
 public record PathKindFilter(@NonNull NodeKind kind) implements Predicate<PathNode> {
-  @Override
-  public boolean test(PathNode pathNode) {
-    return kind == pathNode.getPathKind();
-  }
+	@Override
+	public boolean test(PathNode pathNode) {
+		return kind == pathNode.getPathKind();
+	}
 }

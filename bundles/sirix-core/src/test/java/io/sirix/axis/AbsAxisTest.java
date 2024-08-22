@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -37,90 +37,90 @@ import io.sirix.XmlTestHelper;
 
 public class AbsAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  public static void testAxisConventions(final Axis axis, final long[] expectedKeys) {
-    // Axis Convention 1.
-    final long startKey = axis.getTrx().getNodeKey();
+	public static void testAxisConventions(final Axis axis, final long[] expectedKeys) {
+		// Axis Convention 1.
+		final long startKey = axis.getTrx().getNodeKey();
 
-    final long[] keys = new long[expectedKeys.length];
-    int offset = 0;
-    while (axis.hasNext()) {
-      axis.next();
-      // Axis results.
-      assertTrue(offset < expectedKeys.length);
-      keys[offset++] = axis.getTrx().getNodeKey();
+		final long[] keys = new long[expectedKeys.length];
+		int offset = 0;
+		while (axis.hasNext()) {
+			axis.next();
+			// Axis results.
+			assertTrue(offset < expectedKeys.length);
+			keys[offset++] = axis.getTrx().getNodeKey();
 
-      // Axis Convention 3.
-      axis.getTrx().moveToDocumentRoot();
-    }
+			// Axis Convention 3.
+			axis.getTrx().moveToDocumentRoot();
+		}
 
-    // Axis Convention 5.
-    assertEquals(startKey, axis.getTrx().getNodeKey());
+		// Axis Convention 5.
+		assertEquals(startKey, axis.getTrx().getNodeKey());
 
-    // Axis results.
-    assertArrayEquals(expectedKeys, keys);
-  }
+		// Axis results.
+		assertArrayEquals(expectedKeys, keys);
+	}
 
-  public static void testAxisConventionsNext(final Axis axis, final long[] expectedKeys) {
-    // IAxis Convention 1.
-    final long startKey = axis.getTrx().getNodeKey();
+	public static void testAxisConventionsNext(final Axis axis, final long[] expectedKeys) {
+		// IAxis Convention 1.
+		final long startKey = axis.getTrx().getNodeKey();
 
-    final long[] keys = new long[expectedKeys.length];
-    int offset = 0;
+		final long[] keys = new long[expectedKeys.length];
+		int offset = 0;
 
-    try {
-      while (axis.next() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
-        // Axis results.
-        assertTrue(offset < expectedKeys.length);
-        keys[offset++] = axis.getTrx().getNodeKey();
-      }
-    } catch (final NoSuchElementException e) {
-    }
+		try {
+			while (axis.next() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+				// Axis results.
+				assertTrue(offset < expectedKeys.length);
+				keys[offset++] = axis.getTrx().getNodeKey();
+			}
+		} catch (final NoSuchElementException e) {
+		}
 
-    // Axis Convention 5.
-    assertEquals(startKey, axis.getTrx().getNodeKey());
+		// Axis Convention 5.
+		assertEquals(startKey, axis.getTrx().getNodeKey());
 
-    // Axis results.
-    assertArrayEquals(expectedKeys, keys);
-  }
+		// Axis results.
+		assertArrayEquals(expectedKeys, keys);
+	}
 
-  public static void testIterable(final Iterator<Long> axis, final long[] expectedKeys) {
-    final long[] keys = new long[expectedKeys.length];
-    int offset = 0;
-    while (axis.hasNext()) {
-      final long key = axis.next();
-      // Iterable results.
-      assertTrue(offset < expectedKeys.length);
-      keys[offset++] = key;
-    }
+	public static void testIterable(final Iterator<Long> axis, final long[] expectedKeys) {
+		final long[] keys = new long[expectedKeys.length];
+		int offset = 0;
+		while (axis.hasNext()) {
+			final long key = axis.next();
+			// Iterable results.
+			assertTrue(offset < expectedKeys.length);
+			keys[offset++] = key;
+		}
 
-    // Iterable results.
-    assertArrayEquals(expectedKeys, keys);
-  }
+		// Iterable results.
+		assertArrayEquals(expectedKeys, keys);
+	}
 
-  @Test
-  public void testAxisUserExample() {
-    final Axis axis = new DescendantAxis(holder.getXmlNodeReadTrx());
-    long count = 0L;
-    while (axis.hasNext()) {
-      axis.nextLong();
-      count += 1;
-    }
-    assertEquals(10L, count);
-  }
+	@Test
+	public void testAxisUserExample() {
+		final Axis axis = new DescendantAxis(holder.getXmlNodeReadTrx());
+		long count = 0L;
+		while (axis.hasNext()) {
+			axis.nextLong();
+			count += 1;
+		}
+		assertEquals(10L, count);
+	}
 
 }

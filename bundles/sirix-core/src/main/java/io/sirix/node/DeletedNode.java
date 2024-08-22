@@ -46,51 +46,52 @@ import static java.util.Objects.requireNonNull;
  */
 public final class DeletedNode extends AbstractForwardingNode {
 
-  /**
-   * Delegate for common data.
-   */
-  private final NodeDelegate nodeDelegate;
+	/**
+	 * Delegate for common data.
+	 */
+	private final NodeDelegate nodeDelegate;
 
-  /**
-   * Constructor.
-   *
-   * @param nodeDel node delegate
-   */
-  public DeletedNode(final NodeDelegate nodeDel) {
-    nodeDelegate = requireNonNull(nodeDel);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param nodeDel
+	 *            node delegate
+	 */
+	public DeletedNode(final NodeDelegate nodeDel) {
+		nodeDelegate = requireNonNull(nodeDel);
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.DELETE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.DELETE;
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(nodeDelegate);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(nodeDelegate);
+	}
 
-  @Override
-  public boolean equals(final Object obj) {
-    if (!(obj instanceof DeletedNode))
-      return false;
+	@Override
+	public boolean equals(final Object obj) {
+		if (!(obj instanceof DeletedNode))
+			return false;
 
-    final DeletedNode other = (DeletedNode) obj;
-    return Objects.equal(nodeDelegate, other.nodeDelegate);
-  }
+		final DeletedNode other = (DeletedNode) obj;
+		return Objects.equal(nodeDelegate, other.nodeDelegate);
+	}
 
-  @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this).add("delegate", nodeDelegate.toString()).toString();
-  }
+	@Override
+	public @NonNull String toString() {
+		return MoreObjects.toStringHelper(this).add("delegate", nodeDelegate.toString()).toString();
+	}
 
-  @Override
-  public boolean isSameItem(final @Nullable Node other) {
-    return nodeDelegate.isSameItem(other);
-  }
+	@Override
+	public boolean isSameItem(final @Nullable Node other) {
+		return nodeDelegate.isSameItem(other);
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return nodeDelegate;
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return nodeDelegate;
+	}
 }

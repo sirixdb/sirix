@@ -11,18 +11,19 @@ import io.sirix.axis.filter.AbstractFilter;
  */
 public final class NumberValueFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx Transaction this filter is bound to.
-   */
-  public NumberValueFilter(final JsonNodeReadOnlyTrx rtx) {
-    super(rtx);
-  }
+	/**
+	 * Default constructor.
+	 *
+	 * @param rtx
+	 *            Transaction this filter is bound to.
+	 */
+	public NumberValueFilter(final JsonNodeReadOnlyTrx rtx) {
+		super(rtx);
+	}
 
-  @Override
-  public final boolean filter() {
-    return getTrx().getKind() == NodeKind.NUMBER_VALUE;
-  }
+	@Override
+	public final boolean filter() {
+		return getTrx().getKind() == NodeKind.NUMBER_VALUE;
+	}
 
 }

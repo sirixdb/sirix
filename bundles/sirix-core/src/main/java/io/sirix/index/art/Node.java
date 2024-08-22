@@ -3,15 +3,15 @@ package io.sirix.index.art;
 abstract class Node {
 	/**
 	 * @return child pointer for the smallest partialKey stored in this Node.
-	 * 			Returns null if this node has no children.
+	 *         Returns null if this node has no children.
 	 */
 	abstract Node first();
 
 	abstract Node firstOrLeaf();
 
 	/**
-	 * @return child pointer for the largest partialKey stored in this Node.
-	 * 			Returns null if this node has no children.
+	 * @return child pointer for the largest partialKey stored in this Node. Returns
+	 *         null if this node has no children.
 	 */
 	abstract Node last();
 
@@ -20,7 +20,8 @@ abstract class Node {
 	private InnerNode parent;
 	private byte partialKey;
 
-	Node(){}
+	Node() {
+	}
 
 	// copy ctor. called when growing/shrinking
 	Node(Node node) {

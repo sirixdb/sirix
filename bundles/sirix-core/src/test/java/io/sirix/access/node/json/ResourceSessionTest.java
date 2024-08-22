@@ -24,49 +24,44 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @author Johannes Lichtenberger
  */
 public final class ResourceSessionTest {
-  @BeforeEach
-  public void setUp() {
-    JsonTestHelper.deleteEverything();
-  }
+	@BeforeEach
+	public void setUp() {
+		JsonTestHelper.deleteEverything();
+	}
 
-  @AfterEach
-  public void tearDown() {
-    JsonTestHelper.closeEverything();
-  }
+	@AfterEach
+	public void tearDown() {
+		JsonTestHelper.closeEverything();
+	}
 
-  @DisplayName("throw exception when multiple read-write transactions are started")
-  @Test
-  public void test_whenMultipleReadWriteTrxStarted_throwException() {
-    final Exception exception = assertThrows(RuntimeException.class, () -> createTransactions(resourceManager -> {
-      resourceManager.beginNodeTrx();
-      resourceManager.beginNodeTrx();
-    }));
+	@DisplayName("throw exception when multiple read-write transactions are started")
+	@Test
+	public void test_whenMultipleReadWriteTrxStarted_throwException() {
+		final Exception exception = assertThrows(RuntimeException.class, () -> createTransactions(resourceManager -> {
+			resourceManager.beginNodeTrx();
+			resourceManager.beginNodeTrx();
+		}));
 
-    assertion(exception);
-  }
+		assertion(exception);
+	}
 
-  private void createTransactions(Consumer<JsonResourceSession> startTransactions) {
-    final var resource = "resource";
+	private void createTransactions(Consumer<JsonResourceSession> startTransactions) {
+		final var resource = "resource";
 
-    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder(resource)
-                                                   .storeDiffs(false)
-                                                   .hashKind(HashType.NONE)
-                                                   .buildPathSummary(false)
-                                                   .versioningApproach(VersioningType.FULL)
-                                                   .storageType(StorageType.MEMORY_MAPPED)
-                                                   .build());
-      try (final var manager = database.beginResourceSession(resource)) {
-        startTransactions.accept(manager);
-      }
-    }
-  }
+		try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
+			database.createResource(ResourceConfiguration.newBuilder(resource).storeDiffs(false).hashKind(HashType.NONE)
+					.buildPathSummary(false).versioningApproach(VersioningType.FULL)
+					.storageType(StorageType.MEMORY_MAPPED).build());
+			try (final var manager = database.beginResourceSession(resource)) {
+				startTransactions.accept(manager);
+			}
+		}
+	}
 
-  private void assertion(Exception exception) {
-    final var expectedMessage =
-        "No read-write transaction available, please close the running read-write transaction first.";
-    final var actualMessage = exception.getMessage();
+	private void assertion(Exception exception) {
+		final var expectedMessage = "No read-write transaction available, please close the running read-write transaction first.";
+		final var actualMessage = exception.getMessage();
 
-    assertTrue(actualMessage.contains(expectedMessage));
-  }
+		assertTrue(actualMessage.contains(expectedMessage));
+	}
 }

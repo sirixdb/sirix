@@ -30,28 +30,30 @@ package io.sirix.node.interfaces;
 
 /**
  * Interface for nodes which incorporate values.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
- * 
+ *
  */
 public interface ValueNode extends Node {
-  /**
-   * Return a byte array representation of the item's value.
-   * 
-   * @return the value of the node
-   */
-  byte[] getRawValue();
+	/**
+	 * Return a byte array representation of the item's value.
+	 *
+	 * @return the value of the node
+	 */
+	byte[] getRawValue();
 
-  /**
-   * Setting the value key.
-   * 
-   * @param value the value to be set
-   */
-  void setRawValue(byte[] value);
+	/**
+	 * Setting the value key.
+	 *
+	 * @param value
+	 *            the value to be set
+	 */
+	void setRawValue(byte[] value);
 
-  /**
-   * Get the value as a String
-   * @return the value
-   */
-  String getValue();
+	/**
+	 * Get the value as a String
+	 *
+	 * @return the value
+	 */
+	String getValue();
 }

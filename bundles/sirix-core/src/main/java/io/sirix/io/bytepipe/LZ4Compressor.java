@@ -13,18 +13,18 @@ import java.io.OutputStream;
  */
 public final class LZ4Compressor implements ByteHandler {
 
-  @Override
-  public OutputStream serialize(final OutputStream toSerialize) {
-    return new LZ4BlockOutputStream(toSerialize);
-  }
+	@Override
+	public OutputStream serialize(final OutputStream toSerialize) {
+		return new LZ4BlockOutputStream(toSerialize);
+	}
 
-  @Override
-  public InputStream deserialize(final InputStream toDeserialize) {
-    return new LZ4BlockInputStream(toDeserialize);
-  }
+	@Override
+	public InputStream deserialize(final InputStream toDeserialize) {
+		return new LZ4BlockInputStream(toDeserialize);
+	}
 
-  @Override
-  public ByteHandler getInstance() {
-    return new LZ4Compressor();
-  }
+	@Override
+	public ByteHandler getInstance() {
+		return new LZ4Compressor();
+	}
 }

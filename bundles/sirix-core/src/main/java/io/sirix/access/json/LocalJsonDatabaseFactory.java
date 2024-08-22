@@ -21,21 +21,21 @@ import javax.inject.Singleton;
 @Singleton
 public class LocalJsonDatabaseFactory implements LocalDatabaseFactory<JsonResourceSession> {
 
-  /**
-   * Logger for {@link LocalJsonDatabaseFactory}.
-   */
-  private static final Logger logger = LoggerFactory.getLogger(LocalJsonDatabaseFactory.class);
+	/**
+	 * Logger for {@link LocalJsonDatabaseFactory}.
+	 */
+	private static final Logger logger = LoggerFactory.getLogger(LocalJsonDatabaseFactory.class);
 
-  private final Provider<JsonLocalDatabaseComponent.Builder> subComponentBuilder;
+	private final Provider<JsonLocalDatabaseComponent.Builder> subComponentBuilder;
 
-  @Inject
-  LocalJsonDatabaseFactory(final Provider<Builder> subComponentBuilder) {
-    this.subComponentBuilder = subComponentBuilder;
-  }
+	@Inject
+	LocalJsonDatabaseFactory(final Provider<Builder> subComponentBuilder) {
+		this.subComponentBuilder = subComponentBuilder;
+	}
 
-  @Override
-  public Database<JsonResourceSession> createDatabase(final DatabaseConfiguration configuration, final User user) {
-    logger.trace("Creating new local JSON database instance (open)");
-    return this.subComponentBuilder.get().databaseConfiguration(configuration).user(user).build().database();
-  }
+	@Override
+	public Database<JsonResourceSession> createDatabase(final DatabaseConfiguration configuration, final User user) {
+		logger.trace("Creating new local JSON database instance (open)");
+		return this.subComponentBuilder.get().databaseConfiguration(configuration).user(user).build().database();
+	}
 }

@@ -50,44 +50,45 @@ import java.io.PrintStream;
  */
 public final class Serialize extends AbstractFunction {
 
-  public static final QNm DEFAULT_NAME = new QNm(XMLFun.XML_NSURI, XMLFun.XML_PREFIX, "serialize");
+	public static final QNm DEFAULT_NAME = new QNm(XMLFun.XML_NSURI, XMLFun.XML_PREFIX, "serialize");
 
-  public Serialize() {
-    this(DEFAULT_NAME);
-  }
+	public Serialize() {
+		this(DEFAULT_NAME);
+	}
 
-  /**
-   * Constructor.
-   *
-   * @param name the qname
-   */
-  public Serialize(QNm name) {
-    super(name,
-        new Signature(new SequenceType(AtomicType.STR, Cardinality.One), SequenceType.ITEM_SEQUENCE,
-            new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne),
-            new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)),
-        true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the qname
+	 */
+	public Serialize(QNm name) {
+		super(name,
+				new Signature(new SequenceType(AtomicType.STR, Cardinality.One), SequenceType.ITEM_SEQUENCE,
+						new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne),
+						new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)),
+				true);
+	}
 
-  @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final Sequence sequence = args[0];
-    if (sequence == null) {
-      return Int32.ZERO;
-    }
-    final boolean format = FunUtil.getBoolean(args, 1, "prettyPrint", false, false);
-    final String file = FunUtil.getString(args, 2, "file", null, null, false);
-    final PrintStream buf;
-    if (file == null) {
-      buf = IOUtils.createBuffer();
-    } else {
-      try {
-        buf = new PrintStream(new FileOutputStream(file));
-      } catch (final FileNotFoundException e) {
-        throw new QueryException(SDBFun.ERR_FILE_NOT_FOUND, e);
-      }
-    }
-    new StringSerializer(buf).setFormat(format).serialize(sequence);
-    return new Str(buf.toString());
-  }
+	@Override
+	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
+		final Sequence sequence = args[0];
+		if (sequence == null) {
+			return Int32.ZERO;
+		}
+		final boolean format = FunUtil.getBoolean(args, 1, "prettyPrint", false, false);
+		final String file = FunUtil.getString(args, 2, "file", null, null, false);
+		final PrintStream buf;
+		if (file == null) {
+			buf = IOUtils.createBuffer();
+		} else {
+			try {
+				buf = new PrintStream(new FileOutputStream(file));
+			} catch (final FileNotFoundException e) {
+				throw new QueryException(SDBFun.ERR_FILE_NOT_FOUND, e);
+			}
+		}
+		new StringSerializer(buf).setFormat(format).serialize(sequence);
+		return new Str(buf.toString());
+	}
 }

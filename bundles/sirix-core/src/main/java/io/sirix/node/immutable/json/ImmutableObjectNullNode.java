@@ -20,45 +20,47 @@ import static java.util.Objects.requireNonNull;
  */
 public final class ImmutableObjectNullNode extends AbstractImmutableJsonStructuralNode {
 
-  /** Mutable {@link ObjectNullNode}. */
-  private final ObjectNullNode node;
+	/** Mutable {@link ObjectNullNode}. */
+	private final ObjectNullNode node;
 
-  /**
-   * Private constructor.
-   *
-   * @param node mutable {@link ElementNode}
-   */
-  private ImmutableObjectNullNode(final ObjectNullNode node) {
-    this.node = requireNonNull(node);
-  }
+	/**
+	 * Private constructor.
+	 *
+	 * @param node
+	 *            mutable {@link ElementNode}
+	 */
+	private ImmutableObjectNullNode(final ObjectNullNode node) {
+		this.node = requireNonNull(node);
+	}
 
-  /**
-   * Get an immutable JSON-array node instance.
-   *
-   * @param node the mutable {@link ImmutableObjectNullNode} to wrap
-   * @return immutable JSON-array node instance
-   */
-  public static ImmutableObjectNullNode of(final ObjectNullNode node) {
-    return new ImmutableObjectNullNode(node);
-  }
+	/**
+	 * Get an immutable JSON-array node instance.
+	 *
+	 * @param node
+	 *            the mutable {@link ImmutableObjectNullNode} to wrap
+	 * @return immutable JSON-array node instance
+	 */
+	public static ImmutableObjectNullNode of(final ObjectNullNode node) {
+		return new ImmutableObjectNullNode(node);
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(this);
-  }
+	@Override
+	public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+		return visitor.visit(this);
+	}
 
-  @Override
-  public StructNode structDelegate() {
-    return node;
-  }
+	@Override
+	public StructNode structDelegate() {
+		return node;
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.NULL_VALUE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.NULL_VALUE;
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    return node.computeHash(bytes);
-  }
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		return node.computeHash(bytes);
+	}
 }

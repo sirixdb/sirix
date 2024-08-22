@@ -20,79 +20,80 @@ import static org.junit.jupiter.api.Assertions.assertSame;
  */
 class WriteLocksRegistryTest {
 
-  private WriteLocksRegistry registry;
+	private WriteLocksRegistry registry;
 
-  @TempDir
-  static Path basicPath;
+	@TempDir
+	static Path basicPath;
 
-  private static Path resourcePath;
+	private static Path resourcePath;
 
-  private static Path altResourcePath;
+	private static Path altResourcePath;
 
-  @BeforeAll
-  public static void setupAll() throws IOException {
-    resourcePath = Files.createDirectory(basicPath.resolve("resource"));
-    altResourcePath = Files.createDirectory(basicPath.resolve("alternativeResource"));
-  }
+	@BeforeAll
+	public static void setupAll() throws IOException {
+		resourcePath = Files.createDirectory(basicPath.resolve("resource"));
+		altResourcePath = Files.createDirectory(basicPath.resolve("alternativeResource"));
+	}
 
-  @BeforeEach
-  public void setup() {
-    this.registry = new WriteLocksRegistry();
-  }
+	@BeforeEach
+	public void setup() {
+		this.registry = new WriteLocksRegistry();
+	}
 
-  /**
-   * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} on
-   * an empty {@link WriteLocksRegistry} will still return a valid lock.
-   */
-  @Test
-  public final void getOnEmptyRegistryReturnsLock() {
-    assertNotNull(this.registry.getWriteLock(this.resourcePath));
-  }
+	/**
+	 * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} on an empty
+	 * {@link WriteLocksRegistry} will still return a valid lock.
+	 */
+	@Test
+	public final void getOnEmptyRegistryReturnsLock() {
+		assertNotNull(this.registry.getWriteLock(this.resourcePath));
+	}
 
-  /**
-   * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} multiple
-   * times for the same resource path outputs the same object.
-   */
-  @Test
-  public final void multipleGetsOnSamePathReturnSameLock() {
-    final var lock = this.registry.getWriteLock(this.resourcePath);
-    final var sameLock = this.registry.getWriteLock(this.resourcePath);
+	/**
+	 * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} multiple
+	 * times for the same resource path outputs the same object.
+	 */
+	@Test
+	public final void multipleGetsOnSamePathReturnSameLock() {
+		final var lock = this.registry.getWriteLock(this.resourcePath);
+		final var sameLock = this.registry.getWriteLock(this.resourcePath);
 
-    assertSame(lock, sameLock);
-  }
+		assertSame(lock, sameLock);
+	}
 
-  /**
-   * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} with different
-   * resource paths will lead to different locks.
-   */
-  @Test
-  public final void differentPathsCreateDifferentLocks() {
-    final var oneLock = this.registry.getWriteLock(this.resourcePath);
-    final var anotherLock = this.registry.getWriteLock(this.altResourcePath);
+	/**
+	 * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} with
+	 * different resource paths will lead to different locks.
+	 */
+	@Test
+	public final void differentPathsCreateDifferentLocks() {
+		final var oneLock = this.registry.getWriteLock(this.resourcePath);
+		final var anotherLock = this.registry.getWriteLock(this.altResourcePath);
 
-    assertNotSame(oneLock, anotherLock);
-  }
+		assertNotSame(oneLock, anotherLock);
+	}
 
-  /**
-   * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} after
-   * {@link WriteLocksRegistry#removeWriteLock(Path)} returns a different lock that the initial one.
-   */
-  @Test
-  public final void getAfterRemoveResetsLock() {
-    final var initialLock = this.registry.getWriteLock(this.resourcePath);
-    this.registry.removeWriteLock(this.resourcePath);
-    final var anotherLock = this.registry.getWriteLock(this.resourcePath);
+	/**
+	 * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} after
+	 * {@link WriteLocksRegistry#removeWriteLock(Path)} returns a different lock
+	 * that the initial one.
+	 */
+	@Test
+	public final void getAfterRemoveResetsLock() {
+		final var initialLock = this.registry.getWriteLock(this.resourcePath);
+		this.registry.removeWriteLock(this.resourcePath);
+		final var anotherLock = this.registry.getWriteLock(this.resourcePath);
 
-    assertNotSame(initialLock, anotherLock);
-  }
+		assertNotSame(initialLock, anotherLock);
+	}
 
-  /**
-   * Tests that calling {@link WriteLocksRegistry#removeWriteLock(Path)} on an empty
-   * {@link WriteLocksRegistry} does not throw an exception.
-   */
-  @Test
-  public final void removeOnEmptyRegistryDoesNotThrowException() {
-    this.registry.removeWriteLock(this.resourcePath);
-  }
+	/**
+	 * Tests that calling {@link WriteLocksRegistry#removeWriteLock(Path)} on an
+	 * empty {@link WriteLocksRegistry} does not throw an exception.
+	 */
+	@Test
+	public final void removeOnEmptyRegistryDoesNotThrowException() {
+		this.registry.removeWriteLock(this.resourcePath);
+	}
 
 }

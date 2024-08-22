@@ -13,7 +13,8 @@ import com.google.common.collect.AbstractIterator;
  *
  */
 public abstract class AbstractTemporalAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
-    extends AbstractIterator<R> {
+		extends
+			AbstractIterator<R> {
 
-  public abstract ResourceSession<R, W> getResourceManager();
+	public abstract ResourceSession<R, W> getResourceManager();
 }

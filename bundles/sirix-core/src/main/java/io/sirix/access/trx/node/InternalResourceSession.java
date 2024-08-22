@@ -8,43 +8,44 @@ import java.nio.file.Path;
 import java.util.concurrent.locks.Lock;
 
 public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
-    extends ResourceSession<R, W> {
-  /**
-   * Abort the write-transaction.
-   */
-  enum Abort {
-    /**
-     * Yes, abort.
-     */
-    YES,
+		extends
+			ResourceSession<R, W> {
+	/**
+	 * Abort the write-transaction.
+	 */
+	enum Abort {
+		/**
+		 * Yes, abort.
+		 */
+		YES,
 
-    /**
-     * No, don't abort.
-     */
-    NO
-  }
+		/**
+		 * No, don't abort.
+		 */
+		NO
+	}
 
-  Reader createReader();
+	Reader createReader();
 
-  Path getCommitFile();
+	Path getCommitFile();
 
-  void assertAccess(int revision);
+	void assertAccess(int revision);
 
-  PageTrx createPageTransaction(long trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx);
+	PageTrx createPageTransaction(long trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx);
 
-  Lock getCommitLock();
+	Lock getCommitLock();
 
-  void setLastCommittedUberPage(UberPage lastUberPage);
+	void setLastCommittedUberPage(UberPage lastUberPage);
 
-  void closeWriteTransaction(long transactionID);
+	void closeWriteTransaction(long transactionID);
 
-  void setNodePageWriteTransaction(long transactionID, PageTrx pageTrx);
+	void setNodePageWriteTransaction(long transactionID, PageTrx pageTrx);
 
-  void closeNodePageWriteTransaction(long transactionID);
+	void closeNodePageWriteTransaction(long transactionID);
 
-  void closeReadTransaction(long trxId);
+	void closeReadTransaction(long trxId);
 
-  void closePageReadTransaction(Long trxId);
+	void closePageReadTransaction(Long trxId);
 
-  void closePageWriteTransaction(Long transactionID);
+	void closePageWriteTransaction(Long transactionID);
 }

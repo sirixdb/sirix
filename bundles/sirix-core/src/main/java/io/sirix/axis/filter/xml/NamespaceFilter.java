@@ -31,18 +31,19 @@ import io.sirix.axis.filter.AbstractFilter;
  */
 public final class NamespaceFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx Transaction this filter is bound to.
-   */
-  public NamespaceFilter(final XmlNodeReadOnlyTrx rtx) {
-    super(rtx);
-  }
+	/**
+	 * Default constructor.
+	 *
+	 * @param rtx
+	 *            Transaction this filter is bound to.
+	 */
+	public NamespaceFilter(final XmlNodeReadOnlyTrx rtx) {
+		super(rtx);
+	}
 
-  @Override
-  public final boolean filter() {
-    return getTrx().isNamespace();
-  }
+	@Override
+	public final boolean filter() {
+		return getTrx().isNamespace();
+	}
 
 }

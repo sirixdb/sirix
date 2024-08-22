@@ -41,79 +41,76 @@ import java.nio.ByteBuffer;
 
 public abstract class AbstractBooleanNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
-  private final StructNodeDelegate structNodeDelegate;
+	private final StructNodeDelegate structNodeDelegate;
 
-  private boolean boolValue;
+	private boolean boolValue;
 
-  private long hashCode;
+	private long hashCode;
 
-  public AbstractBooleanNode(StructNodeDelegate structNodeDelegate, final boolean boolValue) {
-    this.structNodeDelegate = structNodeDelegate;
-    this.boolValue = boolValue;
-  }
+	public AbstractBooleanNode(StructNodeDelegate structNodeDelegate, final boolean boolValue) {
+		this.structNodeDelegate = structNodeDelegate;
+		this.boolValue = boolValue;
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    bytes.clear();
+		bytes.clear();
 
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+		bytes.writeLong(nodeDelegate.getNodeKey()).writeLong(nodeDelegate.getParentKey())
+				.writeByte(nodeDelegate.getKind().getId());
 
-    bytes.writeLong(structNodeDelegate.getChildCount())
-         .writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
+		bytes.writeLong(structNodeDelegate.getChildCount()).writeLong(structNodeDelegate.getDescendantCount())
+				.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey())
+				.writeLong(structNodeDelegate.getFirstChildKey());
 
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
-    }
+		if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+			bytes.writeLong(structNodeDelegate.getLastChildKey());
+		}
 
-    bytes.writeBoolean(boolValue);
+		bytes.writeBoolean(boolValue);
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
+		final var buffer = bytes.underlyingObject().rewind();
+		buffer.limit((int) bytes.readLimit());
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
-  }
+		return nodeDelegate.getHashFunction().hashBytes(buffer);
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    hashCode = hash;
-  }
+	@Override
+	public void setHash(final long hash) {
+		hashCode = hash;
+	}
 
-  @Override
-  public long getHash() {
-    if (hashCode == 0L) {
-      hashCode = computeHash(Bytes.elasticHeapByteBuffer());
-    }
-    return hashCode;
-  }
+	@Override
+	public long getHash() {
+		if (hashCode == 0L) {
+			hashCode = computeHash(Bytes.elasticHeapByteBuffer());
+		}
+		return hashCode;
+	}
 
-  public void setValue(final boolean value) {
-    hashCode = 0L;
-    boolValue = value;
-  }
+	public void setValue(final boolean value) {
+		hashCode = 0L;
+		boolValue = value;
+	}
 
-  public boolean getValue() {
-    return boolValue;
-  }
+	public boolean getValue() {
+		return boolValue;
+	}
 
-  @Override
-  public StructNodeDelegate getStructNodeDelegate() {
-    return structNodeDelegate;
-  }
+	@Override
+	public StructNodeDelegate getStructNodeDelegate() {
+		return structNodeDelegate;
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return structNodeDelegate;
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return structNodeDelegate.getNodeDelegate();
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return structNodeDelegate.getNodeDelegate();
+	}
 }

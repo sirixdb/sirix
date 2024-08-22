@@ -29,111 +29,117 @@ import io.sirix.service.xml.xpath.EXPathError;
 
 /**
  * <p>
- * Computes concurrently and returns a union of two operands. This axis takes two node sequences as
- * operands and returns a sequence containing all the items that occur in either of the operands. A
- * union of two sequences may lead to a sequence containing duplicates. These duplicates are removed.
+ * Computes concurrently and returns a union of two operands. This axis takes
+ * two node sequences as operands and returns a sequence containing all the
+ * items that occur in either of the operands. A union of two sequences may lead
+ * to a sequence containing duplicates. These duplicates are removed.
  * </p>
  */
 public final class ConcurrentUnionAxis<R extends NodeCursor & NodeReadOnlyTrx> extends AbstractAxis {
 
-  /** First operand sequence. */
-  private final ConcurrentAxis<R> op1;
+	/** First operand sequence. */
+	private final ConcurrentAxis<R> op1;
 
-  /** Second operand sequence. */
-  private final ConcurrentAxis<R> op2;
+	/** Second operand sequence. */
+	private final ConcurrentAxis<R> op2;
 
-  /** First run. */
-  private boolean first;
+	/** First run. */
+	private boolean first;
 
-  /** Result from first axis. */
-  private long currentResult1;
+	/** Result from first axis. */
+	private long currentResult1;
 
-  /** Result from second axis. */
-  private long currentResult2;
+	/** Result from second axis. */
+	private long currentResult2;
 
-  /**
-   * Constructor. Initializes the internal state.
-   *
-   * @param rtx exclusive (immutable) trx to iterate with
-   * @param operand1 first operand
-   * @param operand2 second operand
-   * @throws NullPointerException if {@code rtx}, {@code operand1} or {@code operand2} is {@code null}
-   */
-  public ConcurrentUnionAxis(final R rtx, final Axis operand1, final Axis operand2) {
-    super(rtx);
-    if (operand1.getCursor() == operand2.getCursor()) {
-      throw new IllegalStateException("Operand axis trx must be different.");
-    }
-    op1 = new ConcurrentAxis<>(rtx, operand1);
-    op2 = new ConcurrentAxis<>(rtx, operand2);
-    first = true;
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 *
+	 * @param rtx
+	 *            exclusive (immutable) trx to iterate with
+	 * @param operand1
+	 *            first operand
+	 * @param operand2
+	 *            second operand
+	 * @throws NullPointerException
+	 *             if {@code rtx}, {@code operand1} or {@code operand2} is
+	 *             {@code null}
+	 */
+	public ConcurrentUnionAxis(final R rtx, final Axis operand1, final Axis operand2) {
+		super(rtx);
+		if (operand1.getCursor() == operand2.getCursor()) {
+			throw new IllegalStateException("Operand axis trx must be different.");
+		}
+		op1 = new ConcurrentAxis<>(rtx, operand1);
+		op2 = new ConcurrentAxis<>(rtx, operand2);
+		first = true;
+	}
 
-  @Override
-  public void reset(final long nodeKey) {
-    super.reset(nodeKey);
+	@Override
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
 
-    if (op1 != null) {
-      op1.reset(nodeKey);
-    }
-    if (op2 != null) {
-      op2.reset(nodeKey);
-    }
+		if (op1 != null) {
+			op1.reset(nodeKey);
+		}
+		if (op2 != null) {
+			op2.reset(nodeKey);
+		}
 
-    first = true;
-  }
+		first = true;
+	}
 
-  @Override
-  protected long nextKey() {
-    if (first) {
-      first = false;
-      currentResult1 = Util.getNext(op1);
-      currentResult2 = Util.getNext(op2);
-    }
+	@Override
+	protected long nextKey() {
+		if (first) {
+			first = false;
+			currentResult1 = Util.getNext(op1);
+			currentResult2 = Util.getNext(op2);
+		}
 
-    final long nodeKey;
+		final long nodeKey;
 
-    // if both operands have results left return the smallest value (doc order)
-    if (!op1.isFinished()) {
-      if (!op2.isFinished()) {
-        if (currentResult1 < currentResult2) {
-          nodeKey = currentResult1;
-          currentResult1 = Util.getNext(op1);
-        } else if (currentResult1 > currentResult2) {
-          nodeKey = currentResult2;
-          currentResult2 = Util.getNext(op2);
-        } else {
-          // return only one of the values (prevent duplicates)
-          nodeKey = currentResult2;
-          currentResult1 = Util.getNext(op1);
-          currentResult2 = Util.getNext(op2);
-        }
+		// if both operands have results left return the smallest value (doc order)
+		if (!op1.isFinished()) {
+			if (!op2.isFinished()) {
+				if (currentResult1 < currentResult2) {
+					nodeKey = currentResult1;
+					currentResult1 = Util.getNext(op1);
+				} else if (currentResult1 > currentResult2) {
+					nodeKey = currentResult2;
+					currentResult2 = Util.getNext(op2);
+				} else {
+					// return only one of the values (prevent duplicates)
+					nodeKey = currentResult2;
+					currentResult1 = Util.getNext(op1);
+					currentResult2 = Util.getNext(op2);
+				}
 
-        if (nodeKey < 0) {
-          throw EXPathError.XPTY0004.getEncapsulatedException();
-        }
-        return nodeKey;
-      }
+				if (nodeKey < 0) {
+					throw EXPathError.XPTY0004.getEncapsulatedException();
+				}
+				return nodeKey;
+			}
 
-      // only operand1 has results left, so return all of them
-      nodeKey = currentResult1;
-      if (Util.isValid(nodeKey)) {
-        currentResult1 = Util.getNext(op1);
-        return nodeKey;
-      }
-      // should never come here!
-      throw new IllegalStateException(nodeKey + " is not valid!");
-    } else if (!op2.isFinished()) {
-      // only operand2 has results left, so return all of them
-      nodeKey = currentResult2;
-      if (Util.isValid(nodeKey)) {
-        currentResult2 = Util.getNext(op2);
-        return nodeKey;
-      }
-      // should never come here!
-      throw new IllegalStateException(nodeKey + " is not valid!");
-    }
+			// only operand1 has results left, so return all of them
+			nodeKey = currentResult1;
+			if (Util.isValid(nodeKey)) {
+				currentResult1 = Util.getNext(op1);
+				return nodeKey;
+			}
+			// should never come here!
+			throw new IllegalStateException(nodeKey + " is not valid!");
+		} else if (!op2.isFinished()) {
+			// only operand2 has results left, so return all of them
+			nodeKey = currentResult2;
+			if (Util.isValid(nodeKey)) {
+				currentResult2 = Util.getNext(op2);
+				return nodeKey;
+			}
+			// should never come here!
+			throw new IllegalStateException(nodeKey + " is not valid!");
+		}
 
-    return done();
-  }
+		return done();
+	}
 }

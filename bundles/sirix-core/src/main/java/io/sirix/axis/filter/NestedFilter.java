@@ -35,28 +35,30 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  */
 public final class NestedFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 
-  /** Tests to apply. */
-  private final List<Filter<XmlNodeReadOnlyTrx>> mFilter;
+	/** Tests to apply. */
+	private final List<Filter<XmlNodeReadOnlyTrx>> mFilter;
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
-   * @param axisTest test to perform for each node found with axis
-   */
-  public NestedFilter(final XmlNodeReadOnlyTrx rtx, final @NonNull List<Filter<XmlNodeReadOnlyTrx>> axisTest) {
-    super(rtx);
-    mFilter = new ArrayList<>(axisTest);
-  }
+	/**
+	 * Default constructor.
+	 *
+	 * @param rtx
+	 *            {@link XmlNodeReadOnlyTrx} this filter is bound to
+	 * @param axisTest
+	 *            test to perform for each node found with axis
+	 */
+	public NestedFilter(final XmlNodeReadOnlyTrx rtx, final @NonNull List<Filter<XmlNodeReadOnlyTrx>> axisTest) {
+		super(rtx);
+		mFilter = new ArrayList<>(axisTest);
+	}
 
-  @Override
-  public final boolean filter() {
-    boolean filterResult = true;
+	@Override
+	public final boolean filter() {
+		boolean filterResult = true;
 
-    for (final Filter<XmlNodeReadOnlyTrx> filter : mFilter) {
-      filterResult = filterResult && filter.filter();
-    }
+		for (final Filter<XmlNodeReadOnlyTrx> filter : mFilter) {
+			filterResult = filterResult && filter.filter();
+		}
 
-    return filterResult;
-  }
+		return filterResult;
+	}
 }

@@ -32,18 +32,20 @@ import io.sirix.cache.BufferManager;
 import io.sirix.cache.TransactionIntentLog;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFactory {
 
-  /**
-   * Package private constructor.
-   */
-  public TransactionIntentLogFactoryImpl() {
-  }
+	/**
+	 * Package private constructor.
+	 */
+	public TransactionIntentLogFactoryImpl() {
+	}
 
-  @Override
-  public TransactionIntentLog createTrxIntentLog(final BufferManager bufferManager, final ResourceConfiguration resourceConfig) {
-    return new TransactionIntentLog(bufferManager, 1 << 12);
-  }
+	@Override
+	public TransactionIntentLog createTrxIntentLog(final BufferManager bufferManager,
+			final ResourceConfiguration resourceConfig) {
+		return new TransactionIntentLog(bufferManager, 1 << 12);
+	}
 }

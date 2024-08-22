@@ -16,22 +16,22 @@ import java.io.UncheckedIOException;
  */
 public final class SnappyCompressor implements ByteHandler {
 
-  @Override
-  public OutputStream serialize(final OutputStream toSerialize) {
-    return new SnappyOutputStream(toSerialize);
-  }
+	@Override
+	public OutputStream serialize(final OutputStream toSerialize) {
+		return new SnappyOutputStream(toSerialize);
+	}
 
-  @Override
-  public InputStream deserialize(final InputStream toDeserialize) {
-    try {
-      return new SnappyInputStream(toDeserialize);
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
-  }
+	@Override
+	public InputStream deserialize(final InputStream toDeserialize) {
+		try {
+			return new SnappyInputStream(toDeserialize);
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
 
-  @Override
-  public ByteHandler getInstance() {
-    return new SnappyCompressor();
-  }
+	@Override
+	public ByteHandler getInstance() {
+		return new SnappyCompressor();
+	}
 }

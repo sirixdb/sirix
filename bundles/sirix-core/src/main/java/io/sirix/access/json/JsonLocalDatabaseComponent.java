@@ -14,12 +14,13 @@ import io.sirix.dagger.DatabaseScope;
 @DatabaseScope
 @Subcomponent(modules = JsonLocalDatabaseModule.class)
 public interface JsonLocalDatabaseComponent
-    extends GenericLocalDatabaseComponent<JsonResourceSession, JsonResourceSessionComponent.Builder> {
+		extends
+			GenericLocalDatabaseComponent<JsonResourceSession, JsonResourceSessionComponent.Builder> {
 
-  @Subcomponent.Builder
-  interface Builder extends GenericLocalDatabaseComponent.Builder<Builder> {
+	@Subcomponent.Builder
+	interface Builder extends GenericLocalDatabaseComponent.Builder<Builder> {
 
-    @Override
-    JsonLocalDatabaseComponent build();
-  }
+		@Override
+		JsonLocalDatabaseComponent build();
+	}
 }

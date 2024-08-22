@@ -37,44 +37,46 @@ import io.sirix.node.immutable.json.ImmutableNullNode;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class NullNode extends AbstractNullNode {
 
-  /**
-   * Constructor.
-   *
-   * @param structNodeDelegate {@link StructNodeDelegate} to be set
-   */
-  public NullNode(final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param structNodeDelegate
+	 *            {@link StructNodeDelegate} to be set
+	 */
+	public NullNode(final StructNodeDelegate structNodeDelegate) {
+		super(structNodeDelegate);
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.NULL_VALUE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.NULL_VALUE;
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(ImmutableNullNode.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+		return visitor.visit(ImmutableNullNode.of(this));
+	}
 
-  @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this).toString();
-  }
+	@Override
+	public @NonNull String toString() {
+		return MoreObjects.toStringHelper(this).toString();
+	}
 
-  @Override
-  public int hashCode() {
-    return delegate().hashCode();
-  }
+	@Override
+	public int hashCode() {
+		return delegate().hashCode();
+	}
 
-  @Override
-  public boolean equals(final Object obj) {
-    if (!(obj instanceof final NullNode other))
-      return false;
+	@Override
+	public boolean equals(final Object obj) {
+		if (!(obj instanceof final NullNode other))
+			return false;
 
-    return Objects.equal(delegate(), other.delegate()) && Objects.equal(getHash(), other.getHash());
-  }
+		return Objects.equal(delegate(), other.delegate()) && Objects.equal(getHash(), other.getHash());
+	}
 }

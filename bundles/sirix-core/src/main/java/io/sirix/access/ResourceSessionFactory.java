@@ -13,5 +13,5 @@ import java.nio.file.Path;
  * @author Joao Sousa
  */
 public interface ResourceSessionFactory<R extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> {
-  R create(ResourceConfiguration resourceConfig, BufferManager bufferManager, Path resourceFile);
+	R create(ResourceConfiguration resourceConfig, BufferManager bufferManager, Path resourceFile);
 }

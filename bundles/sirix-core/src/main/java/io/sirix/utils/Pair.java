@@ -27,66 +27,68 @@ import java.util.Objects;
 /**
  * A Pair of objects.
  *
- * @param <U> first reference
- * @param <V> second reference
+ * @param <U>
+ *            first reference
+ * @param <V>
+ *            second reference
  */
 public class Pair<U, V> {
-  /** The first reference. */
-  private final U first;
+	/** The first reference. */
+	private final U first;
 
-  /** The second reference. */
-  private final V second;
+	/** The second reference. */
+	private final V second;
 
-  /**
-   * Constructs the pair.
-   *
-   * @param first first reference
-   * @param second second reference
-   */
-  public Pair(@Nullable final U first, @Nullable final V second) {
-    this.first = first;
-    this.second = second;
-  }
+	/**
+	 * Constructs the pair.
+	 *
+	 * @param first
+	 *            first reference
+	 * @param second
+	 *            second reference
+	 */
+	public Pair(@Nullable final U first, @Nullable final V second) {
+		this.first = first;
+		this.second = second;
+	}
 
-  /**
-   * Get the first reference.
-   *
-   * @return first reference
-   */
-  public U getFirst() {
-    return first;
-  }
+	/**
+	 * Get the first reference.
+	 *
+	 * @return first reference
+	 */
+	public U getFirst() {
+		return first;
+	}
 
-  /**
-   * Get the second reference.
-   *
-   * @return second reference
-   */
-  public V getSecond() {
-    return second;
-  }
+	/**
+	 * Get the second reference.
+	 *
+	 * @return second reference
+	 */
+	public V getSecond() {
+		return second;
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hash(first, second);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hash(first, second);
+	}
 
-  @Override
-  public boolean equals(Object other) {
-    if (!(other instanceof Pair))
-      return false;
+	@Override
+	public boolean equals(Object other) {
+		if (!(other instanceof Pair))
+			return false;
 
-    @SuppressWarnings("unchecked")
-    final Pair<U, V> otherPair = (Pair<U, V>) other;
+		@SuppressWarnings("unchecked")
+		final Pair<U, V> otherPair = (Pair<U, V>) other;
 
-    return Objects.equals(first, otherPair.first) && Objects.equals(second, otherPair.second);
-  }
+		return Objects.equals(first, otherPair.first) && Objects.equals(second, otherPair.second);
+	}
 
-  @Override
-  public String toString() {
-    return new StringBuilder("first: ").append(first.toString())
-                                       .append(" second: ")
-                                       .append(second.toString())
-                                       .toString();
-  }
+	@Override
+	public String toString() {
+		return new StringBuilder("first: ").append(first.toString()).append(" second: ").append(second.toString())
+				.toString();
+	}
 }

@@ -20,39 +20,42 @@ import static java.util.Objects.requireNonNull;
  */
 public final class TemporalSirixJsonArrayStream implements Stream<JsonDBArray> {
 
-  /** Temporal axis. */
-  private final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis;
+	/** Temporal axis. */
+	private final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis;
 
-  /** The {@link JsonDBCollection} reference. */
-  private final JsonDBCollection collection;
+	/** The {@link JsonDBCollection} reference. */
+	private final JsonDBCollection collection;
 
-  /**
-   * Constructor.
-   *
-   * @param axis Sirix {@link Axis}
-   * @param collection {@link XmlDBCollection} the nodes belong to
-   */
-  public TemporalSirixJsonArrayStream(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
-      final JsonDBCollection collection) {
-    this.axis = requireNonNull(axis);
-    this.collection = requireNonNull(collection);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param axis
+	 *            Sirix {@link Axis}
+	 * @param collection
+	 *            {@link XmlDBCollection} the nodes belong to
+	 */
+	public TemporalSirixJsonArrayStream(final AbstractTemporalAxis<JsonNodeReadOnlyTrx, JsonNodeTrx> axis,
+			final JsonDBCollection collection) {
+		this.axis = requireNonNull(axis);
+		this.collection = requireNonNull(collection);
+	}
 
-  @Override
-  public JsonDBArray next() {
-    if (axis.hasNext()) {
-      final var rtx = axis.next();
-      return new JsonDBArray(rtx, collection);
-    }
+	@Override
+	public JsonDBArray next() {
+		if (axis.hasNext()) {
+			final var rtx = axis.next();
+			return new JsonDBArray(rtx, collection);
+		}
 
-    return null;
-  }
+		return null;
+	}
 
-  @Override
-  public void close() {}
+	@Override
+	public void close() {
+	}
 
-  @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this).add("axis", axis).toString();
-  }
+	@Override
+	public String toString() {
+		return MoreObjects.toStringHelper(this).add("axis", axis).toString();
+	}
 }

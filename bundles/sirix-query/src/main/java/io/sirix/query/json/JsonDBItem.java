@@ -5,11 +5,11 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 
 public interface JsonDBItem extends JsonItem {
-  JsonResourceSession getResourceSession();
+	JsonResourceSession getResourceSession();
 
-  JsonNodeReadOnlyTrx getTrx();
+	JsonNodeReadOnlyTrx getTrx();
 
-  long getNodeKey();
+	long getNodeKey();
 
-  JsonDBCollection getCollection();
+	JsonDBCollection getCollection();
 }

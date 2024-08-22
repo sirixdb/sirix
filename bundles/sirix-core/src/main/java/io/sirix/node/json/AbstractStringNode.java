@@ -42,82 +42,81 @@ import java.nio.ByteBuffer;
 
 public abstract class AbstractStringNode extends AbstractStructForwardingNode implements ValueNode, ImmutableJsonNode {
 
-  private final ValueNodeDelegate valueNodeDelegate;
+	private final ValueNodeDelegate valueNodeDelegate;
 
-  private final StructNodeDelegate structNodeDelegate;
+	private final StructNodeDelegate structNodeDelegate;
 
-  private long hashCode;
+	private long hashCode;
 
-  public AbstractStringNode(ValueNodeDelegate valueNodeDelegate, StructNodeDelegate structNodeDelegate) {
-    this.valueNodeDelegate = valueNodeDelegate;
-    this.structNodeDelegate = structNodeDelegate;
-  }
+	public AbstractStringNode(ValueNodeDelegate valueNodeDelegate, StructNodeDelegate structNodeDelegate) {
+		this.valueNodeDelegate = valueNodeDelegate;
+		this.structNodeDelegate = structNodeDelegate;
+	}
 
-  @Override
-  public long computeHash(final Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+	@Override
+	public long computeHash(final Bytes<ByteBuffer> bytes) {
+		final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    bytes.clear();
+		bytes.clear();
 
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+		bytes.writeLong(nodeDelegate.getNodeKey()).writeLong(nodeDelegate.getParentKey())
+				.writeByte(nodeDelegate.getKind().getId());
 
-    bytes.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey());
+		bytes.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey());
 
-    bytes.writeUtf8(new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING));
+		bytes.writeUtf8(new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING));
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
+		final var buffer = bytes.underlyingObject().rewind();
+		buffer.limit((int) bytes.readLimit());
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
-  }
+		return nodeDelegate.getHashFunction().hashBytes(buffer);
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    hashCode = hash;
-  }
+	@Override
+	public void setHash(final long hash) {
+		hashCode = hash;
+	}
 
-  @Override
-  public long getHash() {
-    if (hashCode == 0L) {
-      hashCode = computeHash(Bytes.elasticHeapByteBuffer());
-    }
-    return hashCode;
-  }
+	@Override
+	public long getHash() {
+		if (hashCode == 0L) {
+			hashCode = computeHash(Bytes.elasticHeapByteBuffer());
+		}
+		return hashCode;
+	}
 
-  @Override
-  public byte[] getRawValue() {
-    return valueNodeDelegate.getRawValue();
-  }
+	@Override
+	public byte[] getRawValue() {
+		return valueNodeDelegate.getRawValue();
+	}
 
-  @Override
-  public void setRawValue(final byte[] value) {
-    hashCode = 0L;
-    valueNodeDelegate.setRawValue(value);
-  }
+	@Override
+	public void setRawValue(final byte[] value) {
+		hashCode = 0L;
+		valueNodeDelegate.setRawValue(value);
+	}
 
-  @Override
-  public String getValue() {
-    return new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING);
-  }
+	@Override
+	public String getValue() {
+		return new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING);
+	}
 
-  @Override
-  public StructNodeDelegate getStructNodeDelegate() {
-    return structNodeDelegate;
-  }
+	@Override
+	public StructNodeDelegate getStructNodeDelegate() {
+		return structNodeDelegate;
+	}
 
-  public ValueNodeDelegate getValNodeDelegate() {
-    return valueNodeDelegate;
-  }
+	public ValueNodeDelegate getValNodeDelegate() {
+		return valueNodeDelegate;
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return structNodeDelegate;
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return structNodeDelegate.getNodeDelegate();
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return structNodeDelegate.getNodeDelegate();
+	}
 }

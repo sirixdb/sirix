@@ -30,17 +30,20 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  *
  */
 public interface DiffObserver {
-  /**
-   * Called for every node comparsion.
-   *
-   * @param diffType the {@link DiffFactory.DiffType} type
-   * @param newNodeKey node key of node in new revision
-   * @param oldNodeKey node key of node in old revision
-   * @param depth current {@link DiffDepth} instance
-   */
-  void diffListener(DiffFactory.DiffType diffType, long newNodeKey, long oldNodeKey,
-      @NonNull DiffDepth depth);
+	/**
+	 * Called for every node comparsion.
+	 *
+	 * @param diffType
+	 *            the {@link DiffFactory.DiffType} type
+	 * @param newNodeKey
+	 *            node key of node in new revision
+	 * @param oldNodeKey
+	 *            node key of node in old revision
+	 * @param depth
+	 *            current {@link DiffDepth} instance
+	 */
+	void diffListener(DiffFactory.DiffType diffType, long newNodeKey, long oldNodeKey, @NonNull DiffDepth depth);
 
-  /** Signals that the diff calculation is done. */
-  void diffDone();
+	/** Signals that the diff calculation is done. */
+	void diffDone();
 }

@@ -39,42 +39,45 @@ import io.sirix.exception.SirixException;
 
 public class NestedFilterTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.deleteEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.deleteEverything();
+	}
 
-  @Test
-  public void testFilterConvetions() throws SirixException {
-    holder.getXmlNodeReadTrx().moveTo(9L);
-    FilterTest.testFilterConventions(
-        new NestedFilter(holder.getXmlNodeReadTrx(), List.of(new ItemFilter(holder.getXmlNodeReadTrx()),
-                                                             new ElementFilter(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "b"))),
-        true);
-    FilterTest.testFilterConventions(
-        new NestedFilter(holder.getXmlNodeReadTrx(), List.of(new ItemFilter(holder.getXmlNodeReadTrx()),
-                                                             new AttributeFilter(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "b"))),
-        false);
+	@Test
+	public void testFilterConvetions() throws SirixException {
+		holder.getXmlNodeReadTrx().moveTo(9L);
+		FilterTest.testFilterConventions(new NestedFilter(holder.getXmlNodeReadTrx(),
+				List.of(new ItemFilter(holder.getXmlNodeReadTrx()), new ElementFilter(holder.getXmlNodeReadTrx()),
+						new XmlNameFilter(holder.getXmlNodeReadTrx(), "b"))),
+				true);
+		FilterTest.testFilterConventions(new NestedFilter(holder.getXmlNodeReadTrx(),
+				List.of(new ItemFilter(holder.getXmlNodeReadTrx()), new AttributeFilter(holder.getXmlNodeReadTrx()),
+						new XmlNameFilter(holder.getXmlNodeReadTrx(), "b"))),
+				false);
 
-    holder.getXmlNodeReadTrx().moveTo(4L);
-    FilterTest.testFilterConventions(new NestedFilter(holder.getXmlNodeReadTrx(),
-        List.of(new NodeFilter(holder.getXmlNodeReadTrx()), new ElementFilter(holder.getXmlNodeReadTrx()))), false);
-    FilterTest.testFilterConventions(new NestedFilter(holder.getXmlNodeReadTrx(),
-        List.of(new NodeFilter(holder.getXmlNodeReadTrx()), new TextFilter(holder.getXmlNodeReadTrx()))), true);
+		holder.getXmlNodeReadTrx().moveTo(4L);
+		FilterTest.testFilterConventions(new NestedFilter(holder.getXmlNodeReadTrx(),
+				List.of(new NodeFilter(holder.getXmlNodeReadTrx()), new ElementFilter(holder.getXmlNodeReadTrx()))),
+				false);
+		FilterTest.testFilterConventions(new NestedFilter(holder.getXmlNodeReadTrx(),
+				List.of(new NodeFilter(holder.getXmlNodeReadTrx()), new TextFilter(holder.getXmlNodeReadTrx()))), true);
 
-    holder.getXmlNodeReadTrx().moveTo(1L);
-    holder.getXmlNodeReadTrx().moveToAttribute(0);
-    FilterTest.testFilterConventions(new NestedFilter(holder.getXmlNodeReadTrx(),
-        List.of(new AttributeFilter(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "i"))), true);
-  }
+		holder.getXmlNodeReadTrx().moveTo(1L);
+		holder.getXmlNodeReadTrx().moveToAttribute(0);
+		FilterTest.testFilterConventions(
+				new NestedFilter(holder.getXmlNodeReadTrx(), List.of(new AttributeFilter(holder.getXmlNodeReadTrx()),
+						new XmlNameFilter(holder.getXmlNodeReadTrx(), "i"))),
+				true);
+	}
 }

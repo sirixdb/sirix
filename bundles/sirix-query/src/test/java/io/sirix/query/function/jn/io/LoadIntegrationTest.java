@@ -16,37 +16,37 @@ import junit.framework.TestCase;
 
 public final class LoadIntegrationTest extends TestCase {
 
-  final Path testResources = Paths.get("src", "test", "resources");
+	final Path testResources = Paths.get("src", "test", "resources");
 
-  final Path jsonArray = testResources.resolve("json").resolve("array.json");
+	final Path jsonArray = testResources.resolve("json").resolve("array.json");
 
-  final Path jsonObject = testResources.resolve("json").resolve("object.json");
+	final Path jsonObject = testResources.resolve("json").resolve("object.json");
 
-  @BeforeEach
-  protected void setUp() throws Exception {
-    JsonTestHelper.deleteEverything();
-  }
+	@BeforeEach
+	protected void setUp() throws Exception {
+		JsonTestHelper.deleteEverything();
+	}
 
-  @AfterEach
-  protected void tearDown() {
-    JsonTestHelper.deleteEverything();
-  }
+	@AfterEach
+	protected void tearDown() {
+		JsonTestHelper.deleteEverything();
+	}
 
-  @Test
-  public void test() {
-    // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+	@Test
+	public void test() {
+		// Initialize query context and store.
+		try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile()).build();
+				final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+				final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
-      // Use Query to store a JSON string into the store.
-      final var str = jsonArray.toAbsolutePath().toString();
-      final String query = "jn:load('mycol.jn','mydoc.jn','" + str + "')";
-      new Query(chain, query).evaluate(ctx);
-    }
-  }
+			// Use Query to store a JSON string into the store.
+			final var str = jsonArray.toAbsolutePath().toString();
+			final String query = "jn:load('mycol.jn','mydoc.jn','" + str + "')";
+			new Query(chain, query).evaluate(ctx);
+		}
+	}
 
-  @Test
+	@Test
   public void testWithCommitMessage() {
     // Initialize query context and store.
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile()).build();
@@ -60,7 +60,7 @@ public final class LoadIntegrationTest extends TestCase {
     }
   }
 
-  @Test
+	@Test
   public void testWithCommitMessageAndCommitTimestamp() {
     // Initialize query context and store.
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile()).build();
@@ -74,7 +74,7 @@ public final class LoadIntegrationTest extends TestCase {
     }
   }
 
-  @Test
+	@Test
   public void testMultipleStrings() {
     // Initialize query context and store.
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile()).build();

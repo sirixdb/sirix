@@ -34,17 +34,20 @@ import static java.util.Objects.requireNonNull;
  * Evaluates a given XPath query.
  * </p>
  * <p>
- * Axis to iterate over the items (more precisely the item keys) of the query's result sequence.
- * <code>XPathAxis</code> extends sirixs <code>IAxis</code> that extends the well-known Java
- * <code>Iterator&lt;Long&gt;</code> and <code>Iterable&lt;Long&gt;</code> interfaces.
+ * Axis to iterate over the items (more precisely the item keys) of the query's
+ * result sequence. <code>XPathAxis</code> extends sirixs <code>IAxis</code>
+ * that extends the well-known Java <code>Iterator&lt;Long&gt;</code> and
+ * <code>Iterable&lt;Long&gt;</code> interfaces.
  * </p>
  * <h2>User Example</h2>
  * <p>
- * In order to use it, at first a sirix session has to be bound to the XML document in question or
- * an tnk file and a <code>ReadTransaction</code> with an <code>INodeList</code> as argument has to
- * be started on it. (For more information how to do that, see the sirix documentation.) Then the
+ * In order to use it, at first a sirix session has to be bound to the XML
+ * document in question or an tnk file and a <code>ReadTransaction</code> with
+ * an <code>INodeList</code> as argument has to be started on it. (For more
+ * information how to do that, see the sirix documentation.) Then the
  * <code>XPathAxis</code> can be used like this:
  * </p>
+ *
  * <pre>
  *   ...
  *   IReadTransaction rtx = session.beginReadTransaction(new ItemList());
@@ -73,60 +76,63 @@ import static java.util.Objects.requireNonNull;
  */
 public final class XPathAxis extends AbstractAxis {
 
-  /** Declares if the evaluation is compatible to XPath 1.0 or not. */
-  public static final boolean XPATH_10_COMP = true;
+	/** Declares if the evaluation is compatible to XPath 1.0 or not. */
+	public static final boolean XPATH_10_COMP = true;
 
-  /** Axis holding the consecutive query execution plans of the query. */
-  private Axis mPipeline;
+	/** Axis holding the consecutive query execution plans of the query. */
+	private Axis mPipeline;
 
-  /**
-   * <p>
-   * Constructor initializing internal state.
-   * </p>
-   * <p>
-   * Starts the query scanning and parsing and retrieves the builded query execution plan from the
-   * parser.
-   * </p>
-   * <p>
-   * <strong>Deprecated: Use the the brackit-binding.</strong>
-   * </P>
-   *
-   * @param pRtx Transaction to operate with.
-   * @param pQuery XPath query to process.
-   * @throws SirixXPathException throw a sirix xpath exception.
-   */
-  @Deprecated
-  public XPathAxis(final XmlNodeReadOnlyTrx pRtx, final String pQuery) throws SirixXPathException {
-    super(pRtx);
+	/**
+	 * <p>
+	 * Constructor initializing internal state.
+	 * </p>
+	 * <p>
+	 * Starts the query scanning and parsing and retrieves the builded query
+	 * execution plan from the parser.
+	 * </p>
+	 * <p>
+	 * <strong>Deprecated: Use the the brackit-binding.</strong>
+	 * </P>
+	 *
+	 * @param pRtx
+	 *            Transaction to operate with.
+	 * @param pQuery
+	 *            XPath query to process.
+	 * @throws SirixXPathException
+	 *             throw a sirix xpath exception.
+	 */
+	@Deprecated
+	public XPathAxis(final XmlNodeReadOnlyTrx pRtx, final String pQuery) throws SirixXPathException {
+		super(pRtx);
 
-    // /** Initializing executor service with fixed thread pool. */
-    // EXECUTOR = Executors.newFixedThreadPool(THREADPOOLSIZE);
+		// /** Initializing executor service with fixed thread pool. */
+		// EXECUTOR = Executors.newFixedThreadPool(THREADPOOLSIZE);
 
-    // start parsing and get execution plans
-    final XPathParser parser = new XPathParser(pRtx, requireNonNull(pQuery));
-    parser.parseQuery();
-    mPipeline = parser.getQueryPipeline();
-  }
+		// start parsing and get execution plans
+		final XPathParser parser = new XPathParser(pRtx, requireNonNull(pQuery));
+		parser.parseQuery();
+		mPipeline = parser.getQueryPipeline();
+	}
 
-  @Override
-  protected long nextKey() {
-    if (mPipeline.hasNext()) {
-      return mPipeline.next();
-    } else {
-      return Fixed.NULL_NODE_KEY.getStandardProperty();
-    }
-  }
+	@Override
+	protected long nextKey() {
+		if (mPipeline.hasNext()) {
+			return mPipeline.next();
+		} else {
+			return Fixed.NULL_NODE_KEY.getStandardProperty();
+		}
+	}
 
-  // @Override
-  // public boolean hasNext() {
-  // resetToLastKey();
-  //
-  // if (mPipeline.hasNext()) {
-  // mKey = mPipeline.next();
-  // return true;
-  // } else {
-  // resetToStartKey();
-  // return false;
-  // }
-  // }
+	// @Override
+	// public boolean hasNext() {
+	// resetToLastKey();
+	//
+	// if (mPipeline.hasNext()) {
+	// mKey = mPipeline.next();
+	// return true;
+	// } else {
+	// resetToStartKey();
+	// return false;
+	// }
+	// }
 }

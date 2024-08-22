@@ -27,104 +27,109 @@ import io.sirix.api.NodeCursor;
 
 /**
  * <p>
- * Iterate over all structural descendants starting at a given node (in preorder). Self might or
- * might not be included.
+ * Iterate over all structural descendants starting at a given node (in
+ * preorder). Self might or might not be included.
  * </p>
  */
 public final class DescendantAxis extends AbstractAxis {
 
-  /** Stack for remembering next nodeKey in document order. */
-  private LongArrayList rightSiblingKeyStack;
+	/** Stack for remembering next nodeKey in document order. */
+	private LongArrayList rightSiblingKeyStack;
 
-  /** Determines if it's the first call to hasNext(). */
-  private boolean first;
+	/** Determines if it's the first call to hasNext(). */
+	private boolean first;
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param cursor cursor to iterate with
-   */
-  public DescendantAxis(final NodeCursor cursor) {
-    super(cursor);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param cursor
+	 *            cursor to iterate with
+	 */
+	public DescendantAxis(final NodeCursor cursor) {
+		super(cursor);
+	}
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param cursor cursor to iterate with
-   * @param includeSelf determines if current node is included or not
-   */
-  public DescendantAxis(final NodeCursor cursor, final IncludeSelf includeSelf) {
-    super(cursor, includeSelf);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param cursor
+	 *            cursor to iterate with
+	 * @param includeSelf
+	 *            determines if current node is included or not
+	 */
+	public DescendantAxis(final NodeCursor cursor, final IncludeSelf includeSelf) {
+		super(cursor, includeSelf);
+	}
 
-  @Override
-  public void reset(final long nodeKey) {
-    super.reset(nodeKey);
-    first = true;
-    rightSiblingKeyStack = new LongArrayList();
-  }
+	@Override
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
+		first = true;
+		rightSiblingKeyStack = new LongArrayList();
+	}
 
-  @Override
-  protected long nextKey() {
-    long key;
+	@Override
+	protected long nextKey() {
+		long key;
 
-    final NodeCursor cursor = getCursor();
+		final NodeCursor cursor = getCursor();
 
-    // Determines if first call to hasNext().
-    if (first) {
-      first = false;
+		// Determines if first call to hasNext().
+		if (first) {
+			first = false;
 
-      if (includeSelf() == IncludeSelf.YES) {
-        key = cursor.getNodeKey();
-      } else {
-        key = cursor.getFirstChildKey();
-      }
+			if (includeSelf() == IncludeSelf.YES) {
+				key = cursor.getNodeKey();
+			} else {
+				key = cursor.getFirstChildKey();
+			}
 
-      return key;
-    }
+			return key;
+		}
 
-    // Always follow first child if there is one.
-    if (cursor.hasFirstChild()) {
-      key = cursor.getFirstChildKey();
-      if (cursor.hasRightSibling()) {
-        rightSiblingKeyStack.add(cursor.getRightSiblingKey());
-      }
-      return key;
-    }
+		// Always follow first child if there is one.
+		if (cursor.hasFirstChild()) {
+			key = cursor.getFirstChildKey();
+			if (cursor.hasRightSibling()) {
+				rightSiblingKeyStack.add(cursor.getRightSiblingKey());
+			}
+			return key;
+		}
 
-    // Then follow right sibling if there is one.
-    if (cursor.hasRightSibling()) {
-      final long currKey = cursor.getNodeKey();
-      key = cursor.getRightSiblingKey();
-      return hasNextNode(key, currKey);
-    }
+		// Then follow right sibling if there is one.
+		if (cursor.hasRightSibling()) {
+			final long currKey = cursor.getNodeKey();
+			key = cursor.getRightSiblingKey();
+			return hasNextNode(key, currKey);
+		}
 
-    // Then follow right sibling on stack.
-    if (!rightSiblingKeyStack.isEmpty()) {
-      final long currKey = cursor.getNodeKey();
-      key = rightSiblingKeyStack.popLong();
-      return hasNextNode(key, currKey);
-    }
+		// Then follow right sibling on stack.
+		if (!rightSiblingKeyStack.isEmpty()) {
+			final long currKey = cursor.getNodeKey();
+			key = rightSiblingKeyStack.popLong();
+			return hasNextNode(key, currKey);
+		}
 
-    return done();
-  }
+		return done();
+	}
 
-  /**
-   * Determines if the subtree-traversal is finished.
-   *
-   * @param key next key
-   * @param currKey current node key
-   * @return {@code false} if finished, {@code true} if not
-   */
-  private long hasNextNode(@NonNegative final long key, final @NonNegative long currKey) {
-    final NodeCursor cursor = getCursor();
-    cursor.moveTo(key);
-    if (cursor.getLeftSiblingKey() == getStartKey()) {
-      return done();
-    } else {
-      cursor.moveTo(currKey);
-      return key;
-    }
-  }
+	/**
+	 * Determines if the subtree-traversal is finished.
+	 *
+	 * @param key
+	 *            next key
+	 * @param currKey
+	 *            current node key
+	 * @return {@code false} if finished, {@code true} if not
+	 */
+	private long hasNextNode(@NonNegative final long key, final @NonNegative long currKey) {
+		final NodeCursor cursor = getCursor();
+		cursor.moveTo(key);
+		if (cursor.getLeftSiblingKey() == getStartKey()) {
+			return done();
+		} else {
+			cursor.moveTo(currKey);
+			return key;
+		}
+	}
 }

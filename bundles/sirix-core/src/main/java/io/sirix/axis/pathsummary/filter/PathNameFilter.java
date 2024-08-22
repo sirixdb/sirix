@@ -36,22 +36,25 @@ import java.util.function.Predicate;
 
 /**
  * Filters path nodes based on a name.
- * @param name the name to filter
- * @param pathSummaryReader the reader (in case it has to fetch the name at first)
+ *
+ * @param name
+ *            the name to filter
+ * @param pathSummaryReader
+ *            the reader (in case it has to fetch the name at first)
  *
  * @author Johannes Lichtenberger
  */
-public record PathNameFilter(@NonNull String name, @NonNull PathSummaryReader pathSummaryReader)
-    implements Predicate<PathNode> {
-  @Override
-  public boolean test(PathNode pathNode) {
-    var qNm = pathNode.getName();
-    if (qNm == null) {
-      var nodeKey = pathSummaryReader.getNodeKey();
-      pathSummaryReader.moveTo(pathNode.getNodeKey());
-      qNm = pathSummaryReader.getName();
-      pathSummaryReader.moveTo(nodeKey);
-    }
-    return name.equals(qNm.toString());
-  }
+public record PathNameFilter(@NonNull String name,
+		@NonNull PathSummaryReader pathSummaryReader) implements Predicate<PathNode> {
+	@Override
+	public boolean test(PathNode pathNode) {
+		var qNm = pathNode.getName();
+		if (qNm == null) {
+			var nodeKey = pathSummaryReader.getNodeKey();
+			pathSummaryReader.moveTo(pathNode.getNodeKey());
+			qNm = pathSummaryReader.getName();
+			pathSummaryReader.moveTo(nodeKey);
+		}
+		return name.equals(qNm.toString());
+	}
 }

@@ -13,9 +13,9 @@ import io.sirix.query.json.TemporalJsonDBItem;
 
 /**
  * <p>
- * Function for selecting a node in the future or the future-or-self. The first parameter is the
- * context node. Second parameter is if the current node should be included or not. Supported
- * signature is:
+ * Function for selecting a node in the future or the future-or-self. The first
+ * parameter is the context node. Second parameter is if the current node should
+ * be included or not. Supported signature is:
  * </p>
  * <ul>
  * <li><code>jn:future($doc as json-item(), $includeSelf as xs:boolean?) as json-item()*</code></li>
@@ -26,46 +26,48 @@ import io.sirix.query.json.TemporalJsonDBItem;
  */
 public final class Future extends AbstractFunction {
 
-  /** Function name. */
-  public final static QNm FUTURE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "future");
+	/** Function name. */
+	public final static QNm FUTURE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "future");
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public Future(final QNm name, final Signature signature) {
-    super(name, signature, true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public Future(final QNm name, final Signature signature) {
+		super(name, signature, true);
+	}
 
-  @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final TemporalJsonDBItem<? extends TemporalJsonDBItem<?>> item = ((TemporalJsonDBItem<?>) args[0]);
-    final boolean includeSelf = FunUtil.getBoolean(args, 1, "includeSelf", false, false);
+	@Override
+	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+		final TemporalJsonDBItem<? extends TemporalJsonDBItem<?>> item = ((TemporalJsonDBItem<?>) args[0]);
+		final boolean includeSelf = FunUtil.getBoolean(args, 1, "includeSelf", false, false);
 
-    return new LazySequence() {
-      @Override
-      public Iter iterate() {
-        return new BaseIter() {
-          Stream<?> s;
+		return new LazySequence() {
+			@Override
+			public Iter iterate() {
+				return new BaseIter() {
+					Stream<?> s;
 
-          @Override
-          public Item next() {
-            if (s == null) {
-              s = item.getFuture(includeSelf);
-            }
-            return (Item) s.next();
-          }
+					@Override
+					public Item next() {
+						if (s == null) {
+							s = item.getFuture(includeSelf);
+						}
+						return (Item) s.next();
+					}
 
-          @Override
-          public void close() {
-            if (s != null) {
-              s.close();
-            }
-          }
-        };
-      }
-    };
-  }
+					@Override
+					public void close() {
+						if (s != null) {
+							s.close();
+						}
+					}
+				};
+			}
+		};
+	}
 }

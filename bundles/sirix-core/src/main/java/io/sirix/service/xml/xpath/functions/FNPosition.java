@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -30,8 +30,8 @@ import io.sirix.utils.TypedValue;
 /**
  * <p>
  * IAxis that represents the function fn:position specified in
- * <a href="http://www.w3.org/TR/xquery-operators/"> XQuery 1.0 and XPath 2.0 Functions and
- * Operators</a>.
+ * <a href="http://www.w3.org/TR/xquery-operators/"> XQuery 1.0 and XPath 2.0
+ * Functions and Operators</a>.
  * </p>
  * <p>
  * The function returns position of the item in the expression result set.
@@ -39,35 +39,42 @@ import io.sirix.utils.TypedValue;
  */
 public class FNPosition extends AbstractFunction {
 
-  /**
-   * Constructor.
-   * 
-   * Initializes internal state and do a statical analysis concerning the function's arguments.
-   * 
-   * @param rtx Transaction to operate on
-   * @param args List of function arguments
-   * @param min min number of allowed function arguments
-   * @param max max number of allowed function arguments
-   * @param returnType the type that the function's result will have
-   * @throws SirixXPathException if function check fails
-   */
-  public FNPosition(final XmlNodeReadOnlyTrx rtx, final List<Axis> args, final int min, final int max,
-      final int returnType) throws SirixXPathException {
-    super(rtx, args, min, max, returnType);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * Initializes internal state and do a statical analysis concerning the
+	 * function's arguments.
+	 *
+	 * @param rtx
+	 *            Transaction to operate on
+	 * @param args
+	 *            List of function arguments
+	 * @param min
+	 *            min number of allowed function arguments
+	 * @param max
+	 *            max number of allowed function arguments
+	 * @param returnType
+	 *            the type that the function's result will have
+	 * @throws SirixXPathException
+	 *             if function check fails
+	 */
+	public FNPosition(final XmlNodeReadOnlyTrx rtx, final List<Axis> args, final int min, final int max,
+			final int returnType) throws SirixXPathException {
+		super(rtx, args, min, max, returnType);
+	}
 
-  @Override
-  protected byte[] computeResult() {
-    Integer position = 0;
-    final long currentNode = asXmlNodeReadTrx().getNodeKey();
-    asXmlNodeReadTrx().moveToParent();
-    asXmlNodeReadTrx().moveToFirstChild();
-    do {
-      position++;
-      asXmlNodeReadTrx().moveToRightSibling();
-    } while (asXmlNodeReadTrx().getNodeKey() != currentNode);
+	@Override
+	protected byte[] computeResult() {
+		Integer position = 0;
+		final long currentNode = asXmlNodeReadTrx().getNodeKey();
+		asXmlNodeReadTrx().moveToParent();
+		asXmlNodeReadTrx().moveToFirstChild();
+		do {
+			position++;
+			asXmlNodeReadTrx().moveToRightSibling();
+		} while (asXmlNodeReadTrx().getNodeKey() != currentNode);
 
-    return TypedValue.getBytes(position.toString());
-  }
+		return TypedValue.getBytes(position.toString());
+	}
 
 }

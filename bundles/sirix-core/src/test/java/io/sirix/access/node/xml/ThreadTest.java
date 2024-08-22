@@ -40,61 +40,61 @@ import io.sirix.exception.SirixException;
 
 public class ThreadTest {
 
-  public static final int WORKER_COUNT = 50;
+	public static final int WORKER_COUNT = 50;
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.openResourceManager();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.openResourceManager();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testThreads() throws Exception {
-    final ExecutorService taskExecutor = Executors.newFixedThreadPool(WORKER_COUNT);
-    long newKey = 10L;
-    for (int i = 0; i < WORKER_COUNT; i++) {
-      taskExecutor.submit(new Task(holder.getResourceManager().beginNodeReadOnlyTrx(i)));
+	@Test
+	public void testThreads() throws Exception {
+		final ExecutorService taskExecutor = Executors.newFixedThreadPool(WORKER_COUNT);
+		long newKey = 10L;
+		for (int i = 0; i < WORKER_COUNT; i++) {
+			taskExecutor.submit(new Task(holder.getResourceManager().beginNodeReadOnlyTrx(i)));
 
-      try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
-        wtx.moveTo(newKey);
-        wtx.setValue("value" + i);
-        newKey = wtx.getNodeKey();
-        wtx.commit();
-      }
-    }
-    taskExecutor.shutdown();
-    taskExecutor.awaitTermination(1000000, TimeUnit.SECONDS);
-  }
+			try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+				wtx.moveTo(newKey);
+				wtx.setValue("value" + i);
+				newKey = wtx.getNodeKey();
+				wtx.commit();
+			}
+		}
+		taskExecutor.shutdown();
+		taskExecutor.awaitTermination(1000000, TimeUnit.SECONDS);
+	}
 
-  private class Task implements Callable<Void> {
+	private class Task implements Callable<Void> {
 
-    private XmlNodeReadOnlyTrx rtx;
+		private XmlNodeReadOnlyTrx rtx;
 
-    public Task(final XmlNodeReadOnlyTrx rtx) {
-      this.rtx = rtx;
-    }
+		public Task(final XmlNodeReadOnlyTrx rtx) {
+			this.rtx = rtx;
+		}
 
-    @Override
-    public Void call() throws Exception {
-      final Axis axis = new DescendantAxis(rtx);
-      while (axis.hasNext()) {
-        axis.nextLong();
-      }
+		@Override
+		public Void call() throws Exception {
+			final Axis axis = new DescendantAxis(rtx);
+			while (axis.hasNext()) {
+				axis.nextLong();
+			}
 
-      rtx.moveTo(12L);
-      assertEquals("bar", rtx.getValue());
-      rtx.close();
-      return null;
-    }
-  }
+			rtx.moveTo(12L);
+			assertEquals("bar", rtx.getValue());
+			rtx.close();
+			return null;
+		}
+	}
 
 }

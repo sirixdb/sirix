@@ -25,19 +25,19 @@ import io.sirix.node.NodeKind;
 
 public final class NumberValue implements ObjectRecordValue<Number> {
 
-  private final Number number;
+	private final Number number;
 
-  public NumberValue(final Number number) {
-    this.number = number;
-  }
+	public NumberValue(final Number number) {
+		this.number = number;
+	}
 
-  @Override
-  public Number getValue() {
-    return number;
-  }
+	@Override
+	public Number getValue() {
+		return number;
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.NUMBER_VALUE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.NUMBER_VALUE;
+	}
 }

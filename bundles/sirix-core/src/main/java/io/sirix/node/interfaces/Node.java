@@ -31,49 +31,55 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
  * </p>
  */
 public interface Node extends ImmutableNode {
-  @Override
-  NodeKind getKind();
+	@Override
+	NodeKind getKind();
 
-  /**
-   * Set a new DeweyID (may only be necessary during moves.)
-   *
-   * @param id new dewey ID
-   */
-  void setDeweyID(SirixDeweyID id);
+	/**
+	 * Set a new DeweyID (may only be necessary during moves.)
+	 *
+	 * @param id
+	 *            new dewey ID
+	 */
+	void setDeweyID(SirixDeweyID id);
 
-  /**
-   * Set the type key.
-   *
-   * @param typeKey the type to set
-   */
-  void setTypeKey(int typeKey);
+	/**
+	 * Set the type key.
+	 *
+	 * @param typeKey
+	 *            the type to set
+	 */
+	void setTypeKey(int typeKey);
 
-  /**
-   * Set the actual hash of the structure. The hash of one node should have the entire integrity of
-   * the related subtree.
-   *
-   * @param hash hash for this node
-   */
-  void setHash(long hash);
+	/**
+	 * Set the actual hash of the structure. The hash of one node should have the
+	 * entire integrity of the related subtree.
+	 *
+	 * @param hash
+	 *            hash for this node
+	 */
+	void setHash(long hash);
 
-  /**
-   * Set the parent key.
-   *
-   * @param nodeKey the parent nodeKey
-   */
-  void setParentKey(long nodeKey);
+	/**
+	 * Set the parent key.
+	 *
+	 * @param nodeKey
+	 *            the parent nodeKey
+	 */
+	void setParentKey(long nodeKey);
 
-  /**
-   * Set the previous revision of this record.
-   *
-   * @param revision the previous revision
-   */
-  void setPreviousRevision(int revision);
+	/**
+	 * Set the previous revision of this record.
+	 *
+	 * @param revision
+	 *            the previous revision
+	 */
+	void setPreviousRevision(int revision);
 
-  /**
-   * Set the last modified revision of this record.
-   *
-   * @param revision the last modified revision
-   */
-  void setLastModifiedRevision(int revision);
+	/**
+	 * Set the last modified revision of this record.
+	 *
+	 * @param revision
+	 *            the last modified revision
+	 */
+	void setLastModifiedRevision(int revision);
 }

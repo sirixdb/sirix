@@ -32,115 +32,129 @@ import java.util.List;
 
 /**
  * <p>
- * This interface describes database instances handled by Sirix. A database is a persistent place
- * where all data is stored. {@link ResourceSession}s are used to access the data in individual
- * resources.
+ * This interface describes database instances handled by Sirix. A database is a
+ * persistent place where all data is stored. {@link ResourceSession}s are used
+ * to access the data in individual resources.
  * </p>
  *
  * <p>
- * Furthermore, databases are created by {@link DatabaseConfiguration}s. After creation, the settings
- * of a database cannot be changed.
+ * Furthermore, databases are created by {@link DatabaseConfiguration}s. After
+ * creation, the settings of a database cannot be changed.
  * </p>
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
 public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
-    extends AutoCloseable {
-  /**
-   * Determines if the database is open.
-   *
-   * @return {@code true}, if it's open, {@code false} otherwise
-   */
-  boolean isOpen();
+		extends
+			AutoCloseable {
+	/**
+	 * Determines if the database is open.
+	 *
+	 * @return {@code true}, if it's open, {@code false} otherwise
+	 */
+	boolean isOpen();
 
-  /**
-   * Creation of a resource. Since databases can consist out of several resources, those can be
-   * created within this method. This includes the creation of a suitable folder structure as well as
-   * the serialization of the configuration of this resource.
-   *
-   * @param config the config of the resource
-   * @return {@code true} if successful, {@code false} otherwise
-   * @throws SirixIOException if anything happens while creating the resource
-   */
-  boolean createResource(ResourceConfiguration config);
+	/**
+	 * Creation of a resource. Since databases can consist out of several resources,
+	 * those can be created within this method. This includes the creation of a
+	 * suitable folder structure as well as the serialization of the configuration
+	 * of this resource.
+	 *
+	 * @param config
+	 *            the config of the resource
+	 * @return {@code true} if successful, {@code false} otherwise
+	 * @throws SirixIOException
+	 *             if anything happens while creating the resource
+	 */
+	boolean createResource(ResourceConfiguration config);
 
-  /**
-   * Is the resource within this database existing?
-   *
-   * @param resourceName resource to be checked
-   * @return {@code true}, if existing, {@code false} otherwise
-   */
-  boolean existsResource(String resourceName);
+	/**
+	 * Is the resource within this database existing?
+	 *
+	 * @param resourceName
+	 *            resource to be checked
+	 * @return {@code true}, if existing, {@code false} otherwise
+	 */
+	boolean existsResource(String resourceName);
 
-  /**
-   * List all resources within this database.
-   *
-   * @return all resources
-   */
-  List<Path> listResources();
+	/**
+	 * List all resources within this database.
+	 *
+	 * @return all resources
+	 */
+	List<Path> listResources();
 
-  /**
-   * Open a resource session to work with a resource stored in this database.
-   *
-   * @param resourceName the resource to work on
-   * @return the resource manager
-   * @throws SirixException if can't open resource manager
-   */
-  T beginResourceSession(String resourceName);
+	/**
+	 * Open a resource session to work with a resource stored in this database.
+	 *
+	 * @param resourceName
+	 *            the resource to work on
+	 * @return the resource manager
+	 * @throws SirixException
+	 *             if can't open resource manager
+	 */
+	T beginResourceSession(String resourceName);
 
-  /**
-   * Truncating a resource. This includes the removal of all data stored within this resource.
-   *
-   * @param resourceName resource name
-   * @return Database updated database
-   */
-  Database<T> removeResource(String resourceName);
+	/**
+	 * Truncating a resource. This includes the removal of all data stored within
+	 * this resource.
+	 *
+	 * @param resourceName
+	 *            resource name
+	 * @return Database updated database
+	 */
+	Database<T> removeResource(String resourceName);
 
-  /**
-   * Closing the database for further access.
-   *
-   * @throws SirixException if anything happens within sirix.
-   */
-  @Override
-  void close();
+	/**
+	 * Closing the database for further access.
+	 *
+	 * @throws SirixException
+	 *             if anything happens within sirix.
+	 */
+	@Override
+	void close();
 
-  /**
-   * Get the {@link DatabaseConfiguration} associated with this database.
-   *
-   * @return {@link DatabaseConfiguration} reference associated with this database
-   */
-  DatabaseConfiguration getDatabaseConfig();
+	/**
+	 * Get the {@link DatabaseConfiguration} associated with this database.
+	 *
+	 * @return {@link DatabaseConfiguration} reference associated with this database
+	 */
+	DatabaseConfiguration getDatabaseConfig();
 
-  /**
-   * Begin a database wide transaction.
-   *
-   * @return the started transaction
-   */
-  Transaction beginTransaction();
+	/**
+	 * Begin a database wide transaction.
+	 *
+	 * @return the started transaction
+	 */
+	Transaction beginTransaction();
 
-  /**
-   * Get the resource name associated with the given ID.
-   *
-   * @param id unique ID of resource
-   * @return resource name
-   * @throws IllegalArgumentException if {@code pID} is negative
-   */
-  String getResourceName(@NonNegative long id);
+	/**
+	 * Get the resource name associated with the given ID.
+	 *
+	 * @param id
+	 *            unique ID of resource
+	 * @return resource name
+	 * @throws IllegalArgumentException
+	 *             if {@code pID} is negative
+	 */
+	String getResourceName(@NonNegative long id);
 
-  /**
-   * Get the resource-ID associated with the given resource name.
-   *
-   * @param name name of resource
-   * @return ID of resource with the given name
-   * @throws NullPointerException if {@code pName} is {@code null}
-   */
-  long getResourceID(String name);
+	/**
+	 * Get the resource-ID associated with the given resource name.
+	 *
+	 * @param name
+	 *            name of resource
+	 * @return ID of resource with the given name
+	 * @throws NullPointerException
+	 *             if {@code pName} is {@code null}
+	 */
+	long getResourceID(String name);
 
-  /**
-   * Get the database name.
-   *
-   * @return the database name
-   */
-  String getName();
+	/**
+	 * Get the database name.
+	 *
+	 * @return the database name
+	 */
+	String getName();
 }

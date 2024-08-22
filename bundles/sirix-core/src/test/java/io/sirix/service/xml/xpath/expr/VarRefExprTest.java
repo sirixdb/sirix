@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -34,62 +34,62 @@ import io.sirix.service.xml.xpath.XPathAxis;
 
 /**
  * JUnit-test class to test the functionality of the VarRefExpr.
- * 
+ *
  * @author Tina Scherer
  */
 public class VarRefExprTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testEveryExpr() throws SirixException {
+	@Test
+	public void testEveryExpr() throws SirixException {
 
-    final AbstractAxis axis = new XPathAxis(holder.getXmlNodeReadTrx(), "for $a in b return $a");
+		final AbstractAxis axis = new XPathAxis(holder.getXmlNodeReadTrx(), "for $a in b return $a");
 
-    final VariableAxis variable = new VariableAxis(holder.getXmlNodeReadTrx(), axis);
+		final VariableAxis variable = new VariableAxis(holder.getXmlNodeReadTrx(), axis);
 
-    final VarRefExpr axis1 = new VarRefExpr(holder.getXmlNodeReadTrx(), variable);
-    // assertEquals(false, axis1.hasNext());
-    axis1.update(5L);
-    assertEquals(true, axis1.hasNext());
-    axis1.next();
-    assertEquals(5L, holder.getXmlNodeReadTrx().getNodeKey());
-    axis1.update(13L);
-    assertEquals(true, axis1.hasNext());
-    axis1.next();
-    assertEquals(13L, holder.getXmlNodeReadTrx().getNodeKey());
-    axis1.update(1L);
-    assertEquals(true, axis1.hasNext());
-    axis1.next();
-    assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
-    assertEquals(false, axis1.hasNext());
+		final VarRefExpr axis1 = new VarRefExpr(holder.getXmlNodeReadTrx(), variable);
+		// assertEquals(false, axis1.hasNext());
+		axis1.update(5L);
+		assertEquals(true, axis1.hasNext());
+		axis1.next();
+		assertEquals(5L, holder.getXmlNodeReadTrx().getNodeKey());
+		axis1.update(13L);
+		assertEquals(true, axis1.hasNext());
+		axis1.next();
+		assertEquals(13L, holder.getXmlNodeReadTrx().getNodeKey());
+		axis1.update(1L);
+		assertEquals(true, axis1.hasNext());
+		axis1.next();
+		assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
+		assertEquals(false, axis1.hasNext());
 
-    final VarRefExpr axis2 = new VarRefExpr(holder.getXmlNodeReadTrx(), variable);
-    // assertEquals(false, axis2.hasNext());
-    axis2.update(13L);
-    assertEquals(true, axis2.hasNext());
-    axis2.next();
-    assertEquals(13L, holder.getXmlNodeReadTrx().getNodeKey());
-    assertEquals(false, axis2.hasNext());
-    axis2.update(12L);
-    assertEquals(true, axis2.hasNext());
-    axis2.next();
-    assertEquals(12L, holder.getXmlNodeReadTrx().getNodeKey());
-    assertEquals(false, axis2.hasNext());
+		final VarRefExpr axis2 = new VarRefExpr(holder.getXmlNodeReadTrx(), variable);
+		// assertEquals(false, axis2.hasNext());
+		axis2.update(13L);
+		assertEquals(true, axis2.hasNext());
+		axis2.next();
+		assertEquals(13L, holder.getXmlNodeReadTrx().getNodeKey());
+		assertEquals(false, axis2.hasNext());
+		axis2.update(12L);
+		assertEquals(true, axis2.hasNext());
+		axis2.next();
+		assertEquals(12L, holder.getXmlNodeReadTrx().getNodeKey());
+		assertEquals(false, axis2.hasNext());
 
-  }
+	}
 
 }

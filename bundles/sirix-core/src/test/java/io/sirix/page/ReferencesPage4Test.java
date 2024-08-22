@@ -43,36 +43,36 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public final class ReferencesPage4Test {
 
-  @Test
-  public void testCloneConstructor() {
-    final var referencesPage4 = new ReferencesPage4();
+	@Test
+	public void testCloneConstructor() {
+		final var referencesPage4 = new ReferencesPage4();
 
-    final var pageReference = referencesPage4.getOrCreateReference(0);
-    assert pageReference != null;
-    pageReference.setLogKey(5);
+		final var pageReference = referencesPage4.getOrCreateReference(0);
+		assert pageReference != null;
+		pageReference.setLogKey(5);
 
-    final List<PageFragmentKey> pageFragmentKeys =
-        List.of(new PageFragmentKeyImpl(1, 200), new PageFragmentKeyImpl(2, 763));
+		final List<PageFragmentKey> pageFragmentKeys = List.of(new PageFragmentKeyImpl(1, 200),
+				new PageFragmentKeyImpl(2, 763));
 
-    pageReference.setPageFragments(pageFragmentKeys);
+		pageReference.setPageFragments(pageFragmentKeys);
 
-    final var newReferencesPage4 = new ReferencesPage4(referencesPage4);
+		final var newReferencesPage4 = new ReferencesPage4(referencesPage4);
 
-    assertNotSame(referencesPage4, newReferencesPage4);
+		assertNotSame(referencesPage4, newReferencesPage4);
 
-    final var copiedPageReference = newReferencesPage4.getOrCreateReference(0);
+		final var copiedPageReference = newReferencesPage4.getOrCreateReference(0);
 
-    assert copiedPageReference != null;
-    assertEquals(pageReference.getLogKey(), copiedPageReference.getLogKey());
+		assert copiedPageReference != null;
+		assertEquals(pageReference.getLogKey(), copiedPageReference.getLogKey());
 
-    final List<PageFragmentKey> copiedPageFragmentKeys = copiedPageReference.getPageFragments();
+		final List<PageFragmentKey> copiedPageFragmentKeys = copiedPageReference.getPageFragments();
 
-    assertEquals(copiedPageFragmentKeys.size(), 2);
+		assertEquals(copiedPageFragmentKeys.size(), 2);
 
-    assertEquals(pageFragmentKeys.get(0).revision(), copiedPageFragmentKeys.get(0).revision());
-    assertEquals(pageFragmentKeys.get(1).revision(), copiedPageFragmentKeys.get(1).revision());
+		assertEquals(pageFragmentKeys.get(0).revision(), copiedPageFragmentKeys.get(0).revision());
+		assertEquals(pageFragmentKeys.get(1).revision(), copiedPageFragmentKeys.get(1).revision());
 
-    assertEquals(pageFragmentKeys.get(0).key(), copiedPageFragmentKeys.get(0).key());
-    assertEquals(pageFragmentKeys.get(1).key(), copiedPageFragmentKeys.get(1).key());
-  }
+		assertEquals(pageFragmentKeys.get(0).key(), copiedPageFragmentKeys.get(0).key());
+		assertEquals(pageFragmentKeys.get(1).key(), copiedPageFragmentKeys.get(1).key());
+	}
 }

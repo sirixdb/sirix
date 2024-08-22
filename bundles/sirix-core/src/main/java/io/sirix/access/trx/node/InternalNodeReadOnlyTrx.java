@@ -7,13 +7,13 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 
 public interface InternalNodeReadOnlyTrx<N extends ImmutableNode> extends NodeCursor, NodeReadOnlyTrx {
-  N getCurrentNode();
+	N getCurrentNode();
 
-  void setCurrentNode(N node);
+	void setCurrentNode(N node);
 
-  StructNode getStructuralNode();
+	StructNode getStructuralNode();
 
-  void assertNotClosed();
+	void assertNotClosed();
 
-  void setPageReadTransaction(PageReadOnlyTrx trx);
+	void setPageReadTransaction(PageReadOnlyTrx trx);
 }

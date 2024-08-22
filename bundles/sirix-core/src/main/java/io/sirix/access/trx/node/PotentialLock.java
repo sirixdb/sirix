@@ -1,7 +1,5 @@
 package io.sirix.access.trx.node;
 
-
-
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.concurrent.TimeUnit;
@@ -12,62 +10,62 @@ import static java.util.Objects.requireNonNull;
 
 public final class PotentialLock implements Lock, AutoCloseable {
 
-  private final Lock lock;
+	private final Lock lock;
 
-  public PotentialLock(final Lock lock) {
-    this.lock = requireNonNull(lock);
-  }
+	public PotentialLock(final Lock lock) {
+		this.lock = requireNonNull(lock);
+	}
 
-  @Override
-  public void lock() {
-    if (lock != null) {
-      lock.lock();
-    }
-  }
+	@Override
+	public void lock() {
+		if (lock != null) {
+			lock.lock();
+		}
+	}
 
-  @Override
-  public void lockInterruptibly() throws InterruptedException {
-    if (lock != null) {
-      lock.lockInterruptibly();
-    }
-  }
+	@Override
+	public void lockInterruptibly() throws InterruptedException {
+		if (lock != null) {
+			lock.lockInterruptibly();
+		}
+	}
 
-  @Override
-  public boolean tryLock() {
-    if (lock != null) {
-      return lock.tryLock();
-    }
-    return true;
-  }
+	@Override
+	public boolean tryLock() {
+		if (lock != null) {
+			return lock.tryLock();
+		}
+		return true;
+	}
 
-  @Override
-  public boolean tryLock(long time, @NonNull TimeUnit unit) throws InterruptedException {
-    if (lock != null) {
-      return lock.tryLock(time, unit);
-    }
-    return true;
-  }
+	@Override
+	public boolean tryLock(long time, @NonNull TimeUnit unit) throws InterruptedException {
+		if (lock != null) {
+			return lock.tryLock(time, unit);
+		}
+		return true;
+	}
 
-  @Override
-  public void unlock() {
-    if (lock != null) {
-      lock.unlock();
-    }
-  }
+	@Override
+	public void unlock() {
+		if (lock != null) {
+			lock.unlock();
+		}
+	}
 
-  @NonNull
-  @Override
-  public Condition newCondition() {
-    if (lock != null) {
-      return lock.newCondition();
-    }
-    return null;
-  }
+	@NonNull
+	@Override
+	public Condition newCondition() {
+		if (lock != null) {
+			return lock.newCondition();
+		}
+		return null;
+	}
 
-  @Override
-  public void close() throws Exception {
-    if (lock != null) {
-      lock.unlock();
-    }
-  }
+	@Override
+	public void close() throws Exception {
+		if (lock != null) {
+			lock.unlock();
+		}
+	}
 }

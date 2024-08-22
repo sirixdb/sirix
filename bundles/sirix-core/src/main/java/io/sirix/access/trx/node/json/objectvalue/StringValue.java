@@ -26,19 +26,19 @@ import io.sirix.node.NodeKind;
 import static java.util.Objects.requireNonNull;
 
 public final class StringValue implements ObjectRecordValue<String> {
-  private final String value;
+	private final String value;
 
-  public StringValue(final String value) {
-    this.value = requireNonNull(value);
-  }
+	public StringValue(final String value) {
+		this.value = requireNonNull(value);
+	}
 
-  @Override
-  public String getValue() {
-    return value;
-  }
+	@Override
+	public String getValue() {
+		return value;
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.STRING_VALUE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.STRING_VALUE;
+	}
 }

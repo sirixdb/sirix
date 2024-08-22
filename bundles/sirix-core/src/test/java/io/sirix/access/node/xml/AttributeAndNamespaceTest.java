@@ -32,43 +32,42 @@ import static org.junit.Assert.assertEquals;
 
 public class AttributeAndNamespaceTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testAttribute() throws SirixException {
-    holder.getXmlNodeReadTrx().moveTo(1L);
-    assertEquals(1, holder.getXmlNodeReadTrx().getAttributeCount());
-    holder.getXmlNodeReadTrx().moveToAttribute(0);
-    assertEquals("i", holder.getXmlNodeReadTrx().getName().getLocalName());
+	@Test
+	public void testAttribute() throws SirixException {
+		holder.getXmlNodeReadTrx().moveTo(1L);
+		assertEquals(1, holder.getXmlNodeReadTrx().getAttributeCount());
+		holder.getXmlNodeReadTrx().moveToAttribute(0);
+		assertEquals("i", holder.getXmlNodeReadTrx().getName().getLocalName());
 
-    holder.getXmlNodeReadTrx().moveTo(9L);
-    assertEquals(1, holder.getXmlNodeReadTrx().getAttributeCount());
-    holder.getXmlNodeReadTrx().moveToAttribute(0);
-    assertEquals(
-        "p:x",
-        holder.getXmlNodeReadTrx().getName().getPrefix() + ":" + holder.getXmlNodeReadTrx().getName().getLocalName());
-    assertEquals("ns", holder.getXmlNodeReadTrx().getName().getNamespaceURI());
-  }
+		holder.getXmlNodeReadTrx().moveTo(9L);
+		assertEquals(1, holder.getXmlNodeReadTrx().getAttributeCount());
+		holder.getXmlNodeReadTrx().moveToAttribute(0);
+		assertEquals("p:x", holder.getXmlNodeReadTrx().getName().getPrefix() + ":"
+				+ holder.getXmlNodeReadTrx().getName().getLocalName());
+		assertEquals("ns", holder.getXmlNodeReadTrx().getName().getNamespaceURI());
+	}
 
-  @Test
-  public void testNamespace() throws SirixException {
-    holder.getXmlNodeReadTrx().moveTo(1L);
-    assertEquals(1, holder.getXmlNodeReadTrx().getNamespaceCount());
-    holder.getXmlNodeReadTrx().moveToNamespace(0);
-    assertEquals("p", holder.getXmlNodeReadTrx().getName().getPrefix());
-    assertEquals("ns", holder.getXmlNodeReadTrx().getName().getNamespaceURI());
-  }
+	@Test
+	public void testNamespace() throws SirixException {
+		holder.getXmlNodeReadTrx().moveTo(1L);
+		assertEquals(1, holder.getXmlNodeReadTrx().getNamespaceCount());
+		holder.getXmlNodeReadTrx().moveToNamespace(0);
+		assertEquals("p", holder.getXmlNodeReadTrx().getName().getPrefix());
+		assertEquals("ns", holder.getXmlNodeReadTrx().getName().getNamespaceURI());
+	}
 }

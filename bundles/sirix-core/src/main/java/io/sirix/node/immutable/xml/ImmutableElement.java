@@ -25,198 +25,200 @@ import static java.util.Objects.requireNonNull;
  */
 public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode, ImmutableXmlNode {
 
-  /** Mutable {@link ElementNode}. */
-  private final ElementNode node;
+	/** Mutable {@link ElementNode}. */
+	private final ElementNode node;
 
-  /**
-   * Private constructor.
-   *
-   * @param node mutable {@link ElementNode}
-   */
-  private ImmutableElement(final ElementNode node) {
-    this.node = requireNonNull(node);
-  }
+	/**
+	 * Private constructor.
+	 *
+	 * @param node
+	 *            mutable {@link ElementNode}
+	 */
+	private ImmutableElement(final ElementNode node) {
+		this.node = requireNonNull(node);
+	}
 
-  /**
-   * Get an immutable element node instance.
-   *
-   * @param node the mutable {@link ElementNode} to wrap
-   * @return immutable element instance
-   */
-  public static ImmutableElement of(final ElementNode node) {
-    return new ImmutableElement(node);
-  }
+	/**
+	 * Get an immutable element node instance.
+	 *
+	 * @param node
+	 *            the mutable {@link ElementNode} to wrap
+	 * @return immutable element instance
+	 */
+	public static ImmutableElement of(final ElementNode node) {
+		return new ImmutableElement(node);
+	}
 
-  @Override
-  public boolean hasFirstChild() {
-    return node.hasFirstChild();
-  }
+	@Override
+	public boolean hasFirstChild() {
+		return node.hasFirstChild();
+	}
 
-  @Override
-  public boolean hasLastChild() {
-    return false;
-  }
+	@Override
+	public boolean hasLastChild() {
+		return false;
+	}
 
-  @Override
-  public boolean hasLeftSibling() {
-    return node.hasLeftSibling();
-  }
+	@Override
+	public boolean hasLeftSibling() {
+		return node.hasLeftSibling();
+	}
 
-  @Override
-  public boolean hasRightSibling() {
-    return node.hasRightSibling();
-  }
+	@Override
+	public boolean hasRightSibling() {
+		return node.hasRightSibling();
+	}
 
-  @Override
-  public long getChildCount() {
-    return node.getChildCount();
-  }
+	@Override
+	public long getChildCount() {
+		return node.getChildCount();
+	}
 
-  @Override
-  public long getDescendantCount() {
-    return node.getDescendantCount();
-  }
+	@Override
+	public long getDescendantCount() {
+		return node.getDescendantCount();
+	}
 
-  @Override
-  public long getFirstChildKey() {
-    return node.getFirstChildKey();
-  }
+	@Override
+	public long getFirstChildKey() {
+		return node.getFirstChildKey();
+	}
 
-  @Override
-  public long getLastChildKey() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public long getLastChildKey() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public long getLeftSiblingKey() {
-    return node.getLeftSiblingKey();
-  }
+	@Override
+	public long getLeftSiblingKey() {
+		return node.getLeftSiblingKey();
+	}
 
-  @Override
-  public long getRightSiblingKey() {
-    return node.getRightSiblingKey();
-  }
+	@Override
+	public long getRightSiblingKey() {
+		return node.getRightSiblingKey();
+	}
 
-  @Override
-  public int getTypeKey() {
-    return node.getTypeKey();
-  }
+	@Override
+	public int getTypeKey() {
+		return node.getTypeKey();
+	}
 
-  @Override
-  public boolean isSameItem(final @Nullable Node other) {
-    return node.isSameItem(other);
-  }
+	@Override
+	public boolean isSameItem(final @Nullable Node other) {
+		return node.isSameItem(other);
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
-    return visitor.visit(this);
-  }
+	@Override
+	public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
+		return visitor.visit(this);
+	}
 
-  @Override
-  public long getHash() {
-    return node.getHash();
-  }
+	@Override
+	public long getHash() {
+		return node.getHash();
+	}
 
-  @Override
-  public long getParentKey() {
-    return node.getParentKey();
-  }
+	@Override
+	public long getParentKey() {
+		return node.getParentKey();
+	}
 
-  @Override
-  public boolean hasParent() {
-    return node.hasParent();
-  }
+	@Override
+	public boolean hasParent() {
+		return node.hasParent();
+	}
 
-  @Override
-  public long getNodeKey() {
-    return node.getNodeKey();
-  }
+	@Override
+	public long getNodeKey() {
+		return node.getNodeKey();
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return node.getKind();
-  }
+	@Override
+	public NodeKind getKind() {
+		return node.getKind();
+	}
 
-  @Override
-  public int getPreviousRevisionNumber() {
-    return node.getPreviousRevisionNumber();
-  }
+	@Override
+	public int getPreviousRevisionNumber() {
+		return node.getPreviousRevisionNumber();
+	}
 
-  @Override
-  public int getLastModifiedRevisionNumber() {
-    return node.getLastModifiedRevisionNumber();
-  }
+	@Override
+	public int getLastModifiedRevisionNumber() {
+		return node.getLastModifiedRevisionNumber();
+	}
 
-  @Override
-  public int getLocalNameKey() {
-    return node.getLocalNameKey();
-  }
+	@Override
+	public int getLocalNameKey() {
+		return node.getLocalNameKey();
+	}
 
-  @Override
-  public int getPrefixKey() {
-    return node.getPrefixKey();
-  }
+	@Override
+	public int getPrefixKey() {
+		return node.getPrefixKey();
+	}
 
-  @Override
-  public int getURIKey() {
-    return node.getURIKey();
-  }
+	@Override
+	public int getURIKey() {
+		return node.getURIKey();
+	}
 
-  @Override
-  public long getPathNodeKey() {
-    return node.getPathNodeKey();
-  }
+	@Override
+	public long getPathNodeKey() {
+		return node.getPathNodeKey();
+	}
 
-  @Override
-  public SirixDeweyID getDeweyID() {
-    return node.getDeweyID();
-  }
+	@Override
+	public SirixDeweyID getDeweyID() {
+		return node.getDeweyID();
+	}
 
-  @Override
-  public boolean equals(Object obj) {
-    return node.equals(obj);
-  }
+	@Override
+	public boolean equals(Object obj) {
+		return node.equals(obj);
+	}
 
-  @Override
-  public int hashCode() {
-    return node.hashCode();
-  }
+	@Override
+	public int hashCode() {
+		return node.hashCode();
+	}
 
-  @Override
-  public String toString() {
-    return node.toString();
-  }
+	@Override
+	public String toString() {
+		return node.toString();
+	}
 
-  /**
-   * Get the namespace count.
-   *
-   * @return namespace count
-   */
-  public int getNamespaceCount() {
-    return node.getNamespaceCount();
-  }
+	/**
+	 * Get the namespace count.
+	 *
+	 * @return namespace count
+	 */
+	public int getNamespaceCount() {
+		return node.getNamespaceCount();
+	}
 
-  /**
-   * Get the attribute count.
-   *
-   * @return attribute count
-   */
-  public int getAttributeCount() {
-    return node.getAttributeCount();
-  }
+	/**
+	 * Get the attribute count.
+	 *
+	 * @return attribute count
+	 */
+	public int getAttributeCount() {
+		return node.getAttributeCount();
+	}
 
-  @Override
-  public QNm getName() {
-    return node.getName();
-  }
+	@Override
+	public QNm getName() {
+		return node.getName();
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    return node.computeHash(bytes);
-  }
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		return node.computeHash(bytes);
+	}
 
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    return node.getDeweyIDAsBytes();
-  }
+	@Override
+	public byte[] getDeweyIDAsBytes() {
+		return node.getDeweyIDAsBytes();
+	}
 }

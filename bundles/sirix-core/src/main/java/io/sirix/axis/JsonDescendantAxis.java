@@ -28,99 +28,102 @@ import io.sirix.utils.Pair;
 
 /**
  * <p>
- * Iterate over all structural descendants starting at a given node (in preorder). Self might or
- * might not be included.
+ * Iterate over all structural descendants starting at a given node (in
+ * preorder). Self might or might not be included.
  * </p>
  */
 public final class JsonDescendantAxis extends AbstractAxis {
 
-  /** Stack for remembering next nodeKey in document order. */
-  private Deque<Pair<Long, Integer>> rightSiblingKeyStack;
+	/** Stack for remembering next nodeKey in document order. */
+	private Deque<Pair<Long, Integer>> rightSiblingKeyStack;
 
-  /** Determines if it's the first call to hasNext(). */
-  private boolean first;
+	/** Determines if it's the first call to hasNext(). */
+	private boolean first;
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param cursor cursor to iterate with
-   */
-  public JsonDescendantAxis(final NodeCursor cursor) {
-    super(cursor);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param cursor
+	 *            cursor to iterate with
+	 */
+	public JsonDescendantAxis(final NodeCursor cursor) {
+		super(cursor);
+	}
 
-  /** The current depth, starts with zero. */
-  private int depth;
+	/** The current depth, starts with zero. */
+	private int depth;
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param cursor cursor to iterate with
-   * @param includeSelf determines if current node is included or not
-   */
-  public JsonDescendantAxis(final NodeCursor cursor, final IncludeSelf includeSelf) {
-    super(cursor, includeSelf);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param cursor
+	 *            cursor to iterate with
+	 * @param includeSelf
+	 *            determines if current node is included or not
+	 */
+	public JsonDescendantAxis(final NodeCursor cursor, final IncludeSelf includeSelf) {
+		super(cursor, includeSelf);
+	}
 
-  @Override
-  public void reset(final long nodeKey) {
-    super.reset(nodeKey);
-    first = true;
-    rightSiblingKeyStack = new ArrayDeque<>();
-  }
+	@Override
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
+		first = true;
+		rightSiblingKeyStack = new ArrayDeque<>();
+	}
 
-  @Override
-  protected long nextKey() {
-    long key;
+	@Override
+	protected long nextKey() {
+		long key;
 
-    final NodeCursor cursor = getCursor();
+		final NodeCursor cursor = getCursor();
 
-    // Determines if first call to hasNext().
-    if (first) {
-      first = false;
+		// Determines if first call to hasNext().
+		if (first) {
+			first = false;
 
-      if (includeSelf() == IncludeSelf.YES) {
-        key = cursor.getNodeKey();
-      } else {
-        key = cursor.getFirstChildKey();
-        depth++;
-      }
+			if (includeSelf() == IncludeSelf.YES) {
+				key = cursor.getNodeKey();
+			} else {
+				key = cursor.getFirstChildKey();
+				depth++;
+			}
 
-      return key;
-    }
+			return key;
+		}
 
-    // Always follow first child if there is one.
-    if (cursor.hasFirstChild()) {
-      key = cursor.getFirstChildKey();
-      if (cursor.hasRightSibling()) {
-        rightSiblingKeyStack.push(new Pair<>(cursor.getRightSiblingKey(), depth));
-      }
-      depth++;
-      return key;
-    }
+		// Always follow first child if there is one.
+		if (cursor.hasFirstChild()) {
+			key = cursor.getFirstChildKey();
+			if (cursor.hasRightSibling()) {
+				rightSiblingKeyStack.push(new Pair<>(cursor.getRightSiblingKey(), depth));
+			}
+			depth++;
+			return key;
+		}
 
-    // Then follow right sibling if there is one.
-    if (cursor.hasRightSibling()) {
-      key = cursor.getRightSiblingKey();
+		// Then follow right sibling if there is one.
+		if (cursor.hasRightSibling()) {
+			key = cursor.getRightSiblingKey();
 
-      if (depth == 0) {
-        return done();
-      }
-      return key;
-    }
+			if (depth == 0) {
+				return done();
+			}
+			return key;
+		}
 
-    // Then follow right sibling on stack.
-    if (rightSiblingKeyStack.size() > 0) {
-      final var pair = rightSiblingKeyStack.pop();
-      key = pair.getFirst();
-      depth = pair.getSecond();
+		// Then follow right sibling on stack.
+		if (rightSiblingKeyStack.size() > 0) {
+			final var pair = rightSiblingKeyStack.pop();
+			key = pair.getFirst();
+			depth = pair.getSecond();
 
-      if (depth == 0) {
-        return done();
-      }
-      return key;
-    }
+			if (depth == 0) {
+				return done();
+			}
+			return key;
+		}
 
-    return done();
-  }
+		return done();
+	}
 }

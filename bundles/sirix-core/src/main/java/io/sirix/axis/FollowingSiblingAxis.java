@@ -26,50 +26,52 @@ import io.sirix.node.NodeKind;
 
 /**
  * <p>
- * Iterate over all following siblings of kind ELEMENT or TEXT starting at a given node. Self is not
- * included.
+ * Iterate over all following siblings of kind ELEMENT or TEXT starting at a
+ * given node. Self is not included.
  * </p>
  */
 public final class FollowingSiblingAxis extends AbstractAxis {
 
-  /** Determines if it's the first call to hasNext(). */
-  private boolean mIsFirst;
+	/** Determines if it's the first call to hasNext(). */
+	private boolean mIsFirst;
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param rtx exclusive (immutable) trx to iterate with
-   */
-  public FollowingSiblingAxis(final NodeCursor rtx) {
-    super(rtx);
-    mIsFirst = true;
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param rtx
+	 *            exclusive (immutable) trx to iterate with
+	 */
+	public FollowingSiblingAxis(final NodeCursor rtx) {
+		super(rtx);
+		mIsFirst = true;
+	}
 
-  @Override
-  public void reset(final long nodeKey) {
-    super.reset(nodeKey);
-    mIsFirst = true;
-  }
+	@Override
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
+		mIsFirst = true;
+	}
 
-  @Override
-  protected long nextKey() {
-    final NodeCursor cursor = getCursor();
+	@Override
+	protected long nextKey() {
+		final NodeCursor cursor = getCursor();
 
-    if (mIsFirst) {
-      mIsFirst = false;
-      /*
-       * If the context node is an attribute or namespace node, the following-sibling axis is empty
-       */
-      if (cursor.getKind() == NodeKind.ATTRIBUTE || cursor.getKind() == NodeKind.NAMESPACE) {
-        return done();
-      }
-    }
+		if (mIsFirst) {
+			mIsFirst = false;
+			/*
+			 * If the context node is an attribute or namespace node, the following-sibling
+			 * axis is empty
+			 */
+			if (cursor.getKind() == NodeKind.ATTRIBUTE || cursor.getKind() == NodeKind.NAMESPACE) {
+				return done();
+			}
+		}
 
-    if (cursor.hasRightSibling()) {
-      return cursor.getRightSiblingKey();
-    }
+		if (cursor.hasRightSibling()) {
+			return cursor.getRightSiblingKey();
+		}
 
-    return done();
-  }
+		return done();
+	}
 
 }

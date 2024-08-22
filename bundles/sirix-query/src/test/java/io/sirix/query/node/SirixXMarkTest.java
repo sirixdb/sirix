@@ -17,32 +17,32 @@ import org.junit.After;
  */
 public final class SirixXMarkTest extends XMarkTest {
 
-  /** Sirix database store. */
-  private BasicXmlDBStore xmlStore;
+	/** Sirix database store. */
+	private BasicXmlDBStore xmlStore;
 
-  @Override
-  protected NodeStore createStore() {
-    xmlStore = BasicXmlDBStore.newBuilder().build();
-    return xmlStore;
-  }
+	@Override
+	protected NodeStore createStore() {
+		xmlStore = BasicXmlDBStore.newBuilder().build();
+		return xmlStore;
+	}
 
-  @Override
-  protected Query xquery(final String query) {
-    return new Query(SirixCompileChain.createWithNodeStore(xmlStore), query);
-  }
+	@Override
+	protected Query xquery(final String query) {
+		return new Query(SirixCompileChain.createWithNodeStore(xmlStore), query);
+	}
 
-  @Override
-  protected NodeCollection<?> createDoc(final DocumentParser parser) {
-    return xmlStore.create("testCollection", parser);
-  }
+	@Override
+	protected NodeCollection<?> createDoc(final DocumentParser parser) {
+		return xmlStore.create("testCollection", parser);
+	}
 
-  @Override
-  public void setUp() throws Exception {
-    super.setUp();
-  }
+	@Override
+	public void setUp() throws Exception {
+		super.setUp();
+	}
 
-  @After
-  public void commit() throws DocumentException {
-    xmlStore.close();
-  }
+	@After
+	public void commit() throws DocumentException {
+		xmlStore.close();
+	}
 }

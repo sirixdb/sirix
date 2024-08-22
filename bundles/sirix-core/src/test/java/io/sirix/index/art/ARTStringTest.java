@@ -13,7 +13,6 @@ public class ARTStringTest {
 	private static final String BARCA = "BARCA";
 	private static final String BARK = "BARK";
 
-
 	@Test
 	public void testSharedPrefixRemove_onlyChildLeaf() {
 		AdaptiveRadixTree<String, String> art = new AdaptiveRadixTree<>(BinaryComparables.forString());
@@ -37,7 +36,6 @@ public class ARTStringTest {
 		assertEquals("3", art.get(BOZ));
 	}
 
-
 	@Test
 	public void testSharedPrefixRemove_onlyChildInnerNode() {
 		AdaptiveRadixTree<String, String> art = new AdaptiveRadixTree<>(BinaryComparables.forString());
@@ -52,27 +50,17 @@ public class ARTStringTest {
 		assertEquals("4", art.get(BARK));
 
 		/*
-              p = B
-		take O	/      \  take A
-       leaf BOZ    inner
-          /          \ p = R
-      leaf BAZ      inner
-			   	         /     \
-				    leaf BARK   leaf BARCA
+		 * p = B take O / \ take A leaf BOZ inner / \ p = R leaf BAZ inner / \ leaf BARK
+		 * leaf BARCA
 		 */
-
 
 		// remove BAZ that shares prefix BA with node parent of BARCA, BARK
 		assertEquals("2", art.remove(BAZ));
 
 		/*
-        after removing BAZ
-
-           		p = B
-		take O	/      \  take A
-			leaf BOZ   inner p = R
-	   	   /           \
-		 leaf BARK      leaf BARCA
+		 * after removing BAZ
+		 *
+		 * p = B take O / \ take A leaf BOZ inner p = R / \ leaf BARK leaf BARCA
 		 */
 
 		// path to BARCA and BARK should still exist
@@ -83,9 +71,8 @@ public class ARTStringTest {
 		assertEquals("3", art.get(BOZ));
 	}
 
-
 	/*
-		should cause initial lazy stored leaf to split and have "BA" path compressed
+	 * should cause initial lazy stored leaf to split and have "BA" path compressed
 	 */
 	@Test
 	public void testSharedPrefixInsert() {

@@ -30,73 +30,81 @@ import io.sirix.node.immutable.xml.ImmutablePI;
 import io.sirix.node.immutable.xml.ImmutableText;
 
 /**
- * Interface which must be implemented from visitors to implement functionality based on the visitor
- * pattern.
+ * Interface which must be implemented from visitors to implement functionality
+ * based on the visitor pattern.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
 public interface XmlNodeVisitor extends NodeVisitor {
-  /**
-   * Do something when visiting a {@link ImmutablePI}.
-   *
-   * @param node the {@link ImmutablePI}
-   */
-  default VisitResult visit(ImmutablePI node) {
-    return VisitResultType.CONTINUE;
-  }
+	/**
+	 * Do something when visiting a {@link ImmutablePI}.
+	 *
+	 * @param node
+	 *            the {@link ImmutablePI}
+	 */
+	default VisitResult visit(ImmutablePI node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  /**
-   * Do something when visiting a {@link ImmutableComment}.
-   *
-   * @param node the {@link ImmutableComment}
-   */
-  default VisitResult visit(ImmutableComment node) {
-    return VisitResultType.CONTINUE;
-  }
+	/**
+	 * Do something when visiting a {@link ImmutableComment}.
+	 *
+	 * @param node
+	 *            the {@link ImmutableComment}
+	 */
+	default VisitResult visit(ImmutableComment node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  /**
-   * Do something when visiting an {@link ImmutableElement}.
-   *
-   * @param node the {@link ImmutableElement}
-   */
-  default VisitResult visit(ImmutableElement node) {
-    return VisitResultType.CONTINUE;
-  }
+	/**
+	 * Do something when visiting an {@link ImmutableElement}.
+	 *
+	 * @param node
+	 *            the {@link ImmutableElement}
+	 */
+	default VisitResult visit(ImmutableElement node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  /**
-   * Do something when visiting a {@link ImmutableAttributeNode}.
-   *
-   * @param node the {@link ImmutableAttributeNode}
-   */
-  default VisitResult visit(ImmutableAttributeNode node) {
-    return VisitResultType.CONTINUE;
-  }
+	/**
+	 * Do something when visiting a {@link ImmutableAttributeNode}.
+	 *
+	 * @param node
+	 *            the {@link ImmutableAttributeNode}
+	 */
+	default VisitResult visit(ImmutableAttributeNode node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  /**
-   * ImmutableDocumentRoot Do something when visiting a {@link ImmutableNamespace}.
-   *
-   * @param node the {@link ImmutableNamespace}
-   */
-  default VisitResult visit(ImmutableNamespace node) {
-    return VisitResultType.CONTINUE;
-  }
+	/**
+	 * ImmutableDocumentRoot Do something when visiting a
+	 * {@link ImmutableNamespace}.
+	 *
+	 * @param node
+	 *            the {@link ImmutableNamespace}
+	 */
+	default VisitResult visit(ImmutableNamespace node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  /**
-   * Do something when visiting a {@link ImmutableText}.
-   *
-   * @param node the {@link ImmutableText}
-   */
-  default VisitResult visit(ImmutableText node) {
-    return VisitResultType.CONTINUE;
-  }
+	/**
+	 * Do something when visiting a {@link ImmutableText}.
+	 *
+	 * @param node
+	 *            the {@link ImmutableText}
+	 */
+	default VisitResult visit(ImmutableText node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  /**
-   * Do something when visiting the {@link ImmutableXmlDocumentRootNode}.
-   *
-   * @param node the {@link ImmutableXmlDocumentRootNode}
-   */
-  default VisitResult visit(ImmutableXmlDocumentRootNode node) {
-    return VisitResultType.CONTINUE;
-  }
+	/**
+	 * Do something when visiting the {@link ImmutableXmlDocumentRootNode}.
+	 *
+	 * @param node
+	 *            the {@link ImmutableXmlDocumentRootNode}
+	 */
+	default VisitResult visit(ImmutableXmlDocumentRootNode node) {
+		return VisitResultType.CONTINUE;
+	}
 }

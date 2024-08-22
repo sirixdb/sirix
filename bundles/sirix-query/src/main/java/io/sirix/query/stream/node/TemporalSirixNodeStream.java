@@ -21,39 +21,42 @@ import static java.util.Objects.requireNonNull;
  */
 public class TemporalSirixNodeStream implements Stream<AbstractTemporalNode<XmlDBNode>> {
 
-  /** Temporal axis. */
-  private final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis;
+	/** Temporal axis. */
+	private final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis;
 
-  /** The {@link XmlDBCollection} reference. */
-  private final XmlDBCollection collection;
+	/** The {@link XmlDBCollection} reference. */
+	private final XmlDBCollection collection;
 
-  /**
-   * Constructor.
-   *
-   * @param axis Sirix {@link Axis}
-   * @param collection {@link XmlDBCollection} the nodes belong to
-   */
-  public TemporalSirixNodeStream(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis,
-      final XmlDBCollection collection) {
-    this.axis = requireNonNull(axis);
-    this.collection = requireNonNull(collection);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param axis
+	 *            Sirix {@link Axis}
+	 * @param collection
+	 *            {@link XmlDBCollection} the nodes belong to
+	 */
+	public TemporalSirixNodeStream(final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis,
+			final XmlDBCollection collection) {
+		this.axis = requireNonNull(axis);
+		this.collection = requireNonNull(collection);
+	}
 
-  @Override
-  public AbstractTemporalNode<XmlDBNode> next() throws DocumentException {
-    if (axis.hasNext()) {
-      final var rtx = axis.next();
-      return new XmlDBNode(rtx, collection);
-    }
+	@Override
+	public AbstractTemporalNode<XmlDBNode> next() throws DocumentException {
+		if (axis.hasNext()) {
+			final var rtx = axis.next();
+			return new XmlDBNode(rtx, collection);
+		}
 
-    return null;
-  }
+		return null;
+	}
 
-  @Override
-  public void close() {}
+	@Override
+	public void close() {
+	}
 
-  @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this).add("axis", axis).toString();
-  }
+	@Override
+	public String toString() {
+		return MoreObjects.toStringHelper(this).add("axis", axis).toString();
+	}
 }

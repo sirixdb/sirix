@@ -21,146 +21,146 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
-    implements PageReadOnlyTrx {
+public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject implements PageReadOnlyTrx {
 
-  /**
-   * Constructor for use by subclasses.
-   */
-  protected AbstractForwardingPageReadOnlyTrx() {
-  }
+	/**
+	 * Constructor for use by subclasses.
+	 */
+	protected AbstractForwardingPageReadOnlyTrx() {
+	}
 
-  @Override
-  public DataRecord getValue(KeyValueLeafPage page, long nodeKey) {
-    return delegate().getValue(page, nodeKey);
-  }
+	@Override
+	public DataRecord getValue(KeyValueLeafPage page, long nodeKey) {
+		return delegate().getValue(page, nodeKey);
+	}
 
-  @Override
-  public boolean hasTrxIntentLog() {
-    return delegate().hasTrxIntentLog();
-  }
+	@Override
+	public boolean hasTrxIntentLog() {
+		return delegate().hasTrxIntentLog();
+	}
 
-  @Override
-  public BufferManager getBufferManager() {
-    return delegate().getBufferManager();
-  }
+	@Override
+	public BufferManager getBufferManager() {
+		return delegate().getBufferManager();
+	}
 
-  @Override
-  public IndirectPage dereferenceIndirectPageReference(PageReference indirectPageReference) {
-    return delegate().dereferenceIndirectPageReference(indirectPageReference);
-  }
+	@Override
+	public IndirectPage dereferenceIndirectPageReference(PageReference indirectPageReference) {
+		return delegate().dereferenceIndirectPageReference(indirectPageReference);
+	}
 
-  @Override
-  public RevisionRootPage loadRevRoot(int lastCommittedRevision) {
-    return delegate().loadRevRoot(lastCommittedRevision);
-  }
+	@Override
+	public RevisionRootPage loadRevRoot(int lastCommittedRevision) {
+		return delegate().loadRevRoot(lastCommittedRevision);
+	}
 
-  @Override
-  public PageReference getReferenceToLeafOfSubtree(@NonNull PageReference startReference, @NonNegative long pageKey,
-      int indexNumber, @NonNull IndexType indexType, RevisionRootPage revisionRootPage) {
-    return delegate().getReferenceToLeafOfSubtree(startReference, pageKey, indexNumber, indexType, revisionRootPage);
-  }
+	@Override
+	public PageReference getReferenceToLeafOfSubtree(@NonNull PageReference startReference, @NonNegative long pageKey,
+			int indexNumber, @NonNull IndexType indexType, RevisionRootPage revisionRootPage) {
+		return delegate().getReferenceToLeafOfSubtree(startReference, pageKey, indexNumber, indexType,
+				revisionRootPage);
+	}
 
-  @Override
-  public int getCurrentMaxIndirectPageTreeLevel(IndexType indexType, int index, RevisionRootPage revisionRootPage) {
-    return delegate().getCurrentMaxIndirectPageTreeLevel(indexType, index, revisionRootPage);
-  }
+	@Override
+	public int getCurrentMaxIndirectPageTreeLevel(IndexType indexType, int index, RevisionRootPage revisionRootPage) {
+		return delegate().getCurrentMaxIndirectPageTreeLevel(indexType, index, revisionRootPage);
+	}
 
-  @Override
-  public <V extends DataRecord> V getRecord(long key, @NonNull IndexType indexType, int index) {
-    return delegate().getRecord(key, indexType, index);
-  }
+	@Override
+	public <V extends DataRecord> V getRecord(long key, @NonNull IndexType indexType, int index) {
+		return delegate().getRecord(key, indexType, index);
+	}
 
-  @Override
-  public CommitCredentials getCommitCredentials() {
-    return delegate().getCommitCredentials();
-  }
+	@Override
+	public CommitCredentials getCommitCredentials() {
+		return delegate().getCommitCredentials();
+	}
 
-  @Override
-  public long getTrxId() {
-    return delegate().getTrxId();
-  }
+	@Override
+	public long getTrxId() {
+		return delegate().getTrxId();
+	}
 
-  @Override
-  public ResourceSession<?, ?> getResourceSession() {
-    return delegate().getResourceSession();
-  }
+	@Override
+	public ResourceSession<?, ?> getResourceSession() {
+		return delegate().getResourceSession();
+	}
 
-  @Override
-  public CASPage getCASPage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
-    return delegate().getCASPage(revisionRoot);
-  }
+	@Override
+	public CASPage getCASPage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
+		return delegate().getCASPage(revisionRoot);
+	}
 
-  @Override
-  public NamePage getNamePage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
-    return delegate().getNamePage(revisionRoot);
-  }
+	@Override
+	public NamePage getNamePage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
+		return delegate().getNamePage(revisionRoot);
+	}
 
-  @Override
-  public PathSummaryPage getPathSummaryPage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
-    return delegate().getPathSummaryPage(revisionRoot);
-  }
+	@Override
+	public PathSummaryPage getPathSummaryPage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
+		return delegate().getPathSummaryPage(revisionRoot);
+	}
 
-  @Override
-  public PathPage getPathPage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
-    return delegate().getPathPage(revisionRoot);
-  }
+	@Override
+	public PathPage getPathPage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
+		return delegate().getPathPage(revisionRoot);
+	}
 
-  @Override
-  public long pageKey(@NonNegative long recordKey, @NonNull IndexType indexType) {
-    return delegate().pageKey(recordKey, indexType);
-  }
+	@Override
+	public long pageKey(@NonNegative long recordKey, @NonNull IndexType indexType) {
+		return delegate().pageKey(recordKey, indexType);
+	}
 
-  @Override
-  public RevisionRootPage getActualRevisionRootPage() {
-    return delegate().getActualRevisionRootPage();
-  }
+	@Override
+	public RevisionRootPage getActualRevisionRootPage() {
+		return delegate().getActualRevisionRootPage();
+	}
 
-  @Override
-  public String getName(int nameKey, @NonNull NodeKind kind) {
-    return delegate().getName(nameKey, kind);
-  }
+	@Override
+	public String getName(int nameKey, @NonNull NodeKind kind) {
+		return delegate().getName(nameKey, kind);
+	}
 
-  @Override
-  public int getNameCount(int nameKey, @NonNull NodeKind kind) {
-    return delegate().getNameCount(nameKey, kind);
-  }
+	@Override
+	public int getNameCount(int nameKey, @NonNull NodeKind kind) {
+		return delegate().getNameCount(nameKey, kind);
+	}
 
-  @Override
-  public byte[] getRawName(int nameKey, @NonNull NodeKind kind) {
-    return delegate().getRawName(nameKey, kind);
-  }
+	@Override
+	public byte[] getRawName(int nameKey, @NonNull NodeKind kind) {
+		return delegate().getRawName(nameKey, kind);
+	}
 
-  @Override
-  public void close() {
-    delegate().close();
-  }
+	@Override
+	public void close() {
+		delegate().close();
+	}
 
-  @Override
-  public Page getRecordPage(@NonNull IndexLogKey indexLogKey) {
-    return delegate().getRecordPage(indexLogKey);
-  }
+	@Override
+	public Page getRecordPage(@NonNull IndexLogKey indexLogKey) {
+		return delegate().getRecordPage(indexLogKey);
+	}
 
-  @Override
-  public UberPage getUberPage() {
-    return delegate().getUberPage();
-  }
+	@Override
+	public UberPage getUberPage() {
+		return delegate().getUberPage();
+	}
 
-  @Override
-  public boolean isClosed() {
-    return delegate().isClosed();
-  }
+	@Override
+	public boolean isClosed() {
+		return delegate().isClosed();
+	}
 
-  @Override
-  public int getRevisionNumber() {
-    return delegate().getRevisionNumber();
-  }
+	@Override
+	public int getRevisionNumber() {
+		return delegate().getRevisionNumber();
+	}
 
-  @Override
-  public Reader getReader() {
-    return delegate().getReader();
-  }
+	@Override
+	public Reader getReader() {
+		return delegate().getReader();
+	}
 
-  @Override
-  protected abstract @NonNull PageReadOnlyTrx delegate();
+	@Override
+	protected abstract @NonNull PageReadOnlyTrx delegate();
 }

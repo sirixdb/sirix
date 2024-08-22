@@ -53,179 +53,186 @@ import java.nio.ByteBuffer;
  */
 public final class NamespaceNode extends AbstractForwardingNode implements NameNode, ImmutableXmlNode {
 
-  /** Delegate for name node information. */
-  private final NameNodeDelegate nameNodeDelegate;
+	/** Delegate for name node information. */
+	private final NameNodeDelegate nameNodeDelegate;
 
-  /** {@link NodeDelegate} reference. */
-  private final NodeDelegate nodeDelegate;
+	/** {@link NodeDelegate} reference. */
+	private final NodeDelegate nodeDelegate;
 
-  /** The qualified name. */
-  private final QNm qNm;
+	/** The qualified name. */
+	private final QNm qNm;
 
-  private long hash;
+	private long hash;
 
-  /**
-   * Constructor.
-   *
-   * @param nodeDel {@link NodeDelegate} reference
-   * @param nameNodeDelegate {@link NameNodeDelegate} reference
-   * @param qNm The qualified name.
-   */
-  public NamespaceNode(final NodeDelegate nodeDel, final NameNodeDelegate nameNodeDelegate, final QNm qNm) {
-    assert nodeDel != null;
-    assert nameNodeDelegate != null;
-    this.nodeDelegate = nodeDel;
-    this.nameNodeDelegate = nameNodeDelegate;
-    this.qNm = qNm;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param nodeDel
+	 *            {@link NodeDelegate} reference
+	 * @param nameNodeDelegate
+	 *            {@link NameNodeDelegate} reference
+	 * @param qNm
+	 *            The qualified name.
+	 */
+	public NamespaceNode(final NodeDelegate nodeDel, final NameNodeDelegate nameNodeDelegate, final QNm qNm) {
+		assert nodeDel != null;
+		assert nameNodeDelegate != null;
+		this.nodeDelegate = nodeDel;
+		this.nameNodeDelegate = nameNodeDelegate;
+		this.qNm = qNm;
+	}
 
-  /**
-   * Constructor.
-   *
-   * @param hashCode hash code
-   * @param nodeDel {@link NodeDelegate} reference
-   * @param nameNodeDelegate {@link NameNodeDelegate} reference
-   * @param qNm The qualified name.
-   */
-  public NamespaceNode(final long hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameNodeDelegate,
-      final QNm qNm) {
-    assert nodeDel != null;
-    assert nameNodeDelegate != null;
-    hash = hashCode;
-    this.nodeDelegate = nodeDel;
-    this.nameNodeDelegate = nameNodeDelegate;
-    this.qNm = qNm;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param hashCode
+	 *            hash code
+	 * @param nodeDel
+	 *            {@link NodeDelegate} reference
+	 * @param nameNodeDelegate
+	 *            {@link NameNodeDelegate} reference
+	 * @param qNm
+	 *            The qualified name.
+	 */
+	public NamespaceNode(final long hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameNodeDelegate,
+			final QNm qNm) {
+		assert nodeDel != null;
+		assert nameNodeDelegate != null;
+		hash = hashCode;
+		this.nodeDelegate = nodeDel;
+		this.nameNodeDelegate = nameNodeDelegate;
+		this.qNm = qNm;
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.NAMESPACE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.NAMESPACE;
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    bytes.clear();
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		bytes.clear();
+		bytes.writeLong(nodeDelegate.getNodeKey()).writeLong(nodeDelegate.getParentKey())
+				.writeByte(nodeDelegate.getKind().getId());
 
-    bytes.writeLong(nameNodeDelegate.getPrefixKey())
-         .writeLong(nameNodeDelegate.getLocalNameKey())
-         .writeLong(nameNodeDelegate.getURIKey());
+		bytes.writeLong(nameNodeDelegate.getPrefixKey()).writeLong(nameNodeDelegate.getLocalNameKey())
+				.writeLong(nameNodeDelegate.getURIKey());
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
+		final var buffer = bytes.underlyingObject().rewind();
+		buffer.limit((int) bytes.readLimit());
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
-  }
+		return nodeDelegate.getHashFunction().hashBytes(buffer);
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    this.hash = hash;
-  }
+	@Override
+	public void setHash(final long hash) {
+		this.hash = hash;
+	}
 
-  @Override
-  public long getHash() {
-    return hash;
-  }
+	@Override
+	public long getHash() {
+		return hash;
+	}
 
-  @Override
-  public int getPrefixKey() {
-    return nameNodeDelegate.getPrefixKey();
-  }
+	@Override
+	public int getPrefixKey() {
+		return nameNodeDelegate.getPrefixKey();
+	}
 
-  @Override
-  public int getLocalNameKey() {
-    return nameNodeDelegate.getLocalNameKey();
-  }
+	@Override
+	public int getLocalNameKey() {
+		return nameNodeDelegate.getLocalNameKey();
+	}
 
-  @Override
-  public int getURIKey() {
-    return nameNodeDelegate.getURIKey();
-  }
+	@Override
+	public int getURIKey() {
+		return nameNodeDelegate.getURIKey();
+	}
 
-  @Override
-  public void setPrefixKey(final int prefixKey) {
-    hash = 0L;
-    nameNodeDelegate.setPrefixKey(prefixKey);
-  }
+	@Override
+	public void setPrefixKey(final int prefixKey) {
+		hash = 0L;
+		nameNodeDelegate.setPrefixKey(prefixKey);
+	}
 
-  @Override
-  public void setLocalNameKey(final int localNameKey) {
-    hash = 0L;
-    nameNodeDelegate.setLocalNameKey(localNameKey);
-  }
+	@Override
+	public void setLocalNameKey(final int localNameKey) {
+		hash = 0L;
+		nameNodeDelegate.setLocalNameKey(localNameKey);
+	}
 
-  @Override
-  public void setURIKey(final int uriKey) {
-    hash = 0L;
-    nameNodeDelegate.setURIKey(uriKey);
-  }
+	@Override
+	public void setURIKey(final int uriKey) {
+		hash = 0L;
+		nameNodeDelegate.setURIKey(uriKey);
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
-    return visitor.visit(ImmutableNamespace.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
+		return visitor.visit(ImmutableNamespace.of(this));
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(nodeDelegate, nameNodeDelegate);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(nodeDelegate, nameNodeDelegate);
+	}
 
-  @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof final NamespaceNode other) {
-      return Objects.equal(nodeDelegate, other.nodeDelegate) && Objects.equal(nameNodeDelegate, other.nameNodeDelegate);
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof final NamespaceNode other) {
+			return Objects.equal(nodeDelegate, other.nodeDelegate)
+					&& Objects.equal(nameNodeDelegate, other.nameNodeDelegate);
+		}
+		return false;
+	}
 
-  @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this).add("nodeDel", nodeDelegate).add("nameDel", nameNodeDelegate).toString();
-  }
+	@Override
+	public @NonNull String toString() {
+		return MoreObjects.toStringHelper(this).add("nodeDel", nodeDelegate).add("nameDel", nameNodeDelegate)
+				.toString();
+	}
 
-  @Override
-  public void setPathNodeKey(final @NonNegative long pathNodeKey) {
-    nameNodeDelegate.setPathNodeKey(pathNodeKey);
-  }
+	@Override
+	public void setPathNodeKey(final @NonNegative long pathNodeKey) {
+		nameNodeDelegate.setPathNodeKey(pathNodeKey);
+	}
 
-  @Override
-  public long getPathNodeKey() {
-    return nameNodeDelegate.getPathNodeKey();
-  }
+	@Override
+	public long getPathNodeKey() {
+		return nameNodeDelegate.getPathNodeKey();
+	}
 
-  /**
-   * Getting the inlying {@link NameNodeDelegate}.
-   *
-   * @return {@link NameNodeDelegate} instance
-   */
-  public NameNodeDelegate getNameNodeDelegate() {
-    return nameNodeDelegate;
-  }
+	/**
+	 * Getting the inlying {@link NameNodeDelegate}.
+	 *
+	 * @return {@link NameNodeDelegate} instance
+	 */
+	public NameNodeDelegate getNameNodeDelegate() {
+		return nameNodeDelegate;
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return nodeDelegate;
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return nodeDelegate;
+	}
 
-  @Override
-  public QNm getName() {
-    return qNm;
-  }
+	@Override
+	public QNm getName() {
+		return qNm;
+	}
 
-  @Override
-  public SirixDeweyID getDeweyID() {
-    return nodeDelegate.getDeweyID();
-  }
+	@Override
+	public SirixDeweyID getDeweyID() {
+		return nodeDelegate.getDeweyID();
+	}
 
-  @Override
-  public int getTypeKey() {
-    return nodeDelegate.getTypeKey();
-  }
+	@Override
+	public int getTypeKey() {
+		return nodeDelegate.getTypeKey();
+	}
 
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    return nodeDelegate.getDeweyIDAsBytes();
-  }
+	@Override
+	public byte[] getDeweyIDAsBytes() {
+		return nodeDelegate.getDeweyIDAsBytes();
+	}
 }

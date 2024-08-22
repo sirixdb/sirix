@@ -19,27 +19,27 @@ import javax.inject.Provider;
 @Module(includes = LocalDatabaseModule.class)
 public interface XmlLocalDatabaseModule {
 
-  @DatabaseScope
-  @Provides
-  static ResourceSessionFactory<XmlResourceSession> resourceManagerFactory(
-      final Provider<XmlResourceManagerComponent.Builder> subComponentBuilder) {
-    return new SubComponentResourceSessionFactory<>(subComponentBuilder);
-  }
+	@DatabaseScope
+	@Provides
+	static ResourceSessionFactory<XmlResourceSession> resourceManagerFactory(
+			final Provider<XmlResourceManagerComponent.Builder> subComponentBuilder) {
+		return new SubComponentResourceSessionFactory<>(subComponentBuilder);
+	}
 
-  @DatabaseScope
-  @Provides
-  static Database<XmlResourceSession> xmlDatabase(final TransactionManager transactionManager,
-      final DatabaseConfiguration dbConfig, final PathBasedPool<Database<?>> sessions,
-      final ResourceStore<XmlResourceSession> resourceStore, final WriteLocksRegistry writeLocks,
-      final PathBasedPool<ResourceSession<?, ?>> resourceManagers) {
-    return new LocalDatabase<>(transactionManager, dbConfig, sessions, resourceStore, writeLocks, resourceManagers);
-  }
+	@DatabaseScope
+	@Provides
+	static Database<XmlResourceSession> xmlDatabase(final TransactionManager transactionManager,
+			final DatabaseConfiguration dbConfig, final PathBasedPool<Database<?>> sessions,
+			final ResourceStore<XmlResourceSession> resourceStore, final WriteLocksRegistry writeLocks,
+			final PathBasedPool<ResourceSession<?, ?>> resourceManagers) {
+		return new LocalDatabase<>(transactionManager, dbConfig, sessions, resourceStore, writeLocks, resourceManagers);
+	}
 
-  @DatabaseScope
-  @Provides
-  static ResourceStore<XmlResourceSession> xmlResourceManager(
-      final PathBasedPool<ResourceSession<?, ?>> allResourceManagers,
-      final ResourceSessionFactory<XmlResourceSession> resourceSessionFactory) {
-    return new ResourceStoreImpl<>(allResourceManagers, resourceSessionFactory);
-  }
+	@DatabaseScope
+	@Provides
+	static ResourceStore<XmlResourceSession> xmlResourceManager(
+			final PathBasedPool<ResourceSession<?, ?>> allResourceManagers,
+			final ResourceSessionFactory<XmlResourceSession> resourceSessionFactory) {
+		return new ResourceStoreImpl<>(allResourceManagers, resourceSessionFactory);
+	}
 }

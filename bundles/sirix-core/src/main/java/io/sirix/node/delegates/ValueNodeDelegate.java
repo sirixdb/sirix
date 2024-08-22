@@ -37,135 +37,136 @@ import java.util.Arrays;
 import java.util.zip.Deflater;
 
 /**
- * Delegate method for all nodes containing "value"-data. That means that independent values are
- * stored by the nodes delegating the calls of the interface {@link ValueNode} to this class.
+ * Delegate method for all nodes containing "value"-data. That means that
+ * independent values are stored by the nodes delegating the calls of the
+ * interface {@link ValueNode} to this class.
  *
  * @author Sebastian Graf, University of Konstanz
  *
  */
 public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNode {
 
-  /** Delegate for common node information. */
-  private final NodeDelegate nodeDelegate;
+	/** Delegate for common node information. */
+	private final NodeDelegate nodeDelegate;
 
-  /** Storing the value. */
-  private byte[] value;
+	/** Storing the value. */
+	private byte[] value;
 
-  /** Determines if input has been compressed. */
-  private boolean compressed;
+	/** Determines if input has been compressed. */
+	private boolean compressed;
 
-  /**
-   * Constructor
-   *
-   * @param nodeDel {@link NodeDelegate} reference
-   * @param val the value
-   * @param compressed compress value or not
-   */
-  public ValueNodeDelegate(final NodeDelegate nodeDel, final byte[] val, final boolean compressed) {
-    assert nodeDel != null : "nodeDel must not be null!";
-    assert val != null : "val must not be null!";
-    nodeDelegate = nodeDel;
-    value = val;
-    this.compressed = compressed;
-  }
+	/**
+	 * Constructor
+	 *
+	 * @param nodeDel
+	 *            {@link NodeDelegate} reference
+	 * @param val
+	 *            the value
+	 * @param compressed
+	 *            compress value or not
+	 */
+	public ValueNodeDelegate(final NodeDelegate nodeDel, final byte[] val, final boolean compressed) {
+		assert nodeDel != null : "nodeDel must not be null!";
+		assert val != null : "val must not be null!";
+		nodeDelegate = nodeDel;
+		value = val;
+		this.compressed = compressed;
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public long getHash() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public long getHash() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setHash(final long hash) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public byte[] getRawValue() {
-    return compressed
-        ? Compression.decompress(value)
-        : value;
-  }
+	@Override
+	public byte[] getRawValue() {
+		return compressed ? Compression.decompress(value) : value;
+	}
 
-  @Override
-  public String getValue() {
-    return new String(getRawValue(), Constants.DEFAULT_ENCODING);
-  }
+	@Override
+	public String getValue() {
+		return new String(getRawValue(), Constants.DEFAULT_ENCODING);
+	}
 
-  /**
-   * Get value which might be compressed.
-   *
-   * @return {@code value} which might be compressed
-   */
-  public byte[] getCompressed() {
-    return value;
-  }
+	/**
+	 * Get value which might be compressed.
+	 *
+	 * @return {@code value} which might be compressed
+	 */
+	public byte[] getCompressed() {
+		return value;
+	}
 
-  @Override
-  public void setRawValue(final byte[] value) {
-    compressed = new String(value).length() > 10;
-    this.value = compressed
-        ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION)
-        : value;
-  }
+	@Override
+	public void setRawValue(final byte[] value) {
+		compressed = new String(value).length() > 10;
+		this.value = compressed ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION) : value;
+	}
 
-  /**
-   * Determine if input value has been compressed.
-   *
-   * @return {@code true}, if it has been compressed, {@code false} otherwise
-   */
-  public boolean isCompressed() {
-    return compressed;
-  }
+	/**
+	 * Determine if input value has been compressed.
+	 *
+	 * @return {@code true}, if it has been compressed, {@code false} otherwise
+	 */
+	public boolean isCompressed() {
+		return compressed;
+	}
 
-  /**
-   * Set compression.
-   *
-   * @param compressed determines if value is compressed or not
-   */
-  public void setCompressed(final boolean compressed) {
-    this.compressed = compressed;
-  }
+	/**
+	 * Set compression.
+	 *
+	 * @param compressed
+	 *            determines if value is compressed or not
+	 */
+	public void setCompressed(final boolean compressed) {
+		this.compressed = compressed;
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(nodeDelegate, value);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(nodeDelegate, value);
+	}
 
-  @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (!(obj instanceof final ValueNodeDelegate other))
-      return false;
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (!(obj instanceof final ValueNodeDelegate other))
+			return false;
 
-    return Objects.equal(nodeDelegate, other.nodeDelegate) && Arrays.equals(value, other.value);
-  }
+		return Objects.equal(nodeDelegate, other.nodeDelegate) && Arrays.equals(value, other.value);
+	}
 
-  @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this).add("value", new String(value)).toString();
-  }
+	@Override
+	public @NonNull String toString() {
+		return MoreObjects.toStringHelper(this).add("value", new String(value)).toString();
+	}
 
-  @Override
-  public boolean isSameItem(final @Nullable Node other) {
-    return nodeDelegate.isSameItem(other);
-  }
+	@Override
+	public boolean isSameItem(final @Nullable Node other) {
+		return nodeDelegate.isSameItem(other);
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.UNKNOWN;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.UNKNOWN;
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return nodeDelegate;
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return nodeDelegate;
+	}
 
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    return nodeDelegate.getDeweyIDAsBytes();
-  }
+	@Override
+	public byte[] getDeweyIDAsBytes() {
+		return nodeDelegate.getDeweyIDAsBytes();
+	}
 }

@@ -35,232 +35,241 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import java.nio.ByteBuffer;
 
 /**
- * Delegate method for all nodes. That means that all nodes stored in Sirix are represented by an
- * instance of the interface {@link Node} namely containing the position in the tree related to a
- * parent-node, the related type and the corresponding hash recursively computed.
+ * Delegate method for all nodes. That means that all nodes stored in Sirix are
+ * represented by an instance of the interface {@link Node} namely containing
+ * the position in the tree related to a parent-node, the related type and the
+ * corresponding hash recursively computed.
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public class NodeDelegate implements Node {
 
-  /**
-   * Untyped type.
-   */
-  private static final int TYPE_KEY = NamePageHash.generateHashForString("xs:untyped");
+	/**
+	 * Untyped type.
+	 */
+	private static final int TYPE_KEY = NamePageHash.generateHashForString("xs:untyped");
 
-  /**
-   * Key of the current node. Must be unique for all nodes.
-   */
-  private final long nodeKey;
+	/**
+	 * Key of the current node. Must be unique for all nodes.
+	 */
+	private final long nodeKey;
 
-  /**
-   * The DeweyID data.
-   */
-  private byte[] deweyIDData;
+	/**
+	 * The DeweyID data.
+	 */
+	private byte[] deweyIDData;
 
-  /**
-   * Key of the parent node.
-   */
-  private long parentKey;
+	/**
+	 * Key of the parent node.
+	 */
+	private long parentKey;
 
-  /**
-   * TypeKey of the parent node. Can be referenced later on over special pages.
-   */
-  private int typeKey;
+	/**
+	 * TypeKey of the parent node. Can be referenced later on over special pages.
+	 */
+	private int typeKey;
 
-  /**
-   * Previous revision.
-   */
-  private int previousRevision;
+	/**
+	 * Previous revision.
+	 */
+	private int previousRevision;
 
-  /**
-   * Revision, when a node has been last modified.
-   */
-  private int lastModifiedRevision;
+	/**
+	 * Revision, when a node has been last modified.
+	 */
+	private int lastModifiedRevision;
 
-  /**
-   * {@link SirixDeweyID} (needs to be deserialized).
-   */
-  private SirixDeweyID sirixDeweyID;
+	/**
+	 * {@link SirixDeweyID} (needs to be deserialized).
+	 */
+	private SirixDeweyID sirixDeweyID;
 
-  /**
-   * The hash function.
-   */
-  private final LongHashFunction hashFunction;
+	/**
+	 * The hash function.
+	 */
+	private final LongHashFunction hashFunction;
 
-  /**
-   * Constructor.
-   *
-   * @param nodeKey              node key
-   * @param parentKey            parent node key
-   * @param hashFunction         the hash function used to compute hash codes
-   * @param previousRevision     previous revision, when the node has changed
-   * @param lastModifiedRevision the revision, when the node has been last modified
-   * @param deweyID              optional DeweyID
-   */
-  public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final LongHashFunction hashFunction,
-      final int previousRevision, final int lastModifiedRevision, final SirixDeweyID deweyID) {
-    assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
-    this.nodeKey = nodeKey;
-    this.parentKey = parentKey;
-    this.hashFunction = hashFunction;
-    this.lastModifiedRevision = lastModifiedRevision;
-    this.previousRevision = previousRevision;
-    typeKey = TYPE_KEY;
-    this.sirixDeweyID = deweyID;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param nodeKey
+	 *            node key
+	 * @param parentKey
+	 *            parent node key
+	 * @param hashFunction
+	 *            the hash function used to compute hash codes
+	 * @param previousRevision
+	 *            previous revision, when the node has changed
+	 * @param lastModifiedRevision
+	 *            the revision, when the node has been last modified
+	 * @param deweyID
+	 *            optional DeweyID
+	 */
+	public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final LongHashFunction hashFunction,
+			final int previousRevision, final int lastModifiedRevision, final SirixDeweyID deweyID) {
+		assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
+		this.nodeKey = nodeKey;
+		this.parentKey = parentKey;
+		this.hashFunction = hashFunction;
+		this.lastModifiedRevision = lastModifiedRevision;
+		this.previousRevision = previousRevision;
+		typeKey = TYPE_KEY;
+		this.sirixDeweyID = deweyID;
+	}
 
-  /**
-   * Constructor.
-   *
-   * @param nodeKey              node key
-   * @param parentKey            parent node key
-   * @param hashFunction         the hash function used to compute hash codes
-   * @param previousRevision     previous previousRevision, when the node has changed
-   * @param lastModifiedRevision the previousRevision, when the node has been last modified
-   * @param deweyID              optional DeweyID
-   */
-  public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final LongHashFunction hashFunction,
-      final int previousRevision, final int lastModifiedRevision, final byte[] deweyID) {
-    assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
-    this.nodeKey = nodeKey;
-    this.parentKey = parentKey;
-    this.hashFunction = hashFunction;
-    this.previousRevision = previousRevision;
-    this.lastModifiedRevision = lastModifiedRevision;
-    typeKey = TYPE_KEY;
-    deweyIDData = deweyID;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param nodeKey
+	 *            node key
+	 * @param parentKey
+	 *            parent node key
+	 * @param hashFunction
+	 *            the hash function used to compute hash codes
+	 * @param previousRevision
+	 *            previous previousRevision, when the node has changed
+	 * @param lastModifiedRevision
+	 *            the previousRevision, when the node has been last modified
+	 * @param deweyID
+	 *            optional DeweyID
+	 */
+	public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final LongHashFunction hashFunction,
+			final int previousRevision, final int lastModifiedRevision, final byte[] deweyID) {
+		assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
+		this.nodeKey = nodeKey;
+		this.parentKey = parentKey;
+		this.hashFunction = hashFunction;
+		this.previousRevision = previousRevision;
+		this.lastModifiedRevision = lastModifiedRevision;
+		typeKey = TYPE_KEY;
+		deweyIDData = deweyID;
+	}
 
-  public LongHashFunction getHashFunction() {
-    return hashFunction;
-  }
+	public LongHashFunction getHashFunction() {
+		return hashFunction;
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.UNKNOWN;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.UNKNOWN;
+	}
 
-  @Override
-  public long getNodeKey() {
-    return nodeKey;
-  }
+	@Override
+	public long getNodeKey() {
+		return nodeKey;
+	}
 
-  @Override
-  public long getParentKey() {
-    return parentKey;
-  }
+	@Override
+	public long getParentKey() {
+		return parentKey;
+	}
 
-  @Override
-  public void setParentKey(final long parentKey) {
-    assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
-    this.parentKey = parentKey;
-  }
+	@Override
+	public void setParentKey(final long parentKey) {
+		assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
+		this.parentKey = parentKey;
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public long getHash() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public long getHash() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setHash(final long hash) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(nodeKey, typeKey, parentKey);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(nodeKey, typeKey, parentKey);
+	}
 
-  @Override
-  public boolean equals(final Object otherObj) {
-    if (!(otherObj instanceof final NodeDelegate other))
-      return false;
+	@Override
+	public boolean equals(final Object otherObj) {
+		if (!(otherObj instanceof final NodeDelegate other))
+			return false;
 
-    return Objects.equal(nodeKey, other.nodeKey) && Objects.equal(typeKey, other.typeKey) && Objects.equal(parentKey,
-                                                                                                           other.parentKey);
-  }
+		return Objects.equal(nodeKey, other.nodeKey) && Objects.equal(typeKey, other.typeKey)
+				&& Objects.equal(parentKey, other.parentKey);
+	}
 
-  @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("node key", nodeKey)
-                      .add("parent key", parentKey)
-                      .add("type key", typeKey)
-                      .add("deweyID", sirixDeweyID)
-                      .toString();
-  }
+	@Override
+	public String toString() {
+		return MoreObjects.toStringHelper(this).add("node key", nodeKey).add("parent key", parentKey)
+				.add("type key", typeKey).add("deweyID", sirixDeweyID).toString();
+	}
 
-  public int getTypeKey() {
-    return typeKey;
-  }
+	public int getTypeKey() {
+		return typeKey;
+	}
 
-  @Override
-  public void setTypeKey(final int typeKey) {
-    this.typeKey = typeKey;
-  }
+	@Override
+	public void setTypeKey(final int typeKey) {
+		this.typeKey = typeKey;
+	}
 
-  @Override
-  public boolean hasParent() {
-    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
+	@Override
+	public boolean hasParent() {
+		return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+	}
 
-  @Override
-  public boolean isSameItem(final @Nullable Node other) {
-    if (other == null) {
-      return false;
-    }
-    return other.getNodeKey() == this.getNodeKey();
-  }
+	@Override
+	public boolean isSameItem(final @Nullable Node other) {
+		if (other == null) {
+			return false;
+		}
+		return other.getNodeKey() == this.getNodeKey();
+	}
 
-  @Override
-  public int getPreviousRevisionNumber() {
-    return previousRevision;
-  }
+	@Override
+	public int getPreviousRevisionNumber() {
+		return previousRevision;
+	}
 
-  @Override
-  public int getLastModifiedRevisionNumber() {
-    return lastModifiedRevision;
-  }
+	@Override
+	public int getLastModifiedRevisionNumber() {
+		return lastModifiedRevision;
+	}
 
-  @Override
-  public void setPreviousRevision(int previousRevision) {
-    this.previousRevision = previousRevision;
-  }
+	@Override
+	public void setPreviousRevision(int previousRevision) {
+		this.previousRevision = previousRevision;
+	}
 
-  @Override
-  public void setLastModifiedRevision(int lastModifiedRevision) {
-    this.lastModifiedRevision = lastModifiedRevision;
-  }
+	@Override
+	public void setLastModifiedRevision(int lastModifiedRevision) {
+		this.lastModifiedRevision = lastModifiedRevision;
+	}
 
-  @Override
-  public void setDeweyID(final SirixDeweyID id) {
-    sirixDeweyID = id;
-  }
+	@Override
+	public void setDeweyID(final SirixDeweyID id) {
+		sirixDeweyID = id;
+	}
 
-  @Override
-  public synchronized SirixDeweyID getDeweyID() {
-    if (sirixDeweyID == null && deweyIDData != null) {
-      sirixDeweyID = new SirixDeweyID(deweyIDData);
-    }
-    return sirixDeweyID;
-  }
+	@Override
+	public synchronized SirixDeweyID getDeweyID() {
+		if (sirixDeweyID == null && deweyIDData != null) {
+			sirixDeweyID = new SirixDeweyID(deweyIDData);
+		}
+		return sirixDeweyID;
+	}
 
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    if (deweyIDData != null) {
-      return deweyIDData;
-    } else if (sirixDeweyID != null) {
-      deweyIDData = sirixDeweyID.toBytes();
-      return deweyIDData;
-    } else {
-      return null;
-    }
-  }
+	@Override
+	public byte[] getDeweyIDAsBytes() {
+		if (deweyIDData != null) {
+			return deweyIDData;
+		} else if (sirixDeweyID != null) {
+			deweyIDData = sirixDeweyID.toBytes();
+			return deweyIDData;
+		} else {
+			return null;
+		}
+	}
 }

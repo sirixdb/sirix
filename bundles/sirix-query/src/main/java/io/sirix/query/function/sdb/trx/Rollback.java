@@ -14,8 +14,8 @@ import io.sirix.query.function.sdb.SDBFun;
 
 /**
  * <p>
- * Function for rolling back a new revision. The result is the aborted revision number. Supported
- * signature is:
+ * Function for rolling back a new revision. The result is the aborted revision
+ * number. Supported signature is:
  * </p>
  * <ul>
  * <li><code>sdb:rollback($doc as xs:structured-item) as xs:int</code></li>
@@ -26,30 +26,32 @@ import io.sirix.query.function.sdb.SDBFun;
  */
 public final class Rollback extends AbstractFunction {
 
-  /** Rollback function name. */
-  public final static QNm ROLLBACK = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "rollback");
+	/** Rollback function name. */
+	public final static QNm ROLLBACK = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "rollback");
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public Rollback(final QNm name, final Signature signature) {
-    super(name, signature, true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public Rollback(final QNm name, final Signature signature) {
+		super(name, signature, true);
+	}
 
-  @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+	@Override
+	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+		final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
-    if (doc.getTrx() instanceof NodeTrx) {
-      final NodeTrx wtx = (NodeTrx) doc.getTrx();
-      final long revision = wtx.getRevisionNumber();
-      wtx.rollback();
-      return new Int64(revision);
-    } else {
-      throw new QueryException(new QNm("The transaction is not a write transaction!"));
-    }
-  }
+		if (doc.getTrx() instanceof NodeTrx) {
+			final NodeTrx wtx = (NodeTrx) doc.getTrx();
+			final long revision = wtx.getRevisionNumber();
+			wtx.rollback();
+			return new Int64(revision);
+		} else {
+			throw new QueryException(new QNm("The transaction is not a write transaction!"));
+		}
+	}
 }

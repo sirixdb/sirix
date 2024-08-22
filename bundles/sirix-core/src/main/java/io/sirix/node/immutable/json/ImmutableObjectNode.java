@@ -19,45 +19,47 @@ import static java.util.Objects.requireNonNull;
  */
 public final class ImmutableObjectNode extends AbstractImmutableJsonStructuralNode {
 
-  /** Mutable {@link ObjectNode}. */
-  private final ObjectNode node;
+	/** Mutable {@link ObjectNode}. */
+	private final ObjectNode node;
 
-  /**
-   * Private constructor.
-   *
-   * @param node mutable {@link ObjectNode}
-   */
-  private ImmutableObjectNode(final ObjectNode node) {
-    this.node = requireNonNull(node);
-  }
+	/**
+	 * Private constructor.
+	 *
+	 * @param node
+	 *            mutable {@link ObjectNode}
+	 */
+	private ImmutableObjectNode(final ObjectNode node) {
+		this.node = requireNonNull(node);
+	}
 
-  /**
-   * Get an immutable JSON-array node instance.
-   *
-   * @param node the mutable {@link ImmutableObjectNode} to wrap
-   * @return immutable JSON-array node instance
-   */
-  public static ImmutableObjectNode of(final ObjectNode node) {
-    return new ImmutableObjectNode(node);
-  }
+	/**
+	 * Get an immutable JSON-array node instance.
+	 *
+	 * @param node
+	 *            the mutable {@link ImmutableObjectNode} to wrap
+	 * @return immutable JSON-array node instance
+	 */
+	public static ImmutableObjectNode of(final ObjectNode node) {
+		return new ImmutableObjectNode(node);
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(this);
-  }
+	@Override
+	public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+		return visitor.visit(this);
+	}
 
-  @Override
-  public StructNode structDelegate() {
-    return node;
-  }
+	@Override
+	public StructNode structDelegate() {
+		return node;
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.ARRAY;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.ARRAY;
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    return node.computeHash(bytes);
-  }
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		return node.computeHash(bytes);
+	}
 }

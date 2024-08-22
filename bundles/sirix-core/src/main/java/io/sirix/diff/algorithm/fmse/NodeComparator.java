@@ -21,22 +21,26 @@
 package io.sirix.diff.algorithm.fmse;
 
 /**
- * Interface for the LCS algorithm in the Util class. The comparator is a functional class which
- * provides a method isEqual, which compares two instances of a type.
+ * Interface for the LCS algorithm in the Util class. The comparator is a
+ * functional class which provides a method isEqual, which compares two
+ * instances of a type.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  *
- * @param <T> type of instances to compare
+ * @param <T>
+ *            type of instances to compare
  *
  */
 @FunctionalInterface
 public interface NodeComparator<T> {
-  /**
-   * Compares two instances of type T.
-   *
-   * @param x first instance
-   * @param y second instance
-   * @return true iff x and y are equal
-   */
-  boolean isEqual(T x, T y);
+	/**
+	 * Compares two instances of type T.
+	 *
+	 * @param x
+	 *            first instance
+	 * @param y
+	 *            second instance
+	 * @return true iff x and y are equal
+	 */
+	boolean isEqual(T x, T y);
 }

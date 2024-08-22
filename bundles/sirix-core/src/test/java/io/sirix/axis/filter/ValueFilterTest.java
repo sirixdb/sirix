@@ -32,34 +32,34 @@ import io.sirix.axis.filter.xml.ValueFilter;
 
 public class ValueFilterTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testFilterConvetions() throws SirixException {
-    final XmlNodeReadOnlyTrx reader = holder.getXmlNodeReadTrx();
-    reader.moveTo(4L);
-    FilterTest.testFilterConventions(new ValueFilter(reader, "oops1"), true);
-    FilterTest.testFilterConventions(new ValueFilter(reader, "foo"), false);
+	@Test
+	public void testFilterConvetions() throws SirixException {
+		final XmlNodeReadOnlyTrx reader = holder.getXmlNodeReadTrx();
+		reader.moveTo(4L);
+		FilterTest.testFilterConventions(new ValueFilter(reader, "oops1"), true);
+		FilterTest.testFilterConventions(new ValueFilter(reader, "foo"), false);
 
-    reader.moveTo(1L);
-    reader.moveToAttribute(0);
-    FilterTest.testFilterConventions(new ValueFilter(reader, "j"), true);
+		reader.moveTo(1L);
+		reader.moveToAttribute(0);
+		FilterTest.testFilterConventions(new ValueFilter(reader, "j"), true);
 
-    reader.moveTo(3L);
-    FilterTest.testFilterConventions(new ValueFilter(reader, "j"), true);
-  }
+		reader.moveTo(3L);
+		FilterTest.testFilterConventions(new ValueFilter(reader, "j"), true);
+	}
 
 }

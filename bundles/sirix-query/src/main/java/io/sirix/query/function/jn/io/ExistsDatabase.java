@@ -17,35 +17,37 @@ import io.sirix.query.json.JsonDBCollection;
  * Function for determining if a database exists or not. Supported signature is:
  * </p>
  * <ul>
- * <li><code>jn:exists-database($coll as xs:string) as xs:boolean</code>
- * </li>
+ * <li><code>jn:exists-database($coll as xs:string) as xs:boolean</code></li>
  * </ul>
+ *
  * @author Johannes Lichtenberger
  *
  */
 public final class ExistsDatabase extends AbstractFunction {
 
-  /** Doc function name. */
-  public final static QNm EXISTS_DATABASE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "exists-database");
+	/** Doc function name. */
+	public final static QNm EXISTS_DATABASE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "exists-database");
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public ExistsDatabase(final QNm name, final Signature signature) {
-    super(name, signature, true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public ExistsDatabase(final QNm name, final Signature signature) {
+		super(name, signature, true);
+	}
 
-  @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    if (args.length != 1) {
-      throw new QueryException(new QNm("No valid arguments specified!"));
-    }
+	@Override
+	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+		if (args.length != 1) {
+			throw new QueryException(new QNm("No valid arguments specified!"));
+		}
 
-    final JsonDBCollection col = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
+		final JsonDBCollection col = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
 
-    return col != null ? Bool.TRUE : Bool.FALSE;
-  }
+		return col != null ? Bool.TRUE : Bool.FALSE;
+	}
 }

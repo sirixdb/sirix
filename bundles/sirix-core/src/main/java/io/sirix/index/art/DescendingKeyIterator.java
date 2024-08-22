@@ -1,12 +1,12 @@
 package io.sirix.index.art;
 
 final class DescendingKeyIterator<K, V> extends PrivateEntryIterator<K, V, K> {
-  DescendingKeyIterator(AdaptiveRadixTree<K, V> m, LeafNode<K, V> last) {
-    super(m, last);
-  }
+	DescendingKeyIterator(AdaptiveRadixTree<K, V> m, LeafNode<K, V> last) {
+		super(m, last);
+	}
 
-  @Override
-  public K next() {
-    return prevEntry().getKey();
-  }
+	@Override
+	public K next() {
+		return prevEntry().getKey();
+	}
 }

@@ -37,21 +37,24 @@ import io.sirix.node.immutable.json.ImmutableStringNode;
 /**
  *
  * <p>
- * Inspired by the dom4j approach {@code AbsVisitor} is an abstract base class which is useful for
- * implementing inheritance or when using anonymous inner classes to create simple
- * {@link XmlNodeVisitor} implementations.
+ * Inspired by the dom4j approach {@code AbsVisitor} is an abstract base class
+ * which is useful for implementing inheritance or when using anonymous inner
+ * classes to create simple {@link XmlNodeVisitor} implementations.
  * </p>
  *
  * <h2>Usage Examples:</h2>
  *
- * <pre><code>
+ * <pre>
+ * <code>
  * final Visitor visitor = new NamespaceChangeVisitor(session);
  * for (final long nodeKey : new DescendantAxis.Builder(rtx).includeSelf().build()) {
  *      rtx.acceptVisitor(visitor);
  * }
- * </code></pre>
+ * </code>
+ * </pre>
  *
- * <pre><code>
+ * <pre>
+ * <code>
  * // MyVisitor extends AbstractVisitor.
  * final Visitor visitor = new MyVisitor(rtx) {
  *   public void visit(final ImmutableObjectKey node) {
@@ -63,49 +66,50 @@ import io.sirix.node.immutable.json.ImmutableStringNode;
  * for (final long nodeKey : new DescendantAxis(rtx);) {
  *   rtx.acceptVisitor(visitor);
  * }
- * </code></pre>
+ * </code>
+ * </pre>
  *
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
 public abstract class AbstractJsonNodeVisitor implements JsonNodeVisitor {
-  @Override
-  public VisitResult visit(ImmutableArrayNode node) {
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResult visit(ImmutableArrayNode node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  @Override
-  public VisitResult visit(ImmutableBooleanNode node) {
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResult visit(ImmutableBooleanNode node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  @Override
-  public VisitResult visit(ImmutableJsonDocumentRootNode node) {
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResult visit(ImmutableJsonDocumentRootNode node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  @Override
-  public VisitResult visit(ImmutableNullNode node) {
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResult visit(ImmutableNullNode node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  @Override
-  public VisitResult visit(ImmutableObjectKeyNode node) {
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResult visit(ImmutableObjectKeyNode node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  @Override
-  public VisitResult visit(ImmutableNumberNode node) {
-    return VisitResultType.CONTINUE;
-  };
+	@Override
+	public VisitResult visit(ImmutableNumberNode node) {
+		return VisitResultType.CONTINUE;
+	};
 
-  @Override
-  public VisitResult visit(ImmutableObjectNode node) {
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResult visit(ImmutableObjectNode node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  @Override
-  public VisitResult visit(ImmutableStringNode node) {
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResult visit(ImmutableStringNode node) {
+		return VisitResultType.CONTINUE;
+	}
 }

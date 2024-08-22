@@ -5,13 +5,13 @@ import org.junit.jupiter.api.Test;
 
 public class Node256UnitTest extends InnerNodeUnitTest {
 
-	Node256UnitTest(){
+	Node256UnitTest() {
 		super(Node48.NODE_SIZE);
 	}
 
 	@Test
 	@Override
-	public void testGrow(){
+	public void testGrow() {
 		Assertions.assertThrows(UnsupportedOperationException.class, () -> node.grow());
 	}
 }

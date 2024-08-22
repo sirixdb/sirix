@@ -8,17 +8,17 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.page.interfaces.Page;
 
 public interface BufferManager extends AutoCloseable {
-  Cache<PageReference, KeyValueLeafPage> getRecordPageCache();
+	Cache<PageReference, KeyValueLeafPage> getRecordPageCache();
 
-  Cache<PageReference, Page> getPageCache();
+	Cache<PageReference, Page> getPageCache();
 
-  Cache<Integer, RevisionRootPage> getRevisionRootPageCache();
+	Cache<Integer, RevisionRootPage> getRevisionRootPageCache();
 
-  Cache<RBIndexKey, Node> getIndexCache();
+	Cache<RBIndexKey, Node> getIndexCache();
 
-  Cache<NamesCacheKey, Names> getNamesCache();
+	Cache<NamesCacheKey, Names> getNamesCache();
 
-  Cache<Integer, PathSummaryData> getPathSummaryCache();
+	Cache<Integer, PathSummaryData> getPathSummaryCache();
 
-  void clearAllCaches();
+	void clearAllCaches();
 }

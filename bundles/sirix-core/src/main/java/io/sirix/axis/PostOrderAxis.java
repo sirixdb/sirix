@@ -31,94 +31,96 @@ import io.sirix.settings.Fixed;
  */
 public final class PostOrderAxis extends AbstractAxis {
 
-  /**
-   * Determines if transaction moved to the parent before.
-   */
-  private boolean movedToParent;
+	/**
+	 * Determines if transaction moved to the parent before.
+	 */
+	private boolean movedToParent;
 
-  /**
-   * Determines if current key is the start node key before the traversal.
-   */
-  private boolean isStartKey;
+	/**
+	 * Determines if current key is the start node key before the traversal.
+	 */
+	private boolean isStartKey;
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param cursor cursor to iterate with
-   */
-  public PostOrderAxis(final NodeCursor cursor) {
-    super(cursor);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param cursor
+	 *            cursor to iterate with
+	 */
+	public PostOrderAxis(final NodeCursor cursor) {
+		super(cursor);
+	}
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param cursor cursor to iterate with
-   */
-  public PostOrderAxis(final NodeCursor cursor, final IncludeSelf includeSelf) {
-    super(cursor, includeSelf);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param cursor
+	 *            cursor to iterate with
+	 */
+	public PostOrderAxis(final NodeCursor cursor, final IncludeSelf includeSelf) {
+		super(cursor, includeSelf);
+	}
 
-  @Override
-  public void reset(final long nodeKey) {
-    super.reset(nodeKey);
-    movedToParent = false;
-    isStartKey = false;
-  }
+	@Override
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
+		movedToParent = false;
+		isStartKey = false;
+	}
 
-  @Override
-  protected long nextKey() {
-    final NodeCursor cursor = getCursor();
+	@Override
+	protected long nextKey() {
+		final NodeCursor cursor = getCursor();
 
-    // No subtree.
-    if (!cursor.hasFirstChild() && cursor.getNodeKey() == getStartKey() || isStartKey) {
-      if (!isStartKey && includeSelf() == IncludeSelf.YES) {
-        isStartKey = true;
-        return cursor.getNodeKey();
-      } else {
-        return done();
-      }
-    }
+		// No subtree.
+		if (!cursor.hasFirstChild() && cursor.getNodeKey() == getStartKey() || isStartKey) {
+			if (!isStartKey && includeSelf() == IncludeSelf.YES) {
+				isStartKey = true;
+				return cursor.getNodeKey();
+			} else {
+				return done();
+			}
+		}
 
-    final long currKey = cursor.getNodeKey();
+		final long currKey = cursor.getNodeKey();
 
-    // Move down in the tree if it hasn't moved down before.
-    if ((!movedToParent && cursor.hasFirstChild()) || (cursor.hasRightSibling() && (cursor.moveToRightSibling()))) {
-      while (cursor.hasFirstChild()) {
-        cursor.moveToFirstChild();
-      }
+		// Move down in the tree if it hasn't moved down before.
+		if ((!movedToParent && cursor.hasFirstChild()) || (cursor.hasRightSibling() && (cursor.moveToRightSibling()))) {
+			while (cursor.hasFirstChild()) {
+				cursor.moveToFirstChild();
+			}
 
-      final long key = cursor.getNodeKey();
-      cursor.moveTo(currKey);
-      return key;
-    }
+			final long key = cursor.getNodeKey();
+			cursor.moveTo(currKey);
+			return key;
+		}
 
-    // Move to the right sibling or parent node after walking down.
-    long key = 0;
-    if (cursor.hasRightSibling()) {
-      key = cursor.getRightSiblingKey();
-    } else {
-      key = cursor.getParentKey();
-      movedToParent = true;
-    }
+		// Move to the right sibling or parent node after walking down.
+		long key = 0;
+		if (cursor.hasRightSibling()) {
+			key = cursor.getRightSiblingKey();
+		} else {
+			key = cursor.getParentKey();
+			movedToParent = true;
+		}
 
-    // Stop traversal if needed.
-    if (key == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      return key;
-    }
+		// Stop traversal if needed.
+		if (key == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+			return key;
+		}
 
-    // Traversal is at start key.
-    if (key == getStartKey()) {
-      if (includeSelf() == IncludeSelf.YES) {
-        isStartKey = true;
-        return key;
-      } else {
-        return done();
-      }
-    }
+		// Traversal is at start key.
+		if (key == getStartKey()) {
+			if (includeSelf() == IncludeSelf.YES) {
+				isStartKey = true;
+				return key;
+			} else {
+				return done();
+			}
+		}
 
-    // Move back to current node.
-    cursor.moveTo(currKey);
-    return key;
-  }
+		// Move back to current node.
+		cursor.moveTo(currKey);
+		return key;
+	}
 }

@@ -42,86 +42,83 @@ import java.nio.ByteBuffer;
 
 public abstract class AbstractNumberNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
-  private final StructNodeDelegate structNodeDelegate;
-  private Number number;
+	private final StructNodeDelegate structNodeDelegate;
+	private Number number;
 
-  private long hashCode;
+	private long hashCode;
 
-  public AbstractNumberNode(StructNodeDelegate structNodeDel, Number number) {
-    this.structNodeDelegate = structNodeDel;
-    this.number = number;
-  }
+	public AbstractNumberNode(StructNodeDelegate structNodeDel, Number number) {
+		this.structNodeDelegate = structNodeDel;
+		this.number = number;
+	}
 
-  @Override
-  public long computeHash(final Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+	@Override
+	public long computeHash(final Bytes<ByteBuffer> bytes) {
+		final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    bytes.clear();
+		bytes.clear();
 
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+		bytes.writeLong(nodeDelegate.getNodeKey()).writeLong(nodeDelegate.getParentKey())
+				.writeByte(nodeDelegate.getKind().getId());
 
-    bytes.writeLong(structNodeDelegate.getChildCount())
-         .writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
+		bytes.writeLong(structNodeDelegate.getChildCount()).writeLong(structNodeDelegate.getDescendantCount())
+				.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey())
+				.writeLong(structNodeDelegate.getFirstChildKey());
 
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
-    }
+		if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+			bytes.writeLong(structNodeDelegate.getLastChildKey());
+		}
 
-    switch (number) {
-      case Float floatVal -> bytes.writeFloat(floatVal);
-      case Double doubleVal -> bytes.writeDouble(doubleVal);
-      case BigDecimal bigDecimalVal -> bytes.writeBigDecimal(bigDecimalVal);
-      case Integer intVal -> bytes.writeInt(intVal);
-      case Long longVal -> bytes.writeLong(longVal);
-      case BigInteger bigIntegerVal -> bytes.writeBigInteger(bigIntegerVal);
-      default -> throw new IllegalStateException("Unexpected value: " + number);
-    }
+		switch (number) {
+			case Float floatVal -> bytes.writeFloat(floatVal);
+			case Double doubleVal -> bytes.writeDouble(doubleVal);
+			case BigDecimal bigDecimalVal -> bytes.writeBigDecimal(bigDecimalVal);
+			case Integer intVal -> bytes.writeInt(intVal);
+			case Long longVal -> bytes.writeLong(longVal);
+			case BigInteger bigIntegerVal -> bytes.writeBigInteger(bigIntegerVal);
+			default -> throw new IllegalStateException("Unexpected value: " + number);
+		}
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
+		final var buffer = bytes.underlyingObject().rewind();
+		buffer.limit((int) bytes.readLimit());
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
-  }
+		return nodeDelegate.getHashFunction().hashBytes(buffer);
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    hashCode = hash;
-  }
+	@Override
+	public void setHash(final long hash) {
+		hashCode = hash;
+	}
 
-  @Override
-  public long getHash() {
-    if (hashCode == 0L) {
-      hashCode = computeHash(Bytes.elasticHeapByteBuffer());
-    }
-    return hashCode;
-  }
+	@Override
+	public long getHash() {
+		if (hashCode == 0L) {
+			hashCode = computeHash(Bytes.elasticHeapByteBuffer());
+		}
+		return hashCode;
+	}
 
-  public void setValue(final Number number) {
-    hashCode = 0L;
-    this.number = number;
-  }
+	public void setValue(final Number number) {
+		hashCode = 0L;
+		this.number = number;
+	}
 
-  public Number getValue() {
-    return number;
-  }
+	public Number getValue() {
+		return number;
+	}
 
-  @Override
-  public StructNodeDelegate getStructNodeDelegate() {
-    return structNodeDelegate;
-  }
+	@Override
+	public StructNodeDelegate getStructNodeDelegate() {
+		return structNodeDelegate;
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return structNodeDelegate;
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return structNodeDelegate.getNodeDelegate();
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return structNodeDelegate.getNodeDelegate();
+	}
 }

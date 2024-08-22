@@ -42,80 +42,81 @@ import static java.util.Objects.requireNonNull;
  */
 public final class LabelFMSEVisitor extends AbstractXmlNodeVisitor {
 
-  /** {@link XmlNodeReadOnlyTrx} implementation. */
-  private final XmlNodeReadOnlyTrx rtx;
+	/** {@link XmlNodeReadOnlyTrx} implementation. */
+	private final XmlNodeReadOnlyTrx rtx;
 
-  /** For each node type: list of inner nodes. */
-  private final Map<NodeKind, List<Long>> labels;
+	/** For each node type: list of inner nodes. */
+	private final Map<NodeKind, List<Long>> labels;
 
-  /** For each node type: list of leaf nodes. */
-  private final Map<NodeKind, List<Long>> leafLabels;
+	/** For each node type: list of leaf nodes. */
+	private final Map<NodeKind, List<Long>> leafLabels;
 
-  /**
-   * Constructor.
-   *
-   * @param readTrx a read only transaction
-   */
-  public LabelFMSEVisitor(final XmlNodeReadOnlyTrx readTrx) {
-    rtx = requireNonNull(readTrx);
-    labels = new HashMap<>();
-    leafLabels = new HashMap<>();
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param readTrx
+	 *            a read only transaction
+	 */
+	public LabelFMSEVisitor(final XmlNodeReadOnlyTrx readTrx) {
+		rtx = requireNonNull(readTrx);
+		labels = new HashMap<>();
+		leafLabels = new HashMap<>();
+	}
 
-  @Override
-  public VisitResultType visit(final ImmutableElement node) {
-    final long nodeKey = node.getNodeKey();
-    rtx.moveTo(nodeKey);
-    for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
-      rtx.moveToNamespace(i);
-      addLeafLabel();
-      rtx.moveTo(nodeKey);
-    }
-    for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
-      rtx.moveToAttribute(i);
-      addLeafLabel();
-      rtx.moveTo(nodeKey);
-    }
-    if (!labels.containsKey(node.getKind())) {
-      labels.put(node.getKind(), new ArrayList<Long>());
-    }
-    labels.get(node.getKind()).add(node.getNodeKey());
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResultType visit(final ImmutableElement node) {
+		final long nodeKey = node.getNodeKey();
+		rtx.moveTo(nodeKey);
+		for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
+			rtx.moveToNamespace(i);
+			addLeafLabel();
+			rtx.moveTo(nodeKey);
+		}
+		for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
+			rtx.moveToAttribute(i);
+			addLeafLabel();
+			rtx.moveTo(nodeKey);
+		}
+		if (!labels.containsKey(node.getKind())) {
+			labels.put(node.getKind(), new ArrayList<Long>());
+		}
+		labels.get(node.getKind()).add(node.getNodeKey());
+		return VisitResultType.CONTINUE;
+	}
 
-  @Override
-  public VisitResultType visit(final ImmutableText node) {
-    rtx.moveTo(node.getNodeKey());
-    addLeafLabel();
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResultType visit(final ImmutableText node) {
+		rtx.moveTo(node.getNodeKey());
+		addLeafLabel();
+		return VisitResultType.CONTINUE;
+	}
 
-  /**
-   * Add leaf node label.
-   */
-  private void addLeafLabel() {
-    final NodeKind nodeKind = rtx.getKind();
-    if (!leafLabels.containsKey(nodeKind)) {
-      leafLabels.put(nodeKind, new ArrayList<>());
-    }
-    leafLabels.get(nodeKind).add(rtx.getNodeKey());
-  }
+	/**
+	 * Add leaf node label.
+	 */
+	private void addLeafLabel() {
+		final NodeKind nodeKind = rtx.getKind();
+		if (!leafLabels.containsKey(nodeKind)) {
+			leafLabels.put(nodeKind, new ArrayList<>());
+		}
+		leafLabels.get(nodeKind).add(rtx.getNodeKey());
+	}
 
-  /**
-   * Get labels.
-   *
-   * @return the Labels
-   */
-  public Map<NodeKind, List<Long>> getLabels() {
-    return labels;
-  }
+	/**
+	 * Get labels.
+	 *
+	 * @return the Labels
+	 */
+	public Map<NodeKind, List<Long>> getLabels() {
+		return labels;
+	}
 
-  /**
-   * Get leaf labels.
-   *
-   * @return the leaf labels
-   */
-  public Map<NodeKind, List<Long>> getLeafLabels() {
-    return leafLabels;
-  }
+	/**
+	 * Get leaf labels.
+	 *
+	 * @return the leaf labels
+	 */
+	public Map<NodeKind, List<Long>> getLeafLabels() {
+		return leafLabels;
+	}
 }

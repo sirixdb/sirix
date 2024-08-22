@@ -31,42 +31,43 @@ import io.sirix.node.NodeKind;
  */
 public final class AttributeAxis extends AbstractAxis {
 
-  /** Remember next key to visit. */
-  private int mNextIndex;
+	/** Remember next key to visit. */
+	private int mNextIndex;
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param rtx exclusive (immutable) mTrx to iterate with
-   */
-  public AttributeAxis(final XmlNodeReadOnlyTrx rtx) {
-    super(rtx);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param rtx
+	 *            exclusive (immutable) mTrx to iterate with
+	 */
+	public AttributeAxis(final XmlNodeReadOnlyTrx rtx) {
+		super(rtx);
+	}
 
-  @Override
-  public void reset(final long nodeKey) {
-    super.reset(nodeKey);
-    mNextIndex = 0;
-  }
+	@Override
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
+		mNextIndex = 0;
+	}
 
-  @Override
-  protected long nextKey() {
-    // Move back to element, if there was already an attribute found. In
-    // this case the current node was set to an attribute by resetToLastKey().
-    if (mNextIndex > 0) {
-      assert asXmlNodeReadTrx().getKind() == NodeKind.ATTRIBUTE;
-      asXmlNodeReadTrx().moveToParent();
-    }
+	@Override
+	protected long nextKey() {
+		// Move back to element, if there was already an attribute found. In
+		// this case the current node was set to an attribute by resetToLastKey().
+		if (mNextIndex > 0) {
+			assert asXmlNodeReadTrx().getKind() == NodeKind.ATTRIBUTE;
+			asXmlNodeReadTrx().moveToParent();
+		}
 
-    if (asXmlNodeReadTrx().getKind() == NodeKind.ELEMENT) {
-      final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) asXmlNodeReadTrx();
-      if (mNextIndex < rtx.getAttributeCount()) {
-        final long key = rtx.getAttributeKey(mNextIndex);
-        mNextIndex += 1;
-        return key;
-      }
-    }
+		if (asXmlNodeReadTrx().getKind() == NodeKind.ELEMENT) {
+			final XmlNodeReadOnlyTrx rtx = (XmlNodeReadOnlyTrx) asXmlNodeReadTrx();
+			if (mNextIndex < rtx.getAttributeCount()) {
+				final long key = rtx.getAttributeKey(mNextIndex);
+				mNextIndex += 1;
+				return key;
+			}
+		}
 
-    return done();
-  }
+		return done();
+	}
 }

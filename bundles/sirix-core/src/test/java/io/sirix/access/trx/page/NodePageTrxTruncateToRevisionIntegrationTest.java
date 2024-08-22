@@ -23,52 +23,49 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 public final class NodePageTrxTruncateToRevisionIntegrationTest {
 
-  private static final Path RESOURCE_DATA_FILE = JsonTestHelper.PATHS.PATH1.getFile()
-                                                                           .resolve("resources")
-                                                                           .resolve(JsonTestHelper.RESOURCE)
-                                                                           .resolve("data")
-                                                                           .resolve("sirix.data");
+	private static final Path RESOURCE_DATA_FILE = JsonTestHelper.PATHS.PATH1.getFile().resolve("resources")
+			.resolve(JsonTestHelper.RESOURCE).resolve("data").resolve("sirix.data");
 
-  private Database<JsonResourceSession> database;
+	private Database<JsonResourceSession> database;
 
-  private JsonResourceSession resourceManager;
+	private JsonResourceSession resourceManager;
 
-  private long fileSize;
+	private long fileSize;
 
-  @BeforeEach
-  public void setUp() throws IOException {
-    JsonTestHelper.deleteEverything();
-    database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    resourceManager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+	@BeforeEach
+	public void setUp() throws IOException {
+		JsonTestHelper.deleteEverything();
+		database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+		resourceManager = database.beginResourceSession(JsonTestHelper.RESOURCE);
 
-    try (final var wtx = resourceManager.beginNodeTrx()) {
-      JsonDocumentCreator.create(wtx);
-      wtx.commit();
-      fileSize = Files.size(RESOURCE_DATA_FILE);
-      wtx.moveToDocumentRoot();
-      wtx.moveToFirstChild();
-      wtx.insertObjectRecordAsFirstChild("b", new StringValue("value"));
-      wtx.commit();
-      wtx.moveToDocumentRoot();
-      wtx.moveToFirstChild();
-      wtx.insertObjectRecordAsFirstChild("a", new BooleanValue(false));
-      wtx.commit();
-      assertTrue(Files.size(RESOURCE_DATA_FILE) > fileSize);
-      Assertions.assertEquals(4, wtx.getRevisionNumber());
-    }
-  }
+		try (final var wtx = resourceManager.beginNodeTrx()) {
+			JsonDocumentCreator.create(wtx);
+			wtx.commit();
+			fileSize = Files.size(RESOURCE_DATA_FILE);
+			wtx.moveToDocumentRoot();
+			wtx.moveToFirstChild();
+			wtx.insertObjectRecordAsFirstChild("b", new StringValue("value"));
+			wtx.commit();
+			wtx.moveToDocumentRoot();
+			wtx.moveToFirstChild();
+			wtx.insertObjectRecordAsFirstChild("a", new BooleanValue(false));
+			wtx.commit();
+			assertTrue(Files.size(RESOURCE_DATA_FILE) > fileSize);
+			Assertions.assertEquals(4, wtx.getRevisionNumber());
+		}
+	}
 
-  @AfterEach
-  public void tearDown() {
-    JsonTestHelper.closeEverything();
-  }
+	@AfterEach
+	public void tearDown() {
+		JsonTestHelper.closeEverything();
+	}
 
-  @Test
-  public void test_when_sirix_is_setup_with_3_revisions_truncate_to_first_revision() throws IOException {
-    try (final var pageWtx = resourceManager.beginPageTrx()) {
-      pageWtx.truncateTo(1);
-    }
+	@Test
+	public void test_when_sirix_is_setup_with_3_revisions_truncate_to_first_revision() throws IOException {
+		try (final var pageWtx = resourceManager.beginPageTrx()) {
+			pageWtx.truncateTo(1);
+		}
 
-    assertEquals(fileSize, Files.size(RESOURCE_DATA_FILE));
-  }
+		assertEquals(fileSize, Files.size(RESOURCE_DATA_FILE));
+	}
 }

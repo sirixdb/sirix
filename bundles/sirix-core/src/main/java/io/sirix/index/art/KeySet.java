@@ -106,10 +106,8 @@ final class KeySet<E> extends AbstractSet<E> implements NavigableSet<E> {
 	}
 
 	@Override
-	public @NonNull NavigableSet<E> subSet(E fromElement, boolean fromInclusive,
-			E toElement, boolean toInclusive) {
-		return new KeySet<>(map.subMap(fromElement, fromInclusive,
-		                               toElement, toInclusive));
+	public @NonNull NavigableSet<E> subSet(E fromElement, boolean fromInclusive, E toElement, boolean toInclusive) {
+		return new KeySet<>(map.subMap(fromElement, fromInclusive, toElement, toInclusive));
 	}
 
 	@Override

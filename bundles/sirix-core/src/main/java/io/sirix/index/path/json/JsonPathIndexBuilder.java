@@ -8,19 +8,19 @@ import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 
 public final class JsonPathIndexBuilder extends AbstractJsonNodeVisitor {
 
-  private final PathIndexBuilder pathIndexBuilder;
+	private final PathIndexBuilder pathIndexBuilder;
 
-  public JsonPathIndexBuilder(final PathIndexBuilder pathIndexBuilderDelegate) {
-    pathIndexBuilder = pathIndexBuilderDelegate;
-  }
+	public JsonPathIndexBuilder(final PathIndexBuilder pathIndexBuilderDelegate) {
+		pathIndexBuilder = pathIndexBuilderDelegate;
+	}
 
-  @Override
-  public VisitResult visit(ImmutableObjectKeyNode node) {
-    return pathIndexBuilder.process(node, node.getPathNodeKey());
-  }
+	@Override
+	public VisitResult visit(ImmutableObjectKeyNode node) {
+		return pathIndexBuilder.process(node, node.getPathNodeKey());
+	}
 
-  @Override
-  public VisitResult visit(ImmutableArrayNode node) {
-    return pathIndexBuilder.process(node, node.getPathNodeKey());
-  }
+	@Override
+	public VisitResult visit(ImmutableArrayNode node) {
+		return pathIndexBuilder.process(node, node.getPathNodeKey());
+	}
 }

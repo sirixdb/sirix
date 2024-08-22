@@ -11,37 +11,37 @@ import java.util.Objects;
 
 public final class JsonItemIterator extends AbstractIterator<Item> {
 
-  private final IncludeSelf includeSelf;
-  private final Deque<Iter> iter;
-  private boolean first;
-  private final Item item;
+	private final IncludeSelf includeSelf;
+	private final Deque<Iter> iter;
+	private boolean first;
+	private final Item item;
 
-  public JsonItemIterator(Item item, IncludeSelf includeSelf) {
-    this.item = Objects.requireNonNull(item);
-    this.includeSelf = Objects.requireNonNull(includeSelf);
-    this.iter = new ArrayDeque<>();
-    this.iter.push(item.iterate());
-  }
+	public JsonItemIterator(Item item, IncludeSelf includeSelf) {
+		this.item = Objects.requireNonNull(item);
+		this.includeSelf = Objects.requireNonNull(includeSelf);
+		this.iter = new ArrayDeque<>();
+		this.iter.push(item.iterate());
+	}
 
-  @Override
-  protected Item computeNext() {
-    if (first && includeSelf == IncludeSelf.YES) {
-      first = false;
-      Iter currIter = item.iterate();
-      iter.push(currIter);
-      return item;
-    }
+	@Override
+	protected Item computeNext() {
+		if (first && includeSelf == IncludeSelf.YES) {
+			first = false;
+			Iter currIter = item.iterate();
+			iter.push(currIter);
+			return item;
+		}
 
-    Item currItem = null;
+		Item currItem = null;
 
-    while (currItem == null && !iter.isEmpty()) {
-      final Iter iterator = iter.peek();
-      currItem = iterator.next();
-    }
+		while (currItem == null && !iter.isEmpty()) {
+			final Iter iterator = iter.peek();
+			currItem = iterator.next();
+		}
 
-    if (currItem != null) {
-      iter.push(currItem.iterate());
-    }
-    return currItem;
-  }
+		if (currItem != null) {
+			iter.push(currItem.iterate());
+		}
+		return currItem;
+	}
 }

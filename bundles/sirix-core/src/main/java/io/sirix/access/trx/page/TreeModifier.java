@@ -39,53 +39,75 @@ import io.sirix.page.UberPage;
 import org.checkerframework.checker.index.qual.NonNegative;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public interface TreeModifier {
-  /**
-   * Prepare the previous revision root page and retrieve the next {@link RevisionRootPage}.
-   *
-   * @param uberPage the uber page
-   * @param pageRtx the page reading transaction
-   * @param baseRevision base revision
-   * @param representRevision the revision to represent
-   * @return new {@link RevisionRootPage} instance
-   * @throws SirixIOException if an I/O error occurs
-   */
-  RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, NodePageReadOnlyTrx pageRtx,
-      TransactionIntentLog log, @NonNegative int baseRevision, @NonNegative int representRevision);
+	/**
+	 * Prepare the previous revision root page and retrieve the next
+	 * {@link RevisionRootPage}.
+	 *
+	 * @param uberPage
+	 *            the uber page
+	 * @param pageRtx
+	 *            the page reading transaction
+	 * @param baseRevision
+	 *            base revision
+	 * @param representRevision
+	 *            the revision to represent
+	 * @return new {@link RevisionRootPage} instance
+	 * @throws SirixIOException
+	 *             if an I/O error occurs
+	 */
+	RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, NodePageReadOnlyTrx pageRtx,
+			TransactionIntentLog log, @NonNegative int baseRevision, @NonNegative int representRevision);
 
-  /**
-   * Prepare the leaf of a tree, namely the reference to a {@link KeyValueLeafPage} and put the
-   * whole path into the log.
-   *
-   * @param pageRtx the page reading transaction
-   * @param log the transaction intent log
-   * @param inpLevelPageCountExp array which holds the maximum number of indirect page references per
-   *        tree-level
-   * @param startReference the reference to start the tree traversal from
-   * @param pageKey page key to lookup
-   * @param indexNumber the index number or {@code -1} if a regular record page should be prepared
-   * @param indexType the index type
-   * @param revisionRootPage the revision root page
-   * @return {@link PageReference} instance pointing to the right {@link KeyValueLeafPage} with
-   *         the {@code key}
-   * @throws SirixIOException if an I/O error occured
-   */
-  PageReference prepareLeafOfTree(PageTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
-      PageReference startReference, @NonNegative long pageKey, int indexNumber, IndexType indexType,
-      RevisionRootPage revisionRootPage);
+	/**
+	 * Prepare the leaf of a tree, namely the reference to a
+	 * {@link KeyValueLeafPage} and put the whole path into the log.
+	 *
+	 * @param pageRtx
+	 *            the page reading transaction
+	 * @param log
+	 *            the transaction intent log
+	 * @param inpLevelPageCountExp
+	 *            array which holds the maximum number of indirect page references
+	 *            per tree-level
+	 * @param startReference
+	 *            the reference to start the tree traversal from
+	 * @param pageKey
+	 *            page key to lookup
+	 * @param indexNumber
+	 *            the index number or {@code -1} if a regular record page should be
+	 *            prepared
+	 * @param indexType
+	 *            the index type
+	 * @param revisionRootPage
+	 *            the revision root page
+	 * @return {@link PageReference} instance pointing to the right
+	 *         {@link KeyValueLeafPage} with the {@code key}
+	 * @throws SirixIOException
+	 *             if an I/O error occured
+	 */
+	PageReference prepareLeafOfTree(PageTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
+			PageReference startReference, @NonNegative long pageKey, int indexNumber, IndexType indexType,
+			RevisionRootPage revisionRootPage);
 
-  /**
-   * Prepare indirect page, that is getting the referenced indirect page or a new page and put the
-   * whole path into the log.
-   *
-   * @param pageRtx the page reading transaction
-   * @param log the transaction intent log
-   * @param reference {@link PageReference} to get the indirect page from or to create a new one
-   * @return {@link IndirectPage} reference
-   * @throws SirixIOException if an I/O error occurs
-   */
-  IndirectPage prepareIndirectPage(PageReadOnlyTrx pageRtx, TransactionIntentLog log, PageReference reference);
+	/**
+	 * Prepare indirect page, that is getting the referenced indirect page or a new
+	 * page and put the whole path into the log.
+	 *
+	 * @param pageRtx
+	 *            the page reading transaction
+	 * @param log
+	 *            the transaction intent log
+	 * @param reference
+	 *            {@link PageReference} to get the indirect page from or to create a
+	 *            new one
+	 * @return {@link IndirectPage} reference
+	 * @throws SirixIOException
+	 *             if an I/O error occurs
+	 */
+	IndirectPage prepareIndirectPage(PageReadOnlyTrx pageRtx, TransactionIntentLog log, PageReference reference);
 }

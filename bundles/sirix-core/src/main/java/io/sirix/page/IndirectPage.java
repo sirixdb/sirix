@@ -27,76 +27,78 @@ import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 
-
 /**
- * Bitmap based indirect page holds a set of references to build a reference tree.
+ * Bitmap based indirect page holds a set of references to build a reference
+ * tree.
  */
 public final class IndirectPage extends AbstractForwardingPage {
 
-  /**
-   * The reference delegate.
-   */
-  private Page delegate;
+	/**
+	 * The reference delegate.
+	 */
+	private Page delegate;
 
-  /**
-   * Create indirect page.
-   */
-  public IndirectPage() {
-    delegate = new ReferencesPage4();
-  }
+	/**
+	 * Create indirect page.
+	 */
+	public IndirectPage() {
+		delegate = new ReferencesPage4();
+	}
 
-  /**
-   * Read indirect page deserialized.
-   *
-   * @param delegate The reference delegate.
-   */
-  public IndirectPage(final Page delegate) {
-    this.delegate = delegate;
-  }
+	/**
+	 * Read indirect page deserialized.
+	 *
+	 * @param delegate
+	 *            The reference delegate.
+	 */
+	public IndirectPage(final Page delegate) {
+		this.delegate = delegate;
+	}
 
-  /**
-   * Clone indirect page.
-   *
-   * @param page {@link IndirectPage} to clone
-   */
-  public IndirectPage(final IndirectPage page) {
-    final Page pageDelegate = page.delegate();
+	/**
+	 * Clone indirect page.
+	 *
+	 * @param page
+	 *            {@link IndirectPage} to clone
+	 */
+	public IndirectPage(final IndirectPage page) {
+		final Page pageDelegate = page.delegate();
 
-    if (pageDelegate instanceof ReferencesPage4) {
-      delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
-    } else if (pageDelegate instanceof BitmapReferencesPage) {
-      delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
-    } else if (pageDelegate instanceof FullReferencesPage) {
-      delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
-    }
-  }
+		if (pageDelegate instanceof ReferencesPage4) {
+			delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
+		} else if (pageDelegate instanceof BitmapReferencesPage) {
+			delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
+		} else if (pageDelegate instanceof FullReferencesPage) {
+			delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+		}
+	}
 
-  @Override
-  protected Page delegate() {
-    return delegate;
-  }
+	@Override
+	protected Page delegate() {
+		return delegate;
+	}
 
-  @Override
-  public boolean setOrCreateReference(int offset, PageReference pageReference) {
-    delegate = PageUtils.setReference(delegate, offset, pageReference);
+	@Override
+	public boolean setOrCreateReference(int offset, PageReference pageReference) {
+		delegate = PageUtils.setReference(delegate, offset, pageReference);
 
-    return false;
-  }
+		return false;
+	}
 
-  @Override
-  public PageReference getOrCreateReference(int offset) {
-    PageReference reference = super.getOrCreateReference(offset);
+	@Override
+	public PageReference getOrCreateReference(int offset) {
+		PageReference reference = super.getOrCreateReference(offset);
 
-    if (reference == null) {
-      if (delegate instanceof ReferencesPage4) {
-        delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
-        reference = delegate.getOrCreateReference(offset);
-      } else if (delegate instanceof BitmapReferencesPage) {
-        delegate = new FullReferencesPage((BitmapReferencesPage) delegate());
-        reference = delegate.getOrCreateReference(offset);
-      }
-    }
+		if (reference == null) {
+			if (delegate instanceof ReferencesPage4) {
+				delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
+				reference = delegate.getOrCreateReference(offset);
+			} else if (delegate instanceof BitmapReferencesPage) {
+				delegate = new FullReferencesPage((BitmapReferencesPage) delegate());
+				reference = delegate.getOrCreateReference(offset);
+			}
+		}
 
-    return reference;
-  }
+		return reference;
+	}
 }

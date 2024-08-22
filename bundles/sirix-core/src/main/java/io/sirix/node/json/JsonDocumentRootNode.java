@@ -42,108 +42,108 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
- * Node representing the root of a document. This node is guaranteed to exist in revision 0 and can
- * not be removed.
+ * Node representing the root of a document. This node is guaranteed to exist in
+ * revision 0 and can not be removed.
  * </p>
  */
 public final class JsonDocumentRootNode extends AbstractStructForwardingNode implements StructNode, ImmutableJsonNode {
 
-  /**
-   * {@link NodeDelegate} reference.
-   */
-  private final NodeDelegate nodeDelegate;
+	/**
+	 * {@link NodeDelegate} reference.
+	 */
+	private final NodeDelegate nodeDelegate;
 
-  /**
-   * {@link StructNodeDelegate} reference.
-   */
-  private final StructNodeDelegate structNodeDelegate;
+	/**
+	 * {@link StructNodeDelegate} reference.
+	 */
+	private final StructNodeDelegate structNodeDelegate;
 
-  /**
-   * The hash code of the node.
-   */
-  private long hash;
+	/**
+	 * The hash code of the node.
+	 */
+	private long hash;
 
-  /**
-   * Constructor.
-   *
-   * @param nodeDelegate   {@link NodeDelegate} reference
-   * @param structNodeDelegate {@link StructNodeDelegate} reference
-   */
-  public JsonDocumentRootNode(@NonNull final NodeDelegate nodeDelegate, @NonNull final StructNodeDelegate structNodeDelegate) {
-    this.nodeDelegate = requireNonNull(nodeDelegate);
-    this.structNodeDelegate = requireNonNull(structNodeDelegate);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param nodeDelegate
+	 *            {@link NodeDelegate} reference
+	 * @param structNodeDelegate
+	 *            {@link StructNodeDelegate} reference
+	 */
+	public JsonDocumentRootNode(@NonNull final NodeDelegate nodeDelegate,
+			@NonNull final StructNodeDelegate structNodeDelegate) {
+		this.nodeDelegate = requireNonNull(nodeDelegate);
+		this.structNodeDelegate = requireNonNull(structNodeDelegate);
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.JSON_DOCUMENT;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.JSON_DOCUMENT;
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    bytes.clear();
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+		bytes.clear();
+		bytes.writeLong(nodeDelegate.getNodeKey()).writeLong(nodeDelegate.getParentKey())
+				.writeByte(nodeDelegate.getKind().getId());
 
-    bytes.writeLong(structNodeDelegate.getChildCount())
-         .writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
+		bytes.writeLong(structNodeDelegate.getChildCount()).writeLong(structNodeDelegate.getDescendantCount())
+				.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey())
+				.writeLong(structNodeDelegate.getFirstChildKey());
 
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
-    }
+		if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+			bytes.writeLong(structNodeDelegate.getLastChildKey());
+		}
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
+		final var buffer = bytes.underlyingObject().rewind();
+		buffer.limit((int) bytes.readLimit());
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
-  }
+		return nodeDelegate.getHashFunction().hashBytes(buffer);
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    this.hash = hash;
-  }
+	@Override
+	public void setHash(final long hash) {
+		this.hash = hash;
+	}
 
-  @Override
-  public long getHash() {
-    return hash;
-  }
+	@Override
+	public long getHash() {
+		return hash;
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(ImmutableJsonDocumentRootNode.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+		return visitor.visit(ImmutableJsonDocumentRootNode.of(this));
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(nodeDelegate);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(nodeDelegate);
+	}
 
-  @Override
-  public boolean equals(@Nullable final Object obj) {
-    if (obj instanceof JsonDocumentRootNode other) {
-      return Objects.equal(nodeDelegate, other.nodeDelegate);
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(@Nullable final Object obj) {
+		if (obj instanceof JsonDocumentRootNode other) {
+			return Objects.equal(nodeDelegate, other.nodeDelegate);
+		}
+		return false;
+	}
 
-  @Override
-  public @NonNull String toString() {
-    return super.toString();
-  }
+	@Override
+	public @NonNull String toString() {
+		return super.toString();
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return nodeDelegate;
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return nodeDelegate;
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return structNodeDelegate;
+	}
 }

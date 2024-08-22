@@ -36,33 +36,35 @@ import java.time.Instant;
 /**
  * Database store.
  *
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public interface XmlDBStore extends NodeStore, AutoCloseable {
-  @Override
-  XmlDBCollection lookup(String name);
+	@Override
+	XmlDBCollection lookup(String name);
 
-  @Override
-  XmlDBCollection create(String name);
+	@Override
+	XmlDBCollection create(String name);
 
-  @Override
-  XmlDBCollection create(String collName, NodeSubtreeParser parser);
+	@Override
+	XmlDBCollection create(String collName, NodeSubtreeParser parser);
 
-  XmlDBCollection create(String collName, NodeSubtreeParser parser, String commitMessage, Instant commitTimestamp);
+	XmlDBCollection create(String collName, NodeSubtreeParser parser, String commitMessage, Instant commitTimestamp);
 
-  XmlDBCollection create(String collName, String optionalResourceName, NodeSubtreeParser parser);
+	XmlDBCollection create(String collName, String optionalResourceName, NodeSubtreeParser parser);
 
-  XmlDBCollection create(String collName, String optionalResourceName, NodeSubtreeParser parser, String commitMessage, Instant commitTimestamp);
+	XmlDBCollection create(String collName, String optionalResourceName, NodeSubtreeParser parser, String commitMessage,
+			Instant commitTimestamp);
 
-  @Override
-  XmlDBCollection create(String collName, Stream<NodeSubtreeParser> parsers);
+	@Override
+	XmlDBCollection create(String collName, Stream<NodeSubtreeParser> parsers);
 
-  @Override
-  void drop(String name);
+	@Override
+	void drop(String name);
 
-  @Override
-  void makeDir(String path);
+	@Override
+	void makeDir(String path);
 
-  @Override
-  void close();
+	@Override
+	void close();
 }

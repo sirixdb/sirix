@@ -36,34 +36,35 @@ import static java.util.Objects.requireNonNull;
  */
 public abstract class AbstractFilter<R extends NodeReadOnlyTrx & NodeCursor> implements Filter<R>, Predicate<Long> {
 
-  /** Iterate over transaction exclusive to this step. */
-  private R rtx;
+	/** Iterate over transaction exclusive to this step. */
+	private R rtx;
 
-  /**
-   * Bind axis step to transaction.
-   *
-   * @param rtx transaction to operate with
-   */
-  protected AbstractFilter(final R rtx) {
-    this.rtx = requireNonNull(rtx);
-  }
+	/**
+	 * Bind axis step to transaction.
+	 *
+	 * @param rtx
+	 *            transaction to operate with
+	 */
+	protected AbstractFilter(final R rtx) {
+		this.rtx = requireNonNull(rtx);
+	}
 
-  @Override
-  public final R getTrx() {
-    return rtx;
-  }
+	@Override
+	public final R getTrx() {
+		return rtx;
+	}
 
-  @Override
-  public void setTrx(R rtx) {
-    this.rtx = requireNonNull(rtx);
-  }
+	@Override
+	public void setTrx(R rtx) {
+		this.rtx = requireNonNull(rtx);
+	}
 
-  @Override
-  public abstract boolean filter();
+	@Override
+	public abstract boolean filter();
 
-  @Override
-  public boolean apply(final @Nullable Long nodeKey) {
-    rtx.moveTo(requireNonNull(nodeKey));
-    return filter();
-  }
+	@Override
+	public boolean apply(final @Nullable Long nodeKey) {
+		rtx.moveTo(requireNonNull(nodeKey));
+		return filter();
+	}
 }

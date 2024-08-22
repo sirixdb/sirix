@@ -9,34 +9,37 @@ import io.sirix.access.trx.node.AbstractNodeHashing;
 
 final class XmlNodeHashing extends AbstractNodeHashing<ImmutableXmlNode, XmlNodeReadOnlyTrx> {
 
-  private final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx;
+	private final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx;
 
-  /**
-   * Constructor.
-   *
-   * @param resourceConfig  the resource configuration
-   * @param nodeReadOnlyTrx the internal read-only node trx
-   * @param pageWriteTrx    the page trx
-   */
-  XmlNodeHashing(final ResourceConfiguration resourceConfig, final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx,
-      final PageTrx pageWriteTrx) {
-    super(resourceConfig, nodeReadOnlyTrx, pageWriteTrx);
-    this.nodeReadOnlyTrx = nodeReadOnlyTrx;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param resourceConfig
+	 *            the resource configuration
+	 * @param nodeReadOnlyTrx
+	 *            the internal read-only node trx
+	 * @param pageWriteTrx
+	 *            the page trx
+	 */
+	XmlNodeHashing(final ResourceConfiguration resourceConfig, final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx,
+			final PageTrx pageWriteTrx) {
+		super(resourceConfig, nodeReadOnlyTrx, pageWriteTrx);
+		this.nodeReadOnlyTrx = nodeReadOnlyTrx;
+	}
 
-  @Override
-  protected StructNode getStructuralNode() {
-    return nodeReadOnlyTrx.getStructuralNode();
-  }
+	@Override
+	protected StructNode getStructuralNode() {
+		return nodeReadOnlyTrx.getStructuralNode();
+	}
 
-  @Override
-  protected ImmutableXmlNode getCurrentNode() {
-    return nodeReadOnlyTrx.getCurrentNode();
-  }
+	@Override
+	protected ImmutableXmlNode getCurrentNode() {
+		return nodeReadOnlyTrx.getCurrentNode();
+	}
 
-  @Override
-  protected void setCurrentNode(final ImmutableXmlNode node) {
-    nodeReadOnlyTrx.setCurrentNode(node);
-  }
+	@Override
+	protected void setCurrentNode(final ImmutableXmlNode node) {
+		nodeReadOnlyTrx.setCurrentNode(node);
+	}
 
 }

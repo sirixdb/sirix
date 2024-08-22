@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -31,71 +31,72 @@ import java.util.List;
  * Data structure to store XPath items.
  * </p>
  * <p>
- * This structure is used for atomic values that are needed for the evaluation of a query. They can
- * be results of a query expression or be specified directly in the query e.g. as literals perform
- * an arithmetic operation or a comparison.
+ * This structure is used for atomic values that are needed for the evaluation
+ * of a query. They can be results of a query expression or be specified
+ * directly in the query e.g. as literals perform an arithmetic operation or a
+ * comparison.
  * </p>
  * <p>
- * Since these items have to be distinguishable from nodes their key will be a negative long value
- * (node key is always a positive long value). This value is retrieved by negate their index in the
- * internal data structure.
+ * Since these items have to be distinguishable from nodes their key will be a
+ * negative long value (node key is always a positive long value). This value is
+ * retrieved by negate their index in the internal data structure.
  * </p>
  */
 public final class ItemListImpl implements ItemList<AtomicValue> {
 
-  /**
-   * Internal storage of items.
-   */
-  private final List<AtomicValue> mList;
+	/**
+	 * Internal storage of items.
+	 */
+	private final List<AtomicValue> mList;
 
-  /**
-   * Constructor. Initializes the list.
-   */
-  public ItemListImpl() {
-    mList = new ArrayList<>();
-  }
+	/**
+	 * Constructor. Initializes the list.
+	 */
+	public ItemListImpl() {
+		mList = new ArrayList<>();
+	}
 
-  @Override
-  public int addItem(final AtomicValue item) {
-    final int key = mList.size();
-    item.setNodeKey(key);
-    // TODO: +2 is necessary, because key -1 is the NULL_NODE
-    final int itemKey = (key + 2) * (-1);
-    item.setNodeKey(itemKey);
+	@Override
+	public int addItem(final AtomicValue item) {
+		final int key = mList.size();
+		item.setNodeKey(key);
+		// TODO: +2 is necessary, because key -1 is the NULL_NODE
+		final int itemKey = (key + 2) * (-1);
+		item.setNodeKey(itemKey);
 
-    mList.add(item);
-    return itemKey;
-  }
+		mList.add(item);
+		return itemKey;
+	}
 
-  @Override
-  public AtomicValue getItem(final long key) {
-    assert key <= Integer.MAX_VALUE;
+	@Override
+	public AtomicValue getItem(final long key) {
+		assert key <= Integer.MAX_VALUE;
 
-    int index = (int) key; // cast to integer, because the list only
-                           // accepts
-    // int
+		int index = (int) key; // cast to integer, because the list only
+								// accepts
+		// int
 
-    if (index < 0) {
-      index = index * (-1);
-    }
+		if (index < 0) {
+			index = index * (-1);
+		}
 
-    // TODO: This is necessary, because key -1 is the NULL_NODE
-    index = index - 2;
+		// TODO: This is necessary, because key -1 is the NULL_NODE
+		index = index - 2;
 
-    if (index >= 0 && index < mList.size()) {
-      return mList.get(index);
-    } else {
-      return null;
-    }
-  }
+		if (index >= 0 && index < mList.size()) {
+			return mList.get(index);
+		} else {
+			return null;
+		}
+	}
 
-  public int size() {
-    return mList.size();
-  }
+	public int size() {
+		return mList.size();
+	}
 
-  @Override
-  public String toString() {
-    return new StringBuilder("ItemList: ").append(mList).toString();
-  }
+	@Override
+	public String toString() {
+		return new StringBuilder("ItemList: ").append(mList).toString();
+	}
 
 }

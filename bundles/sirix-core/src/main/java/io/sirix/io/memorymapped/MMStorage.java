@@ -52,185 +52,177 @@ import java.util.concurrent.TimeUnit;
  */
 public final class MMStorage implements IOStorage {
 
-  /**
-   * Data file name.
-   */
-  private static final String FILENAME = "sirix.data";
+	/**
+	 * Data file name.
+	 */
+	private static final String FILENAME = "sirix.data";
 
-  /**
-   * Revisions file name.
-   */
-  private static final String REVISIONS_FILENAME = "sirix.revisions";
+	/**
+	 * Revisions file name.
+	 */
+	private static final String REVISIONS_FILENAME = "sirix.revisions";
 
-  /**
-   * Byte handler pipeline.
-   */
-  private final ByteHandlerPipeline byteHandlerPipeline;
+	/**
+	 * Byte handler pipeline.
+	 */
+	private final ByteHandlerPipeline byteHandlerPipeline;
 
-  final Semaphore semaphore = new Semaphore(1);
+	final Semaphore semaphore = new Semaphore(1);
 
-  /**
-   * Revision file data cache.
-   */
-  private final AsyncCache<Integer, RevisionFileData> cache;
+	/**
+	 * Revision file data cache.
+	 */
+	private final AsyncCache<Integer, RevisionFileData> cache;
 
-  private final Path revisionsFilePath;
+	private final Path revisionsFilePath;
 
-  private final Path dataFilePath;
+	private final Path dataFilePath;
 
-  /**
-   * Constructor.
-   *
-   * @param resourceConfig the resource configuration
-   * @param cache          the revision file data cache
-   */
-  public MMStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache) {
-    assert resourceConfig != null : "resourceConfig must not be null!";
-    final Path file = resourceConfig.resourcePath;
-    revisionsFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
-    dataFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
-    byteHandlerPipeline = resourceConfig.byteHandlePipeline;
-    this.cache = cache;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param resourceConfig
+	 *            the resource configuration
+	 * @param cache
+	 *            the revision file data cache
+	 */
+	public MMStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache) {
+		assert resourceConfig != null : "resourceConfig must not be null!";
+		final Path file = resourceConfig.resourcePath;
+		revisionsFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+				.resolve(REVISIONS_FILENAME);
+		dataFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
+		byteHandlerPipeline = resourceConfig.byteHandlePipeline;
+		this.cache = cache;
+	}
 
-  @Override
-  public Reader createReader() {
-    try {
-      final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
+	@Override
+	public Reader createReader() {
+		try {
+			final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
 
-      if (!sempahoreAcquired) {
-        throw new IllegalStateException("Couldn't acquire semaphore.");
-      }
+			if (!sempahoreAcquired) {
+				throw new IllegalStateException("Couldn't acquire semaphore.");
+			}
 
-      final Path dataFilePath = createDirectoriesAndFile();
-      final Path revisionsOffsetFilePath = getRevisionFilePath();
+			final Path dataFilePath = createDirectoriesAndFile();
+			final Path revisionsOffsetFilePath = getRevisionFilePath();
 
-      createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
+			createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
 
-      final var arena = Arena.ofShared();
-      final var dataFileSegmentFileSize = Files.size(dataFilePath);
+			final var arena = Arena.ofShared();
+			final var dataFileSegmentFileSize = Files.size(dataFilePath);
 
-      final var revisionsOffsetSegmentFileSize = Files.size(revisionsOffsetFilePath);
+			final var revisionsOffsetSegmentFileSize = Files.size(revisionsOffsetFilePath);
 
-      try (final var dataFileChannel = FileChannel.open(dataFilePath);
-           final var revisionsOffsetFileChannel = FileChannel.open(revisionsOffsetFilePath)) {
-        final var dataFileSegment =
-            dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, dataFileSegmentFileSize, arena);
-        final var revisionsOffsetFileSegment =
-            revisionsOffsetFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, revisionsOffsetSegmentFileSize, arena);
-        return new MMFileReader(dataFileSegment,
-                                revisionsOffsetFileSegment,
-                                new ByteHandlerPipeline(byteHandlerPipeline),
-                                SerializationType.DATA,
-                                new PagePersister(),
-                                cache.synchronous(),
-                                arena);
-      }
-    } catch (final IOException | InterruptedException e) {
-      throw new SirixIOException(e);
-    } finally {
-      semaphore.release();
-    }
-  }
+			try (final var dataFileChannel = FileChannel.open(dataFilePath);
+					final var revisionsOffsetFileChannel = FileChannel.open(revisionsOffsetFilePath)) {
+				final var dataFileSegment = dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0,
+						dataFileSegmentFileSize, arena);
+				final var revisionsOffsetFileSegment = revisionsOffsetFileChannel.map(FileChannel.MapMode.READ_ONLY, 0,
+						revisionsOffsetSegmentFileSize, arena);
+				return new MMFileReader(dataFileSegment, revisionsOffsetFileSegment,
+						new ByteHandlerPipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister(),
+						cache.synchronous(), arena);
+			}
+		} catch (final IOException | InterruptedException e) {
+			throw new SirixIOException(e);
+		} finally {
+			semaphore.release();
+		}
+	}
 
-  private void createRevisionsOffsetFileIfItDoesNotExist(Path revisionsOffsetFilePath) throws IOException {
-    if (!Files.exists(revisionsOffsetFilePath)) {
-      Files.createFile(revisionsOffsetFilePath);
-    }
-  }
+	private void createRevisionsOffsetFileIfItDoesNotExist(Path revisionsOffsetFilePath) throws IOException {
+		if (!Files.exists(revisionsOffsetFilePath)) {
+			Files.createFile(revisionsOffsetFilePath);
+		}
+	}
 
-  private Path createDirectoriesAndFile() throws IOException {
-    final Path concreteStorage = getDataFilePath();
+	private Path createDirectoriesAndFile() throws IOException {
+		final Path concreteStorage = getDataFilePath();
 
-    if (!Files.exists(concreteStorage)) {
-      Files.createDirectories(concreteStorage.getParent());
-      Files.createFile(concreteStorage);
-    }
+		if (!Files.exists(concreteStorage)) {
+			Files.createDirectories(concreteStorage.getParent());
+			Files.createFile(concreteStorage);
+		}
 
-    return concreteStorage;
-  }
+		return concreteStorage;
+	}
 
-  @Override
-  public synchronized Writer createWriter() {
-    try {
-      final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
+	@Override
+	public synchronized Writer createWriter() {
+		try {
+			final var sempahoreAcquired = semaphore.tryAcquire(5, TimeUnit.SECONDS);
 
-      if (!sempahoreAcquired) {
-        throw new IllegalStateException("Couldn't acquire semaphore.");
-      }
+			if (!sempahoreAcquired) {
+				throw new IllegalStateException("Couldn't acquire semaphore.");
+			}
 
-      final Path dataFilePath = createDirectoriesAndFile();
-      final Path revisionsOffsetFilePath = getRevisionFilePath();
+			final Path dataFilePath = createDirectoriesAndFile();
+			final Path revisionsOffsetFilePath = getRevisionFilePath();
 
-      createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
-      final var dataFileChannel = createDataFileChannel(dataFilePath);
-      final var revisionsOffsetFileChannel = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
+			createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
+			final var dataFileChannel = createDataFileChannel(dataFilePath);
+			final var revisionsOffsetFileChannel = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
 
-      final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
-      final var serializationType = SerializationType.DATA;
-      final var pagePersister = new PagePersister();
-      final var reader = new FileChannelReader(dataFileChannel,
-                                               revisionsOffsetFileChannel,
-                                               byteHandlePipeline,
-                                               serializationType,
-                                               pagePersister,
-                                               cache.synchronous());
+			final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
+			final var serializationType = SerializationType.DATA;
+			final var pagePersister = new PagePersister();
+			final var reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, byteHandlePipeline,
+					serializationType, pagePersister, cache.synchronous());
 
-      return new FileChannelWriter(dataFileChannel,
-                                   revisionsOffsetFileChannel,
-                                   serializationType,
-                                   pagePersister,
-                                   cache,
-                                   reader);
-    } catch (final IOException | InterruptedException e) {
-      throw new SirixIOException(e);
-    } finally {
-      semaphore.release();
-    }
-  }
+			return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, serializationType, pagePersister,
+					cache, reader);
+		} catch (final IOException | InterruptedException e) {
+			throw new SirixIOException(e);
+		} finally {
+			semaphore.release();
+		}
+	}
 
-  private FileChannel createDataFileChannel(Path dataFilePath) throws IOException {
-    return FileChannel.open(dataFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.SPARSE);
-  }
+	private FileChannel createDataFileChannel(Path dataFilePath) throws IOException {
+		return FileChannel.open(dataFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE,
+				StandardOpenOption.SPARSE);
+	}
 
-  private FileChannel createRevisionsOffsetFileChannel(Path revisionsOffsetFilePath) throws IOException {
-    return FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
-  }
+	private FileChannel createRevisionsOffsetFileChannel(Path revisionsOffsetFilePath) throws IOException {
+		return FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE);
+	}
 
-  @Override
-  public void close() {
-  }
+	@Override
+	public void close() {
+	}
 
-  /**
-   * Getting path for data file.
-   *
-   * @return the path for this data file
-   */
-  private Path getDataFilePath() {
-    return dataFilePath;
-  }
+	/**
+	 * Getting path for data file.
+	 *
+	 * @return the path for this data file
+	 */
+	private Path getDataFilePath() {
+		return dataFilePath;
+	}
 
-  /**
-   * Getting concrete storage for this file.
-   *
-   * @return the concrete storage for this database
-   */
-  private Path getRevisionFilePath() {
-    return revisionsFilePath;
-  }
+	/**
+	 * Getting concrete storage for this file.
+	 *
+	 * @return the concrete storage for this database
+	 */
+	private Path getRevisionFilePath() {
+		return revisionsFilePath;
+	}
 
-  @Override
-  public boolean exists() {
-    final Path storage = getDataFilePath();
-    try {
-      return Files.exists(storage) && Files.size(storage) > 0;
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
-    }
-  }
+	@Override
+	public boolean exists() {
+		final Path storage = getDataFilePath();
+		try {
+			return Files.exists(storage) && Files.size(storage) > 0;
+		} catch (final IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
 
-  @Override
-  public ByteHandler getByteHandler() {
-    return byteHandlerPipeline;
-  }
+	@Override
+	public ByteHandler getByteHandler() {
+		return byteHandlerPipeline;
+	}
 }

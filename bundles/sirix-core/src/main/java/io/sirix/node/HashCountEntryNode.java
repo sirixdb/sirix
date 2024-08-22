@@ -28,85 +28,88 @@ import io.sirix.node.interfaces.DataRecord;
 /**
  * Hash entry node.
  *
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public final class HashCountEntryNode implements DataRecord {
 
-  private final long nodeKey;
+	private final long nodeKey;
 
-  private int value;
+	private int value;
 
-  /**
-   * Constructor.
-   *
-   * @param nodeKey the node key
-   * @param value the String value
-   */
-  public HashCountEntryNode(final long nodeKey, final int value) {
-    this.nodeKey = nodeKey;
-    this.value = value;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param nodeKey
+	 *            the node key
+	 * @param value
+	 *            the String value
+	 */
+	public HashCountEntryNode(final long nodeKey, final int value) {
+		this.nodeKey = nodeKey;
+		this.value = value;
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.HASH_NAME_COUNT_TO_NAME_ENTRY;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.HASH_NAME_COUNT_TO_NAME_ENTRY;
+	}
 
-  public int getValue() {
-    return value;
-  }
+	public int getValue() {
+		return value;
+	}
 
-  public HashCountEntryNode incrementValue() {
-    value++;
-    return this;
-  }
+	public HashCountEntryNode incrementValue() {
+		value++;
+		return this;
+	}
 
-  public HashCountEntryNode decrementValue() {
-    value--;
-    return this;
-  }
+	public HashCountEntryNode decrementValue() {
+		value--;
+		return this;
+	}
 
-  @Override
-  public int hashCode() {
-    return Integer.valueOf(value).hashCode();
-  }
+	@Override
+	public int hashCode() {
+		return Integer.valueOf(value).hashCode();
+	}
 
-  @Override
-  public boolean equals(final Object obj) {
-    if (!(obj instanceof HashCountEntryNode other))
-      return false;
+	@Override
+	public boolean equals(final Object obj) {
+		if (!(obj instanceof HashCountEntryNode other))
+			return false;
 
-    return Objects.equal(value, other.value);
-  }
+		return Objects.equal(value, other.value);
+	}
 
-  @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this).add("value", value).toString();
-  }
+	@Override
+	public String toString() {
+		return MoreObjects.toStringHelper(this).add("value", value).toString();
+	}
 
-  @Override
-  public long getNodeKey() {
-    return nodeKey;
-  }
+	@Override
+	public long getNodeKey() {
+		return nodeKey;
+	}
 
-  @Override
-  public int getPreviousRevisionNumber() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public int getPreviousRevisionNumber() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public int getLastModifiedRevisionNumber() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public int getLastModifiedRevisionNumber() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public SirixDeweyID getDeweyID() {
-    return null;
-  }
+	@Override
+	public SirixDeweyID getDeweyID() {
+		return null;
+	}
 
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    return null;
-  }
+	@Override
+	public byte[] getDeweyIDAsBytes() {
+		return null;
+	}
 }

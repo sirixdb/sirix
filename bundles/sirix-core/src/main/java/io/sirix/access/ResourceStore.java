@@ -9,28 +9,33 @@ import io.sirix.api.ResourceSession;
 import java.nio.file.Path;
 
 public interface ResourceStore<R extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
-    extends AutoCloseable {
+		extends
+			AutoCloseable {
 
-  /**
-   * Open a resource, that is get an instance of a {@link ResourceSession} in order to read/write from
-   * the resource.
-   *
-   * @param resourceConfig The resource configuration.
-   * @param bufferManager  The buffer manager.
-   * @param resourcePath   The resource to open.
-   * @return A resource manager.
-   * @throws NullPointerException if one if the arguments is {@code null}
-   */
-  R beginResourceSession(@NonNull ResourceConfiguration resourceConfig, @NonNull BufferManager bufferManager,
-      @NonNull Path resourcePath);
+	/**
+	 * Open a resource, that is get an instance of a {@link ResourceSession} in
+	 * order to read/write from the resource.
+	 *
+	 * @param resourceConfig
+	 *            The resource configuration.
+	 * @param bufferManager
+	 *            The buffer manager.
+	 * @param resourcePath
+	 *            The resource to open.
+	 * @return A resource manager.
+	 * @throws NullPointerException
+	 *             if one if the arguments is {@code null}
+	 */
+	R beginResourceSession(@NonNull ResourceConfiguration resourceConfig, @NonNull BufferManager bufferManager,
+			@NonNull Path resourcePath);
 
-  boolean hasOpenResourceSession(Path resourcePath);
+	boolean hasOpenResourceSession(Path resourcePath);
 
-  R getOpenResourceSession(Path resourcePath);
+	R getOpenResourceSession(Path resourcePath);
 
-  @Override
-  void close();
+	@Override
+	void close();
 
-  boolean closeResourceSession(Path resourceFile);
+	boolean closeResourceSession(Path resourceFile);
 
 }

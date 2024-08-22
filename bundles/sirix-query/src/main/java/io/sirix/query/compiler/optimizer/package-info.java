@@ -1,6 +1,6 @@
 /**
  * Database optimizer.
- * 
+ *
  * @author Johannes Lichtenberger
  *
  */

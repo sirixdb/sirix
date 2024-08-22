@@ -48,63 +48,56 @@ import static org.junit.Assert.*;
  */
 public class ObjectBooleanNodeTest {
 
-  private PageTrx pageTrx;
+	private PageTrx pageTrx;
 
-  private Database<JsonResourceSession> database;
+	private Database<JsonResourceSession> database;
 
-  @Before
-  public void setUp() throws SirixException {
-    JsonTestHelper.deleteEverything();
-    database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		JsonTestHelper.deleteEverything();
+		database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+		pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    JsonTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		JsonTestHelper.closeEverything();
+	}
 
-  @Test
-  public void test() throws IOException {
-    // Create empty node.
-    final boolean boolValue = true;
-    final NodeDelegate del = new NodeDelegate(13,
-                                              14,
-                                              LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER,
-                                              0,
-                                              SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del,
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               0L,
-                                                               0L);
-    final ObjectBooleanNode node = new ObjectBooleanNode(boolValue, strucDel);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
-    check(node);
+	@Test
+	public void test() throws IOException {
+		// Create empty node.
+		final boolean boolValue = true;
+		final NodeDelegate del = new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0,
+				SirixDeweyID.newRootID());
+		final StructNodeDelegate strucDel = new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(),
+				Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0L, 0L);
+		final ObjectBooleanNode node = new ObjectBooleanNode(boolValue, strucDel);
+		var bytes = Bytes.elasticHeapByteBuffer();
+		node.setHash(node.computeHash(bytes));
+		check(node);
 
-    // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final ObjectBooleanNode node2 =
-        (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
-    check(node2);
-  }
+		// Serialize and deserialize node.
+		final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+		node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
+		final ObjectBooleanNode node2 = (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(data,
+				node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
+		check(node2);
+	}
 
-  private void check(final ObjectBooleanNode node) {
-    // Now compare.
-    assertEquals(13L, node.getNodeKey());
-    assertEquals(14L, node.getParentKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
-    assertTrue(node.getValue());
-    assertEquals(NodeKind.OBJECT_BOOLEAN_VALUE, node.getKind());
-    assertFalse(node.hasFirstChild());
-    assertTrue(node.hasParent());
-    assertFalse(node.hasLeftSibling());
-    assertFalse(node.hasRightSibling());
-  }
+	private void check(final ObjectBooleanNode node) {
+		// Now compare.
+		assertEquals(13L, node.getNodeKey());
+		assertEquals(14L, node.getParentKey());
+		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
+		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
+		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
+		assertTrue(node.getValue());
+		assertEquals(NodeKind.OBJECT_BOOLEAN_VALUE, node.getKind());
+		assertFalse(node.hasFirstChild());
+		assertTrue(node.hasParent());
+		assertFalse(node.hasLeftSibling());
+		assertFalse(node.hasRightSibling());
+	}
 
 }

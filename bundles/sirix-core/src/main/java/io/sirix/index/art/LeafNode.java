@@ -39,7 +39,7 @@ class LeafNode<K, V> extends Node implements Map.Entry<K, V> {
 	}
 
 	/**
-	 Dev note: first() is implemented to detect end of the SortedMap.firstKey()
+	 * Dev note: first() is implemented to detect end of the SortedMap.firstKey()
 	 */
 	@Override
 	public Node first() {
@@ -52,7 +52,7 @@ class LeafNode<K, V> extends Node implements Map.Entry<K, V> {
 	}
 
 	/**
-	 Dev note: last() is implemented to detect end of the SortedMap.lastKey()
+	 * Dev note: last() is implemented to detect end of the SortedMap.lastKey()
 	 */
 	@Override
 	public Node last() {
@@ -64,7 +64,8 @@ class LeafNode<K, V> extends Node implements Map.Entry<K, V> {
 	 * <p>
 	 * Implemented per API documentation of {@link Map.Entry#equals(Object)}
 	 *
-	 * @param obj  the object to compare to
+	 * @param obj
+	 *            the object to compare to
 	 * @return true if equal key and value
 	 */
 	@Override
@@ -75,9 +76,8 @@ class LeafNode<K, V> extends Node implements Map.Entry<K, V> {
 		if (!(obj instanceof final Map.Entry<?, ?> other)) {
 			return false;
 		}
-		return
-				(getKey() == null ? other.getKey() == null : getKey().equals(other.getKey())) &&
-						(getValue() == null ? other.getValue() == null : getValue().equals(other.getValue()));
+		return (getKey() == null ? other.getKey() == null : getKey().equals(other.getKey()))
+				&& (getValue() == null ? other.getValue() == null : getValue().equals(other.getValue()));
 	}
 
 	/**
@@ -89,8 +89,7 @@ class LeafNode<K, V> extends Node implements Map.Entry<K, V> {
 	 */
 	@Override
 	public int hashCode() {
-		return (getKey() == null ? 0 : getKey().hashCode()) ^
-				(getValue() == null ? 0 : getValue().hashCode());
+		return (getKey() == null ? 0 : getKey().hashCode()) ^ (getValue() == null ? 0 : getValue().hashCode());
 	}
 
 	@Override

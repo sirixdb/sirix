@@ -45,122 +45,124 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import java.nio.ByteBuffer;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class ArrayNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
-  /**
-   * {@link StructNodeDelegate} reference.
-   */
-  private final StructNodeDelegate structNodeDelegate;
+	/**
+	 * {@link StructNodeDelegate} reference.
+	 */
+	private final StructNodeDelegate structNodeDelegate;
 
-  /**
-   * The path node key.
-   */
-  private final long pathNodeKey;
+	/**
+	 * The path node key.
+	 */
+	private final long pathNodeKey;
 
-  private long hash;
+	private long hash;
 
-  /**
-   * Constructor
-   *
-   * @param structNodeDelegate   {@link StructNodeDelegate} to be set
-   * @param pathNodeKey the path node key
-   */
-  public ArrayNode(final StructNodeDelegate structNodeDelegate, final long pathNodeKey) {
-    assert structNodeDelegate != null;
-    this.structNodeDelegate = structNodeDelegate;
-    this.pathNodeKey = pathNodeKey;
-  }
+	/**
+	 * Constructor
+	 *
+	 * @param structNodeDelegate
+	 *            {@link StructNodeDelegate} to be set
+	 * @param pathNodeKey
+	 *            the path node key
+	 */
+	public ArrayNode(final StructNodeDelegate structNodeDelegate, final long pathNodeKey) {
+		assert structNodeDelegate != null;
+		this.structNodeDelegate = structNodeDelegate;
+		this.pathNodeKey = pathNodeKey;
+	}
 
-  /**
-   * Constructor
-   *
-   * @param structNodeDelegate   {@link StructNodeDelegate} to be set
-   * @param pathNodeKey the path node key
-   */
-  public ArrayNode(final long hashCode, final StructNodeDelegate structNodeDelegate, final long pathNodeKey) {
-    hash = hashCode;
-    assert structNodeDelegate != null;
-    this.structNodeDelegate = structNodeDelegate;
-    this.pathNodeKey = pathNodeKey;
-  }
+	/**
+	 * Constructor
+	 *
+	 * @param structNodeDelegate
+	 *            {@link StructNodeDelegate} to be set
+	 * @param pathNodeKey
+	 *            the path node key
+	 */
+	public ArrayNode(final long hashCode, final StructNodeDelegate structNodeDelegate, final long pathNodeKey) {
+		hash = hashCode;
+		assert structNodeDelegate != null;
+		this.structNodeDelegate = structNodeDelegate;
+		this.pathNodeKey = pathNodeKey;
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.ARRAY;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.ARRAY;
+	}
 
-  @Override
-  public long computeHash(final Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+	@Override
+	public long computeHash(final Bytes<ByteBuffer> bytes) {
+		final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    bytes.clear();
+		bytes.clear();
 
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+		bytes.writeLong(nodeDelegate.getNodeKey()).writeLong(nodeDelegate.getParentKey())
+				.writeByte(nodeDelegate.getKind().getId());
 
-    bytes.writeLong(structNodeDelegate.getChildCount())
-         .writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
+		bytes.writeLong(structNodeDelegate.getChildCount()).writeLong(structNodeDelegate.getDescendantCount())
+				.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey())
+				.writeLong(structNodeDelegate.getFirstChildKey());
 
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
-    }
+		if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+			bytes.writeLong(structNodeDelegate.getLastChildKey());
+		}
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
+		final var buffer = bytes.underlyingObject().rewind();
+		buffer.limit((int) bytes.readLimit());
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
-  }
+		return nodeDelegate.getHashFunction().hashBytes(buffer);
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    this.hash = hash;
-  }
+	@Override
+	public void setHash(final long hash) {
+		this.hash = hash;
+	}
 
-  @Override
-  public long getHash() {
-    return hash;
-  }
+	@Override
+	public long getHash() {
+		return hash;
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return structNodeDelegate.getNodeDelegate();
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return structNodeDelegate.getNodeDelegate();
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return structNodeDelegate;
+	}
 
-  @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this).add("structDelegate", structNodeDelegate).toString();
-  }
+	@Override
+	public @NonNull String toString() {
+		return MoreObjects.toStringHelper(this).add("structDelegate", structNodeDelegate).toString();
+	}
 
-  @Override
-  public int hashCode() {
-    return delegate().hashCode();
-  }
+	@Override
+	public int hashCode() {
+		return delegate().hashCode();
+	}
 
-  @Override
-  public boolean equals(final Object obj) {
-    if (!(obj instanceof ObjectKeyNode other))
-      return false;
+	@Override
+	public boolean equals(final Object obj) {
+		if (!(obj instanceof ObjectKeyNode other))
+			return false;
 
-    return Objects.equal(delegate(), other.delegate());
-  }
+		return Objects.equal(delegate(), other.delegate());
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(ImmutableArrayNode.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+		return visitor.visit(ImmutableArrayNode.of(this));
+	}
 
-  public long getPathNodeKey() {
-    return pathNodeKey;
-  }
+	public long getPathNodeKey() {
+		return pathNodeKey;
+	}
 }

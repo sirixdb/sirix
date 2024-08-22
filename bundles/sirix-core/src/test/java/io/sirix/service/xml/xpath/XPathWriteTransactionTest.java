@@ -46,49 +46,49 @@ import io.sirix.service.xml.shredder.XmlShredder;
  */
 public final class XPathWriteTransactionTest {
 
-  private static final Path XML = Paths.get("src", "test", "resources", "enwiki-revisions-test.xml");
+	private static final Path XML = Paths.get("src", "test", "resources", "enwiki-revisions-test.xml");
 
-  private static final String RESOURCE = "bla";
+	private static final String RESOURCE = "bla";
 
-  private XmlResourceSession manager;
+	private XmlResourceSession manager;
 
-  private XmlNodeTrx wtx;
+	private XmlNodeTrx wtx;
 
-  private Database<XmlResourceSession> database;
+	private Database<XmlResourceSession> database;
 
-  @Before
-  public void setUp() throws Exception {
-    XmlTestHelper.deleteEverything();
-    // Build simple test tree.
-    XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
+	@Before
+	public void setUp() throws Exception {
+		XmlTestHelper.deleteEverything();
+		// Build simple test tree.
+		XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
 
-    // Verify.
-    database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
-    manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
-    wtx = manager.beginNodeTrx();
-  }
+		// Verify.
+		database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
+		database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+		manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+		wtx = manager.beginNodeTrx();
+	}
 
-  @Test
-  public void test() throws SirixXPathException {
-    wtx.moveToDocumentRoot();
-    // final XPathAxis xpa =
-    // new XPathAxis(wtx, "//revision[./parent::page/title/text() = '"
-    // + "AmericanSamoa"
-    // + "']");
-    final XPathAxis xpa = new XPathAxis(wtx, "//revision");
-    if (!xpa.hasNext()) {
-      fail();
-    }
+	@Test
+	public void test() throws SirixXPathException {
+		wtx.moveToDocumentRoot();
+		// final XPathAxis xpa =
+		// new XPathAxis(wtx, "//revision[./parent::page/title/text() = '"
+		// + "AmericanSamoa"
+		// + "']");
+		final XPathAxis xpa = new XPathAxis(wtx, "//revision");
+		if (!xpa.hasNext()) {
+			fail();
+		}
 
-  }
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    // wtx.abort();
-    wtx.close();
-    manager.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		// wtx.abort();
+		wtx.close();
+		manager.close();
+		XmlTestHelper.closeEverything();
+	}
 
 }

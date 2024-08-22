@@ -31,101 +31,107 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Interface to generate access to the storage. The storage is flexible as long as {@link Reader}
- * and {@link Writer}-implementations are provided. Utility methods for common interaction with the
- * storage are provided via the {@code Storage}.
+ * Interface to generate access to the storage. The storage is flexible as long
+ * as {@link Reader} and {@link Writer}-implementations are provided. Utility
+ * methods for common interaction with the storage are provided via the
+ * {@code Storage}.
  *
  * @author Sebastian Graf, University of Konstanz
  */
 public interface IOStorage {
 
-  /**
-   * Data file name.
-   */
-  String FILENAME = "sirix.data";
+	/**
+	 * Data file name.
+	 */
+	String FILENAME = "sirix.data";
 
-  /**
-   * Revisions file name.
-   */
-  String REVISIONS_FILENAME = "sirix.revisions";
+	/**
+	 * Revisions file name.
+	 */
+	String REVISIONS_FILENAME = "sirix.revisions";
 
-  /**
-   * Beacon of first references.
-   */
-  int FIRST_BEACON = Writer.UBER_PAGE_BYTE_ALIGN << 1;
+	/**
+	 * Beacon of first references.
+	 */
+	int FIRST_BEACON = Writer.UBER_PAGE_BYTE_ALIGN << 1;
 
-  /**
-   * Beacon of the other references.
-   */
-  int OTHER_BEACON = Integer.BYTES;
+	/**
+	 * Beacon of the other references.
+	 */
+	int OTHER_BEACON = Integer.BYTES;
 
-  /**
-   * Getting a writer.
-   *
-   * @return an {@link Writer} instance
-   * @throws SirixIOException if the initialization fails
-   */
-  Writer createWriter();
+	/**
+	 * Getting a writer.
+	 *
+	 * @return an {@link Writer} instance
+	 * @throws SirixIOException
+	 *             if the initialization fails
+	 */
+	Writer createWriter();
 
-  /**
-   * Getting a reader.
-   *
-   * @return an {@link Reader} instance
-   * @throws SirixIOException if the initialization fails
-   */
-  Reader createReader();
+	/**
+	 * Getting a reader.
+	 *
+	 * @return an {@link Reader} instance
+	 * @throws SirixIOException
+	 *             if the initialization fails
+	 */
+	Reader createReader();
 
-  /**
-   * Closing this storage.
-   *
-   * @throws SirixIOException if an I/O error occurs
-   */
-  void close();
+	/**
+	 * Closing this storage.
+	 *
+	 * @throws SirixIOException
+	 *             if an I/O error occurs
+	 */
+	void close();
 
-  /**
-   * Check if storage exists.
-   *
-   * @return true if storage holds data, false otherwise
-   * @throws SirixIOException if storage is not accessible
-   */
-  boolean exists();
+	/**
+	 * Check if storage exists.
+	 *
+	 * @return true if storage holds data, false otherwise
+	 * @throws SirixIOException
+	 *             if storage is not accessible
+	 */
+	boolean exists();
 
-  /**
-   * Load the revision file data into an in-memory cache.
-   *
-   * @param cache the cache to
-   */
-  default void loadRevisionFileDataIntoMemory(AsyncCache<Integer, RevisionFileData> cache) {
-    if (!cache.asMap().isEmpty()) {
-      return;
-    }
+	/**
+	 * Load the revision file data into an in-memory cache.
+	 *
+	 * @param cache
+	 *            the cache to
+	 */
+	default void loadRevisionFileDataIntoMemory(AsyncCache<Integer, RevisionFileData> cache) {
+		if (!cache.asMap().isEmpty()) {
+			return;
+		}
 
-    final UberPage uberPage;
-    if (exists()) {
-      final Reader reader = createReader();
-      final PageReference firstRef = reader.readUberPageReference();
-      uberPage = (UberPage) firstRef.getPage();
+		final UberPage uberPage;
+		if (exists()) {
+			final Reader reader = createReader();
+			final PageReference firstRef = reader.readUberPageReference();
+			uberPage = (UberPage) firstRef.getPage();
 
-      final var revisionNumber = uberPage.getRevisionNumber();
-      final var revisionNumbers = new ArrayList<Integer>(revisionNumber);
+			final var revisionNumber = uberPage.getRevisionNumber();
+			final var revisionNumbers = new ArrayList<Integer>(revisionNumber);
 
-      for (int i = 1; i <= revisionNumber; i++) {
-        revisionNumbers.add(i);
-      }
+			for (int i = 1; i <= revisionNumber; i++) {
+				revisionNumbers.add(i);
+			}
 
-      cache.getAll(revisionNumbers, keys -> {
-        final Map<Integer, RevisionFileData> result = new HashMap<>();
-        keys.forEach(key -> result.put(key, reader.getRevisionFileData(key)));
-        reader.close();
-        return result;
-      });
-    }
-  }
+			cache.getAll(revisionNumbers, keys -> {
+				final Map<Integer, RevisionFileData> result = new HashMap<>();
+				keys.forEach(key -> result.put(key, reader.getRevisionFileData(key)));
+				reader.close();
+				return result;
+			});
+		}
+	}
 
-  /**
-   * Get the byte handler pipeline.
-   *
-   * @return byte handler pipeline
-   */
-  ByteHandler getByteHandler();
+	/**
+	 * Get the byte handler pipeline.
+	 *
+	 * @return byte handler pipeline
+	 */
+	ByteHandler getByteHandler();
 }

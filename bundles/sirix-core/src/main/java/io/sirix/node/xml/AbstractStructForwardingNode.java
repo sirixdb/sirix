@@ -41,144 +41,142 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public abstract class AbstractStructForwardingNode extends AbstractForwardingNode
-    implements StructNode {
+public abstract class AbstractStructForwardingNode extends AbstractForwardingNode implements StructNode {
 
-  /** Constructor for use by subclasses. */
-  protected AbstractStructForwardingNode() {}
+	/** Constructor for use by subclasses. */
+	protected AbstractStructForwardingNode() {
+	}
 
-  /** 
-   * {@link StructNodeDelegate} instance.
-   * 
-   * @return the struct node delegate
-  */
-  protected abstract StructNodeDelegate structDelegate();
+	/**
+	 * {@link StructNodeDelegate} instance.
+	 *
+	 * @return the struct node delegate
+	 */
+	protected abstract StructNodeDelegate structDelegate();
 
-  /**
-   * Getting the struct node delegate.
-   *
-   * @return the struct node delegate
-   */
-  public StructNodeDelegate getStructNodeDelegate() {
-    return structDelegate();
-  }
+	/**
+	 * Getting the struct node delegate.
+	 *
+	 * @return the struct node delegate
+	 */
+	public StructNodeDelegate getStructNodeDelegate() {
+		return structDelegate();
+	}
 
-  @Override
-  public long getHash() {
-    return structDelegate().getHash();
-  }
+	@Override
+	public long getHash() {
+		return structDelegate().getHash();
+	}
 
-  @Override
-  public boolean hasFirstChild() {
-    return structDelegate().hasFirstChild();
-  }
+	@Override
+	public boolean hasFirstChild() {
+		return structDelegate().hasFirstChild();
+	}
 
-  @Override
-  public boolean hasLastChild() {
-    return structDelegate().hasLastChild();
-  }
+	@Override
+	public boolean hasLastChild() {
+		return structDelegate().hasLastChild();
+	}
 
-  @Override
-  public boolean hasLeftSibling() {
-    return structDelegate().hasLeftSibling();
-  }
+	@Override
+	public boolean hasLeftSibling() {
+		return structDelegate().hasLeftSibling();
+	}
 
-  @Override
-  public boolean hasRightSibling() {
-    return structDelegate().hasRightSibling();
-  }
+	@Override
+	public boolean hasRightSibling() {
+		return structDelegate().hasRightSibling();
+	}
 
-  @Override
-  public long getChildCount() {
-    return structDelegate().getChildCount();
-  }
+	@Override
+	public long getChildCount() {
+		return structDelegate().getChildCount();
+	}
 
-  @Override
-  public long getFirstChildKey() {
-    return structDelegate().getFirstChildKey();
-  }
+	@Override
+	public long getFirstChildKey() {
+		return structDelegate().getFirstChildKey();
+	}
 
-  @Override
-  public long getLastChildKey() {
-    return structDelegate().getLastChildKey();
-  }
+	@Override
+	public long getLastChildKey() {
+		return structDelegate().getLastChildKey();
+	}
 
-  @Override
-  public long getLeftSiblingKey() {
-    return structDelegate().getLeftSiblingKey();
-  }
+	@Override
+	public long getLeftSiblingKey() {
+		return structDelegate().getLeftSiblingKey();
+	}
 
-  @Override
-  public long getRightSiblingKey() {
-    return structDelegate().getRightSiblingKey();
-  }
+	@Override
+	public long getRightSiblingKey() {
+		return structDelegate().getRightSiblingKey();
+	}
 
-  @Override
-  public void setRightSiblingKey(final long key) {
-    structDelegate().setRightSiblingKey(key);
-  }
+	@Override
+	public void setRightSiblingKey(final long key) {
+		structDelegate().setRightSiblingKey(key);
+	}
 
-  @Override
-  public void setLeftSiblingKey(final long key) {
-    structDelegate().setLeftSiblingKey(key);
-  }
+	@Override
+	public void setLeftSiblingKey(final long key) {
+		structDelegate().setLeftSiblingKey(key);
+	}
 
-  @Override
-  public void setFirstChildKey(final long key) {
-    structDelegate().setFirstChildKey(key);
-  }
+	@Override
+	public void setFirstChildKey(final long key) {
+		structDelegate().setFirstChildKey(key);
+	}
 
-  @Override
-  public void setLastChildKey(final long key) {
-    structDelegate().setLastChildKey(key);
-  }
+	@Override
+	public void setLastChildKey(final long key) {
+		structDelegate().setLastChildKey(key);
+	}
 
-  @Override
-  public void decrementChildCount() {
-    structDelegate().decrementChildCount();
-  }
+	@Override
+	public void decrementChildCount() {
+		structDelegate().decrementChildCount();
+	}
 
-  @Override
-  public void incrementChildCount() {
-    structDelegate().incrementChildCount();
-  }
+	@Override
+	public void incrementChildCount() {
+		structDelegate().incrementChildCount();
+	}
 
-  @Override
-  public long getDescendantCount() {
-    return structDelegate().getDescendantCount();
-  }
+	@Override
+	public long getDescendantCount() {
+		return structDelegate().getDescendantCount();
+	}
 
-  @Override
-  public void decrementDescendantCount() {
-    structDelegate().decrementDescendantCount();
-  }
+	@Override
+	public void decrementDescendantCount() {
+		structDelegate().decrementDescendantCount();
+	}
 
-  @Override
-  public void incrementDescendantCount() {
-    structDelegate().incrementDescendantCount();
-  }
+	@Override
+	public void incrementDescendantCount() {
+		structDelegate().incrementDescendantCount();
+	}
 
-  @Override
-  public void setDescendantCount(final @NonNegative long descendantCount) {
-    structDelegate().setDescendantCount(descendantCount);
-  }
+	@Override
+	public void setDescendantCount(final @NonNegative long descendantCount) {
+		structDelegate().setDescendantCount(descendantCount);
+	}
 
-  @Override
-  public void setPreviousRevision(int revision) {
-    structDelegate().setPreviousRevision(revision);
-  }
+	@Override
+	public void setPreviousRevision(int revision) {
+		structDelegate().setPreviousRevision(revision);
+	}
 
-  @Override
-  public int getPreviousRevisionNumber() {
-    return structDelegate().getPreviousRevisionNumber();
-  }
+	@Override
+	public int getPreviousRevisionNumber() {
+		return structDelegate().getPreviousRevisionNumber();
+	}
 
-  @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("nodeDelegate", super.toString())
-                      .add("structDelegate", structDelegate().toString())
-                      .toString();
-  }
+	@Override
+	public @NonNull String toString() {
+		return MoreObjects.toStringHelper(this).add("nodeDelegate", super.toString())
+				.add("structDelegate", structDelegate().toString()).toString();
+	}
 
 }

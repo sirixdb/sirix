@@ -2,7 +2,6 @@ package io.sirix.io;
 
 import com.google.common.collect.ForwardingObject;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
@@ -18,43 +17,43 @@ import java.util.concurrent.CompletableFuture;
  */
 public abstract class AbstractForwardingReader extends ForwardingObject implements Reader {
 
-  /**
-   * Constructor for use by subclasses.
-   */
-  protected AbstractForwardingReader() {
-  }
+	/**
+	 * Constructor for use by subclasses.
+	 */
+	protected AbstractForwardingReader() {
+	}
 
-  @Override
-  public Page read(PageReference reference, @Nullable ResourceConfiguration resourceConfiguration) {
-    return delegate().read(reference, resourceConfiguration);
-  }
+	@Override
+	public Page read(PageReference reference, @Nullable ResourceConfiguration resourceConfiguration) {
+		return delegate().read(reference, resourceConfiguration);
+	}
 
-  @Override
-  public CompletableFuture<? extends Page> readAsync(PageReference reference,
-      @Nullable ResourceConfiguration resourceConfiguration) {
-    return delegate().readAsync(reference, resourceConfiguration);
-  }
+	@Override
+	public CompletableFuture<? extends Page> readAsync(PageReference reference,
+			@Nullable ResourceConfiguration resourceConfiguration) {
+		return delegate().readAsync(reference, resourceConfiguration);
+	}
 
-  @Override
-  public PageReference readUberPageReference() {
-    return delegate().readUberPageReference();
-  }
+	@Override
+	public PageReference readUberPageReference() {
+		return delegate().readUberPageReference();
+	}
 
-  @Override
-  public RevisionRootPage readRevisionRootPage(int revision, ResourceConfiguration resourceConfiguration) {
-    return delegate().readRevisionRootPage(revision, resourceConfiguration);
-  }
+	@Override
+	public RevisionRootPage readRevisionRootPage(int revision, ResourceConfiguration resourceConfiguration) {
+		return delegate().readRevisionRootPage(revision, resourceConfiguration);
+	}
 
-  @Override
-  public Instant readRevisionRootPageCommitTimestamp(int revision) {
-    return delegate().readRevisionRootPageCommitTimestamp(revision);
-  }
+	@Override
+	public Instant readRevisionRootPageCommitTimestamp(int revision) {
+		return delegate().readRevisionRootPageCommitTimestamp(revision);
+	}
 
-  @Override
-  public RevisionFileData getRevisionFileData(int revision) {
-    return delegate().getRevisionFileData(revision);
-  }
+	@Override
+	public RevisionFileData getRevisionFileData(int revision) {
+		return delegate().getRevisionFileData(revision);
+	}
 
-  @Override
-  protected abstract Reader delegate();
+	@Override
+	protected abstract Reader delegate();
 }

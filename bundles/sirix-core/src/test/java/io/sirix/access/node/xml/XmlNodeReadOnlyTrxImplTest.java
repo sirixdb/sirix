@@ -40,79 +40,79 @@ import static org.junit.Assert.*;
 
 public final class XmlNodeReadOnlyTrxImplTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testEmptyRtx() {
-    assertFalse(Files.exists(PATHS.PATH2.getFile()));
-    Databases.createXmlDatabase(PATHS.PATH2.getConfig());
+	@Test
+	public void testEmptyRtx() {
+		assertFalse(Files.exists(PATHS.PATH2.getFile()));
+		Databases.createXmlDatabase(PATHS.PATH2.getConfig());
 
-    try (final var db = Databases.openXmlDatabase(PATHS.PATH2.getFile())) {
-      db.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).build());
-      try (final XmlResourceSession resMgr = db.beginResourceSession(XmlTestHelper.RESOURCE);
-           final XmlNodeReadOnlyTrx rtx = resMgr.beginNodeReadOnlyTrx()) {
-        Assert.assertEquals(0, rtx.getRevisionNumber());
-      }
-    }
-  }
+		try (final var db = Databases.openXmlDatabase(PATHS.PATH2.getFile())) {
+			db.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).build());
+			try (final XmlResourceSession resMgr = db.beginResourceSession(XmlTestHelper.RESOURCE);
+					final XmlNodeReadOnlyTrx rtx = resMgr.beginNodeReadOnlyTrx()) {
+				Assert.assertEquals(0, rtx.getRevisionNumber());
+			}
+		}
+	}
 
-  @Test
-  public void testDocumentRoot() {
-    assertTrue(holder.getXmlNodeReadTrx().moveToDocumentRoot());
-    assertEquals(NodeKind.XML_DOCUMENT, holder.getXmlNodeReadTrx().getKind());
-    assertFalse(holder.getXmlNodeReadTrx().hasParent());
-    assertFalse(holder.getXmlNodeReadTrx().hasLeftSibling());
-    assertFalse(holder.getXmlNodeReadTrx().hasRightSibling());
-    assertTrue(holder.getXmlNodeReadTrx().hasFirstChild());
-  }
+	@Test
+	public void testDocumentRoot() {
+		assertTrue(holder.getXmlNodeReadTrx().moveToDocumentRoot());
+		assertEquals(NodeKind.XML_DOCUMENT, holder.getXmlNodeReadTrx().getKind());
+		assertFalse(holder.getXmlNodeReadTrx().hasParent());
+		assertFalse(holder.getXmlNodeReadTrx().hasLeftSibling());
+		assertFalse(holder.getXmlNodeReadTrx().hasRightSibling());
+		assertTrue(holder.getXmlNodeReadTrx().hasFirstChild());
+	}
 
-  @Test
-  public void testConventions() {
+	@Test
+	public void testConventions() {
 
-    // ReadTransaction Convention 1.
-    assertTrue(holder.getXmlNodeReadTrx().moveToDocumentRoot());
-    long key = holder.getXmlNodeReadTrx().getNodeKey();
+		// ReadTransaction Convention 1.
+		assertTrue(holder.getXmlNodeReadTrx().moveToDocumentRoot());
+		long key = holder.getXmlNodeReadTrx().getNodeKey();
 
-    // ReadTransaction Convention 2.
-    assertEquals(holder.getXmlNodeReadTrx().hasParent(), holder.getXmlNodeReadTrx().moveToParent());
-    assertEquals(key, holder.getXmlNodeReadTrx().getNodeKey());
+		// ReadTransaction Convention 2.
+		assertEquals(holder.getXmlNodeReadTrx().hasParent(), holder.getXmlNodeReadTrx().moveToParent());
+		assertEquals(key, holder.getXmlNodeReadTrx().getNodeKey());
 
-    assertEquals(holder.getXmlNodeReadTrx().hasFirstChild(), holder.getXmlNodeReadTrx().moveToFirstChild());
-    assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
+		assertEquals(holder.getXmlNodeReadTrx().hasFirstChild(), holder.getXmlNodeReadTrx().moveToFirstChild());
+		assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
 
-    assertFalse(holder.getXmlNodeReadTrx().moveTo(Integer.MAX_VALUE));
-    assertFalse(holder.getXmlNodeReadTrx().moveTo(Integer.MIN_VALUE));
-    assertFalse(holder.getXmlNodeReadTrx().moveTo(Long.MAX_VALUE));
-    assertFalse(holder.getXmlNodeReadTrx().moveTo(Long.MIN_VALUE));
-    assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
+		assertFalse(holder.getXmlNodeReadTrx().moveTo(Integer.MAX_VALUE));
+		assertFalse(holder.getXmlNodeReadTrx().moveTo(Integer.MIN_VALUE));
+		assertFalse(holder.getXmlNodeReadTrx().moveTo(Long.MAX_VALUE));
+		assertFalse(holder.getXmlNodeReadTrx().moveTo(Long.MIN_VALUE));
+		assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
 
-    assertEquals(holder.getXmlNodeReadTrx().hasRightSibling(), holder.getXmlNodeReadTrx().moveToRightSibling());
-    assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
+		assertEquals(holder.getXmlNodeReadTrx().hasRightSibling(), holder.getXmlNodeReadTrx().moveToRightSibling());
+		assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
 
-    assertEquals(holder.getXmlNodeReadTrx().hasFirstChild(), holder.getXmlNodeReadTrx().moveToFirstChild());
-    assertEquals(4L, holder.getXmlNodeReadTrx().getNodeKey());
+		assertEquals(holder.getXmlNodeReadTrx().hasFirstChild(), holder.getXmlNodeReadTrx().moveToFirstChild());
+		assertEquals(4L, holder.getXmlNodeReadTrx().getNodeKey());
 
-    assertEquals(holder.getXmlNodeReadTrx().hasRightSibling(), holder.getXmlNodeReadTrx().moveToRightSibling());
-    assertEquals(5L, holder.getXmlNodeReadTrx().getNodeKey());
+		assertEquals(holder.getXmlNodeReadTrx().hasRightSibling(), holder.getXmlNodeReadTrx().moveToRightSibling());
+		assertEquals(5L, holder.getXmlNodeReadTrx().getNodeKey());
 
-    assertEquals(holder.getXmlNodeReadTrx().hasLeftSibling(), holder.getXmlNodeReadTrx().moveToLeftSibling());
-    assertEquals(4L, holder.getXmlNodeReadTrx().getNodeKey());
+		assertEquals(holder.getXmlNodeReadTrx().hasLeftSibling(), holder.getXmlNodeReadTrx().moveToLeftSibling());
+		assertEquals(4L, holder.getXmlNodeReadTrx().getNodeKey());
 
-    assertEquals(holder.getXmlNodeReadTrx().hasParent(), holder.getXmlNodeReadTrx().moveToParent());
-    assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
-  }
+		assertEquals(holder.getXmlNodeReadTrx().hasParent(), holder.getXmlNodeReadTrx().moveToParent());
+		assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
+	}
 
 }

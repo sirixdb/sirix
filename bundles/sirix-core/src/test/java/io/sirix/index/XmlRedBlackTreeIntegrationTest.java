@@ -33,182 +33,168 @@ import static org.junit.Assert.assertTrue;
  */
 public final class XmlRedBlackTreeIntegrationTest {
 
-  /**
-   * {@link Holder} reference.
-   */
-  private Holder holder;
+	/**
+	 * {@link Holder} reference.
+	 */
+	private Holder holder;
 
-  @Before
-  public void setUp() {
-    XmlTestHelper.deleteEverything();
-    holder = Holder.openResourceManager();
-  }
+	@Before
+	public void setUp() {
+		XmlTestHelper.deleteEverything();
+		holder = Holder.openResourceManager();
+	}
 
-  @After
-  public void tearDown() {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testCASAttributeIndex() throws PathException {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+	@Test
+	public void testCASAttributeIndex() throws PathException {
+		final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
 
-    XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber());
+		XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber());
 
-    final IndexDef idxDef = IndexDefs.createCASIdxDef(false,
-                                                      Type.STR,
-                                                      Collections.singleton(Path.parse("//bla/@foobar")),
-                                                      0,
-                                                      IndexDef.DbType.XML);
+		final IndexDef idxDef = IndexDefs.createCASIdxDef(false, Type.STR,
+				Collections.singleton(Path.parse("//bla/@foobar")), 0, IndexDef.DbType.XML);
 
-    indexController.createIndexes(Set.of(idxDef), wtx);
+		indexController.createIndexes(Set.of(idxDef), wtx);
 
-    wtx.insertElementAsFirstChild(new QNm("bla"));
-    wtx.insertAttribute(new QNm("foo"), "bar", Movement.TOPARENT);
-    wtx.insertAttribute(new QNm("foobar"), "baz", Movement.TOPARENT);
-    wtx.insertElementAsFirstChild(new QNm("blabla"));
-    wtx.insertAttribute(new QNm("foo"), "bar", Movement.TOPARENT);
-    wtx.insertAttribute(new QNm("foobar"), "baz", Movement.TOPARENT);
-    wtx.moveTo(1);
-    wtx.insertElementAsFirstChild(new QNm("bla"));
-    final var nodeKey = wtx.insertAttribute(new QNm("foobar"), "bbbb").getNodeKey();
-    wtx.commit();
+		wtx.insertElementAsFirstChild(new QNm("bla"));
+		wtx.insertAttribute(new QNm("foo"), "bar", Movement.TOPARENT);
+		wtx.insertAttribute(new QNm("foobar"), "baz", Movement.TOPARENT);
+		wtx.insertElementAsFirstChild(new QNm("blabla"));
+		wtx.insertAttribute(new QNm("foo"), "bar", Movement.TOPARENT);
+		wtx.insertAttribute(new QNm("foobar"), "baz", Movement.TOPARENT);
+		wtx.moveTo(1);
+		wtx.insertElementAsFirstChild(new QNm("bla"));
+		final var nodeKey = wtx.insertAttribute(new QNm("foobar"), "bbbb").getNodeKey();
+		wtx.commit();
 
-    final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
+		final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
-    RBTreeReader<CASValue, NodeReferences> reader =
-        RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
-                                 wtx.getPageTrx(),
-                                 indexDef.getType(),
-                                 indexDef.getID());
+		RBTreeReader<CASValue, NodeReferences> reader = RBTreeReader.getInstance(
+				holder.getResourceManager().getIndexCache(), wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
 
-    final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/@foobar"));
+		final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/@foobar"));
 
-    assertEquals(Set.of(3L, 8L), pathNodeKeys);
+		assertEquals(Set.of(3L, 8L), pathNodeKeys);
 
-    final Optional<NodeReferences> fooRefs = reader.get(new CASValue(new Str("foo"), Type.STR, 1), SearchMode.EQUAL);
-    assertTrue(fooRefs.isEmpty());
-    final Optional<NodeReferences> bazRefs1 = reader.get(new CASValue(new Str("baz"), Type.STR, 3), SearchMode.EQUAL);
-    check(bazRefs1, new LongLinkedOpenHashSet(new long[] { 3L }));
-    final Optional<NodeReferences> bazRefs2 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
-    check(bazRefs2, new LongLinkedOpenHashSet(new long[] { 8L }));
+		final Optional<NodeReferences> fooRefs = reader.get(new CASValue(new Str("foo"), Type.STR, 1),
+				SearchMode.EQUAL);
+		assertTrue(fooRefs.isEmpty());
+		final Optional<NodeReferences> bazRefs1 = reader.get(new CASValue(new Str("baz"), Type.STR, 3),
+				SearchMode.EQUAL);
+		check(bazRefs1, new LongLinkedOpenHashSet(new long[]{3L}));
+		final Optional<NodeReferences> bazRefs2 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8),
+				SearchMode.EQUAL);
+		check(bazRefs2, new LongLinkedOpenHashSet(new long[]{8L}));
 
-    wtx.moveTo(1);
-    wtx.insertElementAsFirstChild(new QNm("bla"));
-    wtx.insertAttribute(new QNm("foobar"), "bbbb", Movement.TOPARENT);
-    wtx.moveToAttributeByName(new QNm("foobar"));
-    final var secondNodeKey = wtx.getNodeKey();
-    wtx.commit();
+		wtx.moveTo(1);
+		wtx.insertElementAsFirstChild(new QNm("bla"));
+		wtx.insertAttribute(new QNm("foobar"), "bbbb", Movement.TOPARENT);
+		wtx.moveToAttributeByName(new QNm("foobar"));
+		final var secondNodeKey = wtx.getNodeKey();
+		wtx.commit();
 
-    reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
-                                      wtx.getPageTrx(),
-                                      indexDef.getType(),
-                                      indexDef.getID());
+		reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(), wtx.getPageTrx(),
+				indexDef.getType(), indexDef.getID());
 
-    final Optional<NodeReferences> bazRefs3 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
+		final Optional<NodeReferences> bazRefs3 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8),
+				SearchMode.EQUAL);
 
-    check(bazRefs3, new LongLinkedOpenHashSet(new long[] { 8L, 10L }));
+		check(bazRefs3, new LongLinkedOpenHashSet(new long[]{8L, 10L}));
 
-    wtx.moveTo(secondNodeKey);
-    wtx.remove();
-    wtx.commit();
+		wtx.moveTo(secondNodeKey);
+		wtx.remove();
+		wtx.commit();
 
-    reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
-                                      wtx.getPageTrx(),
-                                      indexDef.getType(),
-                                      indexDef.getID());
+		reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(), wtx.getPageTrx(),
+				indexDef.getType(), indexDef.getID());
 
-    final Optional<NodeReferences> bazRefs4 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
+		final Optional<NodeReferences> bazRefs4 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8),
+				SearchMode.EQUAL);
 
-    check(bazRefs4, new LongLinkedOpenHashSet(new long[] { 8L }));
+		check(bazRefs4, new LongLinkedOpenHashSet(new long[]{8L}));
 
-    wtx.moveTo(nodeKey);
-    wtx.remove();
-    wtx.commit();
+		wtx.moveTo(nodeKey);
+		wtx.remove();
+		wtx.commit();
 
-    reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
-                                      wtx.getPageTrx(),
-                                      indexDef.getType(),
-                                      indexDef.getID());
+		reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(), wtx.getPageTrx(),
+				indexDef.getType(), indexDef.getID());
 
-    final Optional<NodeReferences> bazRefs5 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8), SearchMode.EQUAL);
+		final Optional<NodeReferences> bazRefs5 = reader.get(new CASValue(new Str("bbbb"), Type.STR, 8),
+				SearchMode.EQUAL);
 
-    check(bazRefs5, new LongLinkedOpenHashSet());
+		check(bazRefs5, new LongLinkedOpenHashSet());
 
-    //    try (final var printStream = new PrintStream(new BufferedOutputStream(System.out))) {
-    //      reader.dump(printStream);
-    //      printStream.flush();
-    //    }
-  }
+		// try (final var printStream = new PrintStream(new
+		// BufferedOutputStream(System.out))) {
+		// reader.dump(printStream);
+		// printStream.flush();
+		// }
+	}
 
-  @Test
-  public void testCASTextIndex() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+	@Test
+	public void testCASTextIndex() {
+		final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
 
-    XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber());
+		XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber());
 
-    final IndexDef idxDef = IndexDefs.createCASIdxDef(false,
-                                                      Type.STR,
-                                                      Collections.singleton(Path.parse("//bla/blabla")),
-                                                      0,
-                                                      IndexDef.DbType.XML);
+		final IndexDef idxDef = IndexDefs.createCASIdxDef(false, Type.STR,
+				Collections.singleton(Path.parse("//bla/blabla")), 0, IndexDef.DbType.XML);
 
-    indexController.createIndexes(Set.of(idxDef), wtx);
+		indexController.createIndexes(Set.of(idxDef), wtx);
 
-    final long blaNodeKey = wtx.insertElementAsFirstChild(new QNm("bla")).getNodeKey();
-    wtx.insertTextAsFirstChild("tadaaaa");
-    final long blablaNodeKey = wtx.insertElementAsRightSibling(new QNm("blabla")).getNodeKey();
-    final long nodeKey = wtx.insertTextAsFirstChild("törööö").getNodeKey();
-    wtx.commit();
+		final long blaNodeKey = wtx.insertElementAsFirstChild(new QNm("bla")).getNodeKey();
+		wtx.insertTextAsFirstChild("tadaaaa");
+		final long blablaNodeKey = wtx.insertElementAsRightSibling(new QNm("blabla")).getNodeKey();
+		final long nodeKey = wtx.insertTextAsFirstChild("törööö").getNodeKey();
+		wtx.commit();
 
-    final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
+		final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
-    RBTreeReader<CASValue, NodeReferences> reader =
-        RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
-                                 wtx.getPageTrx(),
-                                 indexDef.getType(),
-                                 indexDef.getID());
+		RBTreeReader<CASValue, NodeReferences> reader = RBTreeReader.getInstance(
+				holder.getResourceManager().getIndexCache(), wtx.getPageTrx(), indexDef.getType(), indexDef.getID());
 
-    Optional<NodeReferences> blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
+		Optional<NodeReferences> blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2),
+				SearchMode.EQUAL);
 
-    check(blablaRefs, new LongLinkedOpenHashSet(new long[] { 4L }));
+		check(blablaRefs, new LongLinkedOpenHashSet(new long[]{4L}));
 
-    wtx.moveTo(nodeKey);
-    wtx.remove();
+		wtx.moveTo(nodeKey);
+		wtx.remove();
 
-    reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
-                                      wtx.getPageTrx(),
-                                      indexDef.getType(),
-                                      indexDef.getID());
+		reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(), wtx.getPageTrx(),
+				indexDef.getType(), indexDef.getID());
 
-    blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
+		blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
 
-    check(blablaRefs, new LongLinkedOpenHashSet());
+		check(blablaRefs, new LongLinkedOpenHashSet());
 
-    assertTrue(wtx.moveTo(blablaNodeKey));
-    wtx.insertTextAsFirstChild("törööö");
-    wtx.moveTo(blaNodeKey);
-    wtx.remove();
-    wtx.commit();
+		assertTrue(wtx.moveTo(blablaNodeKey));
+		wtx.insertTextAsFirstChild("törööö");
+		wtx.moveTo(blaNodeKey);
+		wtx.remove();
+		wtx.commit();
 
-    reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
-                                      wtx.getPageTrx(),
-                                      indexDef.getType(),
-                                      indexDef.getID());
+		reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(), wtx.getPageTrx(),
+				indexDef.getType(), indexDef.getID());
 
-    blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
+		blablaRefs = reader.get(new CASValue(new Str("törööö"), Type.STR, 2), SearchMode.EQUAL);
 
-    check(blablaRefs, new LongLinkedOpenHashSet());
+		check(blablaRefs, new LongLinkedOpenHashSet());
 
-    final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/blabla"));
+		final var pathNodeKeys = wtx.getPathSummary().getPCRsForPath(Path.parse("//bla/blabla"));
 
-    assertTrue(pathNodeKeys.isEmpty());
-  }
+		assertTrue(pathNodeKeys.isEmpty());
+	}
 
-  private void check(final Optional<NodeReferences> barRefs, final LongSet keys) {
-    assertTrue(barRefs.isPresent());
-    assertEquals(keys, new LongLinkedOpenHashSet(barRefs.get().getNodeKeys().toArray()));
-  }
+	private void check(final Optional<NodeReferences> barRefs, final LongSet keys) {
+		assertTrue(barRefs.isPresent());
+		assertEquals(keys, new LongLinkedOpenHashSet(barRefs.get().getNodeKeys().toArray()));
+	}
 
 }

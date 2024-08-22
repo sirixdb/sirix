@@ -72,22 +72,18 @@ public abstract class InnerNodeUnitTest {
 	}
 
 	/*
-			work only with interface methods
-			we don't care about the implementation details
-			for example how Node4 stores bytes as unsigned, etc.
-			we just care about the right lexicographic ordering.
-			of course this requires us to test with negative as well as
-			positive data set and hence the check in test setup.
-			we don't test child mappings, since that is tested in findChild already (if the same mappings
-			are maintained).
-			this really is making sure negative bytes come after positives.
-			we don't really want to test that children storage is sorted,
-			all we want is if the lexicographic order dependant methods (first, last, greater, lesser)
-			are answered correctly.
-			they might be answered correctly even without storing the children in sorted order,
-			but we don't care as a generic test suite.
-			we base our assertions on invariants.
-		 */
+	 * work only with interface methods we don't care about the implementation
+	 * details for example how Node4 stores bytes as unsigned, etc. we just care
+	 * about the right lexicographic ordering. of course this requires us to test
+	 * with negative as well as positive data set and hence the check in test setup.
+	 * we don't test child mappings, since that is tested in findChild already (if
+	 * the same mappings are maintained). this really is making sure negative bytes
+	 * come after positives. we don't really want to test that children storage is
+	 * sorted, all we want is if the lexicographic order dependant methods (first,
+	 * last, greater, lesser) are answered correctly. they might be answered
+	 * correctly even without storing the children in sorted order, but we don't
+	 * care as a generic test suite. we base our assertions on invariants.
+	 */
 	void verifyUnsignedLexicographicOrder(InnerNode node) {
 		boolean negExist = false;
 		byte prev = node.first().uplinkKey();
@@ -112,13 +108,9 @@ public abstract class InnerNodeUnitTest {
 		}
 	}
 
-
 	/*
-		add partial keys
-		all key, child mappings should exist
-		size increase
-		uplinks setup
-		expect keys to be in the right unsigned lexicographic order
+	 * add partial keys all key, child mappings should exist size increase uplinks
+	 * setup expect keys to be in the right unsigned lexicographic order
 	 */
 	@Test
 	public void testAddAndFindChild() {
@@ -148,7 +140,7 @@ public abstract class InnerNodeUnitTest {
 	}
 
 	/*
-		sort sample data and expect the smallest lexicographic byte
+	 * sort sample data and expect the smallest lexicographic byte
 	 */
 	@Test
 	public void testFirst() {
@@ -158,7 +150,7 @@ public abstract class InnerNodeUnitTest {
 	}
 
 	/*
-		sort sample data and expect the largest lexicographic byte
+	 * sort sample data and expect the largest lexicographic byte
 	 */
 	@Test
 	public void testLast() {
@@ -168,8 +160,8 @@ public abstract class InnerNodeUnitTest {
 	}
 
 	/*
-		nothing greater than greatest
-		first is greater than smallest lexicographic unsigned i.e. 0 (0000 0000)
+	 * nothing greater than greatest first is greater than smallest lexicographic
+	 * unsigned i.e. 0 (0000 0000)
 	 */
 	@Test
 	public void testGreater() {
@@ -183,8 +175,8 @@ public abstract class InnerNodeUnitTest {
 	}
 
 	/*
-		nothing lesser than least
-		last is lesser than largest lexicographic unsigned i.e. -1 (1111 1111)
+	 * nothing lesser than least last is lesser than largest lexicographic unsigned
+	 * i.e. -1 (1111 1111)
 	 */
 	@Test
 	public void testLesser() {
@@ -198,11 +190,8 @@ public abstract class InnerNodeUnitTest {
 	}
 
 	/*
-		remove child
-		unsigned lexicopgrahic order maintained
-		removes uplink
-		reduces size
-		child no longer exists (findChild)
+	 * remove child unsigned lexicopgrahic order maintained removes uplink reduces
+	 * size child no longer exists (findChild)
 	 */
 	@Test
 	public void testRemove() {
@@ -210,18 +199,18 @@ public abstract class InnerNodeUnitTest {
 		// we must not break constraint of a node that it must have
 		// a number of minimum elements (check node size assert in first, last assert)
 		byte minByte = Byte.MAX_VALUE, maxByte = Byte.MIN_VALUE;
-		for(int i = 0; i < existingKeys().length; i++){
-			if(existingData[i].partialKey > maxByte){
+		for (int i = 0; i < existingKeys().length; i++) {
+			if (existingData[i].partialKey > maxByte) {
 				maxByte = existingData[i].partialKey;
 			}
-			if(existingData[i].partialKey < minByte){
+			if (existingData[i].partialKey < minByte) {
 				minByte = existingData[i].partialKey;
 			}
 		}
-		Pair p = new Pair((byte)(minByte-1), Mockito.spy(Node.class));
+		Pair p = new Pair((byte) (minByte - 1), Mockito.spy(Node.class));
 		node.addChild(p.partialKey, p.child);
-		p = new Pair((byte)(maxByte+1), Mockito.spy(Node.class));
-		if(!node.isFull()){ // need for Node4 since we add 3 elements in test setup already
+		p = new Pair((byte) (maxByte + 1), Mockito.spy(Node.class));
+		if (!node.isFull()) { // need for Node4 since we add 3 elements in test setup already
 			node.addChild(p.partialKey, p.child);
 		}
 
@@ -245,9 +234,9 @@ public abstract class InnerNodeUnitTest {
 	}
 
 	/*
-		after growing, new node:
-		 contains same key, child mappings in same lexicographic order but with uplinks to new grown node
-		 same prefix key, no of children, uplink key, parent
+	 * after growing, new node: contains same key, child mappings in same
+	 * lexicographic order but with uplinks to new grown node same prefix key, no of
+	 * children, uplink key, parent
 	 */
 	@Test
 	public void testGrow() {
@@ -255,7 +244,7 @@ public abstract class InnerNodeUnitTest {
 		byte i;
 		Pair pair;
 		// fill node to capacity
-		for (i = 0; ; i++) {
+		for (i = 0;; i++) {
 			if (node.findChild(i) != null) {
 				continue; // find at least one non existent child to force add
 			}
@@ -292,9 +281,8 @@ public abstract class InnerNodeUnitTest {
 	}
 
 	/*
-		after shrinking contains same key, child mappings
-		lexicographic order maintained
-		same parent as before, prefix len, prefix keys
+	 * after shrinking contains same key, child mappings lexicographic order
+	 * maintained same parent as before, prefix len, prefix keys
 	 */
 	@Test
 	public void testShrink() {
@@ -330,18 +318,14 @@ public abstract class InnerNodeUnitTest {
 	}
 
 	/*
-		replace the child associated with a key
-		assert new child found
-		same size
-		lexicographic order maintained
-		uplink setup for new child
-		old child uplink stays:
-			why? because in lazy leaf expansion case, we first link current leaf node with a
-			new Node4() and later replace current down pointer to this leaf node with this new
-			Node4() parent. If we remove old child's uplink, it could be the case that the old child
-			has been linked with a new parent.
-			Well we could make sure that explicitly in the branch, but it is fine
-			to not do in replace as well.
+	 * replace the child associated with a key assert new child found same size
+	 * lexicographic order maintained uplink setup for new child old child uplink
+	 * stays: why? because in lazy leaf expansion case, we first link current leaf
+	 * node with a new Node4() and later replace current down pointer to this leaf
+	 * node with this new Node4() parent. If we remove old child's uplink, it could
+	 * be the case that the old child has been linked with a new parent. Well we
+	 * could make sure that explicitly in the branch, but it is fine to not do in
+	 * replace as well.
 	 */
 	@Test
 	public void testReplace() {

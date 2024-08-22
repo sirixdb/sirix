@@ -11,7 +11,7 @@ import java.util.Iterator;
 class Values<K, V> extends AbstractCollection<V> {
 	private final AdaptiveRadixTree<K, V> m;
 
-	Values(AdaptiveRadixTree<K, V> m){
+	Values(AdaptiveRadixTree<K, V> m) {
 		this.m = m;
 	}
 
@@ -32,7 +32,7 @@ class Values<K, V> extends AbstractCollection<V> {
 
 	@Override
 	public boolean remove(Object o) {
-		for (LeafNode<K,V> e = m.getFirstEntry(); e != null; e = AdaptiveRadixTree.successor(e)) {
+		for (LeafNode<K, V> e = m.getFirstEntry(); e != null; e = AdaptiveRadixTree.successor(e)) {
 			if (AdaptiveRadixTree.valEquals(e.getValue(), o)) {
 				m.deleteEntry(e);
 				return true;
@@ -48,4 +48,3 @@ class Values<K, V> extends AbstractCollection<V> {
 
 	// TODO: implement Spliterator
 }
-

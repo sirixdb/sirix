@@ -20,6 +20,7 @@ buildscript {
 
 plugins {
     id "org.sonarqube" version "4.4.1.3373"
+    id "com.star-zero.gradle.githook" version "1.2.1"
 }
 
 sonarqube {
@@ -127,10 +128,18 @@ subprojects {
                                  "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED"]
     }
 
+    def applyLicenseHeader = project.hasProperty('applyLicenseHeader') ? project.applyLicenseHeader.toBoolean() : true
     spotless {
         enforceCheck false
         java {
-            licenseHeaderFile "${rootDir}/LICENSE"
+            target '**/*.java'
+            eclipse()
+            removeUnusedImports()
+            trimTrailingWhitespace()
+            endWithNewline()
+            if (applyLicenseHeader) {
+                licenseHeaderFile "${rootDir}/LICENSE"
+            }
         }
     }
 
@@ -288,6 +297,19 @@ subprojects {
         maxHeapSize = '8g'
     }
 }
+
+
+githook {
+    gradleCommand = file("${rootDir}/gradlew") // Specify path to your Gradle executable or command
+    failOnMissingHooksDir = false
+    createHooksDirIfNotExist = false
+    hooks {
+        "pre-commit" {
+            shell = "./gradlew spotlessApply -PapplyLicenseHeader=false && git add -u"
+        }
+    }
+}
+
 
 //task jacocoRootReport(type: JacocoReport) {
 //    description = 'Generates an aggregate report from all subprojects'

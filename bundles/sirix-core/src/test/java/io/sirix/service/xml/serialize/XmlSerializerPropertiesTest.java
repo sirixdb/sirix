@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -36,40 +36,39 @@ import io.sirix.XmlTestHelper;
 
 public class XmlSerializerPropertiesTest {
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testXMLSerializerProp() {
-    final XmlSerializerProperties props = new XmlSerializerProperties();
+	@Test
+	public void testXMLSerializerProp() {
+		final XmlSerializerProperties props = new XmlSerializerProperties();
 
-    final ConcurrentHashMap<String, Object> map =
-        (ConcurrentHashMap<String, Object>) props.getProps();
-    final Enumeration<String> keys = map.keys();
+		final ConcurrentHashMap<String, Object> map = (ConcurrentHashMap<String, Object>) props.getProps();
+		final Enumeration<String> keys = map.keys();
 
-    assertNotNull(keys);
+		assertNotNull(keys);
 
-    while (keys.hasMoreElements()) {
-      final String key = keys.nextElement();
+		while (keys.hasMoreElements()) {
+			final String key = keys.nextElement();
 
-      if (key.equals(XmlSerializerProperties.S_ID[0])) {
-        assertEquals(false, map.get(XmlSerializerProperties.S_ID[0]));
-      } else if (key.equals(XmlSerializerProperties.S_REST[0])) {
-        assertEquals(false, map.get(XmlSerializerProperties.S_REST[0]));
-      } else if (key.equals(XmlSerializerProperties.S_INDENT[0])) {
-        assertEquals(false, map.get(XmlSerializerProperties.S_INDENT[0]));
-      } else if (key.equals(XmlSerializerProperties.S_INDENT_SPACES[0])) {
-        assertSame(2, map.get(XmlSerializerProperties.S_INDENT_SPACES[0]));
-      } else if (key.equals(XmlSerializerProperties.S_XMLDECL[0])) {
-        assertEquals(false, map.get(XmlSerializerProperties.S_XMLDECL[0]));
-      }
-    }
-  }
+			if (key.equals(XmlSerializerProperties.S_ID[0])) {
+				assertEquals(false, map.get(XmlSerializerProperties.S_ID[0]));
+			} else if (key.equals(XmlSerializerProperties.S_REST[0])) {
+				assertEquals(false, map.get(XmlSerializerProperties.S_REST[0]));
+			} else if (key.equals(XmlSerializerProperties.S_INDENT[0])) {
+				assertEquals(false, map.get(XmlSerializerProperties.S_INDENT[0]));
+			} else if (key.equals(XmlSerializerProperties.S_INDENT_SPACES[0])) {
+				assertSame(2, map.get(XmlSerializerProperties.S_INDENT_SPACES[0]));
+			} else if (key.equals(XmlSerializerProperties.S_XMLDECL[0])) {
+				assertEquals(false, map.get(XmlSerializerProperties.S_XMLDECL[0]));
+			}
+		}
+	}
 }

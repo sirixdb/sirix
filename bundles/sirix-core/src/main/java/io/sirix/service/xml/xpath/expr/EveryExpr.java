@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -33,74 +33,77 @@ import io.sirix.utils.TypedValue;
  * IAxis that represents the quantified expression "every".
  * </p>
  * <p>
- * The quantified expression is true if every evaluation of the test expression has the effective
- * boolean value true; otherwise the quantified expression is false. This rule implies that, if the
- * in-clauses generate zero binding tuples, the value of the quantified expression is true.
+ * The quantified expression is true if every evaluation of the test expression
+ * has the effective boolean value true; otherwise the quantified expression is
+ * false. This rule implies that, if the in-clauses generate zero binding
+ * tuples, the value of the quantified expression is true.
  * </p>
  */
 public class EveryExpr extends AbstractExpression {
 
-  private final List<Axis> mVars;
+	private final List<Axis> mVars;
 
-  private final Axis mSatisfy;
+	private final Axis mSatisfy;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param rtx Exclusive (immutable) trx to iterate with.
-   * @param mVars Variables for which the condition must be satisfied
-   * @param mSatisfy condition every item of the variable results must satisfy in order to evaluate
-   *        expression to true
-   */
-  public EveryExpr(final XmlNodeReadOnlyTrx rtx, final List<Axis> mVars, final Axis mSatisfy) {
+	/**
+	 * Constructor. Initializes the internal state.
+	 *
+	 * @param rtx
+	 *            Exclusive (immutable) trx to iterate with.
+	 * @param mVars
+	 *            Variables for which the condition must be satisfied
+	 * @param mSatisfy
+	 *            condition every item of the variable results must satisfy in order
+	 *            to evaluate expression to true
+	 */
+	public EveryExpr(final XmlNodeReadOnlyTrx rtx, final List<Axis> mVars, final Axis mSatisfy) {
 
-    super(rtx);
-    this.mVars = mVars;
-    this.mSatisfy = mSatisfy;
-  }
+		super(rtx);
+		this.mVars = mVars;
+		this.mSatisfy = mSatisfy;
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void reset(final long mNodeKey) {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void reset(final long mNodeKey) {
 
-    super.reset(mNodeKey);
-    if (mVars != null) {
-      for (final Axis axis : mVars) {
-        axis.reset(mNodeKey);
-      }
-    }
+		super.reset(mNodeKey);
+		if (mVars != null) {
+			for (final Axis axis : mVars) {
+				axis.reset(mNodeKey);
+			}
+		}
 
-    if (mSatisfy != null) {
-      mSatisfy.reset(mNodeKey);
-    }
-  }
+		if (mSatisfy != null) {
+			mSatisfy.reset(mNodeKey);
+		}
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void evaluate() {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void evaluate() {
 
-    boolean satisfiesCond = true;
+		boolean satisfiesCond = true;
 
-    for (final Axis axis : mVars) {
-      while (axis.hasNext()) {
-        axis.next();
-        if (!mSatisfy.hasNext()) {
-          // condition is not satisfied for this item -> expression is
-          // false
-          satisfiesCond = false;
-          break;
-        }
-      }
-    }
-    final int mItemKey = asXmlNodeReadTrx().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
-                        asXmlNodeReadTrx().keyForName("xs:boolean")));
-    key = mItemKey;
+		for (final Axis axis : mVars) {
+			while (axis.hasNext()) {
+				axis.next();
+				if (!mSatisfy.hasNext()) {
+					// condition is not satisfied for this item -> expression is
+					// false
+					satisfiesCond = false;
+					break;
+				}
+			}
+		}
+		final int mItemKey = asXmlNodeReadTrx().getItemList().addItem(new AtomicValue(
+				TypedValue.getBytes(Boolean.toString(satisfiesCond)), asXmlNodeReadTrx().keyForName("xs:boolean")));
+		key = mItemKey;
 
-  }
+	}
 
 }

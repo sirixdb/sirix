@@ -50,116 +50,117 @@ import java.util.Set;
 import static java.util.Objects.requireNonNull;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class JsonDBSerializer implements Serializer, AutoCloseable {
 
-  private final Appendable out;
+	private final Appendable out;
 
-  private final boolean prettyPrint;
+	private final boolean prettyPrint;
 
-  private boolean first;
+	private boolean first;
 
-  private final Set<JsonNodeReadOnlyTrx> trxSet;
+	private final Set<JsonNodeReadOnlyTrx> trxSet;
 
-  public JsonDBSerializer(final Appendable out, final boolean prettyPrint) {
-    this.out = requireNonNull(out);
-    this.prettyPrint = prettyPrint;
-    first = true;
-    trxSet = new HashSet<>();
-  }
+	public JsonDBSerializer(final Appendable out, final boolean prettyPrint) {
+		this.out = requireNonNull(out);
+		this.prettyPrint = prettyPrint;
+		first = true;
+		trxSet = new HashSet<>();
+	}
 
-  @Override
-  public void serialize(final Sequence sequence) {
-    try {
-      if (first) {
-        first = false;
-        out.append("{\"rest\":[");
-      } else {
-        out.append(",");
-      }
+	@Override
+	public void serialize(final Sequence sequence) {
+		try {
+			if (first) {
+				first = false;
+				out.append("{\"rest\":[");
+			} else {
+				out.append(",");
+			}
 
-      if (sequence != null) {
-        Item item = null;
-        Iter it;
-        if (sequence instanceof Array || sequence instanceof Object) {
-          item = (Item) sequence;
-          it = null;
-        } else {
-          it = sequence.iterate();
-        }
+			if (sequence != null) {
+				Item item = null;
+				Iter it;
+				if (sequence instanceof Array || sequence instanceof Object) {
+					item = (Item) sequence;
+					it = null;
+				} else {
+					it = sequence.iterate();
+				}
 
-        try {
-          if (item == null) {
-            item = it.next();
-          }
-          while (item != null) {
-            if (item instanceof StructuredDBItem) {
-              final var node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
-              trxSet.add(node.getTrx());
+				try {
+					if (item == null) {
+						item = it.next();
+					}
+					while (item != null) {
+						if (item instanceof StructuredDBItem) {
+							final var node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
+							trxSet.add(node.getTrx());
 
-              var serializerBuilder =
-                  new JsonSerializer.Builder(node.getTrx().getResourceSession(), out, node.getTrx().getRevisionNumber())
-                      .serializeTimestamp(true)
-                      .isXQueryResultSequence();
-              if (prettyPrint) {
-                serializerBuilder.prettyPrint().withInitialIndent();
-              }
-              final JsonSerializer serializer = serializerBuilder.startNodeKey(node.getNodeKey()).build();
-              serializer.call();
+							var serializerBuilder = new JsonSerializer.Builder(node.getTrx().getResourceSession(), out,
+									node.getTrx().getRevisionNumber()).serializeTimestamp(true)
+									.isXQueryResultSequence();
+							if (prettyPrint) {
+								serializerBuilder.prettyPrint().withInitialIndent();
+							}
+							final JsonSerializer serializer = serializerBuilder.startNodeKey(node.getNodeKey()).build();
+							serializer.call();
 
-              item = printCommaIfNextItemExists(it);
-            } else if (item instanceof Atomic) {
-              if (((Atomic) item).type() == Type.STR) {
-                out.append("\"");
-              }
-              out.append(item.toString());
-              if (((Atomic) item).type() == Type.STR) {
-                out.append("\"");
-              }
+							item = printCommaIfNextItemExists(it);
+						} else if (item instanceof Atomic) {
+							if (((Atomic) item).type() == Type.STR) {
+								out.append("\"");
+							}
+							out.append(item.toString());
+							if (((Atomic) item).type() == Type.STR) {
+								out.append("\"");
+							}
 
-              item = printCommaIfNextItemExists(it);
-            } else if ((item instanceof Array) || (item instanceof Object)) {
-              try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
-                new StringSerializer(printWriter).serialize(item);
-                this.out.append(out.toString(StandardCharsets.UTF_8));
-              }
+							item = printCommaIfNextItemExists(it);
+						} else if ((item instanceof Array) || (item instanceof Object)) {
+							try (final var out = new ByteArrayOutputStream();
+									final var printWriter = new PrintWriter(out)) {
+								new StringSerializer(printWriter).serialize(item);
+								this.out.append(out.toString(StandardCharsets.UTF_8));
+							}
 
-              item = printCommaIfNextItemExists(it);
-            }
-          }
-        } finally {
-          if (it != null) {
-            it.close();
-          }
-        }
+							item = printCommaIfNextItemExists(it);
+						}
+					}
+				} finally {
+					if (it != null) {
+						it.close();
+					}
+				}
 
-      }
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
-    }
-  }
+			}
+		} catch (final IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
 
-  private Item printCommaIfNextItemExists(Iter it) throws IOException {
-    Item item = null;
-    if (it != null) {
-      item = it.next();
+	private Item printCommaIfNextItemExists(Iter it) throws IOException {
+		Item item = null;
+		if (it != null) {
+			item = it.next();
 
-      if (item != null) {
-        out.append(",");
-      }
-    }
-    return item;
-  }
+			if (item != null) {
+				out.append(",");
+			}
+		}
+		return item;
+	}
 
-  @Override
-  public void close() {
-    try {
-      out.append("]}");
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
-    }
+	@Override
+	public void close() {
+		try {
+			out.append("]}");
+		} catch (final IOException e) {
+			throw new UncheckedIOException(e);
+		}
 
-    trxSet.forEach(JsonNodeReadOnlyTrx::close);
-  }
+		trxSet.forEach(JsonNodeReadOnlyTrx::close);
+	}
 }

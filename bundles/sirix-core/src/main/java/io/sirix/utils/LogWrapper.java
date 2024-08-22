@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -27,81 +27,91 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Provides some logging helper methods.
- * 
+ *
  * @author Johannes Lichtenberger, University of Konstanz
- * 
+ *
  */
 public final class LogWrapper {
 
-  /** Logger. */
-  private final Logger logger;
+	/** Logger. */
+	private final Logger logger;
 
-  /**
-   * Constructor.
-   * 
-   * @param logger logger
-   */
-  public LogWrapper(final Logger logger) {
-    this.logger = requireNonNull(logger);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param logger
+	 *            logger
+	 */
+	public LogWrapper(final Logger logger) {
+		this.logger = requireNonNull(logger);
+	}
 
-  /**
-   * Log error information.
-   * 
-   * @param message Message to log.
-   * @param objects Objects for message
-   */
-  public void error(final String message, final Object... objects) {
-    if (logger.isErrorEnabled()) {
-      logger.error(message, objects);
-    }
-  }
+	/**
+	 * Log error information.
+	 *
+	 * @param message
+	 *            Message to log.
+	 * @param objects
+	 *            Objects for message
+	 */
+	public void error(final String message, final Object... objects) {
+		if (logger.isErrorEnabled()) {
+			logger.error(message, objects);
+		}
+	}
 
-  /**
-   * Log error information.
-   * 
-   * @param exception Exception to log.
-   */
-  public void error(final Exception exception) {
-    if (logger.isErrorEnabled()) {
-      logger.error(exception.getMessage(), exception);
-    }
-  }
+	/**
+	 * Log error information.
+	 *
+	 * @param exception
+	 *            Exception to log.
+	 */
+	public void error(final Exception exception) {
+		if (logger.isErrorEnabled()) {
+			logger.error(exception.getMessage(), exception);
+		}
+	}
 
-  /**
-   * Log debugging information.
-   * 
-   * @param message Message to log.
-   * @param objects objects for data
-   */
-  public void debug(final String message, final Object... objects) {
-    if (logger.isDebugEnabled()) {
-      logger.debug(message, objects);
-    }
-  }
+	/**
+	 * Log debugging information.
+	 *
+	 * @param message
+	 *            Message to log.
+	 * @param objects
+	 *            objects for data
+	 */
+	public void debug(final String message, final Object... objects) {
+		if (logger.isDebugEnabled()) {
+			logger.debug(message, objects);
+		}
+	}
 
-  /**
-   * Log information.
-   * 
-   * @param message Message to log.
-   * @param objects objects for data
-   */
-  public void info(final String message, final Object... objects) {
-    if (logger.isInfoEnabled()) {
-      logger.info(message, objects);
-    }
-  }
+	/**
+	 * Log information.
+	 *
+	 * @param message
+	 *            Message to log.
+	 * @param objects
+	 *            objects for data
+	 */
+	public void info(final String message, final Object... objects) {
+		if (logger.isInfoEnabled()) {
+			logger.info(message, objects);
+		}
+	}
 
-  /**
-   * Warn information.
-   * 
-   * @param message Message to log.
-   * @param objects objects for data
-   */
-  public void warn(final String message, final Object... objects) {
-    if (logger.isWarnEnabled()) {
-      logger.warn(message, objects);
-    }
-  }
+	/**
+	 * Warn information.
+	 *
+	 * @param message
+	 *            Message to log.
+	 * @param objects
+	 *            objects for data
+	 */
+	public void warn(final String message, final Object... objects) {
+		if (logger.isWarnEnabled()) {
+			logger.warn(message, objects);
+		}
+	}
 
 }

@@ -20,8 +20,7 @@ public class ARTByteTest {
 			// floor test
 			if (i != Byte.MIN_VALUE) {
 				assertEquals(i - 1, (byte) art.floorKey(i));
-			}
-			else {
+			} else {
 				assertNull(art.floorKey(i));
 			}
 
@@ -38,13 +37,11 @@ public class ARTByteTest {
 			// lowerKey test
 			if (i != Byte.MIN_VALUE) {
 				assertEquals(i - 1, (byte) art.lowerKey(i));
-			}
-			else {
+			} else {
 				assertNull(art.lowerKey(i));
 			}
 			i++;
-		}
-		while (i != Byte.MIN_VALUE);
+		} while (i != Byte.MIN_VALUE);
 
 		Map.Entry<Byte, String> firstEntry = art.firstEntry();
 		assertEquals(String.valueOf(Byte.MIN_VALUE), firstEntry.getValue());
@@ -61,14 +58,12 @@ public class ARTByteTest {
 		root.setAccessible(true);
 		assertNull(((Node) root.get(art)).parent());
 
-
 		// test sorted order iteration
 		i = Byte.MIN_VALUE;
 		for (Map.Entry<Byte, String> entry : art.entrySet()) {
 			assertEquals(i, (byte) entry.getKey());
 			i++;
 		}
-
 
 		// remove one by one and check if others exist
 		i = Byte.MIN_VALUE;
@@ -78,13 +73,11 @@ public class ARTByteTest {
 			if (i != Byte.MAX_VALUE) {
 				try {
 					assertEquals(i + 1, (byte) art.higherKey(i));
-				}
-				catch (NullPointerException e) {
+				} catch (NullPointerException e) {
 					System.out.println(i);
 					fail();
 				}
-			}
-			else {
+			} else {
 				assertNull(art.higherKey(i));
 			}
 
@@ -97,8 +90,7 @@ public class ARTByteTest {
 			// ceil test
 			if (i != Byte.MAX_VALUE) {
 				assertEquals(i + 1, (byte) art.ceilingKey(i));
-			}
-			else {
+			} else {
 				assertNull(art.ceilingKey(i));
 			}
 
@@ -108,7 +100,6 @@ public class ARTByteTest {
 				assertEquals(value, art.get(j));
 			}
 
-		}
-		while (i != Byte.MIN_VALUE);
+		} while (i != Byte.MIN_VALUE);
 	}
 }

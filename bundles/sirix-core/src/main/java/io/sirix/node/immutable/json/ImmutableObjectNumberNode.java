@@ -19,49 +19,51 @@ import static java.util.Objects.requireNonNull;
  *
  */
 public final class ImmutableObjectNumberNode extends AbstractImmutableJsonStructuralNode {
-  /** Mutable {@link ObjectNumberNode}. */
-  private final ObjectNumberNode node;
+	/** Mutable {@link ObjectNumberNode}. */
+	private final ObjectNumberNode node;
 
-  /**
-   * Private constructor.
-   *
-   * @param node {@link ObjectNumberNode} to wrap
-   */
-  private ImmutableObjectNumberNode(final ObjectNumberNode node) {
-    this.node = requireNonNull(node);
-  }
+	/**
+	 * Private constructor.
+	 *
+	 * @param node
+	 *            {@link ObjectNumberNode} to wrap
+	 */
+	private ImmutableObjectNumberNode(final ObjectNumberNode node) {
+		this.node = requireNonNull(node);
+	}
 
-  /**
-   * Get an immutable text node instance.
-   *
-   * @param node the mutable {@link NumberNode} to wrap
-   * @return immutable text node instance
-   */
-  public static ImmutableObjectNumberNode of(final ObjectNumberNode node) {
-    return new ImmutableObjectNumberNode(node);
-  }
+	/**
+	 * Get an immutable text node instance.
+	 *
+	 * @param node
+	 *            the mutable {@link NumberNode} to wrap
+	 * @return immutable text node instance
+	 */
+	public static ImmutableObjectNumberNode of(final ObjectNumberNode node) {
+		return new ImmutableObjectNumberNode(node);
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(this);
-  }
+	@Override
+	public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+		return visitor.visit(this);
+	}
 
-  @Override
-  public StructNode structDelegate() {
-    return node.getStructNodeDelegate();
-  }
+	@Override
+	public StructNode structDelegate() {
+		return node.getStructNodeDelegate();
+	}
 
-  public Number getValue() {
-    return node.getValue();
-  }
+	public Number getValue() {
+		return node.getValue();
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.BOOLEAN_VALUE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.BOOLEAN_VALUE;
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    return node.computeHash(bytes);
-  }
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		return node.computeHash(bytes);
+	}
 }

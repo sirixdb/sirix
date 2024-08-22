@@ -20,41 +20,41 @@ import java.util.Set;
 
 public final class PathIndexBuilder {
 
-  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(PathIndexBuilder.class));
+	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(PathIndexBuilder.class));
 
-  private final Set<Path<QNm>> paths;
+	private final Set<Path<QNm>> paths;
 
-  private final PathSummaryReader pathSummaryReader;
+	private final PathSummaryReader pathSummaryReader;
 
-  private final RBTreeWriter<Long, NodeReferences> indexWriter;
+	private final RBTreeWriter<Long, NodeReferences> indexWriter;
 
-  public PathIndexBuilder(final RBTreeWriter<Long, NodeReferences> indexWriter,
-      final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths) {
-    this.pathSummaryReader = pathSummaryReader;
-    this.paths = paths;
-    this.indexWriter = indexWriter;
-  }
+	public PathIndexBuilder(final RBTreeWriter<Long, NodeReferences> indexWriter,
+			final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths) {
+		this.pathSummaryReader = pathSummaryReader;
+		this.paths = paths;
+		this.indexWriter = indexWriter;
+	}
 
-  public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
-    try {
-      final long PCR = pathNodeKey;
-      if (pathSummaryReader.getPCRsForPaths(paths).contains(PCR) || paths.isEmpty()) {
-        final Optional<NodeReferences> textReferences = indexWriter.get(PCR, SearchMode.EQUAL);
-        if (textReferences.isPresent()) {
-          setNodeReferences(node, textReferences.get(), PCR);
-        } else {
-          setNodeReferences(node, new NodeReferences(), PCR);
-        }
-      }
-    } catch (final PathException | SirixIOException e) {
-      LOGGER.error(e.getMessage(), e);
-    }
-    return VisitResultType.CONTINUE;
-  }
+	public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
+		try {
+			final long PCR = pathNodeKey;
+			if (pathSummaryReader.getPCRsForPaths(paths).contains(PCR) || paths.isEmpty()) {
+				final Optional<NodeReferences> textReferences = indexWriter.get(PCR, SearchMode.EQUAL);
+				if (textReferences.isPresent()) {
+					setNodeReferences(node, textReferences.get(), PCR);
+				} else {
+					setNodeReferences(node, new NodeReferences(), PCR);
+				}
+			}
+		} catch (final PathException | SirixIOException e) {
+			LOGGER.error(e.getMessage(), e);
+		}
+		return VisitResultType.CONTINUE;
+	}
 
-  private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final long pathNodeKey)
-      throws SirixIOException {
-    indexWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
-  }
+	private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final long pathNodeKey)
+			throws SirixIOException {
+		indexWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
+	}
 
 }

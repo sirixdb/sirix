@@ -19,29 +19,27 @@ import javax.inject.Singleton;
  *
  * @author Joao Sousa
  */
-@Module(subcomponents = { JsonLocalDatabaseComponent.class, XmlLocalDatabaseComponent.class})
+@Module(subcomponents = {JsonLocalDatabaseComponent.class, XmlLocalDatabaseComponent.class})
 public interface DatabaseModule {
 
-    @Binds
-    @Singleton
-    LocalDatabaseFactory<JsonResourceSession> bindJsonDatabaseFactory(LocalJsonDatabaseFactory jsonFactory);
+	@Binds
+	@Singleton
+	LocalDatabaseFactory<JsonResourceSession> bindJsonDatabaseFactory(LocalJsonDatabaseFactory jsonFactory);
 
-    @Binds
-    @Singleton
-    LocalDatabaseFactory<XmlResourceSession> bindXmlDatabaseFactory(LocalXmlDatabaseFactory xmlFactory);
+	@Binds
+	@Singleton
+	LocalDatabaseFactory<XmlResourceSession> bindXmlDatabaseFactory(LocalXmlDatabaseFactory xmlFactory);
 
-    @Provides
-    @Singleton
-    static PathBasedPool<Database<?>> databaseSessions() {
-        return new PathBasedPool<>();
-    }
+	@Provides
+	@Singleton
+	static PathBasedPool<Database<?>> databaseSessions() {
+		return new PathBasedPool<>();
+	}
 
-    @Provides
-    @Singleton
-    static PathBasedPool<ResourceSession<?, ?>> resourceManagers() {
-        return new PathBasedPool<>();
-    }
-
-
+	@Provides
+	@Singleton
+	static PathBasedPool<ResourceSession<?, ?>> resourceManagers() {
+		return new PathBasedPool<>();
+	}
 
 }

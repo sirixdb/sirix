@@ -47,413 +47,428 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * <p>
- * An UnorderedKeyValuePage stores a set of records, commonly nodes in an unordered data structure.
+ * An UnorderedKeyValuePage stores a set of records, commonly nodes in an
+ * unordered data structure.
  * </p>
  * <p>
- * The page currently is not thread safe (might have to be for concurrent write-transactions)!
+ * The page currently is not thread safe (might have to be for concurrent
+ * write-transactions)!
  * </p>
  */
 @SuppressWarnings("unchecked")
 public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
-  /**
-   * The current revision.
-   */
-  private final int revision;
+	/**
+	 * The current revision.
+	 */
+	private final int revision;
 
-  /**
-   * Determines if DeweyIDs are stored or not.
-   */
-  private final boolean areDeweyIDsStored;
+	/**
+	 * Determines if DeweyIDs are stored or not.
+	 */
+	private final boolean areDeweyIDsStored;
 
-  /**
-   * Determines if references to {@link OverflowPage}s have been added or not.
-   */
-  private boolean addedReferences;
+	/**
+	 * Determines if references to {@link OverflowPage}s have been added or not.
+	 */
+	private boolean addedReferences;
 
-  /**
-   * References to overflow pages.
-   */
-  private final Map<Long, PageReference> references;
+	/**
+	 * References to overflow pages.
+	 */
+	private final Map<Long, PageReference> references;
 
-  /**
-   * Key of record page. This is the base key of all contained nodes.
-   */
-  private final long recordPageKey;
+	/**
+	 * Key of record page. This is the base key of all contained nodes.
+	 */
+	private final long recordPageKey;
 
-  /**
-   * The record-ID mapped to the records.
-   */
-  private final DataRecord[] records;
+	/**
+	 * The record-ID mapped to the records.
+	 */
+	private final DataRecord[] records;
 
-  /**
-   * Slots which have to be serialized.
-   */
-  private final byte[][] slots;
+	/**
+	 * Slots which have to be serialized.
+	 */
+	private final byte[][] slots;
 
-  /**
-   * DeweyIDs.
-   */
-  private final byte[][] deweyIds;
+	/**
+	 * DeweyIDs.
+	 */
+	private final byte[][] deweyIds;
 
-  /**
-   * The index type.
-   */
-  private final IndexType indexType;
+	/**
+	 * The index type.
+	 */
+	private final IndexType indexType;
 
-  /**
-   * Persistenter.
-   */
-  private final RecordSerializer recordPersister;
+	/**
+	 * Persistenter.
+	 */
+	private final RecordSerializer recordPersister;
 
-  /**
-   * The resource configuration.
-   */
-  private final ResourceConfiguration resourceConfig;
+	/**
+	 * The resource configuration.
+	 */
+	private final ResourceConfiguration resourceConfig;
 
-  private volatile BytesOut<?> bytes;
+	private volatile BytesOut<?> bytes;
 
-  private volatile byte[] hashCode;
+	private volatile byte[] hashCode;
 
-  private int hash;
+	private int hash;
 
-  /**
-   * Copy constructor.
-   *
-   * @param pageToClone the page to clone
-   */
-  @SuppressWarnings("CopyConstructorMissesField")
-  public KeyValueLeafPage(final KeyValueLeafPage pageToClone) {
-    this.addedReferences = false;
-    this.references = pageToClone.references;
-    this.recordPageKey = pageToClone.recordPageKey;
-    this.records = Arrays.copyOf(pageToClone.records, pageToClone.records.length);
-    this.slots = Arrays.copyOf(pageToClone.slots, pageToClone.slots.length);
-    this.deweyIds = Arrays.copyOf(pageToClone.deweyIds, pageToClone.deweyIds.length);
-    this.indexType = pageToClone.indexType;
-    this.recordPersister = pageToClone.recordPersister;
-    this.resourceConfig = pageToClone.resourceConfig;
-    this.revision = pageToClone.revision;
-    this.areDeweyIDsStored = pageToClone.areDeweyIDsStored;
-  }
+	/**
+	 * Copy constructor.
+	 *
+	 * @param pageToClone
+	 *            the page to clone
+	 */
+	@SuppressWarnings("CopyConstructorMissesField")
+	public KeyValueLeafPage(final KeyValueLeafPage pageToClone) {
+		this.addedReferences = false;
+		this.references = pageToClone.references;
+		this.recordPageKey = pageToClone.recordPageKey;
+		this.records = Arrays.copyOf(pageToClone.records, pageToClone.records.length);
+		this.slots = Arrays.copyOf(pageToClone.slots, pageToClone.slots.length);
+		this.deweyIds = Arrays.copyOf(pageToClone.deweyIds, pageToClone.deweyIds.length);
+		this.indexType = pageToClone.indexType;
+		this.recordPersister = pageToClone.recordPersister;
+		this.resourceConfig = pageToClone.resourceConfig;
+		this.revision = pageToClone.revision;
+		this.areDeweyIDsStored = pageToClone.areDeweyIDsStored;
+	}
 
-  /**
-   * Constructor which initializes a new {@link KeyValueLeafPage}.
-   *
-   * @param recordPageKey  base key assigned to this node page
-   * @param indexType      the index type
-   * @param resourceConfig the resource configuration
-   */
-  public KeyValueLeafPage(final @NonNegative long recordPageKey, final IndexType indexType,
-      final ResourceConfiguration resourceConfig, final int revisionNumber) {
-    // Assertions instead of requireNonNull(...) checks as it's part of the
-    // internal flow.
-    assert resourceConfig != null : "The resource config must not be null!";
+	/**
+	 * Constructor which initializes a new {@link KeyValueLeafPage}.
+	 *
+	 * @param recordPageKey
+	 *            base key assigned to this node page
+	 * @param indexType
+	 *            the index type
+	 * @param resourceConfig
+	 *            the resource configuration
+	 */
+	public KeyValueLeafPage(final @NonNegative long recordPageKey, final IndexType indexType,
+			final ResourceConfiguration resourceConfig, final int revisionNumber) {
+		// Assertions instead of requireNonNull(...) checks as it's part of the
+		// internal flow.
+		assert resourceConfig != null : "The resource config must not be null!";
 
-    this.references = new ConcurrentHashMap<>();
-    this.recordPageKey = recordPageKey;
-    this.records = new DataRecord[Constants.NDP_NODE_COUNT];
-    this.slots = new byte[Constants.NDP_NODE_COUNT][];
-    this.indexType = indexType;
-    this.resourceConfig = resourceConfig;
-    this.recordPersister = resourceConfig.recordPersister;
-    this.deweyIds = new byte[Constants.NDP_NODE_COUNT][];
-    this.revision = revisionNumber;
-    this.areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
-  }
+		this.references = new ConcurrentHashMap<>();
+		this.recordPageKey = recordPageKey;
+		this.records = new DataRecord[Constants.NDP_NODE_COUNT];
+		this.slots = new byte[Constants.NDP_NODE_COUNT][];
+		this.indexType = indexType;
+		this.resourceConfig = resourceConfig;
+		this.recordPersister = resourceConfig.recordPersister;
+		this.deweyIds = new byte[Constants.NDP_NODE_COUNT][];
+		this.revision = revisionNumber;
+		this.areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
+	}
 
-  /**
-   * Constructor which reads deserialized data to the {@link KeyValueLeafPage} from the storage.
-   *
-   * @param recordPageKey     This is the base key of all contained nodes.
-   * @param revision          The current revision.
-   * @param indexType         The index type.
-   * @param resourceConfig    The resource configuration.
-   * @param areDeweyIDsStored Determines if DeweyIDs are stored or not.
-   * @param recordPersister   Persistenter.
-   * @param slots             Slots which were serialized.
-   * @param deweyIds          DeweyIDs.
-   * @param references        References to overflow pages.
-   */
-  KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType,
-      final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
-      final RecordSerializer recordPersister, final byte[][] slots, final byte[][] deweyIds,
-      final Map<Long, PageReference> references) {
-    this.recordPageKey = recordPageKey;
-    this.revision = revision;
-    this.indexType = indexType;
-    this.resourceConfig = resourceConfig;
-    this.areDeweyIDsStored = areDeweyIDsStored;
-    this.recordPersister = recordPersister;
-    this.slots = slots;
-    this.deweyIds = deweyIds;
-    this.references = references;
-    this.records = new DataRecord[Constants.NDP_NODE_COUNT];
-  }
+	/**
+	 * Constructor which reads deserialized data to the {@link KeyValueLeafPage}
+	 * from the storage.
+	 *
+	 * @param recordPageKey
+	 *            This is the base key of all contained nodes.
+	 * @param revision
+	 *            The current revision.
+	 * @param indexType
+	 *            The index type.
+	 * @param resourceConfig
+	 *            The resource configuration.
+	 * @param areDeweyIDsStored
+	 *            Determines if DeweyIDs are stored or not.
+	 * @param recordPersister
+	 *            Persistenter.
+	 * @param slots
+	 *            Slots which were serialized.
+	 * @param deweyIds
+	 *            DeweyIDs.
+	 * @param references
+	 *            References to overflow pages.
+	 */
+	KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType,
+			final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
+			final RecordSerializer recordPersister, final byte[][] slots, final byte[][] deweyIds,
+			final Map<Long, PageReference> references) {
+		this.recordPageKey = recordPageKey;
+		this.revision = revision;
+		this.indexType = indexType;
+		this.resourceConfig = resourceConfig;
+		this.areDeweyIDsStored = areDeweyIDsStored;
+		this.recordPersister = recordPersister;
+		this.slots = slots;
+		this.deweyIds = deweyIds;
+		this.references = references;
+		this.records = new DataRecord[Constants.NDP_NODE_COUNT];
+	}
 
-  @Override
-  public long getPageKey() {
-    return recordPageKey;
-  }
+	@Override
+	public long getPageKey() {
+		return recordPageKey;
+	}
 
-  @Override
-  public DataRecord getRecord(int offset) {
-    //int offset = PageReadOnlyTrx.recordPageOffset(key);
-    return records[offset];
-  }
+	@Override
+	public DataRecord getRecord(int offset) {
+		// int offset = PageReadOnlyTrx.recordPageOffset(key);
+		return records[offset];
+	}
 
-  @Override
-  public byte[] getSlot(int slotNumber) {
-    return slots[slotNumber];
-  }
+	@Override
+	public byte[] getSlot(int slotNumber) {
+		return slots[slotNumber];
+	}
 
-  @Override
-  public void setRecord(@NonNull final DataRecord record) {
-    addedReferences = false;
-    final var offset = PageReadOnlyTrx.recordPageOffset(record.getNodeKey());
-    records[offset] = record;
-  }
+	@Override
+	public void setRecord(@NonNull final DataRecord record) {
+		addedReferences = false;
+		final var offset = PageReadOnlyTrx.recordPageOffset(record.getNodeKey());
+		records[offset] = record;
+	}
 
-  /**
-   * Get bytes to serialize
-   *
-   * @return bytes
-   */
-  public BytesOut<?> getBytes() {
-    return bytes;
-  }
+	/**
+	 * Get bytes to serialize
+	 *
+	 * @return bytes
+	 */
+	public BytesOut<?> getBytes() {
+		return bytes;
+	}
 
-  /**
-   * Set bytes after serialized
-   *
-   * @param bytes bytes
-   */
-  public void setBytes(BytesOut<?> bytes) {
-    this.bytes = bytes;
-  }
+	/**
+	 * Set bytes after serialized
+	 *
+	 * @param bytes
+	 *            bytes
+	 */
+	public void setBytes(BytesOut<?> bytes) {
+		this.bytes = bytes;
+	}
 
-  public byte[][] getSlots() {
-    return slots;
-  }
+	public byte[][] getSlots() {
+		return slots;
+	}
 
-  public byte[][] getDeweyIds() {
-    return deweyIds;
-  }
+	public byte[][] getDeweyIds() {
+		return deweyIds;
+	}
 
-  public ResourceConfiguration getResourceConfig() {
-    return resourceConfig;
-  }
+	public ResourceConfiguration getResourceConfig() {
+		return resourceConfig;
+	}
 
-  @Override
-  public <C extends KeyValuePage<DataRecord>> C copy() {
-    return (C) new KeyValueLeafPage(this);
-  }
+	@Override
+	public <C extends KeyValuePage<DataRecord>> C copy() {
+		return (C) new KeyValueLeafPage(this);
+	}
 
-  @Override
-  public DataRecord[] records() {
-    return records;
-  }
+	@Override
+	public DataRecord[] records() {
+		return records;
+	}
 
-  public byte[] getHashCode() {
-    return hashCode;
-  }
+	public byte[] getHashCode() {
+		return hashCode;
+	}
 
-  public void setHashCode(byte[] hashCode) {
-    this.hashCode = hashCode;
-  }
+	public void setHashCode(byte[] hashCode) {
+		this.hashCode = hashCode;
+	}
 
-  @SuppressWarnings("rawtypes")
-  @Override
-  public <I extends Iterable<DataRecord>> I values() {
-    return (I) new ArrayIterator(records, records.length);
-  }
+	@SuppressWarnings("rawtypes")
+	@Override
+	public <I extends Iterable<DataRecord>> I values() {
+		return (I) new ArrayIterator(records, records.length);
+	}
 
-  @Override
-  public byte[][] slots() {
-    return slots;
-  }
+	@Override
+	public byte[][] slots() {
+		return slots;
+	}
 
-  @Override
-  public void setSlot(byte[] recordData, int offset) {
-    slots[offset] = recordData;
-  }
+	@Override
+	public void setSlot(byte[] recordData, int offset) {
+		slots[offset] = recordData;
+	}
 
-  @Override
-  public byte[] getDeweyId(int offset) {
-    return deweyIds[offset];
-  }
+	@Override
+	public byte[] getDeweyId(int offset) {
+		return deweyIds[offset];
+	}
 
-  @Override
-  public void setDeweyId(byte[] deweyId, int offset) {
-    deweyIds[offset] = deweyId;
-  }
+	@Override
+	public void setDeweyId(byte[] deweyId, int offset) {
+		deweyIds[offset] = deweyId;
+	}
 
-  @Override
-  public byte[][] deweyIds() {
-    return deweyIds;
-  }
+	@Override
+	public byte[][] deweyIds() {
+		return deweyIds;
+	}
 
-  @Override
-  public String toString() {
-    final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this).add("pagekey", recordPageKey);
-    for (final DataRecord record : records) {
-      helper.add("record", record);
-    }
-    for (final PageReference reference : references.values()) {
-      helper.add("reference", reference);
-    }
-    return helper.toString();
-  }
+	@Override
+	public String toString() {
+		final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this).add("pagekey", recordPageKey);
+		for (final DataRecord record : records) {
+			helper.add("record", record);
+		}
+		for (final PageReference reference : references.values()) {
+			helper.add("reference", reference);
+		}
+		return helper.toString();
+	}
 
-  @Override
-  public int hashCode() {
-    if (hash == 0) {
-      hash = Objects.hashCode(recordPageKey, revision);
-    }
-    return hash;
-  }
+	@Override
+	public int hashCode() {
+		if (hash == 0) {
+			hash = Objects.hashCode(recordPageKey, revision);
+		}
+		return hash;
+	}
 
-  @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof KeyValueLeafPage other) {
-      return recordPageKey == other.recordPageKey && revision == other.revision;
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof KeyValueLeafPage other) {
+			return recordPageKey == other.recordPageKey && revision == other.revision;
+		}
+		return false;
+	}
 
-  @Override
-  public List<PageReference> getReferences() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public List<PageReference> getReferences() {
+		throw new UnsupportedOperationException();
+	}
 
-  public Map<Long, PageReference> getReferencesMap() {
-    return references;
-  }
+	public Map<Long, PageReference> getReferencesMap() {
+		return references;
+	}
 
-  @Override
-  public void commit(@NonNull PageTrx pageWriteTrx) {
-    addReferences(pageWriteTrx.getResourceSession().getResourceConfig());
+	@Override
+	public void commit(@NonNull PageTrx pageWriteTrx) {
+		addReferences(pageWriteTrx.getResourceSession().getResourceConfig());
 
-    for (final PageReference reference : references.values()) {
-      if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-          && reference.getLogKey() == Constants.NULL_ID_LONG)) {
-        pageWriteTrx.commit(reference);
-      }
-    }
-  }
+		for (final PageReference reference : references.values()) {
+			if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
+					&& reference.getLogKey() == Constants.NULL_ID_LONG)) {
+				pageWriteTrx.commit(reference);
+			}
+		}
+	}
 
-  // Add references to OverflowPages.
-  public void addReferences(final ResourceConfiguration resourceConfiguration) {
-    if (!addedReferences) {
-      if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
-        processEntries(resourceConfiguration, records);
-        for (int i = 0; i < records.length; i++) {
-          final DataRecord record = records[i];
-          if (record != null && record.getDeweyID() != null && record.getNodeKey() != 0) {
-            deweyIds[i] = record.getDeweyID().toBytes();
-          }
-        }
-      } else {
-        processEntries(resourceConfiguration, records);
-      }
+	// Add references to OverflowPages.
+	public void addReferences(final ResourceConfiguration resourceConfiguration) {
+		if (!addedReferences) {
+			if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
+				processEntries(resourceConfiguration, records);
+				for (int i = 0; i < records.length; i++) {
+					final DataRecord record = records[i];
+					if (record != null && record.getDeweyID() != null && record.getNodeKey() != 0) {
+						deweyIds[i] = record.getDeweyID().toBytes();
+					}
+				}
+			} else {
+				processEntries(resourceConfiguration, records);
+			}
 
-      addedReferences = true;
-    }
-  }
+			addedReferences = true;
+		}
+	}
 
-  private void processEntries(final ResourceConfiguration resourceConfiguration, final DataRecord[] records) {
-    var out = Bytes.elasticHeapByteBuffer(30);
-    for (final DataRecord record : records) {
-      if (record == null) {
-        continue;
-      }
-      final var recordID = record.getNodeKey();
-      final var offset = PageReadOnlyTrx.recordPageOffset(recordID);
+	private void processEntries(final ResourceConfiguration resourceConfiguration, final DataRecord[] records) {
+		var out = Bytes.elasticHeapByteBuffer(30);
+		for (final DataRecord record : records) {
+			if (record == null) {
+				continue;
+			}
+			final var recordID = record.getNodeKey();
+			final var offset = PageReadOnlyTrx.recordPageOffset(recordID);
 
-      // Must be either a normal record or one which requires an overflow page.
-      recordPersister.serialize(out, record, resourceConfiguration);
-      final var data = out.toByteArray();
-      out.clear();
-      if (data.length > PageConstants.MAX_RECORD_SIZE) {
-        final var reference = new PageReference();
-        reference.setPage(new OverflowPage(data));
-        references.put(recordID, reference);
-      } else {
-        slots[offset] = data;
-      }
-    }
-  }
+			// Must be either a normal record or one which requires an overflow page.
+			recordPersister.serialize(out, record, resourceConfiguration);
+			final var data = out.toByteArray();
+			out.clear();
+			if (data.length > PageConstants.MAX_RECORD_SIZE) {
+				final var reference = new PageReference();
+				reference.setPage(new OverflowPage(data));
+				references.put(recordID, reference);
+			} else {
+				slots[offset] = data;
+			}
+		}
+	}
 
-  @Override
-  public PageReference getOrCreateReference(int offset) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public PageReference getOrCreateReference(int offset) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public boolean setOrCreateReference(int offset, PageReference pageReference) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public boolean setOrCreateReference(int offset, PageReference pageReference) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public <C extends KeyValuePage<DataRecord>> C newInstance(final long recordPageKey,
-      @NonNull final IndexType indexType, @NonNull final PageReadOnlyTrx pageReadTrx) {
-    return (C) new KeyValueLeafPage(recordPageKey,
-                                    indexType,
-                                    pageReadTrx.getResourceSession().getResourceConfig(),
-                                    pageReadTrx.getRevisionNumber());
-  }
+	@Override
+	public <C extends KeyValuePage<DataRecord>> C newInstance(final long recordPageKey,
+			@NonNull final IndexType indexType, @NonNull final PageReadOnlyTrx pageReadTrx) {
+		return (C) new KeyValueLeafPage(recordPageKey, indexType, pageReadTrx.getResourceSession().getResourceConfig(),
+				pageReadTrx.getRevisionNumber());
+	}
 
-  @Override
-  public IndexType getIndexType() {
-    return indexType;
-  }
+	@Override
+	public IndexType getIndexType() {
+		return indexType;
+	}
 
-  @Override
-  public int size() {
-    return getNumberOfNonNullEntries(records, slots) + references.size();
-  }
+	@Override
+	public int size() {
+		return getNumberOfNonNullEntries(records, slots) + references.size();
+	}
 
-  @Override
-  public void setPageReference(final long key, @NonNull final PageReference reference) {
-    references.put(key, reference);
-  }
+	@Override
+	public void setPageReference(final long key, @NonNull final PageReference reference) {
+		references.put(key, reference);
+	}
 
-  @Override
-  public Set<Entry<Long, PageReference>> referenceEntrySet() {
-    return references.entrySet();
-  }
+	@Override
+	public Set<Entry<Long, PageReference>> referenceEntrySet() {
+		return references.entrySet();
+	}
 
-  @Override
-  public PageReference getPageReference(final long key) {
-    return references.get(key);
-  }
+	@Override
+	public PageReference getPageReference(final long key) {
+		return references.get(key);
+	}
 
-  @Override
-  public int getRevision() {
-    return revision;
-  }
+	@Override
+	public int getRevision() {
+		return revision;
+	}
 
-  @Override
-  public KeyValuePage<DataRecord> clearPage() {
-    if (bytes != null) {
-      bytes.clear();
-      bytes = null;
-    }
-    hashCode = null;
-    Arrays.fill(records, null);
-    Arrays.fill(slots, null);
-    Arrays.fill(deweyIds, null);
-    references.clear();
-    return this;
-  }
+	@Override
+	public KeyValuePage<DataRecord> clearPage() {
+		if (bytes != null) {
+			bytes.clear();
+			bytes = null;
+		}
+		hashCode = null;
+		Arrays.fill(records, null);
+		Arrays.fill(slots, null);
+		Arrays.fill(deweyIds, null);
+		references.clear();
+		return this;
+	}
 
-  public static int getNumberOfNonNullEntries(DataRecord[] entries, byte[][] slots) {
-    int count = 0;
-    for (int i = 0; i < entries.length; i++) {
-      if (entries[i] != null || slots[i] != null) {
-        ++count;
-      }
-    }
-    return count;
-  }
+	public static int getNumberOfNonNullEntries(DataRecord[] entries, byte[][] slots) {
+		int count = 0;
+		for (int i = 0; i < entries.length; i++) {
+			if (entries[i] != null || slots[i] != null) {
+				++count;
+			}
+		}
+		return count;
+	}
 }

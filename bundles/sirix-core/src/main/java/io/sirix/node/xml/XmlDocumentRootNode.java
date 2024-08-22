@@ -48,121 +48,120 @@ import java.nio.ByteBuffer;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Node representing the root of a document. This node is guaranteed to exist in revision 0 and can
- * not be removed.
+ * Node representing the root of a document. This node is guaranteed to exist in
+ * revision 0 and can not be removed.
  */
 public final class XmlDocumentRootNode extends AbstractStructForwardingNode implements StructNode, ImmutableXmlNode {
 
-  /**
-   * {@link NodeDelegate} reference.
-   */
-  private final NodeDelegate nodeDelegate;
+	/**
+	 * {@link NodeDelegate} reference.
+	 */
+	private final NodeDelegate nodeDelegate;
 
-  /**
-   * {@link StructNodeDelegate} reference.
-   */
-  private final StructNodeDelegate structNodeDelegate;
+	/**
+	 * {@link StructNodeDelegate} reference.
+	 */
+	private final StructNodeDelegate structNodeDelegate;
 
-  private long hash;
+	private long hash;
 
-  /**
-   * Constructor.
-   *
-   * @param nodeDelegate       {@link NodeDelegate} reference
-   * @param structNodeDelegate {@link StructNodeDelegate} reference
-   */
-  public XmlDocumentRootNode(final @NonNull NodeDelegate nodeDelegate,
-      final @NonNull StructNodeDelegate structNodeDelegate) {
-    this.nodeDelegate = requireNonNull(nodeDelegate);
-    this.structNodeDelegate = requireNonNull(structNodeDelegate);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param nodeDelegate
+	 *            {@link NodeDelegate} reference
+	 * @param structNodeDelegate
+	 *            {@link StructNodeDelegate} reference
+	 */
+	public XmlDocumentRootNode(final @NonNull NodeDelegate nodeDelegate,
+			final @NonNull StructNodeDelegate structNodeDelegate) {
+		this.nodeDelegate = requireNonNull(nodeDelegate);
+		this.structNodeDelegate = requireNonNull(structNodeDelegate);
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.XML_DOCUMENT;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.XML_DOCUMENT;
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    bytes.clear();
+		bytes.clear();
 
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+		bytes.writeLong(nodeDelegate.getNodeKey()).writeLong(nodeDelegate.getParentKey())
+				.writeByte(nodeDelegate.getKind().getId());
 
-    bytes.writeLong(structNodeDelegate.getChildCount())
-         .writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
+		bytes.writeLong(structNodeDelegate.getChildCount()).writeLong(structNodeDelegate.getDescendantCount())
+				.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey())
+				.writeLong(structNodeDelegate.getFirstChildKey());
 
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
-    }
+		if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+			bytes.writeLong(structNodeDelegate.getLastChildKey());
+		}
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
+		final var buffer = bytes.underlyingObject().rewind();
+		buffer.limit((int) bytes.readLimit());
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
-  }
+		return nodeDelegate.getHashFunction().hashBytes(buffer);
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    this.hash = hash;
-  }
+	@Override
+	public void setHash(final long hash) {
+		this.hash = hash;
+	}
 
-  @Override
-  public long getHash() {
-    return hash;
-  }
+	@Override
+	public long getHash() {
+		return hash;
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
-    return visitor.visit(ImmutableXmlDocumentRootNode.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
+		return visitor.visit(ImmutableXmlDocumentRootNode.of(this));
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(nodeDelegate);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(nodeDelegate);
+	}
 
-  @Override
-  public boolean equals(@Nullable final Object obj) {
-    if (obj instanceof final XmlDocumentRootNode other) {
-      return Objects.equal(nodeDelegate, other.nodeDelegate);
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(@Nullable final Object obj) {
+		if (obj instanceof final XmlDocumentRootNode other) {
+			return Objects.equal(nodeDelegate, other.nodeDelegate);
+		}
+		return false;
+	}
 
-  @Override
-  public @NonNull String toString() {
-    return super.toString();
-  }
+	@Override
+	public @NonNull String toString() {
+		return super.toString();
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return nodeDelegate;
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return nodeDelegate;
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return structNodeDelegate;
+	}
 
-  @Override
-  public SirixDeweyID getDeweyID() {
-    return nodeDelegate.getDeweyID();
-  }
+	@Override
+	public SirixDeweyID getDeweyID() {
+		return nodeDelegate.getDeweyID();
+	}
 
-  @Override
-  public int getTypeKey() {
-    return nodeDelegate.getTypeKey();
-  }
+	@Override
+	public int getTypeKey() {
+		return nodeDelegate.getTypeKey();
+	}
 
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    return nodeDelegate.getDeweyIDAsBytes();
-  }
+	@Override
+	public byte[] getDeweyIDAsBytes() {
+		return nodeDelegate.getDeweyIDAsBytes();
+	}
 }

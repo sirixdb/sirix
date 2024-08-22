@@ -12,24 +12,19 @@ import io.brackit.query.atomic.QNm;
 
 public final class NameIndexListenerFactory {
 
-  private final DatabaseType databaseType;
+	private final DatabaseType databaseType;
 
-  public NameIndexListenerFactory(final DatabaseType databaseType) {
-    this.databaseType = databaseType;
-  }
+	public NameIndexListenerFactory(final DatabaseType databaseType) {
+		this.databaseType = databaseType;
+	}
 
-  public NameIndexListener create(final PageTrx pageWriteTrx,
-      final IndexDef indexDefinition) {
-    final var includes = requireNonNull(indexDefinition.getIncluded());
-    final var excludes = requireNonNull(indexDefinition.getExcluded());
-    assert indexDefinition.getType() == IndexType.NAME;
-    final var avlTreeWriter = RBTreeWriter.<QNm, NodeReferences>getInstance(
-            this.databaseType,
-            pageWriteTrx,
-            indexDefinition.getType(),
-            indexDefinition.getID()
-    );
+	public NameIndexListener create(final PageTrx pageWriteTrx, final IndexDef indexDefinition) {
+		final var includes = requireNonNull(indexDefinition.getIncluded());
+		final var excludes = requireNonNull(indexDefinition.getExcluded());
+		assert indexDefinition.getType() == IndexType.NAME;
+		final var avlTreeWriter = RBTreeWriter.<QNm, NodeReferences>getInstance(this.databaseType, pageWriteTrx,
+				indexDefinition.getType(), indexDefinition.getID());
 
-    return new NameIndexListener(includes, excludes, avlTreeWriter);
-  }
+		return new NameIndexListener(includes, excludes, avlTreeWriter);
+	}
 }

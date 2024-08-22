@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -25,96 +25,103 @@ import io.sirix.api.Filter;
 
 /**
  * <p>
- * A sequence type defines a type a the items in a sequnce can have. It consists of either an
- * empty-sequence-test, or an ItemType(kind test, item() or atomic value) and an optional wildcard
- * (*, ?, +)
+ * A sequence type defines a type a the items in a sequnce can have. It consists
+ * of either an empty-sequence-test, or an ItemType(kind test, item() or atomic
+ * value) and an optional wildcard (*, ?, +)
  * </p>
  */
 public class SequenceType {
 
-  private final boolean mIsEmptySequence;
+	private final boolean mIsEmptySequence;
 
-  private final Filter mFilter;
+	private final Filter mFilter;
 
-  private final boolean mHasWildcard;
+	private final boolean mHasWildcard;
 
-  private final char mWildcard;
+	private final char mWildcard;
 
-  /**
-   * Constructor with no arguments means, the sequence type is the empty sequence.
-   */
-  public SequenceType() {
+	/**
+	 * Constructor with no arguments means, the sequence type is the empty sequence.
+	 */
+	public SequenceType() {
 
-    mIsEmptySequence = true;
-    mHasWildcard = false;
-    mWildcard = ' ';
-    mFilter = null;
-  }
+		mIsEmptySequence = true;
+		mHasWildcard = false;
+		mWildcard = ' ';
+		mFilter = null;
+	}
 
-  /**
-   * Constructor. Sequence type is an ItemType.
-   * 
-   * @param mFilter item type filter
-   */
-  public SequenceType(final Filter mFilter) {
+	/**
+	 * Constructor. Sequence type is an ItemType.
+	 *
+	 * @param mFilter
+	 *            item type filter
+	 */
+	public SequenceType(final Filter mFilter) {
 
-    mIsEmptySequence = false;
-    this.mFilter = mFilter;
-    mHasWildcard = false;
-    mWildcard = ' ';
-  }
+		mIsEmptySequence = false;
+		this.mFilter = mFilter;
+		mHasWildcard = false;
+		mWildcard = ' ';
+	}
 
-  /**
-   * Constructor. Sequence type is an ItemType with an wildcard.
-   * <ul>
-   * <li>'ItemType ?' means the sequence has zero or one items that are of the ItemType</li>
-   * <li>'ItemType +' means the sequence one or more items that are of the ItemType</li>
-   * <li>'ItemType *' means the sequence has zero or more items that are of the ItemType</li>
-   * </ul>
-   * @param filter item type filter
-   * @param mWildcard either '*', '?' or '+'
-   */
-  public SequenceType(final Filter filter, final char mWildcard) {
+	/**
+	 * Constructor. Sequence type is an ItemType with an wildcard.
+	 * <ul>
+	 * <li>'ItemType ?' means the sequence has zero or one items that are of the
+	 * ItemType</li>
+	 * <li>'ItemType +' means the sequence one or more items that are of the
+	 * ItemType</li>
+	 * <li>'ItemType *' means the sequence has zero or more items that are of the
+	 * ItemType</li>
+	 * </ul>
+	 *
+	 * @param filter
+	 *            item type filter
+	 * @param mWildcard
+	 *            either '*', '?' or '+'
+	 */
+	public SequenceType(final Filter filter, final char mWildcard) {
 
-    mIsEmptySequence = false;
-    this.mFilter = filter;
-    mHasWildcard = true;
-    this.mWildcard = mWildcard;
-  }
+		mIsEmptySequence = false;
+		this.mFilter = filter;
+		mHasWildcard = true;
+		this.mWildcard = mWildcard;
+	}
 
-  /**
-   * 
-   * @return true, if sequence is the empty sequence
-   */
-  public boolean isEmptySequence() {
+	/**
+	 *
+	 * @return true, if sequence is the empty sequence
+	 */
+	public boolean isEmptySequence() {
 
-    return mIsEmptySequence;
-  }
+		return mIsEmptySequence;
+	}
 
-  /**
-   * @return the ItemType test
-   */
-  public Filter getFilter() {
+	/**
+	 * @return the ItemType test
+	 */
+	public Filter getFilter() {
 
-    return mFilter;
-  }
+		return mFilter;
+	}
 
-  /**
-   * @return true, if a wildcard is present
-   */
-  public boolean hasWildcard() {
+	/**
+	 * @return true, if a wildcard is present
+	 */
+	public boolean hasWildcard() {
 
-    return mHasWildcard;
-  }
+		return mHasWildcard;
+	}
 
-  /**
-   * Returns the wildcard's char representation.
-   * 
-   * @return wildcard sign
-   */
-  public char getWildcard() {
+	/**
+	 * Returns the wildcard's char representation.
+	 *
+	 * @return wildcard sign
+	 */
+	public char getWildcard() {
 
-    return mWildcard;
-  }
+		return mWildcard;
+	}
 
 }

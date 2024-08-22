@@ -43,73 +43,71 @@ import io.sirix.service.xml.xpath.XPathAxis;
  */
 public class XMarkBenchTest {
 
-  final XMarkBenchQueries xmbq = new XMarkBenchQueries();
+	final XMarkBenchQueries xmbq = new XMarkBenchQueries();
 
-  private static final String FACTOR = "0.01";
-  private static final String XMLFILE = "1mb.xml";
+	private static final String FACTOR = "0.01";
+	private static final String XMLFILE = "1mb.xml";
 
-  private static final Path XML = Paths.get("src", "test", "resources", XMLFILE);
+	private static final Path XML = Paths.get("src", "test", "resources", XMLFILE);
 
-  private static Holder holder;
+	private static Holder holder;
 
-  @BeforeClass
-  public static void setUp() throws Exception {
-    XmlTestHelper.deleteEverything();
-    // EncryptionHelper.start();
-    XmlShredder.main(
-        XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
-    holder = Holder.generateRtx();
-  }
+	@BeforeClass
+	public static void setUp() throws Exception {
+		XmlTestHelper.deleteEverything();
+		// EncryptionHelper.start();
+		XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
+		holder = Holder.generateRtx();
+	}
 
-  @Test
-  public void xMarkTest_Q1() throws SirixXPathException {
-    String query = xmbq.getQuery(1, FACTOR);
-    String result = xmbq.getResult(1, FACTOR);
-    XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), query), new String[] {result});
-  }
+	@Test
+	public void xMarkTest_Q1() throws SirixXPathException {
+		String query = xmbq.getQuery(1, FACTOR);
+		String result = xmbq.getResult(1, FACTOR);
+		XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), query), new String[]{result});
+	}
 
-  @Test
-  public void xMarkTest_Q5() throws SirixXPathException {
-    String query = xmbq.getQuery(5, FACTOR);
-    String result = xmbq.getResult(5, FACTOR);
-    XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), query), new String[] {result});
-  }
+	@Test
+	public void xMarkTest_Q5() throws SirixXPathException {
+		String query = xmbq.getQuery(5, FACTOR);
+		String result = xmbq.getResult(5, FACTOR);
+		XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), query), new String[]{result});
+	}
 
-  @Test
-  public void xMarkTest_Q6() throws SirixXPathException {
-    String query = xmbq.getQuery(6, FACTOR);
-    String result = xmbq.getResult(6, FACTOR);
-    XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), query), new String[] {result});
-  }
+	@Test
+	public void xMarkTest_Q6() throws SirixXPathException {
+		String query = xmbq.getQuery(6, FACTOR);
+		String result = xmbq.getResult(6, FACTOR);
+		XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), query), new String[]{result});
+	}
 
-  @Test
-  public void xMarkTest_Q7() throws SirixXPathException {
-    String query = xmbq.getQuery(7, FACTOR);
-    String result = xmbq.getResult(7, FACTOR);
-    XPathStringChecker.testIAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), query), new String[] {result});
-  }
+	@Test
+	public void xMarkTest_Q7() throws SirixXPathException {
+		String query = xmbq.getQuery(7, FACTOR);
+		String result = xmbq.getResult(7, FACTOR);
+		XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), query), new String[]{result});
+	}
 
-  /*
-   * @Test public void xMarkTest_Q21() { String query = xmbq.getQuery(21, FACTOR); String result =
-   * xmbq.getResult(21, FACTOR); XPathStringChecker.testIAxisConventions(new XPathAxis(getRtx(),
-   * query), new String[] { result }); }
-   *
-   * @Test public void xMarkTest_Q22() { String query = xmbq.getQuery(22, FACTOR); String result =
-   * xmbq.getResult(22, FACTOR); XPathStringChecker.testIAxisConventions(new XPathAxis(getRtx(),
-   * query), new String[] { result }); }
-   *
-   * @Test public void xMarkTest_Q23() { String query = xmbq.getQuery(23, FACTOR); String result =
-   * xmbq.getResult(23, FACTOR); XPathStringChecker.testIAxisConventions(new XPathAxis(getRtx(),
-   * query), new String[] { result }); }
-   */
+	/*
+	 * @Test public void xMarkTest_Q21() { String query = xmbq.getQuery(21, FACTOR);
+	 * String result = xmbq.getResult(21, FACTOR);
+	 * XPathStringChecker.testIAxisConventions(new XPathAxis(getRtx(), query), new
+	 * String[] { result }); }
+	 *
+	 * @Test public void xMarkTest_Q22() { String query = xmbq.getQuery(22, FACTOR);
+	 * String result = xmbq.getResult(22, FACTOR);
+	 * XPathStringChecker.testIAxisConventions(new XPathAxis(getRtx(), query), new
+	 * String[] { result }); }
+	 *
+	 * @Test public void xMarkTest_Q23() { String query = xmbq.getQuery(23, FACTOR);
+	 * String result = xmbq.getResult(23, FACTOR);
+	 * XPathStringChecker.testIAxisConventions(new XPathAxis(getRtx(), query), new
+	 * String[] { result }); }
+	 */
 
-  @AfterClass
-  public static void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@AfterClass
+	public static void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 }

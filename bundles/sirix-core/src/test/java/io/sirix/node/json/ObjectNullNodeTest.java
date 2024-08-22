@@ -45,51 +45,47 @@ import static org.junit.Assert.*;
  */
 public class ObjectNullNodeTest {
 
-  private PageTrx pageTrx;
+	private PageTrx pageTrx;
 
-  @Before
-  public void setUp() throws SirixException {
-    JsonTestHelper.deleteEverything();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		JsonTestHelper.deleteEverything();
+		final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+		pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
+	}
 
-  @Test
-  public void test() throws IOException {
-    // Create empty node.
-    final NodeDelegate del =
-        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del,
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               0L,
-                                                               0L);
-    final ObjectNullNode node = new ObjectNullNode(strucDel);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
-    check(node);
+	@Test
+	public void test() throws IOException {
+		// Create empty node.
+		final NodeDelegate del = new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0,
+				SirixDeweyID.newRootID());
+		final StructNodeDelegate strucDel = new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(),
+				Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0L, 0L);
+		final ObjectNullNode node = new ObjectNullNode(strucDel);
+		var bytes = Bytes.elasticHeapByteBuffer();
+		node.setHash(node.computeHash(bytes));
+		check(node);
 
-    // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final ObjectNullNode node2 =
-        (ObjectNullNode) NodeKind.OBJECT_NULL_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
-    check(node2);
-  }
+		// Serialize and deserialize node.
+		final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+		node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
+		final ObjectNullNode node2 = (ObjectNullNode) NodeKind.OBJECT_NULL_VALUE.deserialize(data, node.getNodeKey(),
+				null, pageTrx.getResourceSession().getResourceConfig());
+		check(node2);
+	}
 
-  private void check(final ObjectNullNode node) {
-    // Now compare.
-    assertEquals(13L, node.getNodeKey());
-    assertEquals(14L, node.getParentKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
-    assertEquals(NodeKind.OBJECT_NULL_VALUE, node.getKind());
-    assertFalse(node.hasFirstChild());
-    assertTrue(node.hasParent());
-    assertFalse(node.hasLeftSibling());
-    assertFalse(node.hasRightSibling());
-  }
+	private void check(final ObjectNullNode node) {
+		// Now compare.
+		assertEquals(13L, node.getNodeKey());
+		assertEquals(14L, node.getParentKey());
+		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
+		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
+		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
+		assertEquals(NodeKind.OBJECT_NULL_VALUE, node.getKind());
+		assertFalse(node.hasFirstChild());
+		assertTrue(node.hasParent());
+		assertFalse(node.hasLeftSibling());
+		assertFalse(node.hasRightSibling());
+	}
 
 }

@@ -30,35 +30,36 @@ import io.sirix.api.NodeCursor;
  */
 public final class ChildAxis extends AbstractAxis {
 
-  /** Has another child node. */
-  private boolean first;
+	/** Has another child node. */
+	private boolean first;
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param cursor cursor to iterate with
-   */
-  public ChildAxis(final NodeCursor cursor) {
-    super(cursor);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param cursor
+	 *            cursor to iterate with
+	 */
+	public ChildAxis(final NodeCursor cursor) {
+		super(cursor);
+	}
 
-  @Override
-  public void reset(final long nodeKey) {
-    super.reset(nodeKey);
-    first = true;
-  }
+	@Override
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
+		first = true;
+	}
 
-  @Override
-  protected long nextKey() {
-    final NodeCursor cursor = getCursor();
+	@Override
+	protected long nextKey() {
+		final NodeCursor cursor = getCursor();
 
-    if (!first && cursor.hasRightSibling()) {
-      return cursor.getRightSiblingKey();
-    } else if (first && cursor.hasFirstChild()) {
-      first = false;
-      return cursor.getFirstChildKey();
-    }
+		if (!first && cursor.hasRightSibling()) {
+			return cursor.getRightSiblingKey();
+		} else if (first && cursor.hasFirstChild()) {
+			first = false;
+			return cursor.getFirstChildKey();
+		}
 
-    return done();
-  }
+		return done();
+	}
 }

@@ -28,41 +28,41 @@ package io.sirix.service;
  *
  */
 public enum InsertPosition {
-  /** Subtree should be added as first child of the current node. */
-  AS_FIRST_CHILD("asFirstChild"),
+	/** Subtree should be added as first child of the current node. */
+	AS_FIRST_CHILD("asFirstChild"),
 
-  /** Subtree should be added as last child of the current node. */
-  AS_LAST_CHILD("asLastChild"),
+	/** Subtree should be added as last child of the current node. */
+	AS_LAST_CHILD("asLastChild"),
 
-  /**
-   * Subtree should be added as a right sibling of the current node. This is not possible when the
-   * {@code IWriteTransaction} is on root node.
-   */
-  AS_RIGHT_SIBLING("asRightSibling"),
+	/**
+	 * Subtree should be added as a right sibling of the current node. This is not
+	 * possible when the {@code IWriteTransaction} is on root node.
+	 */
+	AS_RIGHT_SIBLING("asRightSibling"),
 
-  /**
-   * Subtree should be added as a left sibling of the current node. This is not possible when the
-   * {@code IWriteTransaction} is on root node.
-   */
-  AS_LEFT_SIBLING("asLeftSibling");
+	/**
+	 * Subtree should be added as a left sibling of the current node. This is not
+	 * possible when the {@code IWriteTransaction} is on root node.
+	 */
+	AS_LEFT_SIBLING("asLeftSibling");
 
-  private final String name;
+	private final String name;
 
-  InsertPosition(String name) {
-    this.name = name;
-  }
+	InsertPosition(String name) {
+		this.name = name;
+	}
 
-  public String getName() {
-    return name;
-  }
+	public String getName() {
+		return name;
+	}
 
-  public static InsertPosition ofString(String name) {
-    for (InsertPosition insertPosition : InsertPosition.values()) {
-      if (insertPosition.getName().equalsIgnoreCase(name)) {
-        return insertPosition;
-      }
-    }
+	public static InsertPosition ofString(String name) {
+		for (InsertPosition insertPosition : InsertPosition.values()) {
+			if (insertPosition.getName().equalsIgnoreCase(name)) {
+				return insertPosition;
+			}
+		}
 
-    throw new IllegalArgumentException("No enum constant " + InsertPosition.class.getCanonicalName() + "." + name);
-  }
+		throw new IllegalArgumentException("No enum constant " + InsertPosition.class.getCanonicalName() + "." + name);
+	}
 }

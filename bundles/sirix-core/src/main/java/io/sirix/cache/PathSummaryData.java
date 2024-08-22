@@ -7,5 +7,6 @@ import io.sirix.node.interfaces.StructNode;
 import java.util.Map;
 import java.util.Set;
 
-public record PathSummaryData(StructNode currentNode, StructNode[] pathNodeMapping, Map<QNm, Set<PathNode>> qnmMapping) {
+public record PathSummaryData(StructNode currentNode, StructNode[] pathNodeMapping,
+		Map<QNm, Set<PathNode>> qnmMapping) {
 }

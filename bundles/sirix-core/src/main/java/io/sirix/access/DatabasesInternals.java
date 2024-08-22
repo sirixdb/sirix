@@ -8,12 +8,12 @@ import java.util.Set;
 
 public final class DatabasesInternals {
 
-  private DatabasesInternals() {
-    throw new AssertionError();
-  }
+	private DatabasesInternals() {
+		throw new AssertionError();
+	}
 
-  public static Map<Path, Set<Database<?>>> getOpenDatabases() {
-    return Databases.MANAGER.sessions().asMap();
-  }
+	public static Map<Path, Set<Database<?>>> getOpenDatabases() {
+		return Databases.MANAGER.sessions().asMap();
+	}
 
 }

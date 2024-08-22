@@ -9,36 +9,37 @@ import io.sirix.index.path.summary.PathNode;
  */
 public final class ChildAxis extends AbstractAxis {
 
-  /**
-   * Has another child node.
-   */
-  private boolean first;
+	/**
+	 * Has another child node.
+	 */
+	private boolean first;
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param pathNode context node
-   */
-  public ChildAxis(final PathNode pathNode) {
-    super(pathNode);
-    first = true;
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param pathNode
+	 *            context node
+	 */
+	public ChildAxis(final PathNode pathNode) {
+		super(pathNode);
+		first = true;
+	}
 
-  @Override
-  public void reset(PathNode pathNode) {
-    first = true;
-    super.reset(pathNode);
-  }
+	@Override
+	public void reset(PathNode pathNode) {
+		first = true;
+		super.reset(pathNode);
+	}
 
-  @Override
-  protected PathNode nextNode() {
-    if (!first && nextNode.hasRightSibling()) {
-      return nextNode.getRightSibling();
-    } else if (first && nextNode.hasFirstChild()) {
-      first = false;
-      return nextNode.getFirstChild();
-    }
+	@Override
+	protected PathNode nextNode() {
+		if (!first && nextNode.hasRightSibling()) {
+			return nextNode.getRightSibling();
+		} else if (first && nextNode.hasFirstChild()) {
+			first = false;
+			return nextNode.getFirstChild();
+		}
 
-    return done();
-  }
+		return done();
+	}
 }

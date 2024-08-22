@@ -32,18 +32,22 @@ import io.sirix.cache.BufferManager;
 import io.sirix.cache.TransactionIntentLog;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public interface TransactionIntentLogFactory {
 
-  /**
-   * Create a new transaction intent log
-   *
-   * @param bufferManager the buffer manager
-   * @param resourceConfig the resource configuration to get the path for the log and a byte handler
-   *        pipeline
-   * @return the transaction intent log instance
-   * @throws NullPointerException if the {@code resourceConfig} parameter is null
-   */
-  TransactionIntentLog createTrxIntentLog(BufferManager bufferManager, ResourceConfiguration resourceConfig);
+	/**
+	 * Create a new transaction intent log
+	 *
+	 * @param bufferManager
+	 *            the buffer manager
+	 * @param resourceConfig
+	 *            the resource configuration to get the path for the log and a byte
+	 *            handler pipeline
+	 * @return the transaction intent log instance
+	 * @throws NullPointerException
+	 *             if the {@code resourceConfig} parameter is null
+	 */
+	TransactionIntentLog createTrxIntentLog(BufferManager bufferManager, ResourceConfiguration resourceConfig);
 }

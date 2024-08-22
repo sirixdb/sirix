@@ -23,23 +23,25 @@ import io.sirix.query.function.sdb.SDBFun;
  */
 public final class GetNodeKey extends AbstractFunction {
 
-  /** GetNodeKey function name. */
-  public final static QNm GET_NODEKEY = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "nodekey");
+	/** GetNodeKey function name. */
+	public final static QNm GET_NODEKEY = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "nodekey");
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public GetNodeKey(final QNm name, final Signature signature) {
-    super(name, signature, true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public GetNodeKey(final QNm name, final Signature signature) {
+		super(name, signature, true);
+	}
 
-  @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+	@Override
+	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+		final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
-    return new Int64(doc.getNodeKey());
-  }
+		return new Int64(doc.getNodeKey());
+	}
 }

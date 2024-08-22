@@ -6,18 +6,16 @@ import java.util.function.Consumer;
 // A NavigableMap that adds range checking (if passed in key is within lower and upper bound)
 // for all the map methods and then relays the call
 // into the backing map
-abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
-		implements NavigableMap<K, V> {
+abstract class NavigableSubMap<K, V> extends AbstractMap<K, V> implements NavigableMap<K, V> {
 
 	final AdaptiveRadixTree<K, V> tree;
 
 	/**
-	 * Endpoints are represented as triples (fromStart, lo,
-	 * loInclusive) and (toEnd, hi, hiInclusive). If fromStart is
-	 * true, then the low (absolute) bound is the start of the
-	 * backing map, and the other values are ignored. Otherwise,
-	 * if loInclusive is true, lo is the inclusive bound, else lo
-	 * is the exclusive bound. Similarly for the upper bound.
+	 * Endpoints are represented as triples (fromStart, lo, loInclusive) and (toEnd,
+	 * hi, hiInclusive). If fromStart is true, then the low (absolute) bound is the
+	 * start of the backing map, and the other values are ignored. Otherwise, if
+	 * loInclusive is true, lo is the inclusive bound, else lo is the exclusive
+	 * bound. Similarly for the upper bound.
 	 */
 
 	final K lo, hi;
@@ -25,9 +23,8 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 	final boolean fromStart, toEnd;
 	final boolean loInclusive, hiInclusive;
 
-	NavigableSubMap(AdaptiveRadixTree<K, V> m,
-			boolean fromStart, K lo, boolean loInclusive,
-			boolean toEnd, K hi, boolean hiInclusive) {
+	NavigableSubMap(AdaptiveRadixTree<K, V> m, boolean fromStart, K lo, boolean loInclusive, boolean toEnd, K hi,
+			boolean hiInclusive) {
 		// equivalent to type check in TreeMap
 		this.loBytes = fromStart ? null : m.binaryComparable().get(lo);
 		this.hiBytes = toEnd ? null : m.binaryComparable().get(hi);
@@ -77,37 +74,35 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 	}
 
 	final boolean inClosedRange(K key) {
-		// if we don't have any upper nor lower bounds, then all keys are always in range.
-		// if we have a lower bound, then this key ought to be higher than our lower bound (closed, hence including).
-		// if we have an upper bound, then this key ought to be lower than our upper bound (closed, hence including).
-		return (fromStart || tree.compare(key, loBytes) >= 0)
-				&& (toEnd || tree.compare(key, hiBytes) <= 0);
+		// if we don't have any upper nor lower bounds, then all keys are always in
+		// range.
+		// if we have a lower bound, then this key ought to be higher than our lower
+		// bound (closed, hence including).
+		// if we have an upper bound, then this key ought to be lower than our upper
+		// bound (closed, hence including).
+		return (fromStart || tree.compare(key, loBytes) >= 0) && (toEnd || tree.compare(key, hiBytes) <= 0);
 	}
 
 	final boolean inRange(K key, boolean inclusive) {
 		return inclusive ? inRange(key) : inClosedRange(key);
 	}
 
-
 	/*
-	 * Absolute versions of relation operations.
-	 * Subclasses map to these using like-named "sub"
-	 * versions that invert senses for descending maps
+	 * Absolute versions of relation operations. Subclasses map to these using
+	 * like-named "sub" versions that invert senses for descending maps
 	 */
 
 	final LeafNode<K, V> absLowest() {
-		LeafNode<K, V> e =
-				(fromStart ? tree.getFirstEntry() :
-						(loInclusive ? tree.getCeilingEntry(loBytes) :
-								tree.getHigherEntry(loBytes)));
+		LeafNode<K, V> e = (fromStart
+				? tree.getFirstEntry()
+				: (loInclusive ? tree.getCeilingEntry(loBytes) : tree.getHigherEntry(loBytes)));
 		return (e == null || tooHigh(e.getKey())) ? null : e;
 	}
 
 	final LeafNode<K, V> absHighest() {
-		LeafNode<K, V> e =
-				(toEnd ? tree.getLastEntry() :
-						(hiInclusive ? tree.getFloorEntry(hiBytes) :
-								tree.getLowerEntry(hiBytes)));
+		LeafNode<K, V> e = (toEnd
+				? tree.getLastEntry()
+				: (hiInclusive ? tree.getFloorEntry(hiBytes) : tree.getLowerEntry(hiBytes)));
 		return (e == null || tooLow(e.getKey())) ? null : e;
 	}
 
@@ -141,16 +136,33 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 
 	/** Returns the absolute high fence for ascending traversal */
 	final LeafNode<K, V> absHighFence() {
-		return (toEnd ? null : (hiInclusive ?
-				tree.getHigherEntry(hiBytes) :
-				tree.getCeilingEntry(hiBytes))); // then hi itself (but we want the entry, hence traversal is required)
+		return (toEnd ? null : (hiInclusive ? tree.getHigherEntry(hiBytes) : tree.getCeilingEntry(hiBytes))); // then hi
+																												// itself
+																												// (but
+																												// we
+																												// want
+																												// the
+																												// entry,
+																												// hence
+																												// traversal
+																												// is
+																												// required)
 	}
 
-	/** Return the absolute low fence for descending traversal  */
+	/** Return the absolute low fence for descending traversal */
 	final LeafNode<K, V> absLowFence() {
-		return (fromStart ? null : (loInclusive ?
-				tree.getLowerEntry(loBytes) :
-				tree.getFloorEntry(loBytes))); // then lo itself (but we want the entry, hence traversal is required)
+		return (fromStart ? null : (loInclusive ? tree.getLowerEntry(loBytes) : tree.getFloorEntry(loBytes))); // then
+																												// lo
+																												// itself
+																												// (but
+																												// we
+																												// want
+																												// the
+																												// entry,
+																												// hence
+																												// traversal
+																												// is
+																												// required)
 	}
 
 	// Abstract methods defined in ascending vs descending classes
@@ -168,15 +180,13 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 
 	abstract LeafNode<K, V> subLower(K key);
 
-
 	/* Returns ascending iterator from the perspective of this submap */
 
 	abstract Iterator<K> keyIterator();
 
 	abstract Spliterator<K> keySpliterator();
 
-
-	/* Returns descending iterator from the perspective of this submap*/
+	/* Returns descending iterator from the perspective of this submap */
 
 	abstract Iterator<K> descendingKeyIterator();
 
@@ -299,8 +309,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 	@Override
 	public final NavigableSet<K> navigableKeySet() {
 		KeySet<K> nksv = navigableKeySetView;
-		return (nksv != null) ? nksv :
-				(navigableKeySetView = new KeySet<>(this));
+		return (nksv != null) ? nksv : (navigableKeySetView = new KeySet<>(this));
 	}
 
 	@Override
@@ -372,8 +381,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 			if (!inRange((K) key))
 				return false;
 			LeafNode<?, ?> node = tree.getEntry(key);
-			return node != null &&
-					AdaptiveRadixTree.valEquals(node.getValue(), entry.getValue());
+			return node != null && AdaptiveRadixTree.valEquals(node.getValue(), entry.getValue());
 		}
 
 		// efficient impl of remove than the default in AbstractSet
@@ -386,8 +394,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 			if (!inRange((K) key))
 				return false;
 			LeafNode<K, V> node = tree.getEntry(key);
-			if (node != null && AdaptiveRadixTree.valEquals(node.getValue(),
-			                                                entry.getValue())) {
+			if (node != null && AdaptiveRadixTree.valEquals(node.getValue(), entry.getValue())) {
 				tree.deleteEntry(node);
 				return true;
 			}
@@ -395,15 +402,13 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 		}
 	}
 
-
 	/* Dummy value serving as unmatchable fence key for unbounded SubMapIterators */
 	private static final Object UNBOUNDED = new Object();
 
 	/*
-	 *  Iterators for SubMaps
-	 *  that understand the submap's upper and lower bound while iterating.
-	 *  Fence is one of the bounds depending on the kind of iterator (ascending, descending)
-	 *  and first becomes the other one to start from.
+	 * Iterators for SubMaps that understand the submap's upper and lower bound
+	 * while iterating. Fence is one of the bounds depending on the kind of iterator
+	 * (ascending, descending) and first becomes the other one to start from.
 	 */
 	abstract class SubMapIterator<T> implements Iterator<T> {
 		LeafNode<K, V> lastReturned;
@@ -411,8 +416,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 		final Object fenceKey;
 		int expectedModCount;
 
-		SubMapIterator(LeafNode<K, V> first,
-				LeafNode<K, V> fence) {
+		SubMapIterator(LeafNode<K, V> first, LeafNode<K, V> fence) {
 			expectedModCount = tree.getModCount();
 			lastReturned = null;
 			next = first;
@@ -453,8 +457,8 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 			if (tree.getModCount() != expectedModCount)
 				throw new ConcurrentModificationException();
 			// deleted entries are replaced by their successors
-			//	if (lastReturned.left != null && lastReturned.right != null)
-			//		next = lastReturned;
+			// if (lastReturned.left != null && lastReturned.right != null)
+			// next = lastReturned;
 			tree.deleteEntry(lastReturned);
 			lastReturned = null;
 			expectedModCount = tree.getModCount();
@@ -462,8 +466,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 	}
 
 	final class SubMapEntryIterator extends SubMapIterator<Entry<K, V>> {
-		SubMapEntryIterator(LeafNode<K, V> first,
-				LeafNode<K, V> fence) {
+		SubMapEntryIterator(LeafNode<K, V> first, LeafNode<K, V> fence) {
 			super(first, fence);
 		}
 
@@ -474,8 +477,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 	}
 
 	final class DescendingSubMapEntryIterator extends SubMapIterator<Entry<K, V>> {
-		DescendingSubMapEntryIterator(LeafNode<K, V> last,
-				LeafNode<K, V> fence) {
+		DescendingSubMapEntryIterator(LeafNode<K, V> last, LeafNode<K, V> fence) {
 			super(last, fence);
 		}
 
@@ -486,10 +488,8 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 	}
 
 	// Implement minimal Spliterator as KeySpliterator backup
-	final class SubMapKeyIterator extends SubMapIterator<K>
-			implements Spliterator<K> {
-		SubMapKeyIterator(LeafNode<K, V> first,
-				LeafNode<K, V> fence) {
+	final class SubMapKeyIterator extends SubMapIterator<K> implements Spliterator<K> {
+		SubMapKeyIterator(LeafNode<K, V> first, LeafNode<K, V> fence) {
 			super(first, fence);
 		}
 
@@ -528,8 +528,7 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 
 		@Override
 		public int characteristics() {
-			return Spliterator.DISTINCT | Spliterator.ORDERED |
-					Spliterator.SORTED;
+			return Spliterator.DISTINCT | Spliterator.ORDERED | Spliterator.SORTED;
 		}
 
 		@Override
@@ -538,10 +537,8 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 		}
 	}
 
-	final class DescendingSubMapKeyIterator extends SubMapIterator<K>
-			implements Spliterator<K> {
-		DescendingSubMapKeyIterator(LeafNode<K, V> last,
-				LeafNode<K, V> fence) {
+	final class DescendingSubMapKeyIterator extends SubMapIterator<K> implements Spliterator<K> {
+		DescendingSubMapKeyIterator(LeafNode<K, V> last, LeafNode<K, V> fence) {
 			super(last, fence);
 		}
 
@@ -581,5 +578,3 @@ abstract class NavigableSubMap<K, V> extends AbstractMap<K, V>
 		}
 	}
 }
-
-

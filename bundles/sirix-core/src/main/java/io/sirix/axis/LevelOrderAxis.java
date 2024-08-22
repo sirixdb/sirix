@@ -39,220 +39,228 @@ import static java.util.Objects.requireNonNull;
  */
 public final class LevelOrderAxis extends AbstractAxis {
 
-  /**
-   * Determines if structural or structural and non structural nodes should be included.
-   */
-  private enum IncludeNodes {
-    /** Only structural nodes. */
-    STRUCTURAL,
+	/**
+	 * Determines if structural or structural and non structural nodes should be
+	 * included.
+	 */
+	private enum IncludeNodes {
+		/** Only structural nodes. */
+		STRUCTURAL,
 
-    /** Structural and non-structural nodes. */
-    NONSTRUCTURAL
-  }
+		/** Structural and non-structural nodes. */
+		NONSTRUCTURAL
+	}
 
-  /** {@link Deque} for remembering next nodeKey in document order. */
-  private LongArrayList firstChilds;
+	/** {@link Deque} for remembering next nodeKey in document order. */
+	private LongArrayList firstChilds;
 
-  /**
-   * Determines if {@code attribute-} and {@code namespace-} nodes should be included or not.
-   */
-  private final IncludeNodes includeNodes;
+	/**
+	 * Determines if {@code attribute-} and {@code namespace-} nodes should be
+	 * included or not.
+	 */
+	private final IncludeNodes includeNodes;
 
-  /** Determines if {@code hasNext()} is called for the first time. */
-  private boolean isFirst;
+	/** Determines if {@code hasNext()} is called for the first time. */
+	private boolean isFirst;
 
-  /** Filter by level. */
-  private int filterLevel = Integer.MAX_VALUE;
+	/** Filter by level. */
+	private int filterLevel = Integer.MAX_VALUE;
 
-  /** Current level. */
-  private int level;
+	/** Current level. */
+	private int level;
 
-  /**
-   * Get a new builder instance.
-   *
-   * @param rtx the {@link NodeCursor} to iterate with
-   * @return {@link Builder} instance
-   */
-  public static Builder newBuilder(final NodeCursor rtx) {
-    return new Builder(rtx);
-  }
+	/**
+	 * Get a new builder instance.
+	 *
+	 * @param rtx
+	 *            the {@link NodeCursor} to iterate with
+	 * @return {@link Builder} instance
+	 */
+	public static Builder newBuilder(final NodeCursor rtx) {
+		return new Builder(rtx);
+	}
 
-  /** Builder. */
-  public static class Builder {
-    /**
-     * Determines if {@code attribute-} and {@code namespace-} nodes should be included or not.
-     */
-    private IncludeNodes includeNodes = IncludeNodes.STRUCTURAL;
+	/** Builder. */
+	public static class Builder {
+		/**
+		 * Determines if {@code attribute-} and {@code namespace-} nodes should be
+		 * included or not.
+		 */
+		private IncludeNodes includeNodes = IncludeNodes.STRUCTURAL;
 
-    /** Filter by level. */
-    private int filterLevel = Integer.MAX_VALUE;
+		/** Filter by level. */
+		private int filterLevel = Integer.MAX_VALUE;
 
-    /** Sirix {@link NodeCursor}. */
-    private final NodeCursor mRtx;
+		/** Sirix {@link NodeCursor}. */
+		private final NodeCursor mRtx;
 
-    /** Determines if current start node to traversal should be included or not. */
-    private IncludeSelf includeSelf = IncludeSelf.NO;
+		/** Determines if current start node to traversal should be included or not. */
+		private IncludeSelf includeSelf = IncludeSelf.NO;
 
-    /**
-     * Constructor.
-     *
-     * @param rtx Sirix {@link NodeCursor}
-     */
-    public Builder(final NodeCursor rtx) {
-      mRtx = requireNonNull(rtx);
-    }
+		/**
+		 * Constructor.
+		 *
+		 * @param rtx
+		 *            Sirix {@link NodeCursor}
+		 */
+		public Builder(final NodeCursor rtx) {
+			mRtx = requireNonNull(rtx);
+		}
 
-    /**
-     * Determines that non-structural nodes (attributes, namespaces) should be taken into account.
-     *
-     * @return this builder instance
-     */
-    public Builder includeNonStructuralNodes() {
-      includeNodes = IncludeNodes.NONSTRUCTURAL;
-      return this;
-    }
+		/**
+		 * Determines that non-structural nodes (attributes, namespaces) should be taken
+		 * into account.
+		 *
+		 * @return this builder instance
+		 */
+		public Builder includeNonStructuralNodes() {
+			includeNodes = IncludeNodes.NONSTRUCTURAL;
+			return this;
+		}
 
-    /**
-     * Determines that the current node should also be considered.
-     *
-     * @return this builder instance
-     */
-    public Builder includeSelf() {
-      includeSelf = IncludeSelf.YES;
-      return this;
-    }
+		/**
+		 * Determines that the current node should also be considered.
+		 *
+		 * @return this builder instance
+		 */
+		public Builder includeSelf() {
+			includeSelf = IncludeSelf.YES;
+			return this;
+		}
 
-    /**
-     * Determines the maximum level to filter.
-     *
-     * @param filterLevel maximum level to filter nodes
-     * @return this builder instance
-     */
-    public Builder filterLevel(final @NonNegative int filterLevel) {
-      checkArgument(filterLevel >= 0, "filterLevel must be >= 0!");
-      this.filterLevel = filterLevel;
-      return this;
-    }
+		/**
+		 * Determines the maximum level to filter.
+		 *
+		 * @param filterLevel
+		 *            maximum level to filter nodes
+		 * @return this builder instance
+		 */
+		public Builder filterLevel(final @NonNegative int filterLevel) {
+			checkArgument(filterLevel >= 0, "filterLevel must be >= 0!");
+			this.filterLevel = filterLevel;
+			return this;
+		}
 
-    /**
-     * Build a new instance.
-     *
-     * @return new instance
-     */
-    public LevelOrderAxis build() {
-      return new LevelOrderAxis(this);
-    }
-  }
+		/**
+		 * Build a new instance.
+		 *
+		 * @return new instance
+		 */
+		public LevelOrderAxis build() {
+			return new LevelOrderAxis(this);
+		}
+	}
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * @param builder the builder reference
-   */
-  private LevelOrderAxis(final Builder builder) {
-    super(builder.mRtx, builder.includeSelf);
-    includeNodes = builder.includeNodes;
-    filterLevel = builder.filterLevel;
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * @param builder
+	 *            the builder reference
+	 */
+	private LevelOrderAxis(final Builder builder) {
+		super(builder.mRtx, builder.includeSelf);
+		includeNodes = builder.includeNodes;
+		filterLevel = builder.filterLevel;
+	}
 
-  @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    isFirst = true;
-    firstChilds = new LongArrayList();
-  }
+	@Override
+	public void reset(final long pNodeKey) {
+		super.reset(pNodeKey);
+		isFirst = true;
+		firstChilds = new LongArrayList();
+	}
 
-  @Override
-  protected long nextKey() {
-    final NodeCursor cursor = getCursor();
-    // Determines if it's the first call to hasNext().
-    if (isFirst) {
-      isFirst = false;
+	@Override
+	protected long nextKey() {
+		final NodeCursor cursor = getCursor();
+		// Determines if it's the first call to hasNext().
+		if (isFirst) {
+			isFirst = false;
 
-      if (cursor.getKind() == NodeKind.ATTRIBUTE || cursor.getKind() == NodeKind.NAMESPACE) {
-        return done();
-      }
+			if (cursor.getKind() == NodeKind.ATTRIBUTE || cursor.getKind() == NodeKind.NAMESPACE) {
+				return done();
+			}
 
-      if (includeSelf() == IncludeSelf.YES) {
-        return cursor.getNodeKey();
-      } else {
-        if (cursor.hasRightSibling()) {
-          return cursor.getRightSiblingKey();
-        } else if (cursor.hasFirstChild()) {
-          return cursor.getFirstChildKey();
-        } else {
-          return done();
-        }
-      }
-    }
-    // Follow right sibling if there is one.
-    if (cursor.hasRightSibling()) {
-      processElement();
-      // Add first child to queue.
-      if (cursor.hasFirstChild()) {
-        firstChilds.add(cursor.getFirstChildKey());
-      }
-      return cursor.getRightSiblingKey();
-    }
+			if (includeSelf() == IncludeSelf.YES) {
+				return cursor.getNodeKey();
+			} else {
+				if (cursor.hasRightSibling()) {
+					return cursor.getRightSiblingKey();
+				} else if (cursor.hasFirstChild()) {
+					return cursor.getFirstChildKey();
+				} else {
+					return done();
+				}
+			}
+		}
+		// Follow right sibling if there is one.
+		if (cursor.hasRightSibling()) {
+			processElement();
+			// Add first child to queue.
+			if (cursor.hasFirstChild()) {
+				firstChilds.add(cursor.getFirstChildKey());
+			}
+			return cursor.getRightSiblingKey();
+		}
 
-    // Add first child to queue.
-    processElement();
-    if (cursor.hasFirstChild()) {
-      firstChilds.add(cursor.getFirstChildKey());
-    }
+		// Add first child to queue.
+		processElement();
+		if (cursor.hasFirstChild()) {
+			firstChilds.add(cursor.getFirstChildKey());
+		}
 
-    // Then follow first child on stack.
-    if (!firstChilds.isEmpty()) {
-      level++;
+		// Then follow first child on stack.
+		if (!firstChilds.isEmpty()) {
+			level++;
 
-      // End traversal if level is reached.
-      if (level > filterLevel) {
-        return done();
-      }
+			// End traversal if level is reached.
+			if (level > filterLevel) {
+				return done();
+			}
 
-      return firstChilds.removeLong(0);
-    }
+			return firstChilds.removeLong(0);
+		}
 
-    // Then follow first child if there is one.
-    if (cursor.hasFirstChild()) {
-      level++;
+		// Then follow first child if there is one.
+		if (cursor.hasFirstChild()) {
+			level++;
 
-      // End traversal if level is reached.
-      if (level > filterLevel) {
-        return done();
-      }
+			// End traversal if level is reached.
+			if (level > filterLevel) {
+				return done();
+			}
 
-      return cursor.getFirstChildKey();
-    }
+			return cursor.getFirstChildKey();
+		}
 
-    return done();
-  }
+		return done();
+	}
 
-  /**
-   * Get the current level.
-   *
-   * @return the current level
-   */
-  public int getCurrentLevel() {
-    return level;
-  }
+	/**
+	 * Get the current level.
+	 *
+	 * @return the current level
+	 */
+	public int getCurrentLevel() {
+		return level;
+	}
 
-  /** Process an element node. */
-  private void processElement() {
-    if (getCursor() instanceof XmlNodeReadOnlyTrx) {
-      final XmlNodeReadOnlyTrx rtx = asXmlNodeReadTrx();
-      if (rtx.getKind() == NodeKind.ELEMENT && includeNodes == IncludeNodes.NONSTRUCTURAL) {
-        for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
-          rtx.moveToNamespace(i);
-          firstChilds.add(rtx.getNodeKey());
-          rtx.moveToParent();
-        }
-        for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
-          rtx.moveToAttribute(i);
-          firstChilds.add(rtx.getNodeKey());
-          rtx.moveToParent();
-        }
-      }
-    }
-  }
+	/** Process an element node. */
+	private void processElement() {
+		if (getCursor() instanceof XmlNodeReadOnlyTrx) {
+			final XmlNodeReadOnlyTrx rtx = asXmlNodeReadTrx();
+			if (rtx.getKind() == NodeKind.ELEMENT && includeNodes == IncludeNodes.NONSTRUCTURAL) {
+				for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
+					rtx.moveToNamespace(i);
+					firstChilds.add(rtx.getNodeKey());
+					rtx.moveToParent();
+				}
+				for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
+					rtx.moveToAttribute(i);
+					firstChilds.add(rtx.getNodeKey());
+					rtx.moveToParent();
+				}
+			}
+		}
+	}
 }

@@ -31,52 +31,56 @@ import io.brackit.query.atomic.QNm;
  */
 public final class PathNameFilter extends AbstractFilter<PathSummaryReader> {
 
-  /**
-   * Key of local name to test.
-   */
-  private final int localNameKey;
+	/**
+	 * Key of local name to test.
+	 */
+	private final int localNameKey;
 
-  /**
-   * Key of prefix to test.
-   */
-  private final int prefixKey;
+	/**
+	 * Key of prefix to test.
+	 */
+	private final int prefixKey;
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx  the node trx/node cursor this filter is bound to
-   * @param name name to check
-   */
-  public PathNameFilter(final PathSummaryReader rtx, final QNm name) {
-    super(rtx);
-    prefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty()) ? -1 : rtx.keyForName(name.getPrefix());
-    localNameKey = rtx.keyForName(name.getLocalName());
-  }
+	/**
+	 * Default constructor.
+	 *
+	 * @param rtx
+	 *            the node trx/node cursor this filter is bound to
+	 * @param name
+	 *            name to check
+	 */
+	public PathNameFilter(final PathSummaryReader rtx, final QNm name) {
+		super(rtx);
+		prefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty()) ? -1 : rtx.keyForName(name.getPrefix());
+		localNameKey = rtx.keyForName(name.getLocalName());
+	}
 
-  /**
-   * Default constructor.
-   *
-   * @param rtx  {@link PathSummaryReader} this filter is bound to
-   * @param name name to check
-   */
-  public PathNameFilter(final PathSummaryReader rtx, final String name) {
-    super(rtx);
-    final int index = name.indexOf(":");
-    if (index != -1) {
-      prefixKey = rtx.keyForName(name.substring(0, index));
-    } else {
-      prefixKey = -1;
-    }
+	/**
+	 * Default constructor.
+	 *
+	 * @param rtx
+	 *            {@link PathSummaryReader} this filter is bound to
+	 * @param name
+	 *            name to check
+	 */
+	public PathNameFilter(final PathSummaryReader rtx, final String name) {
+		super(rtx);
+		final int index = name.indexOf(":");
+		if (index != -1) {
+			prefixKey = rtx.keyForName(name.substring(0, index));
+		} else {
+			prefixKey = -1;
+		}
 
-    localNameKey = rtx.keyForName(name.substring(index + 1));
-  }
+		localNameKey = rtx.keyForName(name.substring(index + 1));
+	}
 
-  @Override
-  public boolean filter() {
-    boolean returnVal = false;
-    if (getTrx().isNameNode()) {
-      returnVal = (getTrx().getLocalNameKey() == localNameKey && getTrx().getPrefixKey() == prefixKey);
-    }
-    return returnVal;
-  }
+	@Override
+	public boolean filter() {
+		boolean returnVal = false;
+		if (getTrx().isNameNode()) {
+			returnVal = (getTrx().getLocalNameKey() == localNameKey && getTrx().getPrefixKey() == prefixKey);
+		}
+		return returnVal;
+	}
 }

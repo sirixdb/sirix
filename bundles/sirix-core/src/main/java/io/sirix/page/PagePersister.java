@@ -25,7 +25,6 @@ import io.sirix.access.ResourceConfiguration;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.page.interfaces.Page;
 
 import java.io.IOException;
@@ -38,28 +37,34 @@ import java.io.IOException;
  */
 public final class PagePersister {
 
-  /**
-   * Deserialize page.
-   *
-   * @param source source to read from
-   * @param resourceConfiguration the resource configuration
-   * @return {@link Page} instance
-   * @throws IOException if an exception during deserialization of a page occurs
-   */
-  public @NonNull Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
-      final SerializationType type) throws IOException {
-    return PageKind.getKind(source.readByte()).deserializePage(resourceConfiguration, source, type);
-  }
+	/**
+	 * Deserialize page.
+	 *
+	 * @param source
+	 *            source to read from
+	 * @param resourceConfiguration
+	 *            the resource configuration
+	 * @return {@link Page} instance
+	 * @throws IOException
+	 *             if an exception during deserialization of a page occurs
+	 */
+	public @NonNull Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
+			final SerializationType type) throws IOException {
+		return PageKind.getKind(source.readByte()).deserializePage(resourceConfiguration, source, type);
+	}
 
-  /**
-   * Serialize page.
-   *
-   * @param sink output sink
-   * @param page the {@link Page} to serialize
-   * @throws IOException if an exception during serialization of a page occurs
-   */
-  public void serializePage(final ResourceConfiguration resourceConfiguration, final BytesOut<?> sink, final Page page,
-      final SerializationType type) throws IOException {
-    PageKind.getKind(page.getClass()).serializePage(resourceConfiguration, sink, page, type);
-  }
+	/**
+	 * Serialize page.
+	 *
+	 * @param sink
+	 *            output sink
+	 * @param page
+	 *            the {@link Page} to serialize
+	 * @throws IOException
+	 *             if an exception during serialization of a page occurs
+	 */
+	public void serializePage(final ResourceConfiguration resourceConfiguration, final BytesOut<?> sink,
+			final Page page, final SerializationType type) throws IOException {
+		PageKind.getKind(page.getClass()).serializePage(resourceConfiguration, sink, page, type);
+	}
 }

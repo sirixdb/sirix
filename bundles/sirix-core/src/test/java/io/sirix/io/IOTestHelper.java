@@ -43,70 +43,71 @@ import static org.mockito.Mockito.*;
  */
 public final class IOTestHelper {
 
-  /**
-   * Private constructor.
-   */
-  private IOTestHelper() {
-  }
+	/**
+	 * Private constructor.
+	 */
+	private IOTestHelper() {
+	}
 
-  /**
-   * Static method to get {@link ResourceConfiguration}
-   *
-   * @param type for the the {@link ResourceConfiguration} should be generated
-   * @return a suitable {@link ResourceConfiguration}
-   * @throws SirixUsageException
-   */
-  public static ResourceConfiguration registerIO(final StorageType type) {
-    final ResourceConfiguration.Builder resourceConfig = new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE);
-    resourceConfig.storageType(type);
-    return resourceConfig.build();
-  }
+	/**
+	 * Static method to get {@link ResourceConfiguration}
+	 *
+	 * @param type
+	 *            for the the {@link ResourceConfiguration} should be generated
+	 * @return a suitable {@link ResourceConfiguration}
+	 * @throws SirixUsageException
+	 */
+	public static ResourceConfiguration registerIO(final StorageType type) {
+		final ResourceConfiguration.Builder resourceConfig = new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE);
+		resourceConfig.storageType(type);
+		return resourceConfig.build();
+	}
 
-  /**
-   * Tear down for all tests related to the io layer.
-   */
-  public static void clean() throws SirixException {
-    XmlTestHelper.deleteEverything();
-  }
+	/**
+	 * Tear down for all tests related to the io layer.
+	 */
+	public static void clean() throws SirixException {
+		XmlTestHelper.deleteEverything();
+	}
 
-  /**
-   * Test reading/writing the first reference.
-   *
-   * @param resourceConf {@link ResourceConfiguration} reference
-   * @throws SirixException if something went wrong
-   */
-  public static void testReadWriteFirstRef(final ResourceConfiguration resourceConf) {
-    final Bytes<ByteBuffer> bufferedBytes = Bytes.elasticHeapByteBuffer();
-    final IOStorage fac = StorageType.getStorage(resourceConf);
-    final PageReference pageRef1 = new PageReference();
-    final UberPage page1 = new UberPage();
-    pageRef1.setPage(page1);
+	/**
+	 * Test reading/writing the first reference.
+	 *
+	 * @param resourceConf
+	 *            {@link ResourceConfiguration} reference
+	 * @throws SirixException
+	 *             if something went wrong
+	 */
+	public static void testReadWriteFirstRef(final ResourceConfiguration resourceConf) {
+		final Bytes<ByteBuffer> bufferedBytes = Bytes.elasticHeapByteBuffer();
+		final IOStorage fac = StorageType.getStorage(resourceConf);
+		final PageReference pageRef1 = new PageReference();
+		final UberPage page1 = new UberPage();
+		pageRef1.setPage(page1);
 
-    // same instance check
-    final var session = mock(ResourceSession.class);
-    when(session.getResourceConfig()).thenReturn(resourceConf);
+		// same instance check
+		final var session = mock(ResourceSession.class);
+		when(session.getResourceConfig()).thenReturn(resourceConf);
 
-    final var pageReadOnlyTrx = mock(PageTrx.class);
-    when(pageReadOnlyTrx.getResourceSession()).thenReturn(session);
+		final var pageReadOnlyTrx = mock(PageTrx.class);
+		when(pageReadOnlyTrx.getResourceSession()).thenReturn(session);
 
-    verify(pageReadOnlyTrx, atMostOnce()).newBufferedBytesInstance();
-    final Writer writer = fac.createWriter();
-    writer.writeUberPageReference(pageReadOnlyTrx.getResourceSession().getResourceConfig(),
-                                  pageRef1,
-                                  page1,
-                                  bufferedBytes);
-    final PageReference pageRef2 = writer.readUberPageReference();
-    assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
-                 ((UberPage) pageRef2.getPage()).getRevisionCount());
-    writer.close();
+		verify(pageReadOnlyTrx, atMostOnce()).newBufferedBytesInstance();
+		final Writer writer = fac.createWriter();
+		writer.writeUberPageReference(pageReadOnlyTrx.getResourceSession().getResourceConfig(), pageRef1, page1,
+				bufferedBytes);
+		final PageReference pageRef2 = writer.readUberPageReference();
+		assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
+				((UberPage) pageRef2.getPage()).getRevisionCount());
+		writer.close();
 
-    // new instance check
-    final Reader reader = fac.createReader();
-    final PageReference pageRef3 = reader.readUberPageReference();
-    assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
-                 ((UberPage) pageRef3.getPage()).getRevisionCount());
-    reader.close();
-    fac.close();
-  }
+		// new instance check
+		final Reader reader = fac.createReader();
+		final PageReference pageRef3 = reader.readUberPageReference();
+		assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
+				((UberPage) pageRef3.getPage()).getRevisionCount());
+		reader.close();
+		fac.close();
+	}
 
 }

@@ -35,24 +35,24 @@ package io.sirix;
  */
 public enum BinaryEncodingVersion {
 
-  V0((byte) 0);
+	V0((byte) 0);
 
-  private final byte versionAsAByte;
+	private final byte versionAsAByte;
 
-  BinaryEncodingVersion(byte version) {
-    this.versionAsAByte = version;
-  }
+	BinaryEncodingVersion(byte version) {
+		this.versionAsAByte = version;
+	}
 
-  public byte byteVersion() {
-    return versionAsAByte;
-  }
+	public byte byteVersion() {
+		return versionAsAByte;
+	}
 
-  public static BinaryEncodingVersion fromByte(byte version) {
-    for (BinaryEncodingVersion value : BinaryEncodingVersion.values()) {
-      if (value.versionAsAByte == version) {
-        return value;
-      }
-    }
-    throw new IllegalStateException(version + " not known.");
-  }
+	public static BinaryEncodingVersion fromByte(byte version) {
+		for (BinaryEncodingVersion value : BinaryEncodingVersion.values()) {
+			if (value.versionAsAByte == version) {
+				return value;
+			}
+		}
+		throw new IllegalStateException(version + " not known.");
+	}
 }

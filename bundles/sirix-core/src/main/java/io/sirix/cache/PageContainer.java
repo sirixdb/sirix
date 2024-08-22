@@ -31,15 +31,17 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 /**
  *
  * <p>
- * This class acts as a container for revisioned {@link KeyValuePage}s. Each {@link KeyValuePage} is
- * stored in a versioned manner. If modifications occur, the versioned {@link KeyValuePage}s are
- * dereferenced and reconstructed. Afterwards, this container is used to store a complete
- * {@link KeyValuePage} as well as one for upcoming modifications.
+ * This class acts as a container for revisioned {@link KeyValuePage}s. Each
+ * {@link KeyValuePage} is stored in a versioned manner. If modifications occur,
+ * the versioned {@link KeyValuePage}s are dereferenced and reconstructed.
+ * Afterwards, this container is used to store a complete {@link KeyValuePage}
+ * as well as one for upcoming modifications.
  * </p>
  *
  * <p>
- * Both {@link KeyValuePage}s can differ since the complete one is mainly used for read access and
- * the modifying one for write access (and therefore mostly lazy dereferenced).
+ * Both {@link KeyValuePage}s can differ since the complete one is mainly used
+ * for read access and the modifying one for write access (and therefore mostly
+ * lazy dereferenced).
  * </p>
  *
  * @author Sebastian Graf, University of Konstanz
@@ -48,92 +50,100 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  */
 public final class PageContainer {
 
-  /** {@link KeyValueLeafPage} reference, which references the complete key/value page. */
-  private final Page complete;
+	/**
+	 * {@link KeyValueLeafPage} reference, which references the complete key/value
+	 * page.
+	 */
+	private final Page complete;
 
-  /** {@link KeyValueLeafPage} reference, which references the modified key/value page. */
-  private final Page modified;
+	/**
+	 * {@link KeyValueLeafPage} reference, which references the modified key/value
+	 * page.
+	 */
+	private final Page modified;
 
-  /** Empty instance. */
-  private static final PageContainer EMPTY_INSTANCE = new PageContainer(null, null);
+	/** Empty instance. */
+	private static final PageContainer EMPTY_INSTANCE = new PageContainer(null, null);
 
-  /**
-   * Get the empty instance (parameterized).
-   *
-   * @return the empty instance
-   */
-  public static PageContainer emptyInstance() {
-    return EMPTY_INSTANCE;
-  }
+	/**
+	 * Get the empty instance (parameterized).
+	 *
+	 * @return the empty instance
+	 */
+	public static PageContainer emptyInstance() {
+		return EMPTY_INSTANCE;
+	}
 
-  /**
-   * Get a new instance.
-   *
-   * @param complete to be used as a base for this container
-   * @param modifying to be used as a base for this container
-   */
-  public static PageContainer getInstance(final Page complete, final Page modifying) {
-    // Assertions as it's not part of the public API.
-    assert complete != null;
-    assert modifying != null;
-    return new PageContainer(complete, modifying);
-  }
+	/**
+	 * Get a new instance.
+	 *
+	 * @param complete
+	 *            to be used as a base for this container
+	 * @param modifying
+	 *            to be used as a base for this container
+	 */
+	public static PageContainer getInstance(final Page complete, final Page modifying) {
+		// Assertions as it's not part of the public API.
+		assert complete != null;
+		assert modifying != null;
+		return new PageContainer(complete, modifying);
+	}
 
-  /**
-   * Private constructor with both, complete and modifying page.
-   *
-   * @param complete to be used as a base for this container
-   * @param modified to be used as a base for this container
-   */
-  private PageContainer(final Page complete, final Page modified) {
-    this.complete = complete;
-    this.modified = modified;
-  }
+	/**
+	 * Private constructor with both, complete and modifying page.
+	 *
+	 * @param complete
+	 *            to be used as a base for this container
+	 * @param modified
+	 *            to be used as a base for this container
+	 */
+	private PageContainer(final Page complete, final Page modified) {
+		this.complete = complete;
+		this.modified = modified;
+	}
 
-  /**
-   * Getting the complete page.
-   *
-   * @return the complete page
-   */
-  public Page getComplete() {
-    return complete;
-  }
+	/**
+	 * Getting the complete page.
+	 *
+	 * @return the complete page
+	 */
+	public Page getComplete() {
+		return complete;
+	}
 
-  /**
-   * Getting the modified page.
-   *
-   * @return the modified page
-   */
-  public Page getModified() {
-    return modified;
-  }
+	/**
+	 * Getting the modified page.
+	 *
+	 * @return the modified page
+	 */
+	public Page getModified() {
+		return modified;
+	}
 
-  public KeyValueLeafPage getCompleteAsUnorderedKeyValuePage() {
-    return (KeyValueLeafPage) complete;
-  }
+	public KeyValueLeafPage getCompleteAsUnorderedKeyValuePage() {
+		return (KeyValueLeafPage) complete;
+	}
 
-  public KeyValueLeafPage getModifiedAsUnorderedKeyValuePage() {
-    return (KeyValueLeafPage) modified;
-  }
+	public KeyValueLeafPage getModifiedAsUnorderedKeyValuePage() {
+		return (KeyValueLeafPage) modified;
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(complete, modified);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(complete, modified);
+	}
 
-  @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (!(obj instanceof PageContainer other))
-      return false;
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (!(obj instanceof PageContainer other))
+			return false;
 
-    return Objects.equal(complete, other.complete) && Objects.equal(modified, other.modified);
-  }
+		return Objects.equal(complete, other.complete) && Objects.equal(modified, other.modified);
+	}
 
-  @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("complete page", complete)
-                      .add("modified page", modified)
-                      .toString();
-  }
+	@Override
+	public String toString() {
+		return MoreObjects.toStringHelper(this).add("complete page", complete).add("modified page", modified)
+				.toString();
+	}
 }

@@ -65,7 +65,8 @@ class Node4 extends InnerNode {
 				break;
 			}
 		}
-		// replace will be called from in a state where you know partialKey entry surely exists
+		// replace will be called from in a state where you know partialKey entry surely
+		// exists
 		assert index < noOfChildren : "Partial key does not exist";
 		children[index] = newChild;
 		createUplink(this, newChild, partialKey);
@@ -120,7 +121,7 @@ class Node4 extends InnerNode {
 	}
 
 	@Override
-	public Node ceil(byte partialKey){
+	public Node ceil(byte partialKey) {
 		partialKey = BinaryComparableUtils.unsigned(partialKey);
 		for (int i = 0; i < noOfChildren; i++) {
 			if (keys[i] >= partialKey) {

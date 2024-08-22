@@ -33,30 +33,30 @@ import io.sirix.exception.SirixException;
 
 public class FilterTest {
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+	}
 
-  public static void testFilterConventions(final Filter<? extends NodeReadOnlyTrx> filter, final boolean expected) {
-    final NodeReadOnlyTrx rtx = ((AbstractFilter<? extends NodeReadOnlyTrx>) filter).getTrx();
+	public static void testFilterConventions(final Filter<? extends NodeReadOnlyTrx> filter, final boolean expected) {
+		final NodeReadOnlyTrx rtx = ((AbstractFilter<? extends NodeReadOnlyTrx>) filter).getTrx();
 
-    // Filter Convention 1.
-    final long startKey = rtx.getNodeKey();
+		// Filter Convention 1.
+		final long startKey = rtx.getNodeKey();
 
-    assertEquals(expected, filter.filter());
+		assertEquals(expected, filter.filter());
 
-    // Axis Convention 2.
-    assertEquals(startKey, rtx.getNodeKey());
-  }
+		// Axis Convention 2.
+		assertEquals(startKey, rtx.getNodeKey());
+	}
 
-  @Test
-  public void testFilterExample() {
-    // Do nothing. This class is only used with other test cases.
-  }
+	@Test
+	public void testFilterExample() {
+		// Do nothing. This class is only used with other test cases.
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		XmlTestHelper.closeEverything();
+	}
 }

@@ -13,23 +13,23 @@ import java.util.Set;
 
 public final class JsonPCRCollector extends AbstractPCRCollector {
 
-  private final JsonNodeReadOnlyTrx rtx;
+	private final JsonNodeReadOnlyTrx rtx;
 
-  public JsonPCRCollector(final JsonNodeReadOnlyTrx rtx) {
-    this.rtx = Objects.requireNonNull(rtx, "The transaction must not be null.");
-  }
+	public JsonPCRCollector(final JsonNodeReadOnlyTrx rtx) {
+		this.rtx = Objects.requireNonNull(rtx, "The transaction must not be null.");
+	}
 
-  @Override
-  public PCRValue getPCRsForPaths(Set<Path<QNm>> paths) {
-    final PathSummaryReader reader = rtx instanceof JsonNodeTrx
-        ? ((JsonNodeTrx) rtx).getPathSummary()
-        : rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber());
-    try {
-      return getPcrValue(paths, reader);
-    } finally {
-      if (!(rtx instanceof JsonNodeTrx)) {
-        reader.close();
-      }
-    }
-  }
+	@Override
+	public PCRValue getPCRsForPaths(Set<Path<QNm>> paths) {
+		final PathSummaryReader reader = rtx instanceof JsonNodeTrx
+				? ((JsonNodeTrx) rtx).getPathSummary()
+				: rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber());
+		try {
+			return getPcrValue(paths, reader);
+		} finally {
+			if (!(rtx instanceof JsonNodeTrx)) {
+				reader.close();
+			}
+		}
+	}
 }

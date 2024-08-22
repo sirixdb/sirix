@@ -37,64 +37,62 @@ import com.google.common.collect.FluentIterable;
 
 public class ElementFilterTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testFilterConvetions() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
+	@Test
+	public void testFilterConvetions() throws SirixException {
+		final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
-    rtx.moveTo(0L);
-    FilterTest.testFilterConventions(new ElementFilter(rtx), false);
+		rtx.moveTo(0L);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), false);
 
-    rtx.moveTo(1L);
-    FilterTest.testFilterConventions(new ElementFilter(rtx), true);
+		rtx.moveTo(1L);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), true);
 
-    rtx.moveTo(1L);
-    rtx.moveToAttribute(0);
-    FilterTest.testFilterConventions(new ElementFilter(rtx), false);
+		rtx.moveTo(1L);
+		rtx.moveToAttribute(0);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), false);
 
-    rtx.moveTo(4L);
-    FilterTest.testFilterConventions(new ElementFilter(rtx), false);
+		rtx.moveTo(4L);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), false);
 
-    rtx.moveTo(5L);
-    FilterTest.testFilterConventions(new ElementFilter(rtx), true);
+		rtx.moveTo(5L);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), true);
 
-    rtx.moveTo(6L);
-    FilterTest.testFilterConventions(new ElementFilter(rtx), false);
+		rtx.moveTo(6L);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), false);
 
-    rtx.moveTo(9L);
-    FilterTest.testFilterConventions(new ElementFilter(rtx), true);
+		rtx.moveTo(9L);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), true);
 
-    rtx.moveTo(9L);
-    rtx.moveToAttribute(0);
-    FilterTest.testFilterConventions(new ElementFilter(rtx), false);
+		rtx.moveTo(9L);
+		rtx.moveToAttribute(0);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), false);
 
-    rtx.moveTo(12L);
-    FilterTest.testFilterConventions(new ElementFilter(rtx), false);
-  }
+		rtx.moveTo(12L);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), false);
+	}
 
-  @Test
-  public void testFluentIterable() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
+	@Test
+	public void testFluentIterable() throws SirixException {
+		final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
-    final Iterator<Long> results = FluentIterable.from(new DescendantAxis(rtx))
-                                                 .filter(new ElementFilter(rtx))
-                                                 .limit(2)
-                                                 .iterator();
-    AbsAxisTest.testIterable(results, new long[] {1, 5});
-  }
+		final Iterator<Long> results = FluentIterable.from(new DescendantAxis(rtx)).filter(new ElementFilter(rtx))
+				.limit(2).iterator();
+		AbsAxisTest.testIterable(results, new long[]{1, 5});
+	}
 
 }

@@ -25,24 +25,25 @@ import io.sirix.node.NodeKind;
 
 public final class BooleanValue implements ObjectRecordValue<Boolean> {
 
-  private final boolean mValue;
+	private final boolean mValue;
 
-  /**
-   * Constructor.
-   *
-   * @param value boolean value
-   */
-  public BooleanValue(boolean value) {
-    mValue = value;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param value
+	 *            boolean value
+	 */
+	public BooleanValue(boolean value) {
+		mValue = value;
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.BOOLEAN_VALUE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.BOOLEAN_VALUE;
+	}
 
-  @Override
-  public Boolean getValue() {
-    return mValue;
-  }
+	@Override
+	public Boolean getValue() {
+		return mValue;
+	}
 }

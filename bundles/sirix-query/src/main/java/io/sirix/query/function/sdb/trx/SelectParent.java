@@ -30,28 +30,28 @@ import io.sirix.query.node.XmlDBNode;
 
 public final class SelectParent extends AbstractFunction {
 
-    public final static QNm SELECT_PARENT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "select-parent");
+	public final static QNm SELECT_PARENT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "select-parent");
 
-    public SelectParent(final QNm name, final Signature signature) {
-        super(name, signature, true);
-    }
+	public SelectParent(final QNm name, final Signature signature) {
+		super(name, signature, true);
+	}
 
-    @Override
-    public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-        final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
-        final NodeReadOnlyTrx rtx = item.getTrx();
+	@Override
+	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+		final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
+		final NodeReadOnlyTrx rtx = item.getTrx();
 
-        if (rtx instanceof XmlNodeReadOnlyTrx) {
-            if (((XmlNodeReadOnlyTrx) rtx).moveToParent()) {
-                return new XmlDBNode((XmlNodeReadOnlyTrx) rtx, ((XmlDBNode) item).getCollection());
-            }
-        } else if (rtx instanceof JsonNodeReadOnlyTrx) {
-            if (((JsonNodeReadOnlyTrx) rtx).moveToParent()) {
-                final JsonDBItem jsonItem = (JsonDBItem) item;
-                return new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtx, jsonItem.getCollection());
-            }
-        }
+		if (rtx instanceof XmlNodeReadOnlyTrx) {
+			if (((XmlNodeReadOnlyTrx) rtx).moveToParent()) {
+				return new XmlDBNode((XmlNodeReadOnlyTrx) rtx, ((XmlDBNode) item).getCollection());
+			}
+		} else if (rtx instanceof JsonNodeReadOnlyTrx) {
+			if (((JsonNodeReadOnlyTrx) rtx).moveToParent()) {
+				final JsonDBItem jsonItem = (JsonDBItem) item;
+				return new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtx, jsonItem.getCollection());
+			}
+		}
 
-        throw new QueryException(new QNm("Couldn't select parent node."));
-    }
+		throw new QueryException(new QNm("Couldn't select parent node."));
+	}
 }

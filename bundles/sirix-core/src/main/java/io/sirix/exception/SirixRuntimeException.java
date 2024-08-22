@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -23,77 +23,82 @@ package io.sirix.exception;
 
 /**
  * Exception to hold all relevant runtime failures upcoming from Sirix.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
- * 
+ *
  */
 public class SirixRuntimeException extends RuntimeException {
 
-  /** General ID. */
-  private static final long serialVersionUID = 1L;
+	/** General ID. */
+	private static final long serialVersionUID = 1L;
 
-  /**
-   * Constructor to encapsulate parsing.
-   * 
-   * @param throwable to encapsulate
-   */
-  public SirixRuntimeException(final Throwable throwable) {
-    super(throwable);
-  }
+	/**
+	 * Constructor to encapsulate parsing.
+	 *
+	 * @param throwable
+	 *            to encapsulate
+	 */
+	public SirixRuntimeException(final Throwable throwable) {
+		super(throwable);
+	}
 
-  public SirixRuntimeException(String message, Object... args) {
-    super(String.format(message, args));
-  }
+	public SirixRuntimeException(String message, Object... args) {
+		super(String.format(message, args));
+	}
 
-  public SirixRuntimeException(String message) {
-    super(message);
-  }
+	public SirixRuntimeException(String message) {
+		super(message);
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param message message
-   */
-  private SirixRuntimeException(final StringBuilder message) {
-    super(message.toString());
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param message
+	 *            message
+	 */
+	private SirixRuntimeException(final StringBuilder message) {
+		super(message.toString());
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param message message as string, they are concatenated with spaces in between
-   */
-  public SirixRuntimeException(final String... message) {
-    this(concat(message));
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param message
+	 *            message as string, they are concatenated with spaces in between
+	 */
+	public SirixRuntimeException(final String... message) {
+		this(concat(message));
+	}
 
-  /**
-   * Constructor
-   * 
-   * @param message message as string
-   * @param throwable
-   */
-  public SirixRuntimeException(final String message, final Throwable throwable) {
-    super(message, throwable);
-  }
+	/**
+	 * Constructor
+	 *
+	 * @param message
+	 *            message as string
+	 * @param throwable
+	 */
+	public SirixRuntimeException(final String message, final Throwable throwable) {
+		super(message, throwable);
+	}
 
-  public SirixRuntimeException(Throwable cause, String message, Object[] args) {
-    super(String.format(message, args), cause);
-  }
+	public SirixRuntimeException(Throwable cause, String message, Object[] args) {
+		super(String.format(message, args), cause);
+	}
 
-  /**
-   * Util method to provide StringBuilder functionality.
-   * 
-   * @param pMessage to be concatenated
-   * @return the StringBuilder for the combined string
-   */
-  public static StringBuilder concat(final String... pMessage) {
-    final StringBuilder builder = new StringBuilder();
-    for (final String mess : pMessage) {
-      builder.append(mess);
-      builder.append(" ");
-    }
-    return builder;
-  }
+	/**
+	 * Util method to provide StringBuilder functionality.
+	 *
+	 * @param pMessage
+	 *            to be concatenated
+	 * @return the StringBuilder for the combined string
+	 */
+	public static StringBuilder concat(final String... pMessage) {
+		final StringBuilder builder = new StringBuilder();
+		for (final String mess : pMessage) {
+			builder.append(mess);
+			builder.append(" ");
+		}
+		return builder;
+	}
 
 }

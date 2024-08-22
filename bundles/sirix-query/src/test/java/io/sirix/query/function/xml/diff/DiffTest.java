@@ -56,113 +56,114 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public final class DiffTest {
-  /** The {@link Holder} instance. */
-  private Holder holder;
+	/** The {@link Holder} instance. */
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    holder = Holder.generateWtx();
-    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().close();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		holder = Holder.generateWtx();
+		XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
+		holder.getXdmNodeWriteTrx().close();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testSimpleDiff() throws Exception {
-    final Path databasePath = PATHS.PATH2.getFile();
+	@Test
+	public void testSimpleDiff() throws Exception {
+		final Path databasePath = PATHS.PATH2.getFile();
 
-    final DatabaseConfiguration config = new DatabaseConfiguration(databasePath);
-    Databases.createXmlDatabase(config);
+		final DatabaseConfiguration config = new DatabaseConfiguration(databasePath);
+		Databases.createXmlDatabase(config);
 
-    try (final var database = Databases.openXmlDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder(XmlTestHelper.RESOURCE).build());
-      try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
-           final XmlNodeTrx wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));
-        wtx.moveTo(3);
-        wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));
-      }
-    }
+		try (final var database = Databases.openXmlDatabase(databasePath)) {
+			database.createResource(ResourceConfiguration.newBuilder(XmlTestHelper.RESOURCE).build());
+			try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+					final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+				wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));
+				wtx.moveTo(3);
+				wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));
+			}
+		}
 
-    // Initialize query context and store.
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(databasePath.getParent()).build()) {
-      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
+		// Initialize query context and store.
+		try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(databasePath.getParent()).build()) {
+			final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
-      final String dbName = databasePath.getFileName().toString();
-      final String resName = XmlTestHelper.RESOURCE;
+			final String dbName = databasePath.getFileName().toString();
+			final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq = "xml:diff('" + dbName + "','" + resName + "',1,2)";
+			final String xq = "xml:diff('" + dbName + "','" + resName + "',1,2)";
 
-      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq);
+			final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq);
 
-      try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-        query.serialize(ctx, new PrintStream(out));
-        final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
-        out.reset();
+			try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+				query.serialize(ctx, new PrintStream(out));
+				final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
+				out.reset();
 
-        new Query(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
+				new Query(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
 
-        final String xq2 = "xml:doc('" + dbName + "','" + resName + "',3)";
-        new Query(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
-        final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
-        out.reset();
+				final String xq2 = "xml:doc('" + dbName + "','" + resName + "',3)";
+				new Query(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
+				final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
+				out.reset();
 
-        final String xq3 = "xml:doc('" + dbName + "','" + resName + "',2)";
-        new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
-        final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
+				final String xq3 = "xml:doc('" + dbName + "','" + resName + "',2)";
+				new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
+				final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
-        Assert.assertEquals(contentNewRev, contentOldRev);
+				Assert.assertEquals(contentNewRev, contentOldRev);
 
-        out.reset();
-      }
-    }
-  }
+				out.reset();
+			}
+		}
+	}
 
-  @Test
-  public void testMultipleDiffs() throws IOException, QueryException {
-    final Path database = PATHS.PATH1.getFile();
+	@Test
+	public void testMultipleDiffs() throws IOException, QueryException {
+		final Path database = PATHS.PATH1.getFile();
 
-    // Initialize query context and store.
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
-      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
+		// Initialize query context and store.
+		try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+			final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
-      final String dbName = database.toString();
-      final String resName = XmlTestHelper.RESOURCE;
+			final String dbName = database.toString();
+			final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq1 = "xml:diff('" + dbName + "', '" + resName + "',1,5)";
+			final String xq1 = "xml:diff('" + dbName + "', '" + resName + "',1,5)";
 
-      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
+			final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
 
-      try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-        query.serialize(ctx, new PrintStream(out));
-        final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
-        out.reset();
+			try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+				query.serialize(ctx, new PrintStream(out));
+				final String content = new String(out.toByteArray(), StandardCharsets.UTF_8);
+				out.reset();
 
-        new Query(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
+				new Query(SirixCompileChain.createWithNodeStore(store), content).execute(ctx);
 
-        final String xq2 = "xml:doc('" + dbName + "','" + resName + "',6)";
-        new Query(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
-        final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
-        out.reset();
+				final String xq2 = "xml:doc('" + dbName + "','" + resName + "',6)";
+				new Query(SirixCompileChain.createWithNodeStore(store), xq2).serialize(ctx, new PrintStream(out));
+				final String contentNewRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
+				out.reset();
 
-        final String xq3 = "xml:doc('" + dbName + "','" + resName + "',5)";
-        new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
-        final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
+				final String xq3 = "xml:doc('" + dbName + "','" + resName + "',5)";
+				new Query(SirixCompileChain.createWithNodeStore(store), xq3).serialize(ctx, new PrintStream(out));
+				final String contentOldRev = new String(out.toByteArray(), StandardCharsets.UTF_8);
 
-        Assert.assertEquals(contentNewRev, contentOldRev);
+				Assert.assertEquals(contentNewRev, contentOldRev);
 
-        out.reset();
-      }
-    }
-  }
+				out.reset();
+			}
+		}
+	}
 }

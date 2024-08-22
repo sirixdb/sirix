@@ -10,40 +10,38 @@ import com.google.common.collect.AbstractIterator;
 
 import static java.util.Objects.requireNonNull;
 
-public final class IndexFilterAxis<K extends Comparable<? super K>>
-    extends AbstractIterator<NodeReferences> {
+public final class IndexFilterAxis<K extends Comparable<? super K>> extends AbstractIterator<NodeReferences> {
 
-  private final RBTreeReader<K, NodeReferences> treeReader;
+	private final RBTreeReader<K, NodeReferences> treeReader;
 
-  private final Iterator<RBNodeKey<K>> iter;
+	private final Iterator<RBNodeKey<K>> iter;
 
-  private final Set<? extends Filter> filter;
+	private final Set<? extends Filter> filter;
 
+	public IndexFilterAxis(final RBTreeReader<K, NodeReferences> treeReader, final Iterator<RBNodeKey<K>> iter,
+			final Set<? extends Filter> filter) {
+		this.treeReader = requireNonNull(treeReader);
+		this.iter = requireNonNull(iter);
+		this.filter = requireNonNull(filter);
+	}
 
-  public IndexFilterAxis(final RBTreeReader<K, NodeReferences> treeReader, final Iterator<RBNodeKey<K>> iter,
-      final Set<? extends Filter> filter) {
-    this.treeReader = requireNonNull(treeReader);
-    this.iter = requireNonNull(iter);
-    this.filter = requireNonNull(filter);
-  }
-
-  @Override
-  protected NodeReferences computeNext() {
-    while (iter.hasNext()) {
-      final RBNodeKey<K> node = iter.next();
-      boolean filterResult = true;
-      for (final Filter filter : filter) {
-        filterResult = filter.filter(node);
-        if (!filterResult) {
-          break;
-        }
-      }
-      if (filterResult) {
-        treeReader.moveTo(node.getValueNodeKey());
-        assert treeReader.getCurrentNodeAsRBNodeValue() != null;
-        return treeReader.getCurrentNodeAsRBNodeValue().getValue();
-      }
-    }
-    return endOfData();
-  }
+	@Override
+	protected NodeReferences computeNext() {
+		while (iter.hasNext()) {
+			final RBNodeKey<K> node = iter.next();
+			boolean filterResult = true;
+			for (final Filter filter : filter) {
+				filterResult = filter.filter(node);
+				if (!filterResult) {
+					break;
+				}
+			}
+			if (filterResult) {
+				treeReader.moveTo(node.getValueNodeKey());
+				assert treeReader.getCurrentNodeAsRBNodeValue() != null;
+				return treeReader.getCurrentNodeAsRBNodeValue().getValue();
+			}
+		}
+		return endOfData();
+	}
 }

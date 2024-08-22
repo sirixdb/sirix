@@ -63,58 +63,58 @@ import org.jline.terminal.TerminalBuilder;
  */
 public final class Main {
 
-  /**
-   * User home directory.
-   */
-  private static final String USER_HOME = System.getProperty("user.home");
+	/**
+	 * User home directory.
+	 */
+	private static final String USER_HOME = System.getProperty("user.home");
 
-  /**
-   * Storage for databases: Sirix data in home directory.
-   */
-  private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
+	/**
+	 * Storage for databases: Sirix data in home directory.
+	 */
+	private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
-  private static class Config {
-    final Map<String, String> options = new HashMap<>();
+	private static class Config {
+		final Map<String, String> options = new HashMap<>();
 
-    boolean isSet(final String option) {
-      return options.containsKey(option);
-    }
+		boolean isSet(final String option) {
+			return options.containsKey(option);
+		}
 
-    String getValue(final String option) {
-      return options.get(option);
-    }
+		String getValue(final String option) {
+			return options.get(option);
+		}
 
-    void setOption(final String option, final String value) {
-      options.put(option, value);
-    }
-  }
+		void setOption(final String option, final String value) {
+			options.put(option, value);
+		}
+	}
 
-  private static class Option {
-    final String key;
-    final String desc;
-    final boolean hasValue;
+	private static class Option {
+		final String key;
+		final String desc;
+		final boolean hasValue;
 
-    Option(final String key, final String desc, final boolean hasValue) {
-      this.key = key;
-      this.desc = desc;
-      this.hasValue = hasValue;
-    }
-  }
+		Option(final String key, final String desc, final boolean hasValue) {
+			this.key = key;
+			this.desc = desc;
+			this.hasValue = hasValue;
+		}
+	}
 
-  private static final List<Option> options = new ArrayList<>();
+	private static final List<Option> options = new ArrayList<>();
 
-  static {
-    options.add(new Option("-qf", "query file [use '-' for stdin (default)]", true));
-    options.add(new Option("-q", "query string", true));
-    options.add(new Option("-iqf", "query files [use '-' for stdin (default)]", false));
-    options.add(new Option("-iq", "query strings", false));
-    options.add(new Option("-fType", "default document type", true));
-    options.add(new Option("-f", "default document", true));
-    options.add(new Option("-p", "pretty print", false));
-    options.add(new Option("-d", "debug", false));
-  }
+	static {
+		options.add(new Option("-qf", "query file [use '-' for stdin (default)]", true));
+		options.add(new Option("-q", "query string", true));
+		options.add(new Option("-iqf", "query files [use '-' for stdin (default)]", false));
+		options.add(new Option("-iq", "query strings", false));
+		options.add(new Option("-fType", "default document type", true));
+		options.add(new Option("-f", "default document", true));
+		options.add(new Option("-p", "pretty print", false));
+		options.add(new Option("-d", "debug", false));
+	}
 
-  public static void main(final String[] args) {
+	public static void main(final String[] args) {
     Config config = null;
 
     try {
@@ -225,107 +225,107 @@ public final class Main {
     }
   }
 
-  private static void executeQuery(Config config, CompileChain compileChain, QueryContext ctx, String query) {
-    Query xq = new Query(compileChain, query);
-    if (config.isSet("-p")) {
-      xq.prettyPrint();
-    }
-    System.out.println();
-    System.out.println("Query result");
-    xq.serialize(ctx, System.out);
-    System.out.println();
-    System.out.println();
-  }
+	private static void executeQuery(Config config, CompileChain compileChain, QueryContext ctx, String query) {
+		Query xq = new Query(compileChain, query);
+		if (config.isSet("-p")) {
+			xq.prettyPrint();
+		}
+		System.out.println();
+		System.out.println("Query result");
+		xq.serialize(ctx, System.out);
+		System.out.println();
+		System.out.println();
+	}
 
-  private static String readStringFromScannerWithEndMark(final LineReader lineReader) {
-    final StringBuilder strbuf = new StringBuilder();
+	private static String readStringFromScannerWithEndMark(final LineReader lineReader) {
+		final StringBuilder strbuf = new StringBuilder();
 
-    for (int i = 0; ; i++) {
-      final String line = lineReader.readLine("sirix > ");
+		for (int i = 0;; i++) {
+			final String line = lineReader.readLine("sirix > ");
 
-      if (line == null)
-        break;
+			if (line == null)
+				break;
 
-      if (line.isEmpty())
-        break;
+			if (line.isEmpty())
+				break;
 
-      if (i != 0) {
-        strbuf.append(System.lineSeparator());
-      }
-      strbuf.append(line);
-    }
+			if (i != 0) {
+				strbuf.append(System.lineSeparator());
+			}
+			strbuf.append(line);
+		}
 
-    return strbuf.isEmpty() ? null : strbuf.toString();
-  }
+		return strbuf.isEmpty() ? null : strbuf.toString();
+	}
 
-  //  private static String readStringFromScannerWithEndMark() {
-  //    final Scanner scanner = new Scanner(System.in);
-  //    final StringBuilder strbuf = new StringBuilder();
-  //
-  //    for (int i = 0; scanner.hasNextLine(); i++) {
-  //      final String line = scanner.nextLine();
-  //
-  //      if (line.isEmpty())
-  //        break;
-  //
-  //      if (i != 0) {
-  //        strbuf.append(System.lineSeparator());
-  //      }
-  //      strbuf.append(line);
-  //    }
-  //
-  //    return strbuf.isEmpty() ? null : strbuf.toString();
-  //  }
+	// private static String readStringFromScannerWithEndMark() {
+	// final Scanner scanner = new Scanner(System.in);
+	// final StringBuilder strbuf = new StringBuilder();
+	//
+	// for (int i = 0; scanner.hasNextLine(); i++) {
+	// final String line = scanner.nextLine();
+	//
+	// if (line.isEmpty())
+	// break;
+	//
+	// if (i != 0) {
+	// strbuf.append(System.lineSeparator());
+	// }
+	// strbuf.append(line);
+	// }
+	//
+	// return strbuf.isEmpty() ? null : strbuf.toString();
+	// }
 
-  private static String readString() throws IOException {
-    int r;
-    ByteArrayOutputStream payload = new ByteArrayOutputStream();
-    while ((r = System.in.read()) != -1) {
-      payload.write(r);
-    }
-    return payload.toString(StandardCharsets.UTF_8);
-  }
+	private static String readString() throws IOException {
+		int r;
+		ByteArrayOutputStream payload = new ByteArrayOutputStream();
+		while ((r = System.in.read()) != -1) {
+			payload.write(r);
+		}
+		return payload.toString(StandardCharsets.UTF_8);
+	}
 
-  private static Config parseParams(final String[] args) throws Exception {
-    final Config config = new Config();
-    for (int i = 0; i < args.length; i++) {
-      boolean valid = false;
-      final String s = args[i];
-      for (final Option o : options) {
-        if (o.key.equals(s)) {
-          final String val = (o.hasValue) ? args[++i] : null;
-          config.setOption(o.key, val);
-          valid = true;
-          break;
-        }
-      }
-      if (!valid) {
-        printUsage();
-        throw new Exception("Invalid parameter: " + s);
-      }
-    }
-    return config;
-  }
+	private static Config parseParams(final String[] args) throws Exception {
+		final Config config = new Config();
+		for (int i = 0; i < args.length; i++) {
+			boolean valid = false;
+			final String s = args[i];
+			for (final Option o : options) {
+				if (o.key.equals(s)) {
+					final String val = (o.hasValue) ? args[++i] : null;
+					config.setOption(o.key, val);
+					valid = true;
+					break;
+				}
+			}
+			if (!valid) {
+				printUsage();
+				throw new Exception("Invalid parameter: " + s);
+			}
+		}
+		return config;
+	}
 
-  private static String readFile(final String file) throws IOException {
-    return Files.readString(Path.of(file));
-  }
+	private static String readFile(final String file) throws IOException {
+		return Files.readString(Path.of(file));
+	}
 
-  private static void printUsage() {
-    System.out.println("No query provided");
-    System.out.printf("Usage: java %s [options]%n", Main.class.getName());
-    System.out.println("Options:");
-    for (final Option o : options) {
-      System.out.print(" ");
-      System.out.print(o.key);
-      if (o.hasValue) {
-        System.out.print(" <param>\t");
-      } else {
-        System.out.print("\t\t");
-      }
-      System.out.print("- ");
-      System.out.println(o.desc);
-    }
-    System.exit(-1);
-  }
+	private static void printUsage() {
+		System.out.println("No query provided");
+		System.out.printf("Usage: java %s [options]%n", Main.class.getName());
+		System.out.println("Options:");
+		for (final Option o : options) {
+			System.out.print(" ");
+			System.out.print(o.key);
+			if (o.hasValue) {
+				System.out.print(" <param>\t");
+			} else {
+				System.out.print("\t\t");
+			}
+			System.out.print("- ");
+			System.out.println(o.desc);
+		}
+		System.exit(-1);
+	}
 }

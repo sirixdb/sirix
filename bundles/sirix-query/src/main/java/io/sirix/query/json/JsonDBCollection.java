@@ -31,320 +31,321 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static java.util.Objects.requireNonNull;
 
 public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBItem>
-    implements TemporalJsonCollection<JsonDBItem>, AutoCloseable {
+		implements
+			TemporalJsonCollection<JsonDBItem>,
+			AutoCloseable {
 
-  /**
-   * Logger.
-   */
-  private static final LogWrapper LOG_WRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonDBCollection.class));
+	/**
+	 * Logger.
+	 */
+	private static final LogWrapper LOG_WRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonDBCollection.class));
 
-  /**
-   * ID sequence.
-   */
-  private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
+	/**
+	 * ID sequence.
+	 */
+	private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
 
-  /**
-   * Sirix database.
-   */
-  private final Database<JsonResourceSession> database;
+	/**
+	 * Sirix database.
+	 */
+	private final Database<JsonResourceSession> database;
 
-  /**
-   * Unique ID.
-   */
-  private final int id;
+	/**
+	 * Unique ID.
+	 */
+	private final int id;
 
-  private JsonDBStore jsonDbStore;
+	private JsonDBStore jsonDbStore;
 
-  /**
-   * Constructor.
-   *
-   * @param name     collection name
-   * @param database Sirix {@link Database} reference
-   */
-  public JsonDBCollection(final String name, final Database<JsonResourceSession> database) {
-    super(requireNonNull(name));
-    this.database = requireNonNull(database);
-    id = ID_SEQUENCE.incrementAndGet();
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            collection name
+	 * @param database
+	 *            Sirix {@link Database} reference
+	 */
+	public JsonDBCollection(final String name, final Database<JsonResourceSession> database) {
+		super(requireNonNull(name));
+		this.database = requireNonNull(database);
+		id = ID_SEQUENCE.incrementAndGet();
+	}
 
-  /**
-   * Constructor.
-   *
-   * @param name     collection name
-   * @param database Sirix {@link Database} reference
-   */
-  public JsonDBCollection(final String name, final Database<JsonResourceSession> database,
-      final JsonDBStore jsonDBStore) {
-    super(requireNonNull(name));
-    this.database = requireNonNull(database);
-    id = ID_SEQUENCE.incrementAndGet();
-    this.jsonDbStore = requireNonNull(jsonDBStore);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            collection name
+	 * @param database
+	 *            Sirix {@link Database} reference
+	 */
+	public JsonDBCollection(final String name, final Database<JsonResourceSession> database,
+			final JsonDBStore jsonDBStore) {
+		super(requireNonNull(name));
+		this.database = requireNonNull(database);
+		id = ID_SEQUENCE.incrementAndGet();
+		this.jsonDbStore = requireNonNull(jsonDBStore);
+	}
 
-  public JsonDBCollection setJsonDBStore(final JsonDBStore jsonDBStore) {
-    this.jsonDbStore = jsonDBStore;
-    return this;
-  }
+	public JsonDBCollection setJsonDBStore(final JsonDBStore jsonDBStore) {
+		this.jsonDbStore = jsonDBStore;
+		return this;
+	}
 
-  @Override
-  public boolean equals(final java.lang.Object other) {
-    if (this == other) {
-      return true;
-    }
+	@Override
+	public boolean equals(final java.lang.Object other) {
+		if (this == other) {
+			return true;
+		}
 
-    if (!(other instanceof JsonDBCollection coll)) {
-      return false;
-    }
+		if (!(other instanceof JsonDBCollection coll)) {
+			return false;
+		}
 
-    return database.equals(coll.database);
-  }
+		return database.equals(coll.database);
+	}
 
-  @Override
-  public int hashCode() {
-    return database.hashCode();
-  }
+	@Override
+	public int hashCode() {
+		return database.hashCode();
+	}
 
-  /**
-   * Get the unique ID.
-   *
-   * @return unique ID
-   */
-  public int getID() {
-    return id;
-  }
+	/**
+	 * Get the unique ID.
+	 *
+	 * @return unique ID
+	 */
+	public int getID() {
+		return id;
+	}
 
-  /**
-   * Get the underlying Sirix {@link Database}.
-   *
-   * @return Sirix {@link Database}
-   */
-  public Database<JsonResourceSession> getDatabase() {
-    return database;
-  }
+	/**
+	 * Get the underlying Sirix {@link Database}.
+	 *
+	 * @return Sirix {@link Database}
+	 */
+	public Database<JsonResourceSession> getDatabase() {
+		return database;
+	}
 
-  @Override
-  public JsonDBItem getDocument(Instant pointInTime) {
-    return getDocumentInternal(name, pointInTime);
-  }
+	@Override
+	public JsonDBItem getDocument(Instant pointInTime) {
+		return getDocumentInternal(name, pointInTime);
+	}
 
-  @Override
-  public JsonDBItem getDocument(String name, Instant pointInTime) {
-    return getDocumentInternal(name, pointInTime);
-  }
+	@Override
+	public JsonDBItem getDocument(String name, Instant pointInTime) {
+		return getDocumentInternal(name, pointInTime);
+	}
 
-  private JsonDBItem getDocumentInternal(final String resName, final Instant pointInTime) {
-    final JsonResourceSession resource = database.beginResourceSession(resName);
+	private JsonDBItem getDocumentInternal(final String resName, final Instant pointInTime) {
+		final JsonResourceSession resource = database.beginResourceSession(resName);
 
-    JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
+		JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
 
-    if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
-      final int revision = trx.getRevisionNumber();
+		if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
+			final int revision = trx.getRevisionNumber();
 
-      if (revision > 1) {
-        trx.close();
+			if (revision > 1) {
+				trx.close();
 
-        trx = resource.beginNodeReadOnlyTrx(revision - 1);
-      } else if (revision == 0) {
-        trx.close();
+				trx = resource.beginNodeReadOnlyTrx(revision - 1);
+			} else if (revision == 0) {
+				trx.close();
 
-        trx = resource.beginNodeReadOnlyTrx(1);
-      }
-    }
+				trx = resource.beginNodeReadOnlyTrx(1);
+			}
+		}
 
-    return getItem(trx);
-  }
+		return getItem(trx);
+	}
 
-  private JsonDBItem getDocumentInternal(final String resName, final int revision) {
-    final JsonResourceSession resource = database.beginResourceSession(resName);
-    final int version = revision == -1 ? resource.getMostRecentRevisionNumber() : revision;
+	private JsonDBItem getDocumentInternal(final String resName, final int revision) {
+		final JsonResourceSession resource = database.beginResourceSession(resName);
+		final int version = revision == -1 ? resource.getMostRecentRevisionNumber() : revision;
 
-    final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx(version);
+		final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx(version);
 
-    return getItem(rtx);
-  }
+		return getItem(rtx);
+	}
 
-  @Override
-  public void delete() {
-    try {
-      final Path databaseFile = database.getDatabaseConfig().getDatabaseFile();
-      database.close();
-      jsonDbStore.removeDatabase(database);
-      Databases.removeDatabase(databaseFile);
-    } catch (final SirixIOException e) {
-      throw new DocumentException(e.getCause());
-    }
-  }
+	@Override
+	public void delete() {
+		try {
+			final Path databaseFile = database.getDatabaseConfig().getDatabaseFile();
+			database.close();
+			jsonDbStore.removeDatabase(database);
+			Databases.removeDatabase(databaseFile);
+		} catch (final SirixIOException e) {
+			throw new DocumentException(e.getCause());
+		}
+	}
 
-  @Override
-  public void remove(final long documentID) {
-    if (documentID >= 0) {
-      final String resource = database.getResourceName((int) documentID);
-      if (resource != null) {
-        database.removeResource(resource);
-      }
-    }
-  }
+	@Override
+	public void remove(final long documentID) {
+		if (documentID >= 0) {
+			final String resource = database.getResourceName((int) documentID);
+			if (resource != null) {
+				database.removeResource(resource);
+			}
+		}
+	}
 
-  @Override
-  public JsonDBItem getDocument(final int revision) {
-    final List<Path> resources = database.listResources();
-    if (resources.size() > 1) {
-      throw new DocumentException("More than one document stored in database/collection!");
-    }
-    try {
-      final JsonResourceSession manager = database.beginResourceSession(resources.get(0).getFileName().toString());
-      final int version = revision == -1 ? manager.getMostRecentRevisionNumber() : revision;
-      final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
+	@Override
+	public JsonDBItem getDocument(final int revision) {
+		final List<Path> resources = database.listResources();
+		if (resources.size() > 1) {
+			throw new DocumentException("More than one document stored in database/collection!");
+		}
+		try {
+			final JsonResourceSession manager = database
+					.beginResourceSession(resources.get(0).getFileName().toString());
+			final int version = revision == -1 ? manager.getMostRecentRevisionNumber() : revision;
+			final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
 
-      return getItem(rtx);
-    } catch (final SirixException e) {
-      throw new DocumentException(e.getCause());
-    }
-  }
+			return getItem(rtx);
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
+		}
+	}
 
-  private JsonDBItem getItem(final JsonNodeReadOnlyTrx rtx) {
-    if (rtx.hasFirstChild()) {
-      rtx.moveToFirstChild();
-      if (rtx.isObject())
-        return new JsonDBObject(rtx, this);
-      else if (rtx.isArray())
-        return new JsonDBArray(rtx, this);
-    }
+	private JsonDBItem getItem(final JsonNodeReadOnlyTrx rtx) {
+		if (rtx.hasFirstChild()) {
+			rtx.moveToFirstChild();
+			if (rtx.isObject())
+				return new JsonDBObject(rtx, this);
+			else if (rtx.isArray())
+				return new JsonDBArray(rtx, this);
+		}
 
-    return null;
-  }
+		return null;
+	}
 
-  public JsonDBItem add(final String resourceName, final JsonReader reader, final Object options) {
-    try {
-      String resName = resourceName;
-      for (final Path resource : database.listResources()) {
-        final String existingResourceName = resource.getFileName().toString();
-        if (existingResourceName.equals(resourceName)) {
-          resName = existingResourceName + "1";
-          break;
-        }
-      }
+	public JsonDBItem add(final String resourceName, final JsonReader reader, final Object options) {
+		try {
+			String resName = resourceName;
+			for (final Path resource : database.listResources()) {
+				final String existingResourceName = resource.getFileName().toString();
+				if (existingResourceName.equals(resourceName)) {
+					resName = existingResourceName + "1";
+					break;
+				}
+			}
 
-      final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
+			final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
 
-      database.createResource(ResourceConfiguration.newBuilder(resName)
-                                                   .useTextCompression(resourceOptions.useTextCompression())
-                                                   .storageType(resourceOptions.storageType())
-                                                   .useDeweyIDs(resourceOptions.useDeweyIDs())
-                                                   .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
-                                                   .buildPathSummary(resourceOptions.buildPathSummary())
-                                                   .hashKind(resourceOptions.hashType())
-                                                   .build());
-      final JsonResourceSession manager = database.beginResourceSession(resName);
-      try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-        wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
-      }
-      final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
-      rtx.moveToDocumentRoot();
-      return getItem(rtx);
-    } catch (final SirixException e) {
-      LOG_WRAPPER.error(e.getMessage(), e);
-      return null;
-    }
-  }
+			database.createResource(ResourceConfiguration.newBuilder(resName)
+					.useTextCompression(resourceOptions.useTextCompression()).storageType(resourceOptions.storageType())
+					.useDeweyIDs(resourceOptions.useDeweyIDs())
+					.customCommitTimestamps(resourceOptions.commitTimestamp() != null)
+					.buildPathSummary(resourceOptions.buildPathSummary()).hashKind(resourceOptions.hashType()).build());
+			final JsonResourceSession manager = database.beginResourceSession(resName);
+			try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+				wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
+				wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
+			}
+			final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
+			rtx.moveToDocumentRoot();
+			return getItem(rtx);
+		} catch (final SirixException e) {
+			LOG_WRAPPER.error(e.getMessage(), e);
+			return null;
+		}
+	}
 
-  public JsonDBItem add(final String resourceName, final JsonReader reader) {
-    return add(resourceName, reader, new ArrayObject(new QNm[0], new Sequence[0]));
-  }
+	public JsonDBItem add(final String resourceName, final JsonReader reader) {
+		return add(resourceName, reader, new ArrayObject(new QNm[0], new Sequence[0]));
+	}
 
-  @Override
-  public void close() {
-    jsonDbStore.removeDatabase(database);
-    database.close();
-  }
+	@Override
+	public void close() {
+		jsonDbStore.removeDatabase(database);
+		database.close();
+	}
 
-  @Override
-  public long getDocumentCount() {
-    return database.listResources().size();
-  }
+	@Override
+	public long getDocumentCount() {
+		return database.listResources().size();
+	}
 
-  @Override
-  public JsonDBItem getDocument() {
-    return getDocument(-1);
-  }
+	@Override
+	public JsonDBItem getDocument() {
+		return getDocument(-1);
+	}
 
-  @Override
-  public JsonDBItem getDocument(final String name, final int revision) {
-    return getDocumentInternal(name, revision);
-  }
+	@Override
+	public JsonDBItem getDocument(final String name, final int revision) {
+		return getDocumentInternal(name, revision);
+	}
 
-  @Override
-  public JsonDBItem getDocument(final String name) {
-    return getDocument(name, -1);
-  }
+	@Override
+	public JsonDBItem getDocument(final String name) {
+		return getDocument(name, -1);
+	}
 
-  @Override
-  public Stream<JsonDBItem> getDocuments() {
-    final List<Path> resources = database.listResources();
-    final List<JsonDBItem> documents = new ArrayList<>(resources.size());
+	@Override
+	public Stream<JsonDBItem> getDocuments() {
+		final List<Path> resources = database.listResources();
+		final List<JsonDBItem> documents = new ArrayList<>(resources.size());
 
-    resources.forEach(resourcePath -> {
-      try {
-        final String resourceName = resourcePath.getFileName().toString();
-        final JsonResourceSession resource = database.beginResourceSession(resourceName);
-        final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx();
+		resources.forEach(resourcePath -> {
+			try {
+				final String resourceName = resourcePath.getFileName().toString();
+				final JsonResourceSession resource = database.beginResourceSession(resourceName);
+				final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx();
 
-        if (rtx.moveToFirstChild()) {
-          if (rtx.isObject())
-            documents.add(new JsonDBObject(rtx, this));
-          else if (rtx.isArray())
-            documents.add(new JsonDBArray(rtx, this));
-        }
-      } catch (final SirixException e) {
-        throw new DocumentException(e.getCause());
-      }
-    });
+				if (rtx.moveToFirstChild()) {
+					if (rtx.isObject())
+						documents.add(new JsonDBObject(rtx, this));
+					else if (rtx.isArray())
+						documents.add(new JsonDBArray(rtx, this));
+				}
+			} catch (final SirixException e) {
+				throw new DocumentException(e.getCause());
+			}
+		});
 
-    return new ArrayStream<>(documents.toArray(new JsonDBItem[0]));
-  }
+		return new ArrayStream<>(documents.toArray(new JsonDBItem[0]));
+	}
 
-  @Override
-  public JsonDBItem add(final String json) {
-    requireNonNull(json);
+	@Override
+	public JsonDBItem add(final String json) {
+		requireNonNull(json);
 
-    return add(JsonShredder.createStringReader(json), new ArrayObject(new QNm[0], new Sequence[0]));
-  }
+		return add(JsonShredder.createStringReader(json), new ArrayObject(new QNm[0], new Sequence[0]));
+	}
 
-  @SuppressWarnings("SameParameterValue")
-  private JsonDBItem add(final JsonReader reader, final Object options) {
-    try {
+	@SuppressWarnings("SameParameterValue")
+	private JsonDBItem add(final JsonReader reader, final Object options) {
+		try {
 
-      final String resourceName = "resource" + (database.listResources().size() + 1);
-      final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
+			final String resourceName = "resource" + (database.listResources().size() + 1);
+			final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
 
-      database.createResource(ResourceConfiguration.newBuilder(resourceName)
-                                                   .useTextCompression(resourceOptions.useTextCompression())
-                                                   .storageType(resourceOptions.storageType())
-                                                   .useDeweyIDs(resourceOptions.useDeweyIDs())
-                                                   .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
-                                                   .buildPathSummary(resourceOptions.buildPathSummary())
-                                                   .hashKind(resourceOptions.hashType())
-                                                   .build());
-      final JsonResourceSession manager = database.beginResourceSession(resourceName);
-      try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-        wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
-      }
+			database.createResource(ResourceConfiguration.newBuilder(resourceName)
+					.useTextCompression(resourceOptions.useTextCompression()).storageType(resourceOptions.storageType())
+					.useDeweyIDs(resourceOptions.useDeweyIDs())
+					.customCommitTimestamps(resourceOptions.commitTimestamp() != null)
+					.buildPathSummary(resourceOptions.buildPathSummary()).hashKind(resourceOptions.hashType()).build());
+			final JsonResourceSession manager = database.beginResourceSession(resourceName);
+			try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+				wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
+				wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
+			}
 
-      final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
-      return getItem(rtx);
-    } catch (final SirixException e) {
-      LOG_WRAPPER.error(e.getMessage(), e);
-      return null;
-    }
-  }
+			final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
+			return getItem(rtx);
+		} catch (final SirixException e) {
+			LOG_WRAPPER.error(e.getMessage(), e);
+			return null;
+		}
+	}
 
-  @Override
-  public JsonDBItem add(final Path file) {
-    requireNonNull(file);
+	@Override
+	public JsonDBItem add(final Path file) {
+		requireNonNull(file);
 
-    return add(JsonShredder.createFileReader(file), new ArrayObject(new QNm[0], new Sequence[0]));
-  }
+		return add(JsonShredder.createFileReader(file), new ArrayObject(new QNm[0], new Sequence[0]));
+	}
 
 }

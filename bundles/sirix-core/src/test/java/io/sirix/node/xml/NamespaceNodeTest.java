@@ -47,62 +47,59 @@ import static org.junit.Assert.assertTrue;
  */
 public class NamespaceNodeTest {
 
-  /**
-   * {@link Holder} instance.
-   */
-  private Holder holder;
+	/**
+	 * {@link Holder} instance.
+	 */
+	private Holder holder;
 
-  /**
-   * Sirix {@link PageReadOnlyTrx} instance.
-   */
-  private PageReadOnlyTrx pageReadTrx;
+	/**
+	 * Sirix {@link PageReadOnlyTrx} instance.
+	 */
+	private PageReadOnlyTrx pageReadTrx;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.closeEverything();
-    XmlTestHelper.deleteEverything();
-    holder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = holder.getResourceManager().beginPageReadOnlyTrx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.closeEverything();
+		XmlTestHelper.deleteEverything();
+		holder = Holder.generateDeweyIDResourceMgr();
+		pageReadTrx = holder.getResourceManager().beginPageReadOnlyTrx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    pageReadTrx.close();
-    holder.close();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		pageReadTrx.close();
+		holder.close();
+	}
 
-  @Test
-  public void testNamespaceNode() {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(99, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15, 1);
+	@Test
+	public void testNamespaceNode() {
+		final NodeDelegate nodeDel = new NodeDelegate(99, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0,
+				SirixDeweyID.newRootID());
+		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15, 1);
 
-    // Create empty node.
-    final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+		// Create empty node.
+		final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
+		var bytes = Bytes.elasticHeapByteBuffer();
+		node.setHash(node.computeHash(bytes));
 
-    // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(data,
-                                                                               node.getNodeKey(),
-                                                                               node.getDeweyID().toBytes(),
-                                                                               pageReadTrx.getResourceSession()
-                                                                                          .getResourceConfig());
-    check(node2);
-  }
+		// Serialize and deserialize node.
+		final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+		node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
+		final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(data, node.getNodeKey(),
+				node.getDeweyID().toBytes(), pageReadTrx.getResourceSession().getResourceConfig());
+		check(node2);
+	}
 
-  private final void check(final NamespaceNode node) {
-    // Now compare.
-    assertEquals(99L, node.getNodeKey());
-    assertEquals(13L, node.getParentKey());
+	private final void check(final NamespaceNode node) {
+		// Now compare.
+		assertEquals(99L, node.getNodeKey());
+		assertEquals(13L, node.getParentKey());
 
-    assertEquals(13, node.getURIKey());
-    assertEquals(14, node.getPrefixKey());
-    assertEquals(15, node.getLocalNameKey());
-    assertEquals(NodeKind.NAMESPACE, node.getKind());
-    assertTrue(node.hasParent());
-  }
+		assertEquals(13, node.getURIKey());
+		assertEquals(14, node.getPrefixKey());
+		assertEquals(15, node.getLocalNameKey());
+		assertEquals(NodeKind.NAMESPACE, node.getKind());
+		assertTrue(node.hasParent());
+	}
 
 }

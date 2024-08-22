@@ -54,169 +54,171 @@ import java.nio.ByteBuffer;
  */
 public final class ObjectKeyNode extends AbstractStructForwardingNode implements ImmutableJsonNode, ImmutableNameNode {
 
-  /**
-   * {@link StructNodeDelegate} reference.
-   */
-  private final StructNodeDelegate structNodeDelegate;
+	/**
+	 * {@link StructNodeDelegate} reference.
+	 */
+	private final StructNodeDelegate structNodeDelegate;
 
-  private int nameKey;
+	private int nameKey;
 
-  private QNm name;
+	private QNm name;
 
-  private long pathNodeKey;
+	private long pathNodeKey;
 
-  private long hash;
+	private long hash;
 
-  /**
-   * Constructor
-   *
-   * @param structDel {@link StructNodeDelegate} to be set
-   * @param name      the key name
-   */
-  public ObjectKeyNode(final StructNodeDelegate structDel, final int nameKey, final String name,
-      final long pathNodeKey) {
-    assert structDel != null;
-    assert name != null;
-    structNodeDelegate = structDel;
-    this.nameKey = nameKey;
-    this.name = new QNm(name);
-    this.pathNodeKey = pathNodeKey;
-  }
+	/**
+	 * Constructor
+	 *
+	 * @param structDel
+	 *            {@link StructNodeDelegate} to be set
+	 * @param name
+	 *            the key name
+	 */
+	public ObjectKeyNode(final StructNodeDelegate structDel, final int nameKey, final String name,
+			final long pathNodeKey) {
+		assert structDel != null;
+		assert name != null;
+		structNodeDelegate = structDel;
+		this.nameKey = nameKey;
+		this.name = new QNm(name);
+		this.pathNodeKey = pathNodeKey;
+	}
 
-  /**
-   * Constructor
-   *
-   * @param hashCode    the hash code
-   * @param structDel   {@link StructNodeDelegate} to be set
-   * @param nameKey     the key of the name
-   * @param name        the String name
-   * @param pathNodeKey the path node key
-   */
-  public ObjectKeyNode(final long hashCode, final StructNodeDelegate structDel, final int nameKey, final String name,
-      final long pathNodeKey) {
-    hash = hashCode;
-    assert structDel != null;
-    structNodeDelegate = structDel;
-    this.nameKey = nameKey;
-    this.name = null;
-    this.pathNodeKey = pathNodeKey;
-  }
+	/**
+	 * Constructor
+	 *
+	 * @param hashCode
+	 *            the hash code
+	 * @param structDel
+	 *            {@link StructNodeDelegate} to be set
+	 * @param nameKey
+	 *            the key of the name
+	 * @param name
+	 *            the String name
+	 * @param pathNodeKey
+	 *            the path node key
+	 */
+	public ObjectKeyNode(final long hashCode, final StructNodeDelegate structDel, final int nameKey, final String name,
+			final long pathNodeKey) {
+		hash = hashCode;
+		assert structDel != null;
+		structNodeDelegate = structDel;
+		this.nameKey = nameKey;
+		this.name = null;
+		this.pathNodeKey = pathNodeKey;
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.OBJECT_KEY;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.OBJECT_KEY;
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
-    bytes.clear();
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+		bytes.clear();
+		bytes.writeLong(nodeDelegate.getNodeKey()).writeLong(nodeDelegate.getParentKey())
+				.writeByte(nodeDelegate.getKind().getId());
 
-    bytes.writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
+		bytes.writeLong(structNodeDelegate.getDescendantCount()).writeLong(structNodeDelegate.getLeftSiblingKey())
+				.writeLong(structNodeDelegate.getRightSiblingKey()).writeLong(structNodeDelegate.getFirstChildKey());
 
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
-    }
+		if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+			bytes.writeLong(structNodeDelegate.getLastChildKey());
+		}
 
-    bytes.writeInt(nameKey);
+		bytes.writeInt(nameKey);
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
+		final var buffer = bytes.underlyingObject().rewind();
+		buffer.limit((int) bytes.readLimit());
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
-  }
+		return nodeDelegate.getHashFunction().hashBytes(buffer);
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    this.hash = hash;
-  }
+	@Override
+	public void setHash(final long hash) {
+		this.hash = hash;
+	}
 
-  @Override
-  public long getHash() {
-    return hash;
-  }
+	@Override
+	public long getHash() {
+		return hash;
+	}
 
-  public int getNameKey() {
-    return nameKey;
-  }
+	public int getNameKey() {
+		return nameKey;
+	}
 
-  public void setNameKey(final int nameKey) {
-    this.nameKey = nameKey;
-  }
+	public void setNameKey(final int nameKey) {
+		this.nameKey = nameKey;
+	}
 
-  public void setName(final String name) {
-    this.name = new QNm(name);
-  }
+	public void setName(final String name) {
+		this.name = new QNm(name);
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(ImmutableObjectKeyNode.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+		return visitor.visit(ImmutableObjectKeyNode.of(this));
+	}
 
-  @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("name", name)
-                      .add("nameKey", nameKey)
-                      .add("structDelegate", structNodeDelegate)
-                      .toString();
-  }
+	@Override
+	public @NonNull String toString() {
+		return MoreObjects.toStringHelper(this).add("name", name).add("nameKey", nameKey)
+				.add("structDelegate", structNodeDelegate).toString();
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(name, nameKey, delegate());
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(name, nameKey, delegate());
+	}
 
-  @Override
-  public boolean equals(final Object obj) {
-    if (!(obj instanceof final ObjectKeyNode other))
-      return false;
+	@Override
+	public boolean equals(final Object obj) {
+		if (!(obj instanceof final ObjectKeyNode other))
+			return false;
 
-    return Objects.equal(name, other.name) && nameKey == other.nameKey && Objects.equal(delegate(), other.delegate());
-  }
+		return Objects.equal(name, other.name) && nameKey == other.nameKey
+				&& Objects.equal(delegate(), other.delegate());
+	}
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return structNodeDelegate.getNodeDelegate();
-  }
+	@Override
+	protected @NonNull NodeDelegate delegate() {
+		return structNodeDelegate.getNodeDelegate();
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return structNodeDelegate;
+	}
 
-  public ObjectKeyNode setPathNodeKey(final @NonNegative long pathNodeKey) {
-    this.pathNodeKey = pathNodeKey;
-    return this;
-  }
+	public ObjectKeyNode setPathNodeKey(final @NonNegative long pathNodeKey) {
+		this.pathNodeKey = pathNodeKey;
+		return this;
+	}
 
-  @Override
-  public int getLocalNameKey() {
-    return nameKey;
-  }
+	@Override
+	public int getLocalNameKey() {
+		return nameKey;
+	}
 
-  @Override
-  public int getPrefixKey() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public int getPrefixKey() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public int getURIKey() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public int getURIKey() {
+		throw new UnsupportedOperationException();
+	}
 
-  public long getPathNodeKey() {
-    return pathNodeKey;
-  }
+	public long getPathNodeKey() {
+		return pathNodeKey;
+	}
 
-  public QNm getName() {
-    return name;
-  }
+	public QNm getName() {
+		return name;
+	}
 }

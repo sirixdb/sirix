@@ -41,210 +41,212 @@ import static java.util.Objects.requireNonNull;
  */
 public final class NullNode implements StructNode {
 
-  /** The underlying item. */
-  private final ImmutableNode node;
+	/** The underlying item. */
+	private final ImmutableNode node;
 
-  /**
-   * Constructor.
-   *
-   * @param node the underlying node which is wrapped
-   * @throws NullPointerException if {@code pNode} is {@code null}
-   */
-  public NullNode(final ImmutableNode node) {
-    this.node = requireNonNull(node);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param node
+	 *            the underlying node which is wrapped
+	 * @throws NullPointerException
+	 *             if {@code pNode} is {@code null}
+	 */
+	public NullNode(final ImmutableNode node) {
+		this.node = requireNonNull(node);
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public long getFirstChildKey() {
-    return Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
+	@Override
+	public long getFirstChildKey() {
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
+	}
 
-  @Override
-  public void setFirstChildKey(long firstChildKey) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setFirstChildKey(long firstChildKey) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public long getLastChildKey() {
-    return Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
+	@Override
+	public long getLastChildKey() {
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
+	}
 
-  @Override
-  public void setLastChildKey(long nodeKey) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setLastChildKey(long nodeKey) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void decrementChildCount() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void decrementChildCount() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void incrementChildCount() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void incrementChildCount() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void setHash(final long hash) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setHash(final long hash) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public long getHash() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public long getHash() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public long getNodeKey() {
-    return node.getNodeKey();
-  }
+	@Override
+	public long getNodeKey() {
+		return node.getNodeKey();
+	}
 
-  @Override
-  public long getParentKey() {
-    return node.getParentKey();
-  }
+	@Override
+	public long getParentKey() {
+		return node.getParentKey();
+	}
 
-  @Override
-  public boolean hasParent() {
-    return node.hasParent();
-  }
+	@Override
+	public boolean hasParent() {
+		return node.hasParent();
+	}
 
-  @Override
-  public NodeKind getKind() {
-    // Node kind is always of type Kind.
-    return node.getKind();
-  }
+	@Override
+	public NodeKind getKind() {
+		// Node kind is always of type Kind.
+		return node.getKind();
+	}
 
-  @Override
-  public void setParentKey(long nodeKey) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setParentKey(long nodeKey) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void setTypeKey(int typeKey) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setTypeKey(int typeKey) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public boolean hasFirstChild() {
-    return false;
-  }
+	@Override
+	public boolean hasFirstChild() {
+		return false;
+	}
 
-  @Override
-  public boolean hasLastChild() {
-    return false;
-  }
+	@Override
+	public boolean hasLastChild() {
+		return false;
+	}
 
-  @Override
-  public boolean hasLeftSibling() {
-    return false;
-  }
+	@Override
+	public boolean hasLeftSibling() {
+		return false;
+	}
 
-  @Override
-  public boolean hasRightSibling() {
-    return false;
-  }
+	@Override
+	public boolean hasRightSibling() {
+		return false;
+	}
 
-  @Override
-  public long getChildCount() {
-    return 0;
-  }
+	@Override
+	public long getChildCount() {
+		return 0;
+	}
 
-  @Override
-  public long getLeftSiblingKey() {
-    return Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
+	@Override
+	public long getLeftSiblingKey() {
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
+	}
 
-  @Override
-  public long getRightSiblingKey() {
-    return Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
+	@Override
+	public long getRightSiblingKey() {
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
+	}
 
-  @Override
-  public void setRightSiblingKey(long nodeKey) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setRightSiblingKey(long nodeKey) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void setLeftSiblingKey(long nodeKey) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setLeftSiblingKey(long nodeKey) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public long getDescendantCount() {
-    return 0;
-  }
+	@Override
+	public long getDescendantCount() {
+		return 0;
+	}
 
-  @Override
-  public void decrementDescendantCount() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void decrementDescendantCount() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void incrementDescendantCount() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void incrementDescendantCount() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void setDescendantCount(long descendantCount) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setDescendantCount(long descendantCount) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public boolean isSameItem(final @Nullable Node other) {
-    return node.isSameItem(other);
-  }
+	@Override
+	public boolean isSameItem(final @Nullable Node other) {
+		return node.isSameItem(other);
+	}
 
-  @Override
-  public int getPreviousRevisionNumber() {
-    return node.getPreviousRevisionNumber();
-  }
+	@Override
+	public int getPreviousRevisionNumber() {
+		return node.getPreviousRevisionNumber();
+	}
 
-  @Override
-  public int getLastModifiedRevisionNumber() {
-    return node.getLastModifiedRevisionNumber();
-  }
+	@Override
+	public int getLastModifiedRevisionNumber() {
+		return node.getLastModifiedRevisionNumber();
+	}
 
-  @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof final NullNode other) {
-      return Objects.equal(node, other.node);
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof final NullNode other) {
+			return Objects.equal(node, other.node);
+		}
+		return false;
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(node);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(node);
+	}
 
-  @Override
-  public void setDeweyID(SirixDeweyID id) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setDeweyID(SirixDeweyID id) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public SirixDeweyID getDeweyID() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public SirixDeweyID getDeweyID() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public byte[] getDeweyIDAsBytes() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void setPreviousRevision(int revision) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setPreviousRevision(int revision) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void setLastModifiedRevision(int revision) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setLastModifiedRevision(int revision) {
+		throw new UnsupportedOperationException();
+	}
 }

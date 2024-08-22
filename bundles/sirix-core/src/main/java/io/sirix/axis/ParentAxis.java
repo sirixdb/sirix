@@ -31,35 +31,37 @@ import io.sirix.settings.Fixed;
  * </p>
  */
 public final class ParentAxis extends AbstractAxis {
-  /** Track number of calls of next. */
-  private boolean mFirst;
+	/** Track number of calls of next. */
+	private boolean mFirst;
 
-  /**
-   * Constructor initializing internal state.
-   *
-   * //todo update descriptions of the cursor
-   * @param cursor exclusive (immutable) trx to iterate with.
-   */
-  public ParentAxis(final NodeCursor cursor) {
-    super(cursor);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 *
+	 * //todo update descriptions of the cursor
+	 *
+	 * @param cursor
+	 *            exclusive (immutable) trx to iterate with.
+	 */
+	public ParentAxis(final NodeCursor cursor) {
+		super(cursor);
+	}
 
-  @Override
-  public void reset(final long nodeKey) {
-    super.reset(nodeKey);
-    mFirst = true;
-  }
+	@Override
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
+		mFirst = true;
+	}
 
-  @Override
-  protected long nextKey() {
-    final NodeCursor cursor = getCursor();
+	@Override
+	protected long nextKey() {
+		final NodeCursor cursor = getCursor();
 
-    if (cursor.getKind() != NodeKind.XML_DOCUMENT && mFirst && cursor.hasParent()
-        && cursor.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-      mFirst = false;
-      return cursor.getParentKey();
-    }
+		if (cursor.getKind() != NodeKind.XML_DOCUMENT && mFirst && cursor.hasParent()
+				&& cursor.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+			mFirst = false;
+			return cursor.getParentKey();
+		}
 
-    return done();
-  }
+		return done();
+	}
 }

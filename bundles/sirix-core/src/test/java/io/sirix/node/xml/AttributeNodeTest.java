@@ -48,71 +48,69 @@ import static org.junit.Assert.assertEquals;
  */
 public class AttributeNodeTest {
 
-  /**
-   * {@link Holder} instance.
-   */
-  private Holder holder;
+	/**
+	 * {@link Holder} instance.
+	 */
+	private Holder holder;
 
-  /**
-   * Sirix {@link PageReadOnlyTrx} instance.
-   */
-  private PageReadOnlyTrx pageReadOnlyTrx;
+	/**
+	 * Sirix {@link PageReadOnlyTrx} instance.
+	 */
+	private PageReadOnlyTrx pageReadOnlyTrx;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.closeEverything();
-    XmlTestHelper.deleteEverything();
-    holder = Holder.generateDeweyIDResourceMgr();
-    pageReadOnlyTrx = holder.getResourceManager().beginPageReadOnlyTrx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.closeEverything();
+		XmlTestHelper.deleteEverything();
+		holder = Holder.generateDeweyIDResourceMgr();
+		pageReadOnlyTrx = holder.getResourceManager().beginPageReadOnlyTrx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    pageReadOnlyTrx.close();
-    holder.close();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		pageReadOnlyTrx.close();
+		holder.close();
+	}
 
-  @Test
-  public void testAttributeNode() {
-    final byte[] value = { (byte) 17, (byte) 18 };
+	@Test
+	public void testAttributeNode() {
+		final byte[] value = {(byte) 17, (byte) 18};
 
-    final NodeDelegate del =
-        new NodeDelegate(99, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
+		final NodeDelegate del = new NodeDelegate(99, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0,
+				SirixDeweyID.newRootID());
+		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
+		final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
 
-    final AttributeNode node = new AttributeNode(del, nameDel, valDel, new QNm("ns", "a", "p"));
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+		final AttributeNode node = new AttributeNode(del, nameDel, valDel, new QNm("ns", "a", "p"));
+		var bytes = Bytes.elasticHeapByteBuffer();
+		node.setHash(node.computeHash(bytes));
 
-    // Create empty node.
-    check(node);
+		// Create empty node.
+		check(node);
 
-    // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadOnlyTrx.getResourceSession().getResourceConfig());
-    final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(data,
-                                                                               node.getNodeKey(),
-                                                                               node.getDeweyID().toBytes(),
-                                                                               pageReadOnlyTrx.getResourceSession().getResourceConfig());
-    check(node2);
-  }
+		// Serialize and deserialize node.
+		final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+		node.getKind().serialize(data, node, pageReadOnlyTrx.getResourceSession().getResourceConfig());
+		final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(data, node.getNodeKey(),
+				node.getDeweyID().toBytes(), pageReadOnlyTrx.getResourceSession().getResourceConfig());
+		check(node2);
+	}
 
-  private final void check(final AttributeNode node) {
-    // Now compare.
-    assertEquals(99L, node.getNodeKey());
-    assertEquals(13L, node.getParentKey());
+	private final void check(final AttributeNode node) {
+		// Now compare.
+		assertEquals(99L, node.getNodeKey());
+		assertEquals(13L, node.getParentKey());
 
-    assertEquals(13, node.getURIKey());
-    assertEquals(14, node.getPrefixKey());
-    assertEquals(15, node.getLocalNameKey());
+		assertEquals(13, node.getURIKey());
+		assertEquals(14, node.getPrefixKey());
+		assertEquals(15, node.getLocalNameKey());
 
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
-    assertEquals(2, node.getRawValue().length);
-    assertEquals(NodeKind.ATTRIBUTE, node.getKind());
-    assertEquals(true, node.hasParent());
-    assertEquals(NodeKind.ATTRIBUTE, node.getKind());
-    assertEquals(SirixDeweyID.newRootID(), node.getDeweyID());
-  }
+		assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
+		assertEquals(2, node.getRawValue().length);
+		assertEquals(NodeKind.ATTRIBUTE, node.getKind());
+		assertEquals(true, node.hasParent());
+		assertEquals(NodeKind.ATTRIBUTE, node.getKind());
+		assertEquals(SirixDeweyID.newRootID(), node.getDeweyID());
+	}
 
 }

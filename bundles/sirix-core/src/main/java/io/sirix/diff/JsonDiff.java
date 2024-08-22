@@ -34,76 +34,77 @@ import io.sirix.node.NodeKind;
  */
 final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
-  /**
-   * Constructor.
-   *
-   * @param builder {@link DiffFactory.Builder} reference
-   */
-  public JsonDiff(final DiffFactory.Builder<JsonNodeReadOnlyTrx, JsonNodeTrx> builder) {
-    super(builder);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param builder
+	 *            {@link DiffFactory.Builder} reference
+	 */
+	public JsonDiff(final DiffFactory.Builder<JsonNodeReadOnlyTrx, JsonNodeTrx> builder) {
+		super(builder);
+	}
 
-  @Override
-  NodeKind documentNode() {
-    return NodeKind.JSON_DOCUMENT;
-  }
+	@Override
+	NodeKind documentNode() {
+		return NodeKind.JSON_DOCUMENT;
+	}
 
-  @Override
-  boolean checkNodes(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx) {
-    boolean found = false;
-    if (newRtx.getNodeKey() == oldRtx.getNodeKey() && newRtx.getParentKey() == oldRtx.getParentKey()
-        && newRtx.getKind() == oldRtx.getKind()) {
-      found = checkNamesOrValues(newRtx, oldRtx);
-    }
-    return found;
-  }
+	@Override
+	boolean checkNodes(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx) {
+		boolean found = false;
+		if (newRtx.getNodeKey() == oldRtx.getNodeKey() && newRtx.getParentKey() == oldRtx.getParentKey()
+				&& newRtx.getKind() == oldRtx.getKind()) {
+			found = checkNamesOrValues(newRtx, oldRtx);
+		}
+		return found;
+	}
 
-  private boolean checkNamesOrValues(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx) {
-    boolean found = false;
-    switch (newRtx.getKind()) {
-      case ARRAY:
-      case OBJECT:
-      case NULL_VALUE:
-      case OBJECT_NULL_VALUE:
-        found = true;
-        break;
-      case OBJECT_KEY:
-        if (checkNamesForEquality(newRtx, oldRtx))
-          found = true;
-        break;
-      case BOOLEAN_VALUE:
-      case OBJECT_BOOLEAN_VALUE:
-        if (newRtx.getBooleanValue() == oldRtx.getBooleanValue())
-          found = true;
-        break;
-      case NUMBER_VALUE:
-      case OBJECT_NUMBER_VALUE:
-        if (Objects.equals(newRtx.getNumberValue(), oldRtx.getNumberValue()))
-          found = true;
-        break;
-      case STRING_VALUE:
-      case OBJECT_STRING_VALUE:
-        if (Objects.equals(newRtx.getValue(), oldRtx.getValue()))
-          found = true;
-        break;
-      // $CASES-OMITTED$
-      default:
-        // Do nothing.
-    }
-    return found;
-  }
+	private boolean checkNamesOrValues(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx) {
+		boolean found = false;
+		switch (newRtx.getKind()) {
+			case ARRAY :
+			case OBJECT :
+			case NULL_VALUE :
+			case OBJECT_NULL_VALUE :
+				found = true;
+				break;
+			case OBJECT_KEY :
+				if (checkNamesForEquality(newRtx, oldRtx))
+					found = true;
+				break;
+			case BOOLEAN_VALUE :
+			case OBJECT_BOOLEAN_VALUE :
+				if (newRtx.getBooleanValue() == oldRtx.getBooleanValue())
+					found = true;
+				break;
+			case NUMBER_VALUE :
+			case OBJECT_NUMBER_VALUE :
+				if (Objects.equals(newRtx.getNumberValue(), oldRtx.getNumberValue()))
+					found = true;
+				break;
+			case STRING_VALUE :
+			case OBJECT_STRING_VALUE :
+				if (Objects.equals(newRtx.getValue(), oldRtx.getValue()))
+					found = true;
+				break;
+			// $CASES-OMITTED$
+			default :
+				// Do nothing.
+		}
+		return found;
+	}
 
-  private boolean checkNamesForEquality(JsonNodeReadOnlyTrx newRtx, JsonNodeReadOnlyTrx oldRtx) {
-    return newRtx.getNameKey() == oldRtx.getNameKey();
-  }
+	private boolean checkNamesForEquality(JsonNodeReadOnlyTrx newRtx, JsonNodeReadOnlyTrx oldRtx) {
+		return newRtx.getNameKey() == oldRtx.getNameKey();
+	}
 
-  @Override
-  void emitNonStructuralDiff(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx, final DiffDepth depth,
-      final DiffFactory.DiffType diff) {
-  }
+	@Override
+	void emitNonStructuralDiff(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx,
+			final DiffDepth depth, final DiffFactory.DiffType diff) {
+	}
 
-  @Override
-  boolean checkNodeNamesOrValues(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx) {
-    return checkNamesOrValues(newRtx, oldRtx);
-  }
+	@Override
+	boolean checkNodeNamesOrValues(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx) {
+		return checkNamesOrValues(newRtx, oldRtx);
+	}
 }

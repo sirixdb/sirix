@@ -46,1084 +46,1087 @@ import static org.junit.jupiter.api.Assertions.*;
 /** Test {@link ConcurrentAxis}. */
 public final class ConcurrentAxisTest {
 
-  /** XML file name to test. */
-  private static final String XMLFILE = "10mb.xml";
+	/** XML file name to test. */
+	private static final String XMLFILE = "10mb.xml";
 
-  /** Path to XML file. */
-  private static final Path XML = Paths.get("src", "test", "resources", XMLFILE);
+	/** Path to XML file. */
+	private static final Path XML = Paths.get("src", "test", "resources", XMLFILE);
 
-  private Holder holder;
+	private Holder holder;
 
-  /**
-   * Method is called once before each test. It deletes all states, shreds XML file to database and
-   * initializes the required variables.
-   *
-   */
-  @BeforeEach
-  public void setUp() {
-    try {
-      XmlTestHelper.deleteEverything();
-      XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
-      holder = Holder.generateRtx();
-    } catch (final Exception e) {
-      e.printStackTrace();
-    }
-  }
+	/**
+	 * Method is called once before each test. It deletes all states, shreds XML
+	 * file to database and initializes the required variables.
+	 *
+	 */
+	@BeforeEach
+	public void setUp() {
+		try {
+			XmlTestHelper.deleteEverything();
+			XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
+			holder = Holder.generateRtx();
+		} catch (final Exception e) {
+			e.printStackTrace();
+		}
+	}
 
-  /**
-   * Close all connections.
-   *
-   */
-  @AfterEach
-  public void tearDown() {
-    try {
-      holder.close();
-      XmlTestHelper.closeEverything();
-    } catch (final Exception e) {
-      e.printStackTrace();
-    }
-  }
+	/**
+	 * Close all connections.
+	 *
+	 */
+	@AfterEach
+	public void tearDown() {
+		try {
+			holder.close();
+			XmlTestHelper.closeEverything();
+		} catch (final Exception e) {
+			e.printStackTrace();
+		}
+	}
 
-  /**
-   * Test seriell.
-   */
-  // @Ignore
-  // @SkipBench
-  // @Bench
-  @Test
-  public void testSeriellOld() {
-    // final String query = "//people/person[@id=\"person3\"]/name";
-    // final String query = "count(//location[text() = \"United States\"])";
-    final String query = "//regions/africa//location";
-    // final String result = "<name>Limor Simone</name>";
-    final int resultNumber = 55;
-    final Axis axis = new XPathAxis(holder.getXmlNodeReadTrx(), query);
-    for (int i = 0; i < resultNumber; i++) {
-      assertTrue(axis.hasNext());
-      axis.nextLong();
-    }
-    assertFalse(axis.hasNext());
-  }
+	/**
+	 * Test seriell.
+	 */
+	// @Ignore
+	// @SkipBench
+	// @Bench
+	@Test
+	public void testSeriellOld() {
+		// final String query = "//people/person[@id=\"person3\"]/name";
+		// final String query = "count(//location[text() = \"United States\"])";
+		final String query = "//regions/africa//location";
+		// final String result = "<name>Limor Simone</name>";
+		final int resultNumber = 55;
+		final Axis axis = new XPathAxis(holder.getXmlNodeReadTrx(), query);
+		for (int i = 0; i < resultNumber; i++) {
+			assertTrue(axis.hasNext());
+			axis.nextLong();
+		}
+		assertFalse(axis.hasNext());
+	}
 
-  /**
-   * Test seriell.
-   */
-  // @Bench
-  @Test
-  public void testSeriellNew() {
-    /* query: //regions/africa//location */
-    final int resultNumber = 55;
-    final var axis = new NestedAxis(new NestedAxis(
-        new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
-            new XmlNameFilter(holder.getXmlNodeReadTrx(), "regions")),
-        new FilterAxis<>(new ChildAxis(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "africa"))),
-                                    new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
-            new XmlNameFilter(holder.getXmlNodeReadTrx(), "location")));
+	/**
+	 * Test seriell.
+	 */
+	// @Bench
+	@Test
+	public void testSeriellNew() {
+		/* query: //regions/africa//location */
+		final int resultNumber = 55;
+		final var axis = new NestedAxis(
+				new NestedAxis(
+						new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
+								new XmlNameFilter(holder.getXmlNodeReadTrx(), "regions")),
+						new FilterAxis<>(new ChildAxis(holder.getXmlNodeReadTrx()),
+								new XmlNameFilter(holder.getXmlNodeReadTrx(), "africa"))),
+				new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
+						new XmlNameFilter(holder.getXmlNodeReadTrx(), "location")));
 
-    for (int i = 0; i < resultNumber; i++) {
-      assertTrue(axis.hasNext());
-      axis.nextLong();
-    }
-    assertFalse(axis.hasNext());
-  }
+		for (int i = 0; i < resultNumber; i++) {
+			assertTrue(axis.hasNext());
+			axis.nextLong();
+		}
+		assertFalse(axis.hasNext());
+	}
 
-  /**
-   * Test concurrent.
-   *
-   */
-  @RepeatedTest(20)
-  public void testConcurrent() {
-    /* query: //regions/africa//location */
-    final int resultNumber = 55;
-    final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final var secondConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final var thirdConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final var firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final var secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final var thirdRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final Axis axis =
-        new NestedAxis(
-            new NestedAxis(
-                new ConcurrentAxis<>(firstConcurrRtx,
-                    new FilterAxis<>(new DescendantAxis(firstRtx, IncludeSelf.YES),
-                        new XmlNameFilter(firstRtx, "regions"))),
-                new ConcurrentAxis<>(secondConcurrRtx,
-                    new FilterAxis<>(new ChildAxis(secondRtx), new XmlNameFilter(secondRtx, "africa")))),
-            new ConcurrentAxis<>(thirdConcurrRtx,
-                new FilterAxis<>(new DescendantAxis(thirdRtx, IncludeSelf.YES), new XmlNameFilter(thirdRtx, "location"))));
+	/**
+	 * Test concurrent.
+	 *
+	 */
+	@RepeatedTest(20)
+	public void testConcurrent() {
+		/* query: //regions/africa//location */
+		final int resultNumber = 55;
+		final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+		final var secondConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+		final var thirdConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+		final var firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+		final var secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+		final var thirdRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+		final Axis axis = new NestedAxis(
+				new NestedAxis(
+						new ConcurrentAxis<>(firstConcurrRtx,
+								new FilterAxis<>(new DescendantAxis(firstRtx, IncludeSelf.YES),
+										new XmlNameFilter(firstRtx, "regions"))),
+						new ConcurrentAxis<>(secondConcurrRtx,
+								new FilterAxis<>(new ChildAxis(secondRtx), new XmlNameFilter(secondRtx, "africa")))),
+				new ConcurrentAxis<>(thirdConcurrRtx, new FilterAxis<>(new DescendantAxis(thirdRtx, IncludeSelf.YES),
+						new XmlNameFilter(thirdRtx, "location"))));
 
-    for (int i = 0; i < resultNumber; i++) {
-      assertTrue(axis.hasNext());
-      axis.nextLong();
-    }
-    assertFalse(axis.hasNext());
-  }
+		for (int i = 0; i < resultNumber; i++) {
+			assertTrue(axis.hasNext());
+			axis.nextLong();
+		}
+		assertFalse(axis.hasNext());
+	}
 
-  /**
-   * Test concurrent.
-   *
-   */
-  // @Bench
-  @RepeatedTest(10)
-  public void testPartConcurrentDescAxis1() {
-    /* query: //regions/africa//location */
-    final int resultNumber = 55;
-    final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final var axis = new NestedAxis(
-        new NestedAxis(
-            new ConcurrentAxis<>(firstConcurrRtx,
-                new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
-                    new XmlNameFilter(holder.getXmlNodeReadTrx(), "regions"))),
-            new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XmlNameFilter(firstConcurrRtx, "africa"))),
-        new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
-            new XmlNameFilter(firstConcurrRtx, "location")));
+	/**
+	 * Test concurrent.
+	 *
+	 */
+	// @Bench
+	@RepeatedTest(10)
+	public void testPartConcurrentDescAxis1() {
+		/* query: //regions/africa//location */
+		final int resultNumber = 55;
+		final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+		final var axis = new NestedAxis(
+				new NestedAxis(
+						new ConcurrentAxis<>(firstConcurrRtx,
+								new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
+										new XmlNameFilter(holder.getXmlNodeReadTrx(), "regions"))),
+						new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XmlNameFilter(firstConcurrRtx, "africa"))),
+				new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
+						new XmlNameFilter(firstConcurrRtx, "location")));
 
-    for (int i = 0; i < resultNumber; i++) {
-      assertTrue(axis.hasNext());
-      axis.nextLong();
-    }
-    assertFalse(axis.hasNext());
-  }
+		for (int i = 0; i < resultNumber; i++) {
+			assertTrue(axis.hasNext());
+			axis.nextLong();
+		}
+		assertFalse(axis.hasNext());
+	}
 
-  /**
-   * Test concurrent.
-   *
-   */
-  // @Bench
-  @RepeatedTest(10)
-  public void testPartConcurrentDescAxis2() {
-    /* query: //regions/africa//location */
-    final int resultNumber = 55;
-    final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final var axis = new NestedAxis(
-        new NestedAxis(
-            new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
-                new XmlNameFilter(firstConcurrRtx, "regions")),
-            new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XmlNameFilter(firstConcurrRtx, "africa"))),
-        new ConcurrentAxis<>(firstConcurrRtx,
-            new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
-                new XmlNameFilter(holder.getXmlNodeReadTrx(), "location"))));
+	/**
+	 * Test concurrent.
+	 *
+	 */
+	// @Bench
+	@RepeatedTest(10)
+	public void testPartConcurrentDescAxis2() {
+		/* query: //regions/africa//location */
+		final int resultNumber = 55;
+		final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+		final var axis = new NestedAxis(
+				new NestedAxis(
+						new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
+								new XmlNameFilter(firstConcurrRtx, "regions")),
+						new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XmlNameFilter(firstConcurrRtx, "africa"))),
+				new ConcurrentAxis<>(firstConcurrRtx,
+						new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
+								new XmlNameFilter(holder.getXmlNodeReadTrx(), "location"))));
 
-    for (int i = 0; i < resultNumber; i++) {
-      assertTrue(axis.hasNext());
-      axis.nextLong();
-    }
-    assertFalse(axis.hasNext());
-  }
+		for (int i = 0; i < resultNumber; i++) {
+			assertTrue(axis.hasNext());
+			axis.nextLong();
+		}
+		assertFalse(axis.hasNext());
+	}
 
-  /*
-   * ########################################################################## ###############
-   */
+	/*
+	 * ##########################################################################
+	 * ###############
+	 */
 
-  // /**
-  // * Test seriell.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Test
-  // public void testSeriellNew2() {
-  // /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
-  // final int resultNumber = 1;
-  //
-  // long date =
-  // holder.getRtx().getItemList().addItem(
-  // new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
-  // .keyForName("xs:string")));
-  // IAxis literal = new LiteralExpr(holder.getRtx(), date);
-  //
-  // final IAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "regions")), new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "item"))), new FilterAxis(
-  // new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
-  // "mailbox"))), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mail"))), new PredicateFilterAxis(
-  // holder.getRtx(),
-  // new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(false, axis.hasNext());
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Test
-  // public void testConcurrent2() {
-  // /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
-  // final int resultNumber = 1;
-  //
-  // long date =
-  // holder.getRtx().getItemList().addItem(
-  // new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
-  // .keyForName("xs:string")));
-  // IAxis literal = new LiteralExpr(holder.getRtx(), date);
-  //
-  // final IAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
-  // holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
-  // "regions"))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "item")))), new ConcurrentAxis(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mailbox")))), new ConcurrentAxis(
-  // holder.getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mail")))), new PredicateFilterAxis(
-  // holder.getRtx(),
-  // new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(false, axis.hasNext());
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Test
-  // public void testPartConcurrent2() {
-  // /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
-  // final int resultNumber = 1;
-  //
-  // long date =
-  // holder.getRtx().getItemList().addItem(
-  // new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
-  // .keyForName("xs:string")));
-  // IAxis literal = new LiteralExpr(holder.getRtx(), date);
-  //
-  // final IAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
-  // holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
-  // "regions"))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "item")))), new FilterAxis(
-  // new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
-  // "mailbox"))), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mail"))), new PredicateFilterAxis(
-  // holder.getRtx(),
-  // new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(false, axis.hasNext());
-  // }
-  //
-  // /*
-  // *
-  // ##########################################################################
-  // * ###############
-  // */
-  //
-  // /**
-  // * Test seriell.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Test
-  // public void testSeriellNew3() {
-  // /* query: //regions//item/mailbox/mail */
-  // final int resultNumber = 2139; // 10mb xmark
-  // // final int resultNumber = 20946; // 100mb xmark
-  // // final int resultNumber = 208497; // 1000mb xmark
-  //
-  // final IAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
-  // holder.getRtx(), "regions")), new FilterAxis(new DescendantAxis(
-  // holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
-  // "item"))), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mailbox"))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail")));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(false, axis.hasNext());
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Test
-  // public void testCompleteConcurrent3() {
-  // /* query: //regions//item/mailbox/mail */
-  // final int resultNumber = 2139; // 10mb xmark
-  // // final int resultNumber = 20946; // 100mb xmark
-  // // final int resultNumber = 208497; // 1000mb xmark
-  //
-  // final IAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new ConcurrentAxis(holder
-  // .getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
-  // EIncludeSelf.YES), new NameFilter(holder.getRtx(), "regions"))),
-  // new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
-  // holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
-  // "item")))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
-  // new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
-  // "mailbox")))), new ConcurrentAxis(holder.getRtx(),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail"))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(false, axis.hasNext());
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Test
-  // public void testPartConcurrent3Axis1() {
-  // /* query: //regions//item/mailbox/mail */
-  // final int resultNumber = 2139; // 10mb xmark
-  // // final int resultNumber = 20946; // 100mb xmark
-  // // final int resultNumber = 208497; // 1000mb xmark
-  //
-  // final IAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new ConcurrentAxis(holder
-  // .getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
-  // EIncludeSelf.YES), new NameFilter(holder.getRtx(), "regions"))),
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "item"))), new FilterAxis(
-  // new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
-  // "mailbox"))), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mail")));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(false, axis.hasNext());
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Test
-  // public void testPartConcurrent3Axis2() {
-  // /* query: //regions//item/mailbox/mail */
-  // final int resultNumber = 2139; // 10mb xmark
-  // // final int resultNumber = 20946; // 100mb xmark
-  // // final int resultNumber = 208497; // 1000mb xmark
-  //
-  // final IAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
-  // holder.getRtx(), "regions")), new ConcurrentAxis(holder.getRtx(),
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "item")))), new FilterAxis(
-  // new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
-  // "mailbox"))), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mail")));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(false, axis.hasNext());
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Test
-  // public void testPartConcurrent3Axis1and2() {
-  // /* query: //regions//item/mailbox/mail */
-  // final int resultNumber = 2139; // 10mb xmark
-  // // final int resultNumber = 20946; // 100mb xmark
-  // // final int resultNumber = 208497; // 1000mb xmark
-  //
-  // final IAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new ConcurrentAxis(holder
-  // .getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
-  // EIncludeSelf.YES), new NameFilter(holder.getRtx(), "regions"))),
-  // new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
-  // holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
-  // "item")))), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mailbox"))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail")));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(false, axis.hasNext());
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Test
-  // public void testPartConcurrent3Axis1and3() {
-  // /* query: //regions//item/mailbox/mail */
-  // final int resultNumber = 2139; // 10mb xmark
-  // // final int resultNumber = 20946; // 100mb xmark
-  // // final int resultNumber = 208497; // 1000mb xmark
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new ConcurrentAxis(holder
-  // .getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
-  // EIncludeSelf.YES), new NameFilter(holder.getRtx(), "regions"))),
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "item"))), new ConcurrentAxis(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mailbox")))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail")));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(false, axis.hasNext());
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Test
-  // public void testPartConcurrent3Axis2and4() {
-  // /* query: //regions//item/mailbox/mail */
-  // final int resultNumber = 2139; // 10mb xmark
-  // // final int resultNumber = 20946; // 100mb xmark
-  // // final int resultNumber = 208497; // 1000mb xmark
-  //
-  // final IAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
-  // holder.getRtx(), "regions")), new ConcurrentAxis(holder.getRtx(),
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "item")))), new FilterAxis(
-  // new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
-  // "mailbox"))), new ConcurrentAxis(holder.getRtx(),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail"))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(false, axis.hasNext());
-  // }
-  //
-  // /*
-  // *
-  // ##########################################################################
-  // * ###############
-  // */
-  //
-  // /**
-  // * Test seriell.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @SkipBench
-  // @Ignore
-  // @Test
-  // public void testSeriellNew4() {
-  // /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
-  // final int resultNumber = 22;
-  //
-  // long date =
-  // holder.getRtx().getItemList().addItem(
-  // new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
-  // .keyForName("xs:string")));
-  // AbsAxis literal = new LiteralExpr(holder.getRtx(), date);
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "regions")), new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "item"))), new FilterAxis(
-  // new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
-  // "mailbox"))), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mail"))), new PredicateFilterAxis(
-  // holder.getRtx(),
-  // new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @SkipBench
-  // @Ignore
-  // @Test
-  // public void testConcurrent4() {
-  // /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
-  // final int resultNumber = 22;
-  //
-  // long date =
-  // holder.getRtx().getItemList().addItem(
-  // new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
-  // .keyForName("xs:string")));
-  // AbsAxis literal = new LiteralExpr(holder.getRtx(), date);
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
-  // holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
-  // "regions"))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "item")))), new ConcurrentAxis(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mailbox")))), new ConcurrentAxis(
-  // holder.getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mail")))), new PredicateFilterAxis(
-  // holder.getRtx(),
-  // new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @SkipBench
-  // @Ignore
-  // @Test
-  // public void testConcurrent4ChildAxis() {
-  // /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
-  // final int resultNumber = 22;
-  //
-  // long date =
-  // holder.getRtx().getItemList().addItem(
-  // new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
-  // .keyForName("xs:string")));
-  // AbsAxis literal = new LiteralExpr(holder.getRtx(), date);
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "regions")), new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "item"))), new ConcurrentAxis(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mailbox")))), new ConcurrentAxis(
-  // holder.getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "mail")))), new PredicateFilterAxis(
-  // holder.getRtx(),
-  // new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @SkipBench
-  // @Ignore
-  // @Test
-  // public void testConcurrent4DescAxis1() {
-  // /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
-  // final int resultNumber = 22;
-  //
-  // long date =
-  // holder.getRtx().getItemList().addItem(
-  // new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
-  // .keyForName("xs:string")));
-  // AbsAxis literal = new LiteralExpr(holder.getRtx(), date);
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
-  // holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
-  // "regions"))), new FilterAxis(new DescendantAxis(holder.getRtx(),
-  // EIncludeSelf.YES), new NameFilter(holder.getRtx(), "item"))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mailbox"))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail"))), new PredicateFilterAxis(holder.getRtx(),
-  // new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @SkipBench
-  // @Ignore
-  // @Test
-  // public void testConcurrent4DescAxis2() {
-  // /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
-  // final int resultNumber = 22;
-  //
-  // long date =
-  // holder.getRtx().getItemList().addItem(
-  // new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
-  // .keyForName("xs:string")));
-  // AbsAxis literal = new LiteralExpr(holder.getRtx(), date);
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "regions")), new ConcurrentAxis(
-  // holder.getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
-  // EIncludeSelf.YES), new NameFilter(holder.getRtx(), "item")))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mailbox"))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail"))), new PredicateFilterAxis(holder.getRtx(),
-  // new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @SkipBench
-  // @Ignore
-  // @Test
-  // public void testConcurrent4DescAxises() {
-  // /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
-  // final int resultNumber = 22;
-  //
-  // long date =
-  // holder.getRtx().getItemList().addItem(
-  // new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
-  // .keyForName("xs:string")));
-  // AbsAxis literal = new LiteralExpr(holder.getRtx(), date);
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "regions")), new ConcurrentAxis(
-  // holder.getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
-  // EIncludeSelf.YES), new NameFilter(holder.getRtx(), "item")))),
-  // new ConcurrentAxis(holder.getRtx(), new FilterAxis(new ChildAxis(holder
-  // .getRtx()), new NameFilter(holder.getRtx(), "mailbox")))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail"))), new PredicateFilterAxis(holder.getRtx(),
-  // new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
-  // .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /*
-  // *
-  // ##########################################################################
-  // * ###############
-  // */
-  //
-  // /**
-  // * Test seriell.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Ignore
-  // @SkipBench
-  // @Test
-  // public void testSeriellNew5() {
-  // /* query: //description//listitem/text */
-  // final int resultNumber = 5363;
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new FilterAxis(new DescendantAxis(holder
-  // .getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
-  // "description")), new FilterAxis(new DescendantAxis(holder.getRtx(),
-  // EIncludeSelf.YES), new NameFilter(holder.getRtx(), "listitem"))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "text")));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Ignore
-  // @SkipBench
-  // @Test
-  // public void testConcurrent5() {
-  // /* query: //description//listitem/text */
-  // final int resultNumber = 5363;
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new ConcurrentAxis(holder.getRtx(),
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "description"))), new ConcurrentAxis(
-  // holder.getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
-  // EIncludeSelf.YES), new NameFilter(holder.getRtx(), "listitem")))),
-  // new ConcurrentAxis(holder.getRtx(), new FilterAxis(new ChildAxis(holder
-  // .getRtx()), new NameFilter(holder.getRtx(), "text"))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Ignore
-  // @SkipBench
-  // @Test
-  // public void testConcurrentPart5Axis1() {
-  // /* query: //description//listitem/text */
-  // final int resultNumber = 5363;
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new ConcurrentAxis(holder.getRtx(),
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "description"))), new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
-  // holder.getRtx(), "listitem"))), new FilterAxis(new ChildAxis(holder
-  // .getRtx()), new NameFilter(holder.getRtx(), "text")));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Ignore
-  // @SkipBench
-  // @Test
-  // public void testConcurrentPart5Axis2() {
-  // /* query: //description//listitem/text */
-  // final int resultNumber = 5363;
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new ConcurrentAxis(holder.getRtx(),
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "description"))), new ConcurrentAxis(
-  // holder.getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
-  // EIncludeSelf.YES), new NameFilter(holder.getRtx(), "listitem")))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "text")));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /*
-  // *
-  // ##########################################################################
-  // * ###############
-  // */
-  //
-  // /**
-  // * Test seriell.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Ignore
-  // @SkipBench
-  // @Test
-  // public void testSeriellNew6() {
-  // /* query: //regions//item/mailbox/mail */
-  // // final int resultNumber = 20946; //100mb xmark
-  // final int resultNumber = 544; // 1000mb xmark
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "regions")), new FilterAxis(
-  // new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
-  // "africa"))), new FilterAxis(new DescendantAxis(holder.getRtx(),
-  // EIncludeSelf.YES), new NameFilter(holder.getRtx(), "item"))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mailbox"))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail")));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Ignore
-  // @SkipBench
-  // @Test
-  // public void testConcurrent6() {
-  // /* query: //regions//item/mailbox/mail */
-  // // final int resultNumber = 20946; //100mb xmark
-  // final int resultNumber = 544; // 1000mb xmark
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
-  // holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
-  // "regions"))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
-  // new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
-  // "africa")))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
-  // holder.getRtx(), "item")))), new ConcurrentAxis(holder.getRtx(),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mailbox")))), new ConcurrentAxis(holder.getRtx(),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail"))));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Ignore
-  // @SkipBench
-  // @Test
-  // public void testPartConcurrent6Axis1() {
-  // /* query: //regions//item/mailbox/mail */
-  // // final int resultNumber = 20946; //100mb xmark
-  // final int resultNumber = 544; // 1000mb xmark
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
-  // holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
-  // "regions"))), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "africa"))), new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
-  // holder.getRtx(), "item"))), new FilterAxis(new ChildAxis(holder
-  // .getRtx()), new NameFilter(holder.getRtx(), "mailbox"))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail")));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Ignore
-  // @SkipBench
-  // @Test
-  // public void testPartConcurrent6Axis2() {
-  // /* query: //regions//item/mailbox/mail */
-  // // final int resultNumber = 20946; //100mb xmark
-  // final int resultNumber = 544; // 1000mb xmark
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-  // new NameFilter(holder.getRtx(), "regions")), new FilterAxis(
-  // new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
-  // "africa"))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
-  // new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
-  // holder.getRtx(), "item")))), new FilterAxis(new ChildAxis(holder
-  // .getRtx()), new NameFilter(holder.getRtx(), "mailbox"))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail")));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
-  //
-  // /**
-  // * Test concurrent.
-  // *
-  // * @throws TTXPathException
-  // */
-  // @Bench
-  // @Ignore
-  // @SkipBench
-  // @Test
-  // public void testPartConcurrent6Axis1and2() {
-  // /* query: //regions//item/mailbox/mail */
-  // // final int resultNumber = 20946; //100mb xmark
-  // final int resultNumber = 544; // 1000mb xmark
-  //
-  // final AbsAxis axis =
-  // new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
-  // new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
-  // holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
-  // "regions"))), new FilterAxis(new ChildAxis(holder.getRtx()),
-  // new NameFilter(holder.getRtx(), "africa"))), new ConcurrentAxis(
-  // holder.getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
-  // EIncludeSelf.YES), new NameFilter(holder.getRtx(), "item")))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mailbox"))),
-  // new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
-  // .getRtx(), "mail")));
-  //
-  // for (int i = 0; i < resultNumber; i++) {
-  // assertEquals(true, axis.hasNext());
-  // axis.nextLong()
-  // }
-  // assertEquals(axis.hasNext(), false);
-  //
-  // }
+	// /**
+	// * Test seriell.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Test
+	// public void testSeriellNew2() {
+	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
+	// final int resultNumber = 1;
+	//
+	// long date =
+	// holder.getRtx().getItemList().addItem(
+	// new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
+	// .keyForName("xs:string")));
+	// IAxis literal = new LiteralExpr(holder.getRtx(), date);
+	//
+	// final IAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "regions")), new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "item"))), new FilterAxis(
+	// new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
+	// "mailbox"))), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mail"))), new PredicateFilterAxis(
+	// holder.getRtx(),
+	// new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(false, axis.hasNext());
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Test
+	// public void testConcurrent2() {
+	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
+	// final int resultNumber = 1;
+	//
+	// long date =
+	// holder.getRtx().getItemList().addItem(
+	// new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
+	// .keyForName("xs:string")));
+	// IAxis literal = new LiteralExpr(holder.getRtx(), date);
+	//
+	// final IAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
+	// holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
+	// "regions"))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "item")))), new ConcurrentAxis(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mailbox")))), new ConcurrentAxis(
+	// holder.getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mail")))), new PredicateFilterAxis(
+	// holder.getRtx(),
+	// new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(false, axis.hasNext());
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Test
+	// public void testPartConcurrent2() {
+	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
+	// final int resultNumber = 1;
+	//
+	// long date =
+	// holder.getRtx().getItemList().addItem(
+	// new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
+	// .keyForName("xs:string")));
+	// IAxis literal = new LiteralExpr(holder.getRtx(), date);
+	//
+	// final IAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
+	// holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
+	// "regions"))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "item")))), new FilterAxis(
+	// new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
+	// "mailbox"))), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mail"))), new PredicateFilterAxis(
+	// holder.getRtx(),
+	// new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(false, axis.hasNext());
+	// }
+	//
+	// /*
+	// *
+	// ##########################################################################
+	// * ###############
+	// */
+	//
+	// /**
+	// * Test seriell.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Test
+	// public void testSeriellNew3() {
+	// /* query: //regions//item/mailbox/mail */
+	// final int resultNumber = 2139; // 10mb xmark
+	// // final int resultNumber = 20946; // 100mb xmark
+	// // final int resultNumber = 208497; // 1000mb xmark
+	//
+	// final IAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
+	// holder.getRtx(), "regions")), new FilterAxis(new DescendantAxis(
+	// holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
+	// "item"))), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mailbox"))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail")));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(false, axis.hasNext());
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Test
+	// public void testCompleteConcurrent3() {
+	// /* query: //regions//item/mailbox/mail */
+	// final int resultNumber = 2139; // 10mb xmark
+	// // final int resultNumber = 20946; // 100mb xmark
+	// // final int resultNumber = 208497; // 1000mb xmark
+	//
+	// final IAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new ConcurrentAxis(holder
+	// .getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
+	// EIncludeSelf.YES), new NameFilter(holder.getRtx(), "regions"))),
+	// new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
+	// holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
+	// "item")))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
+	// new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
+	// "mailbox")))), new ConcurrentAxis(holder.getRtx(),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail"))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(false, axis.hasNext());
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Test
+	// public void testPartConcurrent3Axis1() {
+	// /* query: //regions//item/mailbox/mail */
+	// final int resultNumber = 2139; // 10mb xmark
+	// // final int resultNumber = 20946; // 100mb xmark
+	// // final int resultNumber = 208497; // 1000mb xmark
+	//
+	// final IAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new ConcurrentAxis(holder
+	// .getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
+	// EIncludeSelf.YES), new NameFilter(holder.getRtx(), "regions"))),
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "item"))), new FilterAxis(
+	// new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
+	// "mailbox"))), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mail")));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(false, axis.hasNext());
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Test
+	// public void testPartConcurrent3Axis2() {
+	// /* query: //regions//item/mailbox/mail */
+	// final int resultNumber = 2139; // 10mb xmark
+	// // final int resultNumber = 20946; // 100mb xmark
+	// // final int resultNumber = 208497; // 1000mb xmark
+	//
+	// final IAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
+	// holder.getRtx(), "regions")), new ConcurrentAxis(holder.getRtx(),
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "item")))), new FilterAxis(
+	// new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
+	// "mailbox"))), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mail")));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(false, axis.hasNext());
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Test
+	// public void testPartConcurrent3Axis1and2() {
+	// /* query: //regions//item/mailbox/mail */
+	// final int resultNumber = 2139; // 10mb xmark
+	// // final int resultNumber = 20946; // 100mb xmark
+	// // final int resultNumber = 208497; // 1000mb xmark
+	//
+	// final IAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new ConcurrentAxis(holder
+	// .getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
+	// EIncludeSelf.YES), new NameFilter(holder.getRtx(), "regions"))),
+	// new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
+	// holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
+	// "item")))), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mailbox"))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail")));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(false, axis.hasNext());
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Test
+	// public void testPartConcurrent3Axis1and3() {
+	// /* query: //regions//item/mailbox/mail */
+	// final int resultNumber = 2139; // 10mb xmark
+	// // final int resultNumber = 20946; // 100mb xmark
+	// // final int resultNumber = 208497; // 1000mb xmark
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new ConcurrentAxis(holder
+	// .getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
+	// EIncludeSelf.YES), new NameFilter(holder.getRtx(), "regions"))),
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "item"))), new ConcurrentAxis(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mailbox")))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail")));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(false, axis.hasNext());
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Test
+	// public void testPartConcurrent3Axis2and4() {
+	// /* query: //regions//item/mailbox/mail */
+	// final int resultNumber = 2139; // 10mb xmark
+	// // final int resultNumber = 20946; // 100mb xmark
+	// // final int resultNumber = 208497; // 1000mb xmark
+	//
+	// final IAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
+	// holder.getRtx(), "regions")), new ConcurrentAxis(holder.getRtx(),
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "item")))), new FilterAxis(
+	// new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
+	// "mailbox"))), new ConcurrentAxis(holder.getRtx(),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail"))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(false, axis.hasNext());
+	// }
+	//
+	// /*
+	// *
+	// ##########################################################################
+	// * ###############
+	// */
+	//
+	// /**
+	// * Test seriell.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @SkipBench
+	// @Ignore
+	// @Test
+	// public void testSeriellNew4() {
+	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
+	// final int resultNumber = 22;
+	//
+	// long date =
+	// holder.getRtx().getItemList().addItem(
+	// new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
+	// .keyForName("xs:string")));
+	// AbsAxis literal = new LiteralExpr(holder.getRtx(), date);
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "regions")), new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "item"))), new FilterAxis(
+	// new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
+	// "mailbox"))), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mail"))), new PredicateFilterAxis(
+	// holder.getRtx(),
+	// new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @SkipBench
+	// @Ignore
+	// @Test
+	// public void testConcurrent4() {
+	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
+	// final int resultNumber = 22;
+	//
+	// long date =
+	// holder.getRtx().getItemList().addItem(
+	// new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
+	// .keyForName("xs:string")));
+	// AbsAxis literal = new LiteralExpr(holder.getRtx(), date);
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
+	// holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
+	// "regions"))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "item")))), new ConcurrentAxis(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mailbox")))), new ConcurrentAxis(
+	// holder.getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mail")))), new PredicateFilterAxis(
+	// holder.getRtx(),
+	// new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @SkipBench
+	// @Ignore
+	// @Test
+	// public void testConcurrent4ChildAxis() {
+	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
+	// final int resultNumber = 22;
+	//
+	// long date =
+	// holder.getRtx().getItemList().addItem(
+	// new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
+	// .keyForName("xs:string")));
+	// AbsAxis literal = new LiteralExpr(holder.getRtx(), date);
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "regions")), new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "item"))), new ConcurrentAxis(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mailbox")))), new ConcurrentAxis(
+	// holder.getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "mail")))), new PredicateFilterAxis(
+	// holder.getRtx(),
+	// new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @SkipBench
+	// @Ignore
+	// @Test
+	// public void testConcurrent4DescAxis1() {
+	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
+	// final int resultNumber = 22;
+	//
+	// long date =
+	// holder.getRtx().getItemList().addItem(
+	// new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
+	// .keyForName("xs:string")));
+	// AbsAxis literal = new LiteralExpr(holder.getRtx(), date);
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
+	// holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
+	// "regions"))), new FilterAxis(new DescendantAxis(holder.getRtx(),
+	// EIncludeSelf.YES), new NameFilter(holder.getRtx(), "item"))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mailbox"))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail"))), new PredicateFilterAxis(holder.getRtx(),
+	// new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @SkipBench
+	// @Ignore
+	// @Test
+	// public void testConcurrent4DescAxis2() {
+	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
+	// final int resultNumber = 22;
+	//
+	// long date =
+	// holder.getRtx().getItemList().addItem(
+	// new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
+	// .keyForName("xs:string")));
+	// AbsAxis literal = new LiteralExpr(holder.getRtx(), date);
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "regions")), new ConcurrentAxis(
+	// holder.getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
+	// EIncludeSelf.YES), new NameFilter(holder.getRtx(), "item")))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mailbox"))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail"))), new PredicateFilterAxis(holder.getRtx(),
+	// new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @SkipBench
+	// @Ignore
+	// @Test
+	// public void testConcurrent4DescAxises() {
+	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
+	// final int resultNumber = 22;
+	//
+	// long date =
+	// holder.getRtx().getItemList().addItem(
+	// new AtomicValue(TypedValue.getBytes("02/24/2000"), holder.getRtx()
+	// .keyForName("xs:string")));
+	// AbsAxis literal = new LiteralExpr(holder.getRtx(), date);
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "regions")), new ConcurrentAxis(
+	// holder.getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
+	// EIncludeSelf.YES), new NameFilter(holder.getRtx(), "item")))),
+	// new ConcurrentAxis(holder.getRtx(), new FilterAxis(new ChildAxis(holder
+	// .getRtx()), new NameFilter(holder.getRtx(), "mailbox")))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail"))), new PredicateFilterAxis(holder.getRtx(),
+	// new NestedAxis(new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "date")), new GeneralComp(holder
+	// .getRtx(), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new TextFilter(holder.getRtx())), literal, CompKind.EQ))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /*
+	// *
+	// ##########################################################################
+	// * ###############
+	// */
+	//
+	// /**
+	// * Test seriell.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Ignore
+	// @SkipBench
+	// @Test
+	// public void testSeriellNew5() {
+	// /* query: //description//listitem/text */
+	// final int resultNumber = 5363;
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new FilterAxis(new DescendantAxis(holder
+	// .getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
+	// "description")), new FilterAxis(new DescendantAxis(holder.getRtx(),
+	// EIncludeSelf.YES), new NameFilter(holder.getRtx(), "listitem"))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "text")));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Ignore
+	// @SkipBench
+	// @Test
+	// public void testConcurrent5() {
+	// /* query: //description//listitem/text */
+	// final int resultNumber = 5363;
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new ConcurrentAxis(holder.getRtx(),
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "description"))), new ConcurrentAxis(
+	// holder.getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
+	// EIncludeSelf.YES), new NameFilter(holder.getRtx(), "listitem")))),
+	// new ConcurrentAxis(holder.getRtx(), new FilterAxis(new ChildAxis(holder
+	// .getRtx()), new NameFilter(holder.getRtx(), "text"))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Ignore
+	// @SkipBench
+	// @Test
+	// public void testConcurrentPart5Axis1() {
+	// /* query: //description//listitem/text */
+	// final int resultNumber = 5363;
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new ConcurrentAxis(holder.getRtx(),
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "description"))), new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
+	// holder.getRtx(), "listitem"))), new FilterAxis(new ChildAxis(holder
+	// .getRtx()), new NameFilter(holder.getRtx(), "text")));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Ignore
+	// @SkipBench
+	// @Test
+	// public void testConcurrentPart5Axis2() {
+	// /* query: //description//listitem/text */
+	// final int resultNumber = 5363;
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new ConcurrentAxis(holder.getRtx(),
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "description"))), new ConcurrentAxis(
+	// holder.getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
+	// EIncludeSelf.YES), new NameFilter(holder.getRtx(), "listitem")))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "text")));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /*
+	// *
+	// ##########################################################################
+	// * ###############
+	// */
+	//
+	// /**
+	// * Test seriell.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Ignore
+	// @SkipBench
+	// @Test
+	// public void testSeriellNew6() {
+	// /* query: //regions//item/mailbox/mail */
+	// // final int resultNumber = 20946; //100mb xmark
+	// final int resultNumber = 544; // 1000mb xmark
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "regions")), new FilterAxis(
+	// new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
+	// "africa"))), new FilterAxis(new DescendantAxis(holder.getRtx(),
+	// EIncludeSelf.YES), new NameFilter(holder.getRtx(), "item"))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mailbox"))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail")));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Ignore
+	// @SkipBench
+	// @Test
+	// public void testConcurrent6() {
+	// /* query: //regions//item/mailbox/mail */
+	// // final int resultNumber = 20946; //100mb xmark
+	// final int resultNumber = 544; // 1000mb xmark
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
+	// holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
+	// "regions"))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
+	// new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
+	// "africa")))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
+	// holder.getRtx(), "item")))), new ConcurrentAxis(holder.getRtx(),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mailbox")))), new ConcurrentAxis(holder.getRtx(),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail"))));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Ignore
+	// @SkipBench
+	// @Test
+	// public void testPartConcurrent6Axis1() {
+	// /* query: //regions//item/mailbox/mail */
+	// // final int resultNumber = 20946; //100mb xmark
+	// final int resultNumber = 544; // 1000mb xmark
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
+	// holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
+	// "regions"))), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "africa"))), new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
+	// holder.getRtx(), "item"))), new FilterAxis(new ChildAxis(holder
+	// .getRtx()), new NameFilter(holder.getRtx(), "mailbox"))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail")));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Ignore
+	// @SkipBench
+	// @Test
+	// public void testPartConcurrent6Axis2() {
+	// /* query: //regions//item/mailbox/mail */
+	// // final int resultNumber = 20946; //100mb xmark
+	// final int resultNumber = 544; // 1000mb xmark
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+	// new NameFilter(holder.getRtx(), "regions")), new FilterAxis(
+	// new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
+	// "africa"))), new ConcurrentAxis(holder.getRtx(), new FilterAxis(
+	// new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
+	// holder.getRtx(), "item")))), new FilterAxis(new ChildAxis(holder
+	// .getRtx()), new NameFilter(holder.getRtx(), "mailbox"))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail")));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
+	//
+	// /**
+	// * Test concurrent.
+	// *
+	// * @throws TTXPathException
+	// */
+	// @Bench
+	// @Ignore
+	// @SkipBench
+	// @Test
+	// public void testPartConcurrent6Axis1and2() {
+	// /* query: //regions//item/mailbox/mail */
+	// // final int resultNumber = 20946; //100mb xmark
+	// final int resultNumber = 544; // 1000mb xmark
+	//
+	// final AbsAxis axis =
+	// new NestedAxis(new NestedAxis(new NestedAxis(new NestedAxis(
+	// new ConcurrentAxis(holder.getRtx(), new FilterAxis(new DescendantAxis(
+	// holder.getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
+	// "regions"))), new FilterAxis(new ChildAxis(holder.getRtx()),
+	// new NameFilter(holder.getRtx(), "africa"))), new ConcurrentAxis(
+	// holder.getRtx(), new FilterAxis(new DescendantAxis(holder.getRtx(),
+	// EIncludeSelf.YES), new NameFilter(holder.getRtx(), "item")))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mailbox"))),
+	// new FilterAxis(new ChildAxis(holder.getRtx()), new NameFilter(holder
+	// .getRtx(), "mail")));
+	//
+	// for (int i = 0; i < resultNumber; i++) {
+	// assertEquals(true, axis.hasNext());
+	// axis.nextLong()
+	// }
+	// assertEquals(axis.hasNext(), false);
+	//
+	// }
 
-  /*
-   * ########################################################################## ###############
-   */
+	/*
+	 * ##########################################################################
+	 * ###############
+	 */
 
 }

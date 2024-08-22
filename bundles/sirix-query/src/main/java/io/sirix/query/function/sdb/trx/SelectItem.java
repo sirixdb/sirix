@@ -19,8 +19,8 @@ import io.sirix.query.node.XmlDBNode;
 
 /**
  * <p>
- * Function for selecting a node denoted by its node key. The first parameter is the context node.
- * Supported signature is:
+ * Function for selecting a node denoted by its node key. The first parameter is
+ * the context node. Supported signature is:
  * </p>
  * <ul>
  * <li><code>sdb:select-item($doc as xs:structured-item, $nodeKey as xs:integer) as xs:structured-item</code></li>
@@ -31,34 +31,36 @@ import io.sirix.query.node.XmlDBNode;
  */
 public final class SelectItem extends AbstractFunction {
 
-  /** Move to function name. */
-  public final static QNm SELECT_NODE = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "select-item");
+	/** Move to function name. */
+	public final static QNm SELECT_NODE = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "select-item");
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public SelectItem(final QNm name, final Signature signature) {
-    super(name, signature, true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public SelectItem(final QNm name, final Signature signature) {
+		super(name, signature, true);
+	}
 
-  @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
-    final NodeReadOnlyTrx rtx = item.getTrx();
-    final long nodeKey = FunUtil.getLong(args, 1, "nodeKey", 0, null, true);
+	@Override
+	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+		final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
+		final NodeReadOnlyTrx rtx = item.getTrx();
+		final long nodeKey = FunUtil.getLong(args, 1, "nodeKey", 0, null, true);
 
-    if (rtx.moveTo(nodeKey)) {
-      if (rtx instanceof XmlNodeReadOnlyTrx) {
-        return new XmlDBNode((XmlNodeReadOnlyTrx) rtx, ((XmlDBNode) item).getCollection());
-      } else if (rtx instanceof JsonNodeReadOnlyTrx) {
-        final JsonDBItem jsonItem = (JsonDBItem) item;
-        return new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtx, jsonItem.getCollection());
-      }
-    }
+		if (rtx.moveTo(nodeKey)) {
+			if (rtx instanceof XmlNodeReadOnlyTrx) {
+				return new XmlDBNode((XmlNodeReadOnlyTrx) rtx, ((XmlDBNode) item).getCollection());
+			} else if (rtx instanceof JsonNodeReadOnlyTrx) {
+				final JsonDBItem jsonItem = (JsonDBItem) item;
+				return new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtx, jsonItem.getCollection());
+			}
+		}
 
-    throw new QueryException(new QNm("Couldn't select node."));
-  }
+		throw new QueryException(new QNm("Couldn't select node."));
+	}
 }

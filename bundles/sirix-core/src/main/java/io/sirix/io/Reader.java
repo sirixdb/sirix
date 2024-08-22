@@ -31,7 +31,6 @@ package io.sirix.io;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
@@ -52,65 +51,75 @@ import java.util.concurrent.Executors;
  */
 public interface Reader extends AutoCloseable {
 
-  /**
-   * Hash function to use for hashing pages.
-   */
-  HashFunction hashFunction = Hashing.sha256();
+	/**
+	 * Hash function to use for hashing pages.
+	 */
+	HashFunction hashFunction = Hashing.sha256();
 
-  /**
-   * Executor Service used for the async read.
-   */
-  ExecutorService POOL = Executors.newVirtualThreadPerTaskExecutor();
+	/**
+	 * Executor Service used for the async read.
+	 */
+	ExecutorService POOL = Executors.newVirtualThreadPerTaskExecutor();
 
-  /**
-   * Getting the first reference of the {@code Uberpage}.
-   *
-   * @return a {@link PageReference} with link to the first reference
-   * @throws SirixIOException if something bad happens
-   */
-  PageReference readUberPageReference();
+	/**
+	 * Getting the first reference of the {@code Uberpage}.
+	 *
+	 * @return a {@link PageReference} with link to the first reference
+	 * @throws SirixIOException
+	 *             if something bad happens
+	 */
+	PageReference readUberPageReference();
 
-  /**
-   * Getting a reference for the given pointer.
-   *
-   * @param key    the reference for the page to be determined
-   * @param resourceConfiguration the resource configuration
-   * @return a {@link BitmapReferencesPage} as the base for a page
-   * @throws SirixIOException if something bad happens during read
-   */
-  default CompletableFuture<? extends Page> readAsync(PageReference key,
-      @NonNull ResourceConfiguration resourceConfiguration) {
-    return CompletableFuture.supplyAsync(() -> read(key, resourceConfiguration), POOL);
-  }
+	/**
+	 * Getting a reference for the given pointer.
+	 *
+	 * @param key
+	 *            the reference for the page to be determined
+	 * @param resourceConfiguration
+	 *            the resource configuration
+	 * @return a {@link BitmapReferencesPage} as the base for a page
+	 * @throws SirixIOException
+	 *             if something bad happens during read
+	 */
+	default CompletableFuture<? extends Page> readAsync(PageReference key,
+			@NonNull ResourceConfiguration resourceConfiguration) {
+		return CompletableFuture.supplyAsync(() -> read(key, resourceConfiguration), POOL);
+	}
 
-  /**
-   * Getting a reference for the given pointer.
-   *
-   * @param key                   the reference for the page to be determined
-   * @param resourceConfiguration the resource configuration
-   * @return a {@link BitmapReferencesPage} as the base for a page
-   * @throws SirixIOException if something bad happens during read
-   */
-  Page read(PageReference key, @NonNull ResourceConfiguration resourceConfiguration);
+	/**
+	 * Getting a reference for the given pointer.
+	 *
+	 * @param key
+	 *            the reference for the page to be determined
+	 * @param resourceConfiguration
+	 *            the resource configuration
+	 * @return a {@link BitmapReferencesPage} as the base for a page
+	 * @throws SirixIOException
+	 *             if something bad happens during read
+	 */
+	Page read(PageReference key, @NonNull ResourceConfiguration resourceConfiguration);
 
-  /**
-   * Closing the storage.
-   *
-   * @throws SirixIOException if something bad happens while access
-   */
-  @Override
-  void close();
+	/**
+	 * Closing the storage.
+	 *
+	 * @throws SirixIOException
+	 *             if something bad happens while access
+	 */
+	@Override
+	void close();
 
-  /**
-   * Read the revision root page.
-   *
-   * @param revision    the revision to read
-   * @param resourceConfiguration the resource configuration
-   * @return the revision root page
-   */
-  RevisionRootPage readRevisionRootPage(int revision, ResourceConfiguration resourceConfiguration);
+	/**
+	 * Read the revision root page.
+	 *
+	 * @param revision
+	 *            the revision to read
+	 * @param resourceConfiguration
+	 *            the resource configuration
+	 * @return the revision root page
+	 */
+	RevisionRootPage readRevisionRootPage(int revision, ResourceConfiguration resourceConfiguration);
 
-  Instant readRevisionRootPageCommitTimestamp(int revision);
+	Instant readRevisionRootPageCommitTimestamp(int revision);
 
-  RevisionFileData getRevisionFileData(int revision);
+	RevisionFileData getRevisionFileData(int revision);
 }

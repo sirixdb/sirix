@@ -47,47 +47,47 @@ import org.junit.Test;
 import java.nio.file.Path;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class XmlGetNodeKeyTest {
-  /**
-   * The {@link Holder} instance.
-   */
-  private Holder holder;
+	/**
+	 * The {@link Holder} instance.
+	 */
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    holder = Holder.generateWtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		holder = Holder.generateWtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void test() throws QueryException {
-    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().commit();
-    holder.getXdmNodeWriteTrx().close();
+	@Test
+	public void test() throws QueryException {
+		XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
+		holder.getXdmNodeWriteTrx().commit();
+		holder.getXdmNodeWriteTrx().close();
 
-    final Path database = PATHS.PATH1.getFile();
+		final Path database = PATHS.PATH1.getFile();
 
-    // Initialize query context and store.
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
-      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
+		// Initialize query context and store.
+		try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+			final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
-      final String dbName = database.toString();
-      final String resName = XmlTestHelper.RESOURCE;
+			final String dbName = database.toString();
+			final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq1 =
-          "xquery version \"1.0\";declare namespace p=\"http://www.w3.org/1999/html\"; sdb:nodekey(xml:doc('" + dbName
-              + "','" + resName + "')/p:a/b[1])";
+			final String xq1 = "xquery version \"1.0\";declare namespace p=\"http://www.w3.org/1999/html\"; sdb:nodekey(xml:doc('"
+					+ dbName + "','" + resName + "')/p:a/b[1])";
 
-      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
-      Assert.assertEquals(new Int64(5), query.execute(ctx));
-    }
-  }
+			final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
+			Assert.assertEquals(new Int64(5), query.execute(ctx));
+		}
+	}
 }

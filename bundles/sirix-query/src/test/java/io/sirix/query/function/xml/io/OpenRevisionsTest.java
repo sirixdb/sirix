@@ -53,63 +53,64 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class OpenRevisionsTest {
-  /**
-   * The {@link Holder} instance.
-   */
-  private Holder holder;
+	/**
+	 * The {@link Holder} instance.
+	 */
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    holder = Holder.generateWtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		holder = Holder.generateWtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void test() throws IOException, QueryException {
-    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().close();
+	@Test
+	public void test() throws IOException, QueryException {
+		XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
+		holder.getXdmNodeWriteTrx().close();
 
-    final Instant revisionTwoTimestamp;
+		final Instant revisionTwoTimestamp;
 
-    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1)) {
-      revisionTwoTimestamp = rtx.getRevisionTimestamp();
-    }
+		try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1)) {
+			revisionTwoTimestamp = rtx.getRevisionTimestamp();
+		}
 
-    final ZonedDateTime dateTime = ZonedDateTime.ofInstant(revisionTwoTimestamp, ZoneId.of("UTC"));
+		final ZonedDateTime dateTime = ZonedDateTime.ofInstant(revisionTwoTimestamp, ZoneId.of("UTC"));
 
-    final Path database = XmlTestHelper.PATHS.PATH1.getFile();
+		final Path database = XmlTestHelper.PATHS.PATH1.getFile();
 
-    // Initialize query context and store.
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
-      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
+		// Initialize query context and store.
+		try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+			final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
-      final String dbName = database.toString();
-      final String resName = XmlTestHelper.RESOURCE;
+			final String dbName = database.toString();
+			final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq1 = "xml:open-revisions('" + dbName + "','" + resName + "', xs:dateTime(\""
-          + DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(dateTime)
-          + "\"), xs:dateTime(\"2200-05-01T00:00:00-00:00\"))";
+			final String xq1 = "xml:open-revisions('" + dbName + "','" + resName + "', xs:dateTime(\""
+					+ DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(dateTime)
+					+ "\"), xs:dateTime(\"2200-05-01T00:00:00-00:00\"))";
 
-      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
-      final Sequence nodes = query.evaluate(ctx);
+			final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
+			final Sequence nodes = query.evaluate(ctx);
 
-      try (final Iter iter = nodes.iterate()) {
-        Assert.assertNotNull(iter.next());
-        Assert.assertNotNull(iter.next());
-        Assert.assertNotNull(iter.next());
-        Assert.assertNotNull(iter.next());
-        Assert.assertNotNull(iter.next());
-        Assert.assertNull(iter.next());
-      }
-    }
-  }
+			try (final Iter iter = nodes.iterate()) {
+				Assert.assertNotNull(iter.next());
+				Assert.assertNotNull(iter.next());
+				Assert.assertNotNull(iter.next());
+				Assert.assertNotNull(iter.next());
+				Assert.assertNotNull(iter.next());
+				Assert.assertNull(iter.next());
+			}
+		}
+	}
 }

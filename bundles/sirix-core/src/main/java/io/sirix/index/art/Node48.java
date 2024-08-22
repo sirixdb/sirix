@@ -4,15 +4,17 @@ import java.util.Arrays;
 
 class Node48 extends InnerNode {
 	/*
-		48 * 8 (child pointers) + 256 = 640 bytes
-	*/
+	 * 48 * 8 (child pointers) + 256 = 640 bytes
+	 */
 
 	static final int NODE_SIZE = 48;
 	static final int KEY_INDEX_SIZE = 256;
 
-	// for partial keys of one byte size, you index directly into this array to find the
+	// for partial keys of one byte size, you index directly into this array to find
+	// the
 	// array index of the child pointer array
-	// the index value can only be between 0 and 47 (to index into the child pointer array)
+	// the index value can only be between 0 and 47 (to index into the child pointer
+	// array)
 	private final byte[] keyIndex = new byte[KEY_INDEX_SIZE];
 
 	// so that when you use the partial key to index into keyIndex,
@@ -74,7 +76,7 @@ class Node48 extends InnerNode {
 		assert keyIndex[index] == ABSENT;
 		// find a null place, left fragmented by a removeChild or has always been null
 		byte insertPosition = 0;
-		for (; this.children[insertPosition] != null && insertPosition < NODE_SIZE; insertPosition++) ;
+		for (; this.children[insertPosition] != null && insertPosition < NODE_SIZE; insertPosition++);
 
 		this.children[insertPosition] = child;
 		keyIndex[index] = insertPosition;
@@ -123,7 +125,8 @@ class Node48 extends InnerNode {
 	public Node first() {
 		assert noOfChildren > Node16.NODE_SIZE;
 		int i = 0;
-		while(keyIndex[i] == ABSENT)i++;
+		while (keyIndex[i] == ABSENT)
+			i++;
 		return children[keyIndex[i]];
 	}
 
@@ -131,7 +134,8 @@ class Node48 extends InnerNode {
 	public Node last() {
 		assert noOfChildren > Node16.NODE_SIZE;
 		int i = KEY_INDEX_SIZE - 1;
-        while(keyIndex[i] == ABSENT)i--;
+		while (keyIndex[i] == ABSENT)
+			i--;
 		return children[keyIndex[i]];
 	}
 
@@ -179,7 +183,6 @@ class Node48 extends InnerNode {
 		}
 		return null;
 	}
-
 
 	byte[] getKeyIndex() {
 		return keyIndex;

@@ -15,23 +15,23 @@ import java.util.Set;
 
 public final class XmlPCRCollector extends AbstractPCRCollector implements PCRCollector {
 
-  private final NodeReadOnlyTrx mRtx;
+	private final NodeReadOnlyTrx mRtx;
 
-  public XmlPCRCollector(final XmlNodeReadOnlyTrx rtx) {
-    mRtx = Objects.requireNonNull(rtx, "The transaction must not be null.");
-  }
+	public XmlPCRCollector(final XmlNodeReadOnlyTrx rtx) {
+		mRtx = Objects.requireNonNull(rtx, "The transaction must not be null.");
+	}
 
-  @Override
-  public PCRValue getPCRsForPaths(Set<Path<QNm>> paths) {
-    final PathSummaryReader reader = mRtx instanceof XmlNodeTrx
-        ? ((XmlNodeTrx) mRtx).getPathSummary()
-        : mRtx.getResourceSession().openPathSummary(mRtx.getRevisionNumber());
-    try {
-      return getPcrValue(paths, reader);
-    } finally {
-      if (!(mRtx instanceof XmlNodeTrx)) {
-        reader.close();
-      }
-    }
-  }
+	@Override
+	public PCRValue getPCRsForPaths(Set<Path<QNm>> paths) {
+		final PathSummaryReader reader = mRtx instanceof XmlNodeTrx
+				? ((XmlNodeTrx) mRtx).getPathSummary()
+				: mRtx.getResourceSession().openPathSummary(mRtx.getRevisionNumber());
+		try {
+			return getPcrValue(paths, reader);
+		} finally {
+			if (!(mRtx instanceof XmlNodeTrx)) {
+				reader.close();
+			}
+		}
+	}
 }

@@ -45,143 +45,134 @@ import java.nio.file.Path;
  */
 public final class FileStorage implements IOStorage {
 
-  /**
-   * Data file name.
-   */
-  private static final String FILENAME = "sirix.data";
+	/**
+	 * Data file name.
+	 */
+	private static final String FILENAME = "sirix.data";
 
-  /**
-   * Revisions file name.
-   */
-  private static final String REVISIONS_FILENAME = "sirix.revisions";
+	/**
+	 * Revisions file name.
+	 */
+	private static final String REVISIONS_FILENAME = "sirix.revisions";
 
-  /**
-   * Instance to storage.
-   */
-  private final Path file;
+	/**
+	 * Instance to storage.
+	 */
+	private final Path file;
 
-  /**
-   * Byte handler pipeline.
-   */
-  private final ByteHandlerPipeline byteHandlerPipeline;
+	/**
+	 * Byte handler pipeline.
+	 */
+	private final ByteHandlerPipeline byteHandlerPipeline;
 
-  /**
-   * The revision file cache.
-   */
-  private final AsyncCache<Integer, RevisionFileData> cache;
+	/**
+	 * The revision file cache.
+	 */
+	private final AsyncCache<Integer, RevisionFileData> cache;
 
-  /**
-   * Constructor.
-   *
-   * @param resourceConfig the resource configuration
-   */
-  public FileStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache) {
-    assert resourceConfig != null : "resourceConfig must not be null!";
-    file = resourceConfig.resourcePath;
-    byteHandlerPipeline = resourceConfig.byteHandlePipeline;
-    this.cache = cache;
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param resourceConfig
+	 *            the resource configuration
+	 */
+	public FileStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache) {
+		assert resourceConfig != null : "resourceConfig must not be null!";
+		file = resourceConfig.resourcePath;
+		byteHandlerPipeline = resourceConfig.byteHandlePipeline;
+		this.cache = cache;
+	}
 
-  @Override
-  public Reader createReader() {
-    try {
-      final Path dataFilePath = createDirectoriesAndFile();
-      final Path revisionsOffsetFilePath = getRevisionFilePath();
+	@Override
+	public Reader createReader() {
+		try {
+			final Path dataFilePath = createDirectoriesAndFile();
+			final Path revisionsOffsetFilePath = getRevisionFilePath();
 
-      if (!Files.exists(revisionsOffsetFilePath)) {
-        Files.createFile(revisionsOffsetFilePath);
-      }
+			if (!Files.exists(revisionsOffsetFilePath)) {
+				Files.createFile(revisionsOffsetFilePath);
+			}
 
-      return new FileReader(new RandomAccessFile(dataFilePath.toFile(), "r"),
-                            new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"),
-                            new ByteHandlerPipeline(byteHandlerPipeline),
-                            SerializationType.DATA,
-                            new PagePersister(),
-                            cache.synchronous());
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
-    }
-  }
+			return new FileReader(new RandomAccessFile(dataFilePath.toFile(), "r"),
+					new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"),
+					new ByteHandlerPipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister(),
+					cache.synchronous());
+		} catch (final IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
 
-  private Path createDirectoriesAndFile() throws IOException {
-    final Path concreteStorage = getDataFilePath();
+	private Path createDirectoriesAndFile() throws IOException {
+		final Path concreteStorage = getDataFilePath();
 
-    if (!Files.exists(concreteStorage)) {
-      Files.createDirectories(concreteStorage.getParent());
-      Files.createFile(concreteStorage);
-    }
+		if (!Files.exists(concreteStorage)) {
+			Files.createDirectories(concreteStorage.getParent());
+			Files.createFile(concreteStorage);
+		}
 
-    return concreteStorage;
-  }
+		return concreteStorage;
+	}
 
-  @Override
-  public Writer createWriter() {
-    try {
-      final Path dataFilePath = createDirectoriesAndFile();
-      final Path revisionsOffsetFilePath = getRevisionFilePath();
+	@Override
+	public Writer createWriter() {
+		try {
+			final Path dataFilePath = createDirectoriesAndFile();
+			final Path revisionsOffsetFilePath = getRevisionFilePath();
 
-      if (!Files.exists(revisionsOffsetFilePath)) {
-        Files.createFile(revisionsOffsetFilePath);
-      }
+			if (!Files.exists(revisionsOffsetFilePath)) {
+				Files.createFile(revisionsOffsetFilePath);
+			}
 
-      final var randomAccessDataFile = new RandomAccessFile(dataFilePath.toFile(), "rw");
-      final var randomAccessRevisionDataFile = new RandomAccessFile(revisionsOffsetFilePath.toFile(), "rw");
-      final var byteHandlerPipe = new ByteHandlerPipeline(byteHandlerPipeline);
-      final var serializationType = SerializationType.DATA;
-      final var pagePersister = new PagePersister();
-      final var reader = new FileReader(randomAccessDataFile,
-                                        randomAccessRevisionDataFile,
-                                        byteHandlerPipe,
-                                        serializationType,
-                                        pagePersister,
-                                        cache.synchronous());
+			final var randomAccessDataFile = new RandomAccessFile(dataFilePath.toFile(), "rw");
+			final var randomAccessRevisionDataFile = new RandomAccessFile(revisionsOffsetFilePath.toFile(), "rw");
+			final var byteHandlerPipe = new ByteHandlerPipeline(byteHandlerPipeline);
+			final var serializationType = SerializationType.DATA;
+			final var pagePersister = new PagePersister();
+			final var reader = new FileReader(randomAccessDataFile, randomAccessRevisionDataFile, byteHandlerPipe,
+					serializationType, pagePersister, cache.synchronous());
 
-      return new FileWriter(randomAccessDataFile,
-                            randomAccessRevisionDataFile,
-                            serializationType,
-                            pagePersister,
-                            cache,
-                            reader);
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
-    }
-  }
+			return new FileWriter(randomAccessDataFile, randomAccessRevisionDataFile, serializationType, pagePersister,
+					cache, reader);
+		} catch (final IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
 
-  @Override
-  public void close() {
-    // not used over here
-  }
+	@Override
+	public void close() {
+		// not used over here
+	}
 
-  /**
-   * Getting path for data file.
-   *
-   * @return the path for this data file
-   */
-  private Path getDataFilePath() {
-    return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
-  }
+	/**
+	 * Getting path for data file.
+	 *
+	 * @return the path for this data file
+	 */
+	private Path getDataFilePath() {
+		return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
+	}
 
-  /**
-   * Getting concrete storage for this file.
-   *
-   * @return the concrete storage for this database
-   */
-  private Path getRevisionFilePath() {
-    return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
-  }
+	/**
+	 * Getting concrete storage for this file.
+	 *
+	 * @return the concrete storage for this database
+	 */
+	private Path getRevisionFilePath() {
+		return file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
+	}
 
-  @Override
-  public boolean exists() {
-    final Path storage = getDataFilePath();
-    try {
-      return Files.exists(storage) && Files.size(storage) > 0;
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
-    }
-  }
+	@Override
+	public boolean exists() {
+		final Path storage = getDataFilePath();
+		try {
+			return Files.exists(storage) && Files.size(storage) > 0;
+		} catch (final IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
 
-  @Override
-  public ByteHandler getByteHandler() {
-    return byteHandlerPipeline;
-  }
+	@Override
+	public ByteHandler getByteHandler() {
+		return byteHandlerPipeline;
+	}
 }

@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -33,98 +33,102 @@ import io.sirix.utils.TypedValue;
 
 /**
  * <p>
- * The castable expression tests whether a given value is castable into a given target type. The
- * target type must be an atomic type that is in the in-scope schema types [err:XPST0051]. In
- * addition, the target type cannot be xs:NOTATION or xs:anyAtomicType [err:XPST0080]. The optional
- * occurrence indicator "?" denotes that an empty sequence is permitted.
+ * The castable expression tests whether a given value is castable into a given
+ * target type. The target type must be an atomic type that is in the in-scope
+ * schema types [err:XPST0051]. In addition, the target type cannot be
+ * xs:NOTATION or xs:anyAtomicType [err:XPST0080]. The optional occurrence
+ * indicator "?" denotes that an empty sequence is permitted.
  * </p>
  * <p>
- * The expression V castable as T returns true if the value V can be successfully cast into the
- * target type T by using a cast expression; otherwise it returns false. The castable expression can
- * be used as a predicate to avoid errors at evaluation time. It can also be used to select an
- * appropriate type for processing of a given value.
+ * The expression V castable as T returns true if the value V can be
+ * successfully cast into the target type T by using a cast expression;
+ * otherwise it returns false. The castable expression can be used as a
+ * predicate to avoid errors at evaluation time. It can also be used to select
+ * an appropriate type for processing of a given value.
  * </p>
  */
 public class CastableExpr extends AbstractExpression {
 
-  /** The input expression to cast to a specified target expression. */
-  private final Axis mSourceExpr;
+	/** The input expression to cast to a specified target expression. */
+	private final Axis mSourceExpr;
 
-  /** The type, to which the input expression should be cast to. */
-  private final Type mTargetType;
+	/** The type, to which the input expression should be cast to. */
+	private final Type mTargetType;
 
-  /** Defines, whether an empty sequence can be casted to any target type. */
-  private final boolean mPermitEmptySeq;
+	/** Defines, whether an empty sequence can be casted to any target type. */
+	private final boolean mPermitEmptySeq;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param rtx Exclusive (immutable) trx to iterate with.
-   * @param inputExpr input expression, that's castablity will be tested.
-   * @param mTarget Type to test, whether the input expression can be casted to.
-   */
-  public CastableExpr(final XmlNodeReadOnlyTrx rtx, final Axis inputExpr, final SingleType mTarget) {
+	/**
+	 * Constructor. Initializes the internal state.
+	 *
+	 * @param rtx
+	 *            Exclusive (immutable) trx to iterate with.
+	 * @param inputExpr
+	 *            input expression, that's castablity will be tested.
+	 * @param mTarget
+	 *            Type to test, whether the input expression can be casted to.
+	 */
+	public CastableExpr(final XmlNodeReadOnlyTrx rtx, final Axis inputExpr, final SingleType mTarget) {
 
-    super(rtx);
-    mSourceExpr = inputExpr;
-    mTargetType = mTarget.getAtomic();
-    mPermitEmptySeq = mTarget.hasInterogation();
+		super(rtx);
+		mSourceExpr = inputExpr;
+		mTargetType = mTarget.getAtomic();
+		mPermitEmptySeq = mTarget.hasInterogation();
 
-  }
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void reset(final long mNodeKey) {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void reset(final long mNodeKey) {
 
-    super.reset(mNodeKey);
-    if (mSourceExpr != null) {
-      mSourceExpr.reset(mNodeKey);
-    }
-  }
+		super.reset(mNodeKey);
+		if (mSourceExpr != null) {
+			mSourceExpr.reset(mNodeKey);
+		}
+	}
 
-  /**
-   * {@inheritDoc}
-   * 
-   */
-  @Override
-  public void evaluate() throws SirixXPathException {
+	/**
+	 * {@inheritDoc}
+	 *
+	 */
+	@Override
+	public void evaluate() throws SirixXPathException {
 
-    // defines if current item is castable to the target type, or not
-    boolean isCastable;
+		// defines if current item is castable to the target type, or not
+		boolean isCastable;
 
-    // atomic type must not be xs:anyAtomicType or xs:NOTATION
-    if (mTargetType == Type.ANY_ATOMIC_TYPE || mTargetType == Type.NOTATION) {
-      throw new XPathError(ErrorType.XPST0080);
-    }
+		// atomic type must not be xs:anyAtomicType or xs:NOTATION
+		if (mTargetType == Type.ANY_ATOMIC_TYPE || mTargetType == Type.NOTATION) {
+			throw new XPathError(ErrorType.XPST0080);
+		}
 
-    if (mSourceExpr.hasNext()) { // result sequence > 0
-      key = mSourceExpr.next();
+		if (mSourceExpr.hasNext()) { // result sequence > 0
+			key = mSourceExpr.next();
 
-      final Type sourceType = Type.getType(asXmlNodeReadTrx().getTypeKey());
-      final String sourceValue = asXmlNodeReadTrx().getValue();
+			final Type sourceType = Type.getType(asXmlNodeReadTrx().getTypeKey());
+			final String sourceValue = asXmlNodeReadTrx().getValue();
 
-      // determine castability
-      isCastable = sourceType.isCastableTo(mTargetType, sourceValue);
+			// determine castability
+			isCastable = sourceType.isCastableTo(mTargetType, sourceValue);
 
-      // if the result sequence of the input expression has more than one
-      // item, a type error is raised.
-      if (mSourceExpr.hasNext()) { // result sequence > 1
-        throw new XPathError(ErrorType.XPTY0004);
-      }
+			// if the result sequence of the input expression has more than one
+			// item, a type error is raised.
+			if (mSourceExpr.hasNext()) { // result sequence > 1
+				throw new XPathError(ErrorType.XPTY0004);
+			}
 
-    } else { // result sequence = 0 (empty sequence)
+		} else { // result sequence = 0 (empty sequence)
 
-      // empty sequence is allowed.
-      isCastable = mPermitEmptySeq;
+			// empty sequence is allowed.
+			isCastable = mPermitEmptySeq;
 
-    }
+		}
 
-    // create result item and move transaction to it.
-    final int mItemKey = asXmlNodeReadTrx().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(isCastable)),
-                        asXmlNodeReadTrx().keyForName("xs:boolean")));
-    key = mItemKey;
-  }
+		// create result item and move transaction to it.
+		final int mItemKey = asXmlNodeReadTrx().getItemList().addItem(new AtomicValue(
+				TypedValue.getBytes(Boolean.toString(isCastable)), asXmlNodeReadTrx().keyForName("xs:boolean")));
+		key = mItemKey;
+	}
 }

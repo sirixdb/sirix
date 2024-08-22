@@ -33,20 +33,20 @@ import io.sirix.access.User;
  * @author Johannes Lichtenberger
  */
 public final class CommitCredentials {
-  private final User user;
+	private final User user;
 
-  private final String commitMessage;
+	private final String commitMessage;
 
-  public CommitCredentials(final User user, final String commitMessage) {
-    this.user = user;
-    this.commitMessage = commitMessage;
-  }
+	public CommitCredentials(final User user, final String commitMessage) {
+		this.user = user;
+		this.commitMessage = commitMessage;
+	}
 
-  public User getUser() {
-    return user;
-  }
+	public User getUser() {
+		return user;
+	}
 
-  public String getMessage() {
-    return commitMessage;
-  }
+	public String getMessage() {
+		return commitMessage;
+	}
 }

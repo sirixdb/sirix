@@ -17,37 +17,40 @@ import static java.util.Objects.requireNonNull;
  *
  */
 public final class SirixNodeStream implements Stream<XmlDBNode> {
-  /** Sirix {@link Axis}. */
-  private final Axis axis;
+	/** Sirix {@link Axis}. */
+	private final Axis axis;
 
-  /** {@link XmlDBCollection} the nodes belong to. */
-  private final XmlDBCollection collection;
+	/** {@link XmlDBCollection} the nodes belong to. */
+	private final XmlDBCollection collection;
 
-  /**
-   * Constructor.
-   *
-   * @param axis Sirix {@link SirixAxis}
-   * @param collection {@link XmlDBCollection} the nodes belong to
-   */
-  public SirixNodeStream(final Axis axis, final XmlDBCollection collection) {
-    this.axis = requireNonNull(axis);
-    this.collection = requireNonNull(collection);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param axis
+	 *            Sirix {@link SirixAxis}
+	 * @param collection
+	 *            {@link XmlDBCollection} the nodes belong to
+	 */
+	public SirixNodeStream(final Axis axis, final XmlDBCollection collection) {
+		this.axis = requireNonNull(axis);
+		this.collection = requireNonNull(collection);
+	}
 
-  @Override
-  public XmlDBNode next() throws DocumentException {
-    if (axis.hasNext()) {
-      axis.nextLong();
-      return new XmlDBNode(axis.asXmlNodeReadTrx(), collection);
-    }
-    return null;
-  }
+	@Override
+	public XmlDBNode next() throws DocumentException {
+		if (axis.hasNext()) {
+			axis.nextLong();
+			return new XmlDBNode(axis.asXmlNodeReadTrx(), collection);
+		}
+		return null;
+	}
 
-  @Override
-  public void close() {}
+	@Override
+	public void close() {
+	}
 
-  @Override
-  public String toString() {
-    return MoreObjects.toStringHelper(this).add("axis", axis).toString();
-  }
+	@Override
+	public String toString() {
+		return MoreObjects.toStringHelper(this).add("axis", axis).toString();
+	}
 }

@@ -10,30 +10,31 @@ import io.sirix.utils.JsonDocumentCreator;
 import java.io.IOException;
 
 public final class SetupRevisions {
-  private SetupRevisions() {}
+	private SetupRevisions() {
+	}
 
-  public static void setupRevisions(final SirixQueryContext ctx, final SirixCompileChain chain) throws IOException {
-    final var storeQuery = "jn:store('json-path1','mydoc.jn','" + JsonDocumentCreator.JSON + "')";
-    new Query(chain, storeQuery).evaluate(ctx);
+	public static void setupRevisions(final SirixQueryContext ctx, final SirixCompileChain chain) throws IOException {
+		final var storeQuery = "jn:store('json-path1','mydoc.jn','" + JsonDocumentCreator.JSON + "')";
+		new Query(chain, storeQuery).evaluate(ctx);
 
-    final var openDocQuery = "jn:doc('json-path1','mydoc.jn')";
-    final var object = (JsonDBObject) new Query(chain, openDocQuery).evaluate(ctx);
+		final var openDocQuery = "jn:doc('json-path1','mydoc.jn')";
+		final var object = (JsonDBObject) new Query(chain, openDocQuery).evaluate(ctx);
 
-    try (final var wtx = object.getTrx().getResourceSession().beginNodeTrx()) {
-      wtx.moveTo(3);
+		try (final var wtx = object.getTrx().getResourceSession().beginNodeTrx()) {
+			wtx.moveTo(3);
 
-      try (final var reader = JsonShredder.createStringReader("{\"foo\":\"bar\"}")) {
-        wtx.insertSubtreeAsFirstChild(reader);
-        wtx.commit();
+			try (final var reader = JsonShredder.createStringReader("{\"foo\":\"bar\"}")) {
+				wtx.insertSubtreeAsFirstChild(reader);
+				wtx.commit();
 
-        wtx.moveTo(11);
-        wtx.remove();
-        wtx.commit();
+				wtx.moveTo(11);
+				wtx.remove();
+				wtx.commit();
 
-        wtx.moveTo(25);
-        wtx.insertArrayAsRightSibling();
-        wtx.commit();
-      }
-    }
-  }
+				wtx.moveTo(25);
+				wtx.insertArrayAsRightSibling();
+				wtx.commit();
+			}
+		}
+	}
 }

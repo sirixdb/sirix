@@ -33,9 +33,11 @@ package io.sirix.api;
  *
  *
  * <ol>
- * <li><strong>Precondition</strong> before each call to <code>Filter.filter()</code>:
+ * <li><strong>Precondition</strong> before each call to
+ * <code>Filter.filter()</code>:
  * <code>NodeReadTrx.getNodeKey() == n</code>.</li>
- * <li><strong>Postcondition</strong> after each call to <code>Filter.filter()</code>:
+ * <li><strong>Postcondition</strong> after each call to
+ * <code>Filter.filter()</code>:
  * <code>NodeReadTrx.getNodeKey() == n</code>.</li>
  * </ol>
  *
@@ -55,40 +57,41 @@ package io.sirix.api;
  * // Must extend &lt;code&gt;AbstractFilter&lt;/code&gt; and implement &lt;code&gt;Filter&lt;/code&gt;.
  * public final class ExampleFilter extends AbstractFilter {
  *
- *   public ExampleFilter(final NodeReadOnlyTrx rtx) {
- *     // Must be called as first.
- *     super(rtx);
- *   }
+ * 	public ExampleFilter(final NodeReadOnlyTrx rtx) {
+ * 		// Must be called as first.
+ * 		super(rtx);
+ * 	}
  *
- *   public final boolean filter() {
- *     // Do not move cursor.
- *     return (getTrx().isStructuralNode());
- *   }
+ * 	public final boolean filter() {
+ * 		// Do not move cursor.
+ * 		return (getTrx().isStructuralNode());
+ * 	}
  * }
  * </pre>
  *
  */
 public interface Filter<R> {
 
-  /**
-   * Apply filter on current node of transaction.
-   *
-   * @return {@code true} if node passes filter, {@code false} otherwise
-   */
-  boolean filter();
+	/**
+	 * Apply filter on current node of transaction.
+	 *
+	 * @return {@code true} if node passes filter, {@code false} otherwise
+	 */
+	boolean filter();
 
-  /**
-   * Getting the transaction of this filter.
-   *
-   * @return the transaction of this filter
-   */
-  R getTrx();
+	/**
+	 * Getting the transaction of this filter.
+	 *
+	 * @return the transaction of this filter
+	 */
+	R getTrx();
 
-  /**
-   * Setting the transaction of this filter.
-   *
-   * @param rtx the transaction of this filter
-   */
-  void setTrx(R rtx);
+	/**
+	 * Setting the transaction of this filter.
+	 *
+	 * @param rtx
+	 *            the transaction of this filter
+	 */
+	void setTrx(R rtx);
 
 }

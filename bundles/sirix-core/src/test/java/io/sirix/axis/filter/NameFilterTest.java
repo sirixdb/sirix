@@ -32,33 +32,33 @@ import io.sirix.axis.filter.xml.XmlNameFilter;
 
 public class NameFilterTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testFilterConvetions() throws SirixException {
-    final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
+	@Test
+	public void testFilterConvetions() throws SirixException {
+		final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
-    rtx.moveTo(9L);
-    FilterTest.testFilterConventions(new XmlNameFilter(rtx, "b"), true);
+		rtx.moveTo(9L);
+		FilterTest.testFilterConventions(new XmlNameFilter(rtx, "b"), true);
 
-    rtx.moveTo(4L);
-    FilterTest.testFilterConventions(new XmlNameFilter(rtx, "b"), false);
+		rtx.moveTo(4L);
+		FilterTest.testFilterConventions(new XmlNameFilter(rtx, "b"), false);
 
-    rtx.moveTo(7L);
-    FilterTest.testFilterConventions(new XmlNameFilter(rtx, "b"), false);
-  }
+		rtx.moveTo(7L);
+		FilterTest.testFilterConventions(new XmlNameFilter(rtx, "b"), false);
+	}
 
 }

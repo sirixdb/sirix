@@ -16,8 +16,7 @@ import io.sirix.query.json.JsonDBCollection;
  * Function for dropping a collection/database. Supported signatures is:
  * </p>
  * <ul>
- * <li><code>jn:drop-database($coll as xs:string, $res as xs:string)</code>
- * </li>
+ * <li><code>jn:drop-database($coll as xs:string, $res as xs:string)</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -25,38 +24,40 @@ import io.sirix.query.json.JsonDBCollection;
  */
 public final class DropDatabase extends AbstractFunction {
 
-  /** Doc function name. */
-  public final static QNm DROP_DATABASE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "drop-database");
+	/** Doc function name. */
+	public final static QNm DROP_DATABASE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "drop-database");
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public DropDatabase(final QNm name, final Signature signature) {
-    super(name, signature, true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public DropDatabase(final QNm name, final Signature signature) {
+		super(name, signature, true);
+	}
 
-  @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    if (args.length != 1) {
-      throw new QueryException(new QNm("No valid arguments specified!"));
-    }
+	@Override
+	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+		if (args.length != 1) {
+			throw new QueryException(new QNm("No valid arguments specified!"));
+		}
 
-    final JsonDBCollection col = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
+		final JsonDBCollection col = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
 
-    if (col == null) {
-      throw new QueryException(new QNm("No valid arguments specified!"));
-    }
+		if (col == null) {
+			throw new QueryException(new QNm("No valid arguments specified!"));
+		}
 
-    col.delete();
+		col.delete();
 
-    return null;
-  }
+		return null;
+	}
 
-  @Override
-  public boolean isUpdating() {
-    return true;
-  }
+	@Override
+	public boolean isUpdating() {
+		return true;
+	}
 }

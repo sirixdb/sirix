@@ -18,49 +18,51 @@ import static java.util.Objects.requireNonNull;
  *
  */
 public final class ImmutableNumberNode extends AbstractImmutableJsonStructuralNode {
-  /** Mutable {@link NumberNode}. */
-  private final NumberNode node;
+	/** Mutable {@link NumberNode}. */
+	private final NumberNode node;
 
-  /**
-   * Private constructor.
-   *
-   * @param node {@link NumberNode} to wrap
-   */
-  private ImmutableNumberNode(final NumberNode node) {
-    this.node = requireNonNull(node);
-  }
+	/**
+	 * Private constructor.
+	 *
+	 * @param node
+	 *            {@link NumberNode} to wrap
+	 */
+	private ImmutableNumberNode(final NumberNode node) {
+		this.node = requireNonNull(node);
+	}
 
-  /**
-   * Get an immutable text node instance.
-   *
-   * @param node the mutable {@link NumberNode} to wrap
-   * @return immutable text node instance
-   */
-  public static ImmutableNumberNode of(final NumberNode node) {
-    return new ImmutableNumberNode(node);
-  }
+	/**
+	 * Get an immutable text node instance.
+	 *
+	 * @param node
+	 *            the mutable {@link NumberNode} to wrap
+	 * @return immutable text node instance
+	 */
+	public static ImmutableNumberNode of(final NumberNode node) {
+		return new ImmutableNumberNode(node);
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
-    return visitor.visit(this);
-  }
+	@Override
+	public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
+		return visitor.visit(this);
+	}
 
-  @Override
-  public StructNode structDelegate() {
-    return node.getStructNodeDelegate();
-  }
+	@Override
+	public StructNode structDelegate() {
+		return node.getStructNodeDelegate();
+	}
 
-  public Number getValue() {
-    return node.getValue();
-  }
+	public Number getValue() {
+		return node.getValue();
+	}
 
-  @Override
-  public NodeKind getKind() {
-    return NodeKind.BOOLEAN_VALUE;
-  }
+	@Override
+	public NodeKind getKind() {
+		return NodeKind.BOOLEAN_VALUE;
+	}
 
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    return node.computeHash(bytes);
-  }
+	@Override
+	public long computeHash(Bytes<ByteBuffer> bytes) {
+		return node.computeHash(bytes);
+	}
 }

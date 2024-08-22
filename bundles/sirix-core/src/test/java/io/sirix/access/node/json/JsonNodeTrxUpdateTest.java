@@ -24,253 +24,252 @@ import static org.junit.Assert.assertTrue;
 
 public class JsonNodeTrxUpdateTest {
 
-  private static final Path JSON = Paths.get("src", "test", "resources", "json");
+	private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
-  @Before
-  public void setUp() {
-    JsonTestHelper.deleteEverything();
-  }
+	@Before
+	public void setUp() {
+		JsonTestHelper.deleteEverything();
+	}
 
-  @After
-  public void tearDown() {
-    JsonTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() {
+		JsonTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testDeweyIDs() {
-    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
+	@Test
+	public void testDeweyIDs() {
+		JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
-    try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var rtx = manager.beginNodeReadOnlyTrx()) {
-      new DescendantAxis(rtx).forEach(nodeKey -> {
-        if (rtx.isObjectKey()) {
-          System.out.print("name:" + rtx.getName() + " ");
-        } else if (rtx.isObject()) {
-          System.out.print("object ");
-        } else if (rtx.isArray()) {
-          System.out.print("array ");
-        }
-        System.out.println(
-            "nodeKey:" + rtx.getNodeKey() + " deweyID:" + rtx.getDeweyID() + " level:" + rtx.getDeweyID().getLevel());
-      });
-    }
-  }
+		try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+				final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+				final var rtx = manager.beginNodeReadOnlyTrx()) {
+			new DescendantAxis(rtx).forEach(nodeKey -> {
+				if (rtx.isObjectKey()) {
+					System.out.print("name:" + rtx.getName() + " ");
+				} else if (rtx.isObject()) {
+					System.out.print("object ");
+				} else if (rtx.isArray()) {
+					System.out.print("array ");
+				}
+				System.out.println("nodeKey:" + rtx.getNodeKey() + " deweyID:" + rtx.getDeweyID() + " level:"
+						+ rtx.getDeweyID().getLevel());
+			});
+		}
+	}
 
-  @Test
-  public void testUpdateObjectRecordName() {
-    JsonTestHelper.createTestDocument();
+	@Test
+	public void testUpdateObjectRecordName() {
+		JsonTestHelper.createTestDocument();
 
-    try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
-      wtx.moveTo(2);
+		try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+				final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+				final var wtx = manager.beginNodeTrx()) {
+			wtx.moveTo(2);
 
-      assertEquals(new QNm("foo"), wtx.getName());
-      wtx.setObjectKeyName("foobar");
+			assertEquals(new QNm("foo"), wtx.getName());
+			wtx.setObjectKeyName("foobar");
 
-      assertsForUpdateObjectRecordName(wtx);
+			assertsForUpdateObjectRecordName(wtx);
 
-      wtx.commit();
+			wtx.commit();
 
-      assertsForUpdateObjectRecordName(wtx);
+			assertsForUpdateObjectRecordName(wtx);
 
-      try (final var rtx = manager.beginNodeReadOnlyTrx()) {
-        assertsForUpdateObjectRecordName(rtx);
-      }
-    }
-  }
+			try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+				assertsForUpdateObjectRecordName(rtx);
+			}
+		}
+	}
 
-  private void assertsForUpdateObjectRecordName(JsonNodeReadOnlyTrx rtx) {
-    rtx.moveTo(2);
+	private void assertsForUpdateObjectRecordName(JsonNodeReadOnlyTrx rtx) {
+		rtx.moveTo(2);
 
-    Assert.assertEquals(new QNm("foobar"), rtx.getName());
-  }
+		Assert.assertEquals(new QNm("foobar"), rtx.getName());
+	}
 
-  @Test
-  public void testUpdateStringValue() {
-    JsonTestHelper.createTestDocument();
+	@Test
+	public void testUpdateStringValue() {
+		JsonTestHelper.createTestDocument();
 
-    try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
-      wtx.moveTo(4);
+		try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+				final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+				final var wtx = manager.beginNodeTrx()) {
+			wtx.moveTo(4);
 
-      assertEquals("bar", wtx.getValue());
-      wtx.setStringValue("baz");
+			assertEquals("bar", wtx.getValue());
+			wtx.setStringValue("baz");
 
-      assertsForUpdateStringValue(wtx);
+			assertsForUpdateStringValue(wtx);
 
-      wtx.commit();
+			wtx.commit();
 
-      assertsForUpdateStringValue(wtx);
+			assertsForUpdateStringValue(wtx);
 
-      try (final var rtx = manager.beginNodeReadOnlyTrx()) {
-        assertsForUpdateStringValue(rtx);
-      }
-    }
-  }
+			try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+				assertsForUpdateStringValue(rtx);
+			}
+		}
+	}
 
-  private void assertsForUpdateStringValue(JsonNodeReadOnlyTrx rtx) {
-    rtx.moveTo(4);
+	private void assertsForUpdateStringValue(JsonNodeReadOnlyTrx rtx) {
+		rtx.moveTo(4);
 
-    assertEquals("baz", rtx.getValue());
-  }
+		assertEquals("baz", rtx.getValue());
+	}
 
-  @Test
-  public void testUpdateNumberValue() {
-    JsonTestHelper.createTestDocument();
+	@Test
+	public void testUpdateNumberValue() {
+		JsonTestHelper.createTestDocument();
 
-    try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
-      wtx.moveTo(6);
+		try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+				final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+				final var wtx = manager.beginNodeTrx()) {
+			wtx.moveTo(6);
 
-      assertEquals(2.33, wtx.getNumberValue());
-      wtx.setNumberValue(5.77);
+			assertEquals(2.33, wtx.getNumberValue());
+			wtx.setNumberValue(5.77);
 
-      assertsForUpdateNumberValue(wtx);
+			assertsForUpdateNumberValue(wtx);
 
-      wtx.commit();
+			wtx.commit();
 
-      assertsForUpdateNumberValue(wtx);
+			assertsForUpdateNumberValue(wtx);
 
-      try (final var rtx = manager.beginNodeReadOnlyTrx()) {
-        assertsForUpdateNumberValue(rtx);
-      }
-    }
-  }
+			try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+				assertsForUpdateNumberValue(rtx);
+			}
+		}
+	}
 
-  private void assertsForUpdateNumberValue(JsonNodeReadOnlyTrx rtx) {
-    rtx.moveTo(6);
+	private void assertsForUpdateNumberValue(JsonNodeReadOnlyTrx rtx) {
+		rtx.moveTo(6);
 
-    assertEquals(5.77, rtx.getNumberValue());
-  }
+		assertEquals(5.77, rtx.getNumberValue());
+	}
 
-  @Test
-  public void testUpdateBooleanValue() {
-    JsonTestHelper.createTestDocument();
+	@Test
+	public void testUpdateBooleanValue() {
+		JsonTestHelper.createTestDocument();
 
-    try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
-      wtx.moveTo(12);
+		try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+				final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+				final var wtx = manager.beginNodeTrx()) {
+			wtx.moveTo(12);
 
-      assertTrue(wtx.getBooleanValue());
-      wtx.setBooleanValue(false);
+			assertTrue(wtx.getBooleanValue());
+			wtx.setBooleanValue(false);
 
-      assertsForUpdateBooleanValue(wtx);
+			assertsForUpdateBooleanValue(wtx);
 
-      wtx.commit();
+			wtx.commit();
 
-      assertsForUpdateBooleanValue(wtx);
+			assertsForUpdateBooleanValue(wtx);
 
-      try (final var rtx = manager.beginNodeReadOnlyTrx()) {
-        assertsForUpdateBooleanValue(rtx);
-      }
-    }
-  }
+			try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+				assertsForUpdateBooleanValue(rtx);
+			}
+		}
+	}
 
-  private void assertsForUpdateBooleanValue(JsonNodeReadOnlyTrx rtx) {
-    rtx.moveTo(12);
+	private void assertsForUpdateBooleanValue(JsonNodeReadOnlyTrx rtx) {
+		rtx.moveTo(12);
 
-    assertFalse(rtx.getBooleanValue());
-  }
+		assertFalse(rtx.getBooleanValue());
+	}
 
-  @Test
-  public void test_whenMultipleRevisionsExist_thenStoreUpdateOperations() throws IOException {
-    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
+	@Test
+	public void test_whenMultipleRevisionsExist_thenStoreUpdateOperations() throws IOException {
+		JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
-    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
-    assert database != null;
-    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
-      wtx.moveToDocumentRoot();
-      wtx.moveToFirstChild();
-      wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
-      wtx.moveTo(5);
-      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.NO);
-      wtx.moveTo(5);
-      wtx.remove();
-      wtx.moveTo(4);
-      wtx.insertBooleanValueAsRightSibling(true);
-      wtx.setBooleanValue(false);
-      wtx.moveTo(6);
-      wtx.setNumberValue(1.2);
-      wtx.moveTo(9);
-      wtx.remove();
-      wtx.moveTo(13);
-      wtx.remove();
-      wtx.moveTo(15);
-      wtx.setObjectKeyName("tadaa");
-      wtx.moveTo(22);
-      wtx.setBooleanValue(true);
-      wtx.commit();
+		final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+		assert database != null;
+		try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+				final var wtx = manager.beginNodeTrx()) {
+			wtx.moveToDocumentRoot();
+			wtx.moveToFirstChild();
+			wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
+			wtx.moveTo(5);
+			wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.NO);
+			wtx.moveTo(5);
+			wtx.remove();
+			wtx.moveTo(4);
+			wtx.insertBooleanValueAsRightSibling(true);
+			wtx.setBooleanValue(false);
+			wtx.moveTo(6);
+			wtx.setNumberValue(1.2);
+			wtx.moveTo(9);
+			wtx.remove();
+			wtx.moveTo(13);
+			wtx.remove();
+			wtx.moveTo(15);
+			wtx.setObjectKeyName("tadaa");
+			wtx.moveTo(22);
+			wtx.setBooleanValue(true);
+			wtx.commit();
 
-      final var diffPath = manager.getResourceConfig()
-                                  .getResource()
-                                  .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-                                  .resolve("diffFromRev1toRev2.json");
+			final var diffPath = manager.getResourceConfig().getResource()
+					.resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+					.resolve("diffFromRev1toRev2.json");
 
-      assertEquals(Files.readString(JSON.resolve("diffFromRev1toRev2.json")), Files.readString(diffPath));
-    }
-  }
+			assertEquals(Files.readString(JSON.resolve("diffFromRev1toRev2.json")), Files.readString(diffPath));
+		}
+	}
 
-  @Test
-  public void test_whenMultipleRevisionsExist_thenGetUpdateOperationsInSubtree() {
-    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
+	@Test
+	public void test_whenMultipleRevisionsExist_thenGetUpdateOperationsInSubtree() {
+		JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
-    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
-    assert database != null;
-    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
-      wtx.moveToDocumentRoot();
-      wtx.moveToFirstChild();
-      wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
-      wtx.moveTo(5);
-      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.NO);
-      wtx.moveTo(5);
-      wtx.remove();
-      wtx.moveTo(4);
-      wtx.insertBooleanValueAsRightSibling(true);
-      wtx.setBooleanValue(false);
-      wtx.moveTo(6);
-      wtx.setNumberValue(1.2);
-      wtx.moveTo(9);
-      wtx.remove();
-      wtx.moveTo(13);
-      wtx.remove();
-      wtx.moveTo(15);
-      wtx.setObjectKeyName("tadaa");
-      wtx.moveTo(22);
-      wtx.setBooleanValue(true);
-      wtx.commit();
+		final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+		assert database != null;
+		try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+				final var wtx = manager.beginNodeTrx()) {
+			wtx.moveToDocumentRoot();
+			wtx.moveToFirstChild();
+			wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
+			wtx.moveTo(5);
+			wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.NO);
+			wtx.moveTo(5);
+			wtx.remove();
+			wtx.moveTo(4);
+			wtx.insertBooleanValueAsRightSibling(true);
+			wtx.setBooleanValue(false);
+			wtx.moveTo(6);
+			wtx.setNumberValue(1.2);
+			wtx.moveTo(9);
+			wtx.remove();
+			wtx.moveTo(13);
+			wtx.remove();
+			wtx.moveTo(15);
+			wtx.setObjectKeyName("tadaa");
+			wtx.moveTo(22);
+			wtx.setBooleanValue(true);
+			wtx.commit();
 
-      wtx.moveTo(2);
+			wtx.moveTo(2);
 
-      var rootDeweyId = wtx.getDeweyID();
-      var updateOperations = wtx.getUpdateOperationsInSubtreeOfNode(rootDeweyId, Integer.MAX_VALUE);
+			var rootDeweyId = wtx.getDeweyID();
+			var updateOperations = wtx.getUpdateOperationsInSubtreeOfNode(rootDeweyId, Integer.MAX_VALUE);
 
-      assertEquals(4, updateOperations.size());
-      assertTrue(updateOperations.get(0).has("insert"));
-      assertTrue(updateOperations.get(1).has("delete"));
-      assertTrue(updateOperations.get(2).has("insert"));
-      assertTrue(updateOperations.get(3).has("update"));
+			assertEquals(4, updateOperations.size());
+			assertTrue(updateOperations.get(0).has("insert"));
+			assertTrue(updateOperations.get(1).has("delete"));
+			assertTrue(updateOperations.get(2).has("insert"));
+			assertTrue(updateOperations.get(3).has("update"));
 
-      wtx.moveTo(17);
-      wtx.insertObjectRecordAsFirstChild("foo1", new StringValue("bar1"));
-      wtx.commit();
+			wtx.moveTo(17);
+			wtx.insertObjectRecordAsFirstChild("foo1", new StringValue("bar1"));
+			wtx.commit();
 
-      wtx.moveTo(15);
-      rootDeweyId = wtx.getDeweyID();
-      updateOperations = wtx.getUpdateOperationsInSubtreeOfNode(rootDeweyId, 1);
+			wtx.moveTo(15);
+			rootDeweyId = wtx.getDeweyID();
+			updateOperations = wtx.getUpdateOperationsInSubtreeOfNode(rootDeweyId, 1);
 
-      assertEquals(0, updateOperations.size());
+			assertEquals(0, updateOperations.size());
 
-      updateOperations = wtx.getUpdateOperationsInSubtreeOfNode(rootDeweyId, 2);
+			updateOperations = wtx.getUpdateOperationsInSubtreeOfNode(rootDeweyId, 2);
 
-      assertEquals(1, updateOperations.size());
-      assertTrue(updateOperations.get(0).has("insert"));
-    }
-  }
+			assertEquals(1, updateOperations.size());
+			assertTrue(updateOperations.get(0).has("insert"));
+		}
+	}
 }

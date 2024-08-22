@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -33,70 +33,68 @@ import io.sirix.service.xml.xpath.XPathAxis;
 
 /**
  * JUnit-test class to test the functionality of the AndExpr.
- * 
+ *
  * @author Tina Scherer
- * 
+ *
  */
 public class FunctionAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testFunctions() throws SirixException {
+	@Test
+	public void testFunctions() throws SirixException {
 
-    holder.getXmlNodeReadTrx().moveTo(1L);
+		holder.getXmlNodeReadTrx().moveTo(1L);
 
-    final AbstractAxis axis1 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:count(text())");
-    assertEquals(true, axis1.hasNext());
-    axis1.next();
-    assertEquals(3, Integer.parseInt(holder.getXmlNodeReadTrx().getValue()));
-    assertEquals(false, axis1.hasNext());
+		final AbstractAxis axis1 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:count(text())");
+		assertEquals(true, axis1.hasNext());
+		axis1.next();
+		assertEquals(3, Integer.parseInt(holder.getXmlNodeReadTrx().getValue()));
+		assertEquals(false, axis1.hasNext());
 
-    final AbstractAxis axis2 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:count(//node())");
-    assertEquals(true, axis2.hasNext());
-    axis2.next();
-    assertEquals(10, Integer.parseInt(holder.getXmlNodeReadTrx().getValue()));
-    assertEquals(false, axis2.hasNext());
+		final AbstractAxis axis2 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:count(//node())");
+		assertEquals(true, axis2.hasNext());
+		axis2.next();
+		assertEquals(10, Integer.parseInt(holder.getXmlNodeReadTrx().getValue()));
+		assertEquals(false, axis2.hasNext());
 
-    final AbstractAxis axis3 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:string(//node())");
-    assertEquals(true, axis3.hasNext());
-    axis3.next();
-    assertEquals(
-        "oops1 foo oops2 bar oops3 oops1 foo oops2 bar oops3 foo bar",
-        holder.getXmlNodeReadTrx().getValue());
-    assertEquals(false, axis3.hasNext());
+		final AbstractAxis axis3 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:string(//node())");
+		assertEquals(true, axis3.hasNext());
+		axis3.next();
+		assertEquals("oops1 foo oops2 bar oops3 oops1 foo oops2 bar oops3 foo bar",
+				holder.getXmlNodeReadTrx().getValue());
+		assertEquals(false, axis3.hasNext());
 
-    final AbstractAxis axis4 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:string()");
-    assertEquals(true, axis4.hasNext());
-    axis4.next();
-    assertEquals("oops1 foo oops2 bar oops3", holder.getXmlNodeReadTrx().getValue());
-    assertEquals(false, axis4.hasNext());
+		final AbstractAxis axis4 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:string()");
+		assertEquals(true, axis4.hasNext());
+		axis4.next();
+		assertEquals("oops1 foo oops2 bar oops3", holder.getXmlNodeReadTrx().getValue());
+		assertEquals(false, axis4.hasNext());
 
-    final AbstractAxis axis5 =
-        new XPathAxis(holder.getXmlNodeReadTrx(), "fn:string(./attribute::attribute())");
-    assertEquals(true, axis5.hasNext());
-    axis5.next();
-    assertEquals("j", holder.getXmlNodeReadTrx().getValue());
-    assertEquals(false, axis5.hasNext());
+		final AbstractAxis axis5 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:string(./attribute::attribute())");
+		assertEquals(true, axis5.hasNext());
+		axis5.next();
+		assertEquals("j", holder.getXmlNodeReadTrx().getValue());
+		assertEquals(false, axis5.hasNext());
 
-    holder.getXmlNodeReadTrx().moveToAttribute(0);
-    final AbstractAxis axis6 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:string()");
-    assertEquals(true, axis6.hasNext());
-    axis6.next();
-    assertEquals("j", holder.getXmlNodeReadTrx().getValue());
-    assertEquals(false, axis6.hasNext());
-  }
+		holder.getXmlNodeReadTrx().moveToAttribute(0);
+		final AbstractAxis axis6 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:string()");
+		assertEquals(true, axis6.hasNext());
+		axis6.next();
+		assertEquals("j", holder.getXmlNodeReadTrx().getValue());
+		assertEquals(false, axis6.hasNext());
+	}
 }

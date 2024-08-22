@@ -46,43 +46,44 @@ import io.sirix.utils.XmlDocumentCreator;
 import java.nio.file.Path;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * @author Johannes Lichtenberger
+ *         <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
 public final class GetRevisionTimestampTest {
-  /** The {@link Holder} instance. */
-  private Holder holder;
+	/** The {@link Holder} instance. */
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    holder = Holder.generateWtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		holder = Holder.generateWtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.deleteEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.deleteEverything();
+	}
 
-  @Test
-  public void test() throws QueryException {
-    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().close();
+	@Test
+	public void test() throws QueryException {
+		XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
+		holder.getXdmNodeWriteTrx().close();
 
-    final Path database = PATHS.PATH1.getFile();
+		final Path database = PATHS.PATH1.getFile();
 
-    // Initialize query context and store.
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database).build()) {
-      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
+		// Initialize query context and store.
+		try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database).build()) {
+			final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
-      final String dbName = database.toString();
-      final String resName = XmlTestHelper.RESOURCE;
+			final String dbName = database.toString();
+			final String resName = XmlTestHelper.RESOURCE;
 
-      final String xq1 = "sdb:timestamp(xml:doc('" + dbName + "','" + resName + "'))";
+			final String xq1 = "sdb:timestamp(xml:doc('" + dbName + "','" + resName + "'))";
 
-      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
-      Assert.assertNotNull(query.evaluate(ctx));
-    }
-  }
+			final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
+			Assert.assertNotNull(query.evaluate(ctx));
+		}
+	}
 }

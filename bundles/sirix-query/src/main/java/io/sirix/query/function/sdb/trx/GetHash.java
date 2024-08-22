@@ -23,23 +23,25 @@ import io.sirix.query.function.sdb.SDBFun;
  */
 public final class GetHash extends AbstractFunction {
 
-  /** Get number of children function name. */
-  public final static QNm HASH = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "hash");
+	/** Get number of children function name. */
+	public final static QNm HASH = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "hash");
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public GetHash(QNm name, Signature signature) {
-    super(name, signature, true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public GetHash(QNm name, Signature signature) {
+		super(name, signature, true);
+	}
 
-  @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+	@Override
+	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
+		final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
 
-    return new Str(String.valueOf(doc.getTrx().getHash()));
-  }
+		return new Str(String.valueOf(doc.getTrx().getHash()));
+	}
 }

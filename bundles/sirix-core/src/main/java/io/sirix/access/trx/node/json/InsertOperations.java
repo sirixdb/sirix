@@ -1,21 +1,21 @@
 package io.sirix.access.trx.node.json;
 
 public enum InsertOperations {
-  INSERT("insert"),
+	INSERT("insert"),
 
-  UPDATE("update"),
+	UPDATE("update"),
 
-  DELETE("delete"),
+	DELETE("delete"),
 
-  REPLACE("replace");
+	REPLACE("replace");
 
-  private final String name;
+	private final String name;
 
-  InsertOperations(String name) {
-    this.name = name;
-  }
+	InsertOperations(String name) {
+		this.name = name;
+	}
 
-  public String getName() {
-    return name;
-  }
+	public String getName() {
+		return name;
+	}
 }

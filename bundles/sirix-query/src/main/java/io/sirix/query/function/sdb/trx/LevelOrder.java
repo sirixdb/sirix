@@ -30,89 +30,93 @@ import io.sirix.query.stream.node.SirixNodeStream;
  */
 public final class LevelOrder extends AbstractFunction {
 
-  /** Get most recent revision function name. */
-  public final static QNm LEVEL_ORDER = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "level-order");
+	/** Get most recent revision function name. */
+	public final static QNm LEVEL_ORDER = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "level-order");
 
-  private JsonItemFactory util;
+	private JsonItemFactory util;
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public LevelOrder(final QNm name, final Signature signature) {
-    super(name, signature, true);
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public LevelOrder(final QNm name, final Signature signature) {
+		super(name, signature, true);
 
-    util = new JsonItemFactory();
-  }
+		util = new JsonItemFactory();
+	}
 
-  void setJsonUtil(JsonItemFactory util) {
-    this.util = util;
-  }
+	void setJsonUtil(JsonItemFactory util) {
+		this.util = util;
+	}
 
-  @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
+	@Override
+	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+		final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
 
-    final int depth = FunUtil.getInt(args, 1, "depth", Integer.MAX_VALUE, null, false);
-    final var axis = LevelOrderAxis.newBuilder(item.getTrx()).filterLevel(depth).includeNonStructuralNodes().build();
+		final int depth = FunUtil.getInt(args, 1, "depth", Integer.MAX_VALUE, null, false);
+		final var axis = LevelOrderAxis.newBuilder(item.getTrx()).filterLevel(depth).includeNonStructuralNodes()
+				.build();
 
-    if (item instanceof XmlDBNode) {
-      return getXmlNodeSequence(item, axis);
-    } else if (item instanceof JsonDBItem) {
-      return getJsonItemSequence(item, axis);
-    } else {
-      throw new IllegalStateException("Node type not supported.");
-    }
-  }
+		if (item instanceof XmlDBNode) {
+			return getXmlNodeSequence(item, axis);
+		} else if (item instanceof JsonDBItem) {
+			return getJsonItemSequence(item, axis);
+		} else {
+			throw new IllegalStateException("Node type not supported.");
+		}
+	}
 
-  private Sequence getJsonItemSequence(final StructuredDBItem<?> item, final LevelOrderAxis axis) {
-    final JsonDBItem jsonItem = (JsonDBItem) item;
-    return new LazySequence() {
-      @Override
-      public Iter iterate() {
-        return new BaseIter() {
-          @Override
-          public Item next() {
-            if (axis.hasNext()) {
-              axis.nextLong();
-              return util.getSequence((JsonNodeReadOnlyTrx) axis.getTrx(), jsonItem.getCollection());
-            }
-            return null;
-          }
+	private Sequence getJsonItemSequence(final StructuredDBItem<?> item, final LevelOrderAxis axis) {
+		final JsonDBItem jsonItem = (JsonDBItem) item;
+		return new LazySequence() {
+			@Override
+			public Iter iterate() {
+				return new BaseIter() {
+					@Override
+					public Item next() {
+						if (axis.hasNext()) {
+							axis.nextLong();
+							return util.getSequence((JsonNodeReadOnlyTrx) axis.getTrx(), jsonItem.getCollection());
+						}
+						return null;
+					}
 
-          @Override
-          public void close() {}
-        };
-      }
-    };
-  }
+					@Override
+					public void close() {
+					}
+				};
+			}
+		};
+	}
 
-  private Sequence getXmlNodeSequence(final StructuredDBItem<?> item, final LevelOrderAxis axis) {
-    final XmlDBNode node = (XmlDBNode) item;
-    return new LazySequence() {
-      @Override
-      public Iter iterate() {
-        return new BaseIter() {
-          Stream<?> s;
+	private Sequence getXmlNodeSequence(final StructuredDBItem<?> item, final LevelOrderAxis axis) {
+		final XmlDBNode node = (XmlDBNode) item;
+		return new LazySequence() {
+			@Override
+			public Iter iterate() {
+				return new BaseIter() {
+					Stream<?> s;
 
-          @Override
-          public Item next() {
-            if (s == null) {
-              s = new SirixNodeStream(axis, node.getCollection());
-            }
-            return (Item) s.next();
-          }
+					@Override
+					public Item next() {
+						if (s == null) {
+							s = new SirixNodeStream(axis, node.getCollection());
+						}
+						return (Item) s.next();
+					}
 
-          @Override
-          public void close() {
-            if (s != null) {
-              s.close();
-            }
-          }
-        };
-      }
-    };
-  }
+					@Override
+					public void close() {
+						if (s != null) {
+							s.close();
+						}
+					}
+				};
+			}
+		};
+	}
 }

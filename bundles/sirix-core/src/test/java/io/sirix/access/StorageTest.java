@@ -51,99 +51,101 @@ import static org.testng.AssertJUnit.*;
  */
 public final class StorageTest {
 
-  /**
-   * {@link ResourceConfiguration} reference.
-   */
-  private ResourceConfiguration resourceConfig;
+	/**
+	 * {@link ResourceConfiguration} reference.
+	 */
+	private ResourceConfiguration resourceConfig;
 
-  @BeforeClass
-  public void setUp() throws SirixException, IOException {
-    XmlTestHelper.closeEverything();
-    XmlTestHelper.deleteEverything();
-    Files.createDirectories(XmlTestHelper.PATHS.PATH1.getFile());
-    Files.createDirectories(XmlTestHelper.PATHS.PATH1.getFile()
-                                                     .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()));
-    Files.createFile(XmlTestHelper.PATHS.PATH1.getFile()
-                                              .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-                                              .resolve("data.sirix"));
-    resourceConfig = new ResourceConfiguration.Builder("shredded").build();
-  }
+	@BeforeClass
+	public void setUp() throws SirixException, IOException {
+		XmlTestHelper.closeEverything();
+		XmlTestHelper.deleteEverything();
+		Files.createDirectories(XmlTestHelper.PATHS.PATH1.getFile());
+		Files.createDirectories(
+				XmlTestHelper.PATHS.PATH1.getFile().resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()));
+		Files.createFile(XmlTestHelper.PATHS.PATH1.getFile().resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+				.resolve("data.sirix"));
+		resourceConfig = new ResourceConfiguration.Builder("shredded").build();
+	}
 
-  @AfterClass
-  public void tearDown() throws SirixException {
-    XmlTestHelper.closeEverything();
-    XmlTestHelper.deleteEverything();
-  }
+	@AfterClass
+	public void tearDown() throws SirixException {
+		XmlTestHelper.closeEverything();
+		XmlTestHelper.deleteEverything();
+	}
 
-  @Test(dataProvider = "instantiateStorages")
-  public void testExists(final Class<IOStorage> clazz, final IOStorage[] storages) throws SirixException {
-    for (final IOStorage handler : storages) {
-      assertFalse("empty storage should not return true on exists", handler.exists());
+	@Test(dataProvider = "instantiateStorages")
+	public void testExists(final Class<IOStorage> clazz, final IOStorage[] storages) throws SirixException {
+		for (final IOStorage handler : storages) {
+			assertFalse("empty storage should not return true on exists", handler.exists());
 
-      final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
+			final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
 
-      try (final Writer writer = handler.createWriter()) {
-        var ref = new PageReference();
-        var uberPage = new UberPage();
-        writer.writeUberPageReference(null, ref, uberPage, bytes);
-      }
+			try (final Writer writer = handler.createWriter()) {
+				var ref = new PageReference();
+				var uberPage = new UberPage();
+				writer.writeUberPageReference(null, ref, uberPage, bytes);
+			}
 
-      assertTrue("writing a single page should mark the Storage as existing", handler.exists());
-      try (final Writer writer = handler.createWriter()) {
-        writer.truncate();
-      }
+			assertTrue("writing a single page should mark the Storage as existing", handler.exists());
+			try (final Writer writer = handler.createWriter()) {
+				writer.truncate();
+			}
 
-      assertFalse("truncating the file to length 0 should mark the Storage as non-existing", handler.exists());
-    }
-  }
+			assertFalse("truncating the file to length 0 should mark the Storage as non-existing", handler.exists());
+		}
+	}
 
-  @Test(dataProvider = "instantiateStorages")
-  public void testFirstRef(final Class<IOStorage> clazz, final IOStorage[] storages) throws SirixException {
-    for (final IOStorage handler : storages) {
-      try {
-        final PageReference pageRef1 = new PageReference();
-        final UberPage page1 = new UberPage();
-        pageRef1.setPage(page1);
+	@Test(dataProvider = "instantiateStorages")
+	public void testFirstRef(final Class<IOStorage> clazz, final IOStorage[] storages) throws SirixException {
+		for (final IOStorage handler : storages) {
+			try {
+				final PageReference pageRef1 = new PageReference();
+				final UberPage page1 = new UberPage();
+				pageRef1.setPage(page1);
 
-        final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
+				final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
 
-        // same instance check
-        final PageReference pageRef2;
-        try (final Writer writer = handler.createWriter()) {
-          pageRef2 = writer.writeUberPageReference(null, pageRef1, page1, bytes).readUberPageReference();
-          assertEquals("Check for " + handler.getClass() + " failed.",
-                       ((UberPage) pageRef1.getPage()).getRevisionCount(),
-                       ((UberPage) pageRef2.getPage()).getRevisionCount());
-        }
+				// same instance check
+				final PageReference pageRef2;
+				try (final Writer writer = handler.createWriter()) {
+					pageRef2 = writer.writeUberPageReference(null, pageRef1, page1, bytes).readUberPageReference();
+					assertEquals("Check for " + handler.getClass() + " failed.",
+							((UberPage) pageRef1.getPage()).getRevisionCount(),
+							((UberPage) pageRef2.getPage()).getRevisionCount());
+				}
 
-        // new instance check
-        try (final Reader reader = handler.createReader()) {
-          final PageReference pageRef3 = reader.readUberPageReference();
-          assertEquals("Check for " + handler.getClass() + " failed.", pageRef2.getKey(), pageRef3.getKey());
-          assertEquals("Check for " + handler.getClass() + " failed.",
-                       ((UberPage) pageRef2.getPage()).getRevisionCount(),
-                       ((UberPage) pageRef3.getPage()).getRevisionCount());
-        }
-      } finally {
-        handler.close();
-      }
-    }
-  }
+				// new instance check
+				try (final Reader reader = handler.createReader()) {
+					final PageReference pageRef3 = reader.readUberPageReference();
+					assertEquals("Check for " + handler.getClass() + " failed.", pageRef2.getKey(), pageRef3.getKey());
+					assertEquals("Check for " + handler.getClass() + " failed.",
+							((UberPage) pageRef2.getPage()).getRevisionCount(),
+							((UberPage) pageRef3.getPage()).getRevisionCount());
+				}
+			} finally {
+				handler.close();
+			}
+		}
+	}
 
-  /**
-   * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test class.
-   *
-   * @return different classes of the {@link ByteHandler}
-   */
-  @DataProvider(name = "instantiateStorages")
-  public Object[][] instantiateStorages() {
-    final DatabaseConfiguration dbConfig = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile());
-    return new Object[][] { { IOStorage.class, new IOStorage[] {
-        new FileChannelStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
-        new FileStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
-        new MMStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
-        //     new IOUringStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
-        new RAMStorage(resourceConfig.setDatabaseConfiguration(dbConfig)), } } };
-  }
+	/**
+	 * Providing different implementations of the {@link ByteHandler} as
+	 * Dataprovider to the test class.
+	 *
+	 * @return different classes of the {@link ByteHandler}
+	 */
+	@DataProvider(name = "instantiateStorages")
+	public Object[][] instantiateStorages() {
+		final DatabaseConfiguration dbConfig = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile());
+		return new Object[][]{{IOStorage.class, new IOStorage[]{
+				new FileChannelStorage(resourceConfig.setDatabaseConfiguration(dbConfig),
+						Caffeine.newBuilder().buildAsync()),
+				new FileStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
+				new MMStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
+				// new IOUringStorage(resourceConfig.setDatabaseConfiguration(dbConfig),
+				// Caffeine.newBuilder().buildAsync()),
+				new RAMStorage(resourceConfig.setDatabaseConfiguration(dbConfig)),}}};
+	}
 
 }

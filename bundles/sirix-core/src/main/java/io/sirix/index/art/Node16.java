@@ -42,8 +42,8 @@ class Node16 extends InnerNode {
 	public Node findChild(byte partialKey) {
 		// TODO: use simple loop to see if -XX:+SuperWord applies SIMD JVM instrinsics
 		partialKey = BinaryComparableUtils.unsigned(partialKey);
-		for(int i = 0; i < noOfChildren; i++){
-			if(keys[i] == partialKey){
+		for (int i = 0; i < noOfChildren; i++) {
+			if (keys[i] == partialKey) {
 				return children[i];
 			}
 		}

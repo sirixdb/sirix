@@ -26,24 +26,26 @@ import java.time.format.DateTimeFormatter;
  */
 public final class GetRevisionTimestamp extends AbstractFunction {
 
-  /** Get most recent revision function name. */
-  public final static QNm TIMESTAMP = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "timestamp");
+	/** Get most recent revision function name. */
+	public final static QNm TIMESTAMP = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX, "timestamp");
 
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
-  public GetRevisionTimestamp(final QNm name, final Signature signature) {
-    super(name, signature, true);
-  }
+	/**
+	 * Constructor.
+	 *
+	 * @param name
+	 *            the name of the function
+	 * @param signature
+	 *            the signature of the function
+	 */
+	public GetRevisionTimestamp(final QNm name, final Signature signature) {
+		super(name, signature, true);
+	}
 
-  @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
-    final Instant instant = doc.getTrx().getRevisionTimestamp();
-    final String dateTime = DateTimeFormatter.ISO_INSTANT.format(instant);
-    return new DateTime(dateTime);
-  }
+	@Override
+	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+		final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+		final Instant instant = doc.getTrx().getRevisionTimestamp();
+		final String dateTime = DateTimeFormatter.ISO_INSTANT.format(instant);
+		return new DateTime(dateTime);
+	}
 }

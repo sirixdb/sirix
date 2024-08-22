@@ -43,70 +43,69 @@ import org.xml.sax.helpers.XMLFilterImpl;
  *
  */
 public class SAXSerializerTest extends XMLTestCase {
-  private Holder holder;
+	private Holder holder;
 
-  @Override
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Override
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @Override
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@Override
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testSAXSerializer() throws SirixException, SAXException, IOException {
+	@Test
+	public void testSAXSerializer() throws SirixException, SAXException, IOException {
 
-    final StringBuilder sbuf = new StringBuilder();
-    final ContentHandler contHandler = new XMLFilterImpl() {
+		final StringBuilder sbuf = new StringBuilder();
+		final ContentHandler contHandler = new XMLFilterImpl() {
 
-      @Override
-      public void startDocument() {
-        sbuf.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
-      }
+			@Override
+			public void startDocument() {
+				sbuf.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+			}
 
-      @Override
-      public void startElement(final String uri, final String localName, final String qName,
-          final Attributes atts) throws SAXException {
-        sbuf.append("<" + qName);
+			@Override
+			public void startElement(final String uri, final String localName, final String qName,
+					final Attributes atts) throws SAXException {
+				sbuf.append("<" + qName);
 
-        for (int i = 0; i < atts.getLength(); i++) {
-          sbuf.append(" " + atts.getQName(i));
-          sbuf.append("=\"" + atts.getValue(i) + "\"");
-        }
+				for (int i = 0; i < atts.getLength(); i++) {
+					sbuf.append(" " + atts.getQName(i));
+					sbuf.append("=\"" + atts.getValue(i) + "\"");
+				}
 
-        sbuf.append(">");
-      }
+				sbuf.append(">");
+			}
 
-      // @Override
-      // public void startPrefixMapping(final String prefix, final String uri) throws SAXException {
-      // strBuilder.append(" " + prefix + "=\"" + uri + "\"");
-      // };
+			// @Override
+			// public void startPrefixMapping(final String prefix, final String uri) throws
+			// SAXException {
+			// strBuilder.append(" " + prefix + "=\"" + uri + "\"");
+			// };
 
-      @Override
-      public void endElement(final String uri, final String localName, final String qName)
-          throws SAXException {
-        sbuf.append("</" + qName + ">");
-      }
+			@Override
+			public void endElement(final String uri, final String localName, final String qName) throws SAXException {
+				sbuf.append("</" + qName + ">");
+			}
 
-      @Override
-      public void characters(final char[] ch, final int start, final int length)
-          throws SAXException {
-        for (int i = start; i < start + length; i++) {
-          sbuf.append(ch[i]);
-        }
-      }
-    };
+			@Override
+			public void characters(final char[] ch, final int start, final int length) throws SAXException {
+				for (int i = start; i < start + length; i++) {
+					sbuf.append(ch[i]);
+				}
+			}
+		};
 
-    final SAXSerializer serializer = new SAXSerializer(holder.getResourceManager(), contHandler,
-                                                       holder.getResourceManager().getMostRecentRevisionNumber());
-    serializer.call();
-    assertXMLEqual(XmlDocumentCreator.XML, sbuf.toString());
-  }
+		final SAXSerializer serializer = new SAXSerializer(holder.getResourceManager(), contHandler,
+				holder.getResourceManager().getMostRecentRevisionNumber());
+		serializer.call();
+		assertXMLEqual(XmlDocumentCreator.XML, sbuf.toString());
+	}
 }

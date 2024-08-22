@@ -13,41 +13,42 @@ import static java.util.Objects.requireNonNull;
 
 public final class SirixNodeKeyStream implements Stream<XmlDBNode> {
 
-  private final Iterator<NodeReferences> iter;
+	private final Iterator<NodeReferences> iter;
 
-  private final XmlDBCollection collection;
+	private final XmlDBCollection collection;
 
-  private final XmlNodeReadOnlyTrx rtx;
+	private final XmlNodeReadOnlyTrx rtx;
 
-  private PeekableLongIterator nodeKeyIterator;
+	private PeekableLongIterator nodeKeyIterator;
 
-  public SirixNodeKeyStream(final Iterator<NodeReferences> iter, final XmlDBCollection collection,
-      final XmlNodeReadOnlyTrx rtx) {
-    this.iter = requireNonNull(iter);
-    this.collection = requireNonNull(collection);
-    this.rtx = requireNonNull(rtx);
-  }
+	public SirixNodeKeyStream(final Iterator<NodeReferences> iter, final XmlDBCollection collection,
+			final XmlNodeReadOnlyTrx rtx) {
+		this.iter = requireNonNull(iter);
+		this.collection = requireNonNull(collection);
+		this.rtx = requireNonNull(rtx);
+	}
 
-  @Override
-  public XmlDBNode next() {
-    if (nodeKeyIterator != null && nodeKeyIterator.hasNext()) {
-      var nodeKey = nodeKeyIterator.next();
-      rtx.moveTo(nodeKey);
-      return new XmlDBNode(rtx, collection);
-    }
-    while (iter.hasNext()) {
-      final NodeReferences nodeReferences = iter.next();
-      nodeKeyIterator = nodeReferences.getNodeKeys().getLongIterator();
-      if (nodeKeyIterator.hasNext()) {
-        var nodeKey = nodeKeyIterator.next();
-        rtx.moveTo(nodeKey);
-        return new XmlDBNode(rtx, collection);
-      }
-    }
-    return null;
-  }
+	@Override
+	public XmlDBNode next() {
+		if (nodeKeyIterator != null && nodeKeyIterator.hasNext()) {
+			var nodeKey = nodeKeyIterator.next();
+			rtx.moveTo(nodeKey);
+			return new XmlDBNode(rtx, collection);
+		}
+		while (iter.hasNext()) {
+			final NodeReferences nodeReferences = iter.next();
+			nodeKeyIterator = nodeReferences.getNodeKeys().getLongIterator();
+			if (nodeKeyIterator.hasNext()) {
+				var nodeKey = nodeKeyIterator.next();
+				rtx.moveTo(nodeKey);
+				return new XmlDBNode(rtx, collection);
+			}
+		}
+		return null;
+	}
 
-  @Override
-  public void close() {}
+	@Override
+	public void close() {
+	}
 
 }

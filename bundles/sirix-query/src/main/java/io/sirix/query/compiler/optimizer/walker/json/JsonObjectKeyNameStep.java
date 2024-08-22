@@ -20,50 +20,51 @@ import java.util.Optional;
 
 public class JsonObjectKeyNameStep extends AbstractJsonPathWalker {
 
-  public JsonObjectKeyNameStep(JsonDBStore jsonItemStore) {
-    super(jsonItemStore);
-  }
+	public JsonObjectKeyNameStep(JsonDBStore jsonItemStore) {
+		super(jsonItemStore);
+	}
 
-  @Override
-  int getPredicateLevel(Path<QNm> pathToFoundNode, Deque<String> predicateSegmentNames) {
-    return 0;
-  }
+	@Override
+	int getPredicateLevel(Path<QNm> pathToFoundNode, Deque<String> predicateSegmentNames) {
+		return 0;
+	}
 
-  @Override
-  protected AST visit(AST astNode) {
-    if (astNode.getType() != XQ.DerefExpr) {
-      return astNode;
-    }
+	@Override
+	protected AST visit(AST astNode) {
+		if (astNode.getType() != XQ.DerefExpr) {
+			return astNode;
+		}
 
-    final AST replaceNode = replaceAstIfIndexApplicable(astNode, null, null);
+		final AST replaceNode = replaceAstIfIndexApplicable(astNode, null, null);
 
-    if (replaceNode == null) {
-      return astNode;
-    }
+		if (replaceNode == null) {
+			return astNode;
+		}
 
-    return replaceNode;
-  }
+		return replaceNode;
+	}
 
-  @Override
-  Optional<IndexDef> findIndex(Path<QNm> pathToFoundNode,
-      IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController, Type type) {
-    return indexController.getIndexes().findNameIndex(pathToFoundNode.tail());
-  }
+	@Override
+	Optional<IndexDef> findIndex(Path<QNm> pathToFoundNode,
+			IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController, Type type) {
+		return indexController.getIndexes().findNameIndex(pathToFoundNode.tail());
+	}
 
-  @Override
-  AST replaceFoundAST(AST astNode, RevisionData revisionData, Map<IndexDef, List<Path<QNm>>> foundIndexDefs,
-      Map<IndexDef, Integer> predicateLevels, Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST predicateLeafNode) {
-    final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
-    indexExpr.setProperty("indexType", IndexType.NAME);
-    indexExpr.setProperty("indexDefs", foundIndexDefs);
-    indexExpr.setProperty("databaseName", revisionData.databaseName());
-    indexExpr.setProperty("resourceName", revisionData.resourceName());
-    indexExpr.setProperty("revision", revisionData.revision());
-    indexExpr.setProperty("pathSegmentNamesToArrayIndexes", pathSegmentNamesToArrayIndexes);
+	@Override
+	AST replaceFoundAST(AST astNode, RevisionData revisionData, Map<IndexDef, List<Path<QNm>>> foundIndexDefs,
+			Map<IndexDef, Integer> predicateLevels, Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes,
+			AST predicateLeafNode) {
+		final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
+		indexExpr.setProperty("indexType", IndexType.NAME);
+		indexExpr.setProperty("indexDefs", foundIndexDefs);
+		indexExpr.setProperty("databaseName", revisionData.databaseName());
+		indexExpr.setProperty("resourceName", revisionData.resourceName());
+		indexExpr.setProperty("revision", revisionData.revision());
+		indexExpr.setProperty("pathSegmentNamesToArrayIndexes", pathSegmentNamesToArrayIndexes);
 
-    final var parentASTNode = astNode.getParent();
-    parentASTNode.replaceChild(astNode.getChildIndex(), indexExpr);
+		final var parentASTNode = astNode.getParent();
+		parentASTNode.replaceChild(astNode.getChildIndex(), indexExpr);
 
-    return indexExpr;
-  }
+		return indexExpr;
+	}
 }

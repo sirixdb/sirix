@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -32,45 +32,42 @@ import io.sirix.service.xml.xpath.XPathAxis;
 
 /**
  * JUnit-test class to test the functionality of the DubFilter.
- * 
+ *
  * @author Tina Scherer
- * 
+ *
  */
 public class IfAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testIf() throws SirixException {
+	@Test
+	public void testIf() throws SirixException {
 
-    holder.getXmlNodeReadTrx().moveTo(1L);
+		holder.getXmlNodeReadTrx().moveTo(1L);
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "if (text()) then . else child::node()"),
-        new long[] {1L});
+		AbsAxisTest.testAxisConventions(
+				new XPathAxis(holder.getXmlNodeReadTrx(), "if (text()) then . else child::node()"), new long[]{1L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "if (node()) then . else child::node()"),
-        new long[] {1L});
+		AbsAxisTest.testAxisConventions(
+				new XPathAxis(holder.getXmlNodeReadTrx(), "if (node()) then . else child::node()"), new long[]{1L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(),
-            "if (processing-instruction()) then . else child::node()"),
-        new long[] {4L, 5L, 8L, 9L, 13L});
+		AbsAxisTest.testAxisConventions(
+				new XPathAxis(holder.getXmlNodeReadTrx(), "if (processing-instruction()) then . else child::node()"),
+				new long[]{4L, 5L, 8L, 9L, 13L});
 
-  }
+	}
 
 }

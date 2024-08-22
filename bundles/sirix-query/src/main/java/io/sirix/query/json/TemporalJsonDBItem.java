@@ -5,5 +5,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.query.StructuredDBItem;
 
 public interface TemporalJsonDBItem<E extends TemporalJsonDBItem<E>>
-    extends TemporalJsonItem<E>, StructuredDBItem<JsonNodeReadOnlyTrx> {
+		extends
+			TemporalJsonItem<E>,
+			StructuredDBItem<JsonNodeReadOnlyTrx> {
 }

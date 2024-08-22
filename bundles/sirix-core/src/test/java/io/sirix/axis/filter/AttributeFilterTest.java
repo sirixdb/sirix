@@ -32,37 +32,37 @@ import io.sirix.exception.SirixException;
 
 public class AttributeFilterTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    XmlTestHelper.deleteEverything();
-    XmlTestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		XmlTestHelper.deleteEverything();
+		XmlTestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    XmlTestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		XmlTestHelper.closeEverything();
+	}
 
-  @Test
-  public void testFilterConvetions() throws SirixException {
-    final XmlNodeReadOnlyTrx wtx = holder.getXmlNodeReadTrx();
-    wtx.moveTo(9L);
-    FilterTest.testFilterConventions(new AttributeFilter(wtx), false);
+	@Test
+	public void testFilterConvetions() throws SirixException {
+		final XmlNodeReadOnlyTrx wtx = holder.getXmlNodeReadTrx();
+		wtx.moveTo(9L);
+		FilterTest.testFilterConventions(new AttributeFilter(wtx), false);
 
-    wtx.moveTo(4L);
-    FilterTest.testFilterConventions(new AttributeFilter(wtx), false);
+		wtx.moveTo(4L);
+		FilterTest.testFilterConventions(new AttributeFilter(wtx), false);
 
-    wtx.moveTo(1L);
-    wtx.moveToAttribute(0);
-    FilterTest.testFilterConventions(new AttributeFilter(wtx), true);
+		wtx.moveTo(1L);
+		wtx.moveToAttribute(0);
+		FilterTest.testFilterConventions(new AttributeFilter(wtx), true);
 
-    wtx.moveTo(9L);
-    wtx.moveToAttribute(0);
-    FilterTest.testFilterConventions(new AttributeFilter(wtx), true);
-  }
+		wtx.moveTo(9L);
+		wtx.moveToAttribute(0);
+		FilterTest.testFilterConventions(new AttributeFilter(wtx), true);
+	}
 
 }
