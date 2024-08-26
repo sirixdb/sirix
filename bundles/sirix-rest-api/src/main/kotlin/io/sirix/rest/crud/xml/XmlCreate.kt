@@ -1,7 +1,5 @@
 package io.sirix.rest.crud.xml
 
-import io.vertx.core.Context
-import io.vertx.core.Promise
 import io.vertx.core.file.OpenOptions
 import io.vertx.core.file.impl.FileResolverImpl
 import io.vertx.ext.web.RoutingContext
@@ -61,7 +59,8 @@ class XmlCreate(
                 val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
                 val resConfig =
                     ResourceConfiguration.Builder(resPathName).hashKind(
-                        HashType.valueOf(hashType.uppercase()))
+                        HashType.valueOf(hashType.uppercase())
+                    )
                         .customCommitTimestamps(commitTimestampAsString != null).build()
                 createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
                 val manager = database.beginResourceSession(resPathName)
@@ -72,7 +71,7 @@ class XmlCreate(
 
                     ctx.vertx().fileSystem().delete(filePath.toString()).await()
 
-                    if (maxNodeKey < 5000) {
+                    if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
                         body = serializeResource(manager, ctx)
                     } else {
                         ctx.response().setStatusCode(200)
@@ -99,19 +98,6 @@ class XmlCreate(
         return XmlSerializeHelper().serializeXml(serializer, out, routingContext, manager, null)
     }
 
-    override suspend fun createDatabaseIfNotExists(
-        dbFile: Path,
-        context: Context
-    ): DatabaseConfiguration? {
-        val dbConfig = prepareDatabasePath(dbFile, context)
-
-        return context.executeBlocking { promise: Promise<DatabaseConfiguration> ->
-            if (!Databases.existsDatabase(dbFile)) {
-                Databases.createXmlDatabase(dbConfig)
-            }
-            promise.complete(dbConfig)
-        }.await()
-    }
 
     override fun insertResourceSubtreeAsFirstChild(
         manager: XmlResourceSession,
@@ -141,5 +127,9 @@ class XmlCreate(
 
     override suspend fun openDatabase(dbFile: Path, sirixDBUser: User): Database<XmlResourceSession> {
         return Databases.openXmlDatabase(dbFile, sirixDBUser)
+    }
+
+    override fun createDatabase(dbConfig: DatabaseConfiguration?) {
+        Databases.createXmlDatabase(dbConfig)
     }
 }

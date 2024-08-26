@@ -15,6 +15,7 @@ import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.ResourceConfiguration
 import io.sirix.access.User
 import io.sirix.access.trx.node.HashType
+import io.sirix.access.Databases
 import io.sirix.api.Database
 import io.sirix.api.ResourceSession
 import java.nio.file.Files
@@ -24,6 +25,9 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
     private val location: Path,
     private val createMultipleResources: Boolean = false
 ) : Handler {
+    companion object {
+        protected const val MAX_NODES_TO_SERIALIZE = 5000
+    }
 
     override suspend fun handle(ctx: RoutingContext): Route {
         val databaseName = ctx.pathParam("database")
@@ -123,10 +127,22 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         }
     }
 
-    abstract suspend fun createDatabaseIfNotExists(dbFile: Path, context: Context): DatabaseConfiguration?
+    private suspend fun createDatabaseIfNotExists(
+        dbFile: Path,
+        context: Context
+    ): DatabaseConfiguration? {
+        val dbConfig = prepareDatabasePath(dbFile, context)
+        return context.executeBlocking { promise: Promise<DatabaseConfiguration> ->
+            if (dbConfig != null && !Databases.existsDatabase(dbFile)) {
+                createDatabase(dbConfig)
+            }
+            promise.complete(dbConfig)
+        }.await()
+    }
+
     abstract suspend fun insertResource(dbFile: Path?, resPathName: String, ctx: RoutingContext)
     abstract fun insertResourceSubtreeAsFirstChild(manager: T, filePath: Path, ctx: RoutingContext): Long
     abstract suspend fun openDatabase(dbFile: Path, sirixDBUser: User): Database<T>
-
     abstract fun serializeResource(manager: T, routingContext: RoutingContext): String
+    abstract fun createDatabase(dbConfig: DatabaseConfiguration?)
 }

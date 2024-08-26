@@ -17,10 +17,25 @@ import io.sirix.access.User
 import io.sirix.access.trx.node.HashType
 import io.sirix.api.Database
 import io.sirix.api.ResourceSession
+import io.vertx.ext.web.Route
 import java.nio.file.Files
 import java.nio.file.Path
 
 abstract class AbstractDeleteHandler(protected val location: Path) {
+    suspend fun handle(ctx: RoutingContext): Route {
+        val databaseName: String? = ctx.pathParam("database") ?: ctx.get("databaseName")
+        val resource: String? = ctx.pathParam("resource")
+        val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
+
+        if (databaseName == null) {
+            dropDatabasesOfType(ctx, getDatabaseType())
+        } else {
+            delete(databaseName, resource, nodeId?.toLongOrNull(), ctx)
+        }
+
+        return ctx.currentRoute()
+    }
+
     protected suspend fun dropDatabasesOfType(ctx: RoutingContext, dbType: DatabaseType) {
         // Initialize queryResource context and store.
         val dbStore = createStore(ctx)
@@ -131,4 +146,5 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
     }
 
     protected abstract fun hashType(manager: ResourceSession<*, *>): HashType
+    protected abstract fun getDatabaseType(): DatabaseType
 }
