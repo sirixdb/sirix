@@ -29,7 +29,6 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
-import io.sirix.exception.SirixRuntimeException;
 import io.sirix.utils.JsonDocumentCreator;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -40,8 +39,6 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
-
-import static org.junit.Assert.fail;
 
 /**
  * Helper class for offering convenient usage of the {@link JsonResourceSession} for test cases.
@@ -142,19 +139,14 @@ public final class JsonTestHelper {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
-      try {
-        final DatabaseConfiguration config = new DatabaseConfiguration(file);
-        if (!Files.exists(file)) {
-          Databases.createJsonDatabase(config);
-        }
-        final var database = Databases.openJsonDatabase(file);
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).build());
-        INSTANCES.put(file, database);
-        return database;
-      } catch (final SirixRuntimeException e) {
-        fail(e.toString());
-        return null;
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createJsonDatabase(config);
       }
+      final var database = Databases.openJsonDatabase(file);
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).build());
+      INSTANCES.put(file, database);
+      return database;
     }
   }
 
@@ -170,19 +162,14 @@ public final class JsonTestHelper {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
-      try {
-        final DatabaseConfiguration config = new DatabaseConfiguration(file);
-        if (!Files.exists(file)) {
-          Databases.createJsonDatabase(config);
-        }
-        final var database = Databases.openJsonDatabase(file);
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).hashKind(HashType.ROLLING).build());
-        INSTANCES.put(file, database);
-        return database;
-      } catch (final SirixRuntimeException e) {
-        fail(e.toString());
-        return null;
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createJsonDatabase(config);
       }
+      final var database = Databases.openJsonDatabase(file);
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).hashKind(HashType.ROLLING).build());
+      INSTANCES.put(file, database);
+      return database;
     }
   }
 

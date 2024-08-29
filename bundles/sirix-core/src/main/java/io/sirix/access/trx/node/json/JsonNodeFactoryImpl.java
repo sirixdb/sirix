@@ -88,6 +88,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public ArrayNode createJsonArrayNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
       SirixDeweyID id) {
+
+
     final NodeDelegate nodeDel =
         new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
                          parentKey,
@@ -102,6 +104,20 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
                                                                 0,
                                                                 0);
     return pageTrx.createRecord(new ArrayNode(structDel, pathNodeKey), IndexType.DOCUMENT, -1);
+
+//    return pageTrx.createRecord(new ArrayNode(nodeKey,
+//                                              parentKey,
+//                                              Fixed.NULL_NODE_KEY.getStandardProperty(),
+//                                              Fixed.NULL_NODE_KEY.getStandardProperty(),
+//                                              rightSibKey,
+//                                              leftSibKey,
+//                                              hashFunction,
+//                                              pathNodeKey,
+//                                              null,
+//                                              Constants.NULL_REVISION_NUMBER,
+//                                              revisionNumber,
+//
+//                                              ), IndexType.DOCUMENT, -1);
   }
 
   @Override

@@ -38,6 +38,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -101,7 +102,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
-          cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
+          cache.get(revision, _ -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
 
       // Read page from file.
       final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
@@ -152,13 +153,17 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     try {
       // Serialize page.
       pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
-      final var byteArray = byteBufferBytes.toByteArray();
 
       final byte[] serializedPage;
+      final int uncompressedLength;
 
       if (page instanceof KeyValueLeafPage) {
-        serializedPage = byteArray;
+        final var byteArray = byteBufferBytes.toByteArray();
+        uncompressedLength = Writer.bytesToIntLittleEndian(byteArray[0], byteArray[1], byteArray[2], byteArray[3]);
+        serializedPage = Arrays.copyOfRange(byteArray, 4, byteArray.length);;
       } else {
+        final var byteArray = byteBufferBytes.toByteArray();
+        uncompressedLength = byteArray.length;
         try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
           try (final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
             dataOutput.write(byteArray);
@@ -191,6 +196,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         bufferedBytes.writePosition(bufferedBytes.writePosition() + offsetToAdd);
       }
 
+      bufferedBytes.writeInt(uncompressedLength);
       bufferedBytes.writeInt(serializedPage.length);
       bufferedBytes.write(serializedPage);
 

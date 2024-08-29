@@ -9,40 +9,43 @@ import io.sirix.settings.Constants;
 import org.checkerframework.checker.nullness.qual.PolyNull;
 
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 public final class PageCache implements Cache<PageReference, Page> {
 
-  private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> pageCache;
+  private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> cache;
 
   public PageCache(final int maxSize) {
     RemovalListener<PageReference, Page> removalListener = (PageReference key, Page value, RemovalCause cause) -> {
       key.setPage(null);
     };
 
-    pageCache = Caffeine.newBuilder()
-                        .initialCapacity(maxSize)
-                        .maximumSize(maxSize)
-                        .executor(Runnable::run)
-                        .scheduler(scheduler)
-                        .removalListener(removalListener)
-                        .build();
+    cache = Caffeine.newBuilder()
+                    .initialCapacity(maxSize)
+                    .maximumSize(maxSize)
+                    .scheduler(scheduler)
+                    .removalListener(removalListener)
+                    .build();
+  }
+
+  @Override
+  public void putIfAbsent(PageReference key, Page value) {
+    cache.asMap().putIfAbsent(key, value);
   }
 
   @Override
   public Page get(PageReference key, Function<? super PageReference, ? extends @PolyNull Page> mappingFunction) {
-    return pageCache.get(key, mappingFunction);
+    return cache.get(key, mappingFunction);
   }
 
   @Override
   public void clear() {
-    pageCache.invalidateAll();
+    cache.invalidateAll();
   }
 
   @Override
   public Page get(PageReference key) {
-    var page = pageCache.getIfPresent(key);
+    var page = cache.getIfPresent(key);
     return page;
   }
 
@@ -51,13 +54,13 @@ public final class PageCache implements Cache<PageReference, Page> {
     if (!(value instanceof RevisionRootPage) && !(value instanceof PathSummaryPage) && !(value instanceof PathPage)
         && !(value instanceof CASPage) && !(value instanceof NamePage)) {
       assert key.getKey() != Constants.NULL_ID_LONG;
-      pageCache.put(key, value);
+      cache.put(key, value);
     }
   }
 
   @Override
   public void putAll(Map<? extends PageReference, ? extends Page> map) {
-    pageCache.putAll(map);
+    cache.putAll(map);
   }
 
   @Override
@@ -67,12 +70,12 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public Map<PageReference, Page> getAll(Iterable<? extends PageReference> keys) {
-    return pageCache.getAllPresent(keys);
+    return cache.getAllPresent(keys);
   }
 
   @Override
   public void remove(PageReference key) {
-    pageCache.invalidate(key);
+    cache.invalidate(key);
   }
 
   @Override
