@@ -41,6 +41,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -166,19 +167,23 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @NonNull
-  private IOUringWriter writePage(ResourceConfiguration resourceConfiguration, PageReference pageReference,
-      Page page, Bytes<ByteBuffer> bufferedBytes, long offset) {
+  private IOUringWriter writePage(final ResourceConfiguration resourceConfiguration,
+      final PageReference pageReference, final Page page, final Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
       pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
-      final var byteArray = byteBufferBytes.toByteArray();
 
       final byte[] serializedPage;
+      final int uncompressedLength;
 
       if (page instanceof KeyValueLeafPage) {
-        serializedPage = byteArray;
+        final var byteArray = byteBufferBytes.toByteArray();
+        uncompressedLength = Writer.bytesToIntLittleEndian(byteArray[0], byteArray[1], byteArray[2], byteArray[3]);
+        serializedPage = Arrays.copyOfRange(byteArray, 4, byteArray.length);;
       } else {
+        final var byteArray = byteBufferBytes.toByteArray();
+        uncompressedLength = byteArray.length;
         try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
           try (final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
             dataOutput.write(byteArray);
@@ -215,6 +220,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
       //        pageBuffer.put(buffer);
       //      }
 
+      pageBuffer.putInt(uncompressedLength);
       pageBuffer.putInt(serializedPage.length);
       pageBuffer.put(serializedPage);
 

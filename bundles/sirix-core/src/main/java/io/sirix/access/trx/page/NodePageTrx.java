@@ -441,8 +441,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
        .map(PageContainer::getModified)
        .filter(page -> page instanceof KeyValueLeafPage)
        .forEach(page -> {
-         final var bytes = Bytes.elasticHeapByteBuffer(60_000);
-         PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
+         try {
+           final var bytes = Bytes.elasticHeapByteBuffer(60_000);
+           PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
+         } catch (final Exception e) {
+           throw new SirixIOException(e);
+         }
        });
   }
 
@@ -590,9 +594,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
                                                                    getResourceSession().getResourceConfig(),
                                                                    pageRtx.getRevisionNumber());
         final KeyValueLeafPage modifyPage = new KeyValueLeafPage(recordPageKey,
-                                                                   indexType,
-                                                                   getResourceSession().getResourceConfig(),
-                                                                   pageRtx.getRevisionNumber());
+                                                                 indexType,
+                                                                 getResourceSession().getResourceConfig(),
+                                                                 getRevisionNumber());
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
       } else {
         pageContainer = dereferenceRecordPageForModification(reference);
@@ -646,7 +650,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     final List<KeyValuePage<DataRecord>> pageFragments = pageRtx.getPageFragments(reference);
     final VersioningType versioningType = pageRtx.resourceSession.getResourceConfig().versioningType;
     final int mileStoneRevision = pageRtx.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
-    return versioningType.combineRecordPagesForModification(pageFragments, mileStoneRevision, pageRtx, reference, log);
+    return versioningType.combineRecordPagesForModification(pageFragments, mileStoneRevision, this, reference, log);
   }
 
   @Override

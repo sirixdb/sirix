@@ -91,19 +91,22 @@ public final class FileChannelReader extends AbstractReader {
       ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
 
       final long position = reference.getKey();
-      dataFileChannel.read(buffer, position);
 
+      dataFileChannel.read(buffer, position);
+      buffer.flip();
+      final int uncompressedLength = buffer.getInt();
+      buffer.flip();
+      dataFileChannel.read(buffer, position + 4);
       buffer.flip();
       final int dataLength = buffer.getInt();
 
       buffer = ByteBuffer.allocate(dataLength).order(ByteOrder.nativeOrder());
-
-      dataFileChannel.read(buffer, position + 4);
+      dataFileChannel.read(buffer, position + 8);
       buffer.flip();
       final byte[] page = buffer.array();
 
       // Perform byte operations.
-      return deserialize(resourceConfiguration, page);
+      return deserialize(resourceConfiguration, page, uncompressedLength);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -121,21 +124,25 @@ public final class FileChannelReader extends AbstractReader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     try {
-      final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
+      final var dataFileOffset = cache.get(revision, _ -> getRevisionFileData(revision)).offset();
 
       ByteBuffer buffer = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
       dataFileChannel.read(buffer, dataFileOffset);
       buffer.flip();
+      final int uncompressedDataLength = buffer.getInt();
+      buffer.flip();
+      dataFileChannel.read(buffer, dataFileOffset + 4);
+      buffer.flip();
       final int dataLength = buffer.getInt();
 
       buffer = ByteBuffer.allocateDirect(dataLength).order(ByteOrder.nativeOrder());
-      dataFileChannel.read(buffer, dataFileOffset + 4);
+      dataFileChannel.read(buffer, dataFileOffset + 8);
       buffer.flip();
       final byte[] page = new byte[dataLength];
       buffer.get(page);
 
       // Perform byte operations.
-      return (RevisionRootPage) deserialize(resourceConfiguration, page);
+      return (RevisionRootPage) deserialize(resourceConfiguration, page, uncompressedDataLength);
     } catch (IOException e) {
       throw new SirixIOException(e);
     }

@@ -135,12 +135,12 @@ public final class ConcurrentAxisTest {
   public void testConcurrent() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
-    final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final var secondConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final var thirdConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final var firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final var secondRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
-    final var thirdRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final var firstConcurrRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
+    final var secondConcurrRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
+    final var thirdConcurrRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
+    final var firstRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
+    final var secondRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
+    final var thirdRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     final Axis axis =
         new NestedAxis(
             new NestedAxis(
@@ -168,7 +168,7 @@ public final class ConcurrentAxisTest {
   public void testPartConcurrentDescAxis1() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
-    final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final var firstConcurrRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     final var axis = new NestedAxis(
         new NestedAxis(
             new ConcurrentAxis<>(firstConcurrRtx,
@@ -194,7 +194,7 @@ public final class ConcurrentAxisTest {
   public void testPartConcurrentDescAxis2() {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
-    final var firstConcurrRtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final var firstConcurrRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     final var axis = new NestedAxis(
         new NestedAxis(
             new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),

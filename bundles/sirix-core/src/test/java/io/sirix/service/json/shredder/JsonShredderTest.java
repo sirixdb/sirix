@@ -51,14 +51,14 @@ public final class JsonShredderTest {
 
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
-  private static final int NUMBER_OF_PROCESSORS = 3;
+  private static final int NUMBER_OF_PROCESSORS = 5;
 
   private static final ExecutorService THREAD_POOL =
       Executors.newFixedThreadPool(NUMBER_OF_PROCESSORS);
 
   @BeforeEach
   public void setUp() {
-    JsonTestHelper.deleteEverything();
+    //JsonTestHelper.deleteEverything();
   }
 
   @AfterEach
@@ -73,7 +73,6 @@ public final class JsonShredderTest {
     }
   }
 
-  @Disabled
   @Test
   public void testChicagoDescendantAxisParallel() throws InterruptedException {
 //    if (Files.notExists(PATHS.PATH1.getFile())) {
@@ -90,7 +89,22 @@ public final class JsonShredderTest {
     final var callableList = new ArrayList<Callable<Object>>(NUMBER_OF_PROCESSORS);
 
     for (int i = 0; i < NUMBER_OF_PROCESSORS; i++) {
+      int finalNumber = i;
       callableList.add(Executors.callable(() -> {
+        try {
+          switch (finalNumber) {
+            case 1:
+              Thread.sleep(1_000);
+            case 2:
+              Thread.sleep(2_000);
+            case 3:
+              Thread.sleep(3_000);
+            case 4:
+              Thread.sleep(4_000);
+          }
+        } catch (InterruptedException _) {
+        }
+
         final var rtx = session.beginNodeReadOnlyTrx();
 
         var stopWatch = new StopWatch();
@@ -138,7 +152,6 @@ public final class JsonShredderTest {
     THREAD_POOL.awaitTermination(20, TimeUnit.MINUTES);
   }
 
-  @Disabled
   @Test
   public void testChicagoDescendantAxis() {
 //    if (Files.notExists(PATHS.PATH1.getFile())) {
@@ -193,14 +206,13 @@ public final class JsonShredderTest {
   // TODO: JMH test
   // Use Shenandoah or ZGC
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
-  @Disabled
   @Test
   public void testShredderAndTraverseChicago() {
     logger.info("start");
     final var jsonPath = JSON.resolve("cityofchicago.json");
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-      createResource(jsonPath, database, true);
+      createResource(jsonPath, database, false);
       //      database.removeResource(JsonTestHelper.RESOURCE);
       //
       //      createResource(jsonPath, database);
