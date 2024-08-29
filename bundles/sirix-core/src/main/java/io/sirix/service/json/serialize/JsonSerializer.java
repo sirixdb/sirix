@@ -432,7 +432,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   protected void emitStartDocument() {
     try {
       final int length =
-          (revisions.length == 1 && revisions[0] < 0) ? resMgr.getMostRecentRevisionNumber() : revisions.length;
+          (revisions.length == 1 && revisions[0] < 0) ? session.getMostRecentRevisionNumber() : revisions.length;
 
       if (length > 1) {
         appendObjectStart(true);
@@ -454,7 +454,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   protected void emitEndDocument() {
     try {
       final int length =
-          (revisions.length == 1 && revisions[0] < 0) ? resMgr.getMostRecentRevisionNumber() : revisions.length;
+          (revisions.length == 1 && revisions[0] < 0) ? session.getMostRecentRevisionNumber() : revisions.length;
 
       if (length > 1) {
         if (indent) {
@@ -472,7 +472,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   protected void emitRevisionStartNode(final @NonNull JsonNodeReadOnlyTrx rtx) {
     try {
       final int length =
-          (revisions.length == 1 && revisions[0] < 0) ? resMgr.getMostRecentRevisionNumber() : revisions.length;
+          (revisions.length == 1 && revisions[0] < 0) ? session.getMostRecentRevisionNumber() : revisions.length;
 
       if (emitXQueryResultSequence || length > 1) {
         appendObjectStart(rtx.hasChildren()).appendObjectKeyValue(quote("revisionNumber"),
@@ -500,7 +500,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   protected void emitRevisionEndNode(final @NonNull JsonNodeReadOnlyTrx rtx) {
     try {
       final int length =
-          (revisions.length == 1 && revisions[0] < 0) ? resMgr.getMostRecentRevisionNumber() : revisions.length;
+          (revisions.length == 1 && revisions[0] < 0) ? session.getMostRecentRevisionNumber() : revisions.length;
 
       if (emitXQueryResultSequence || length > 1) {
         if (rtx.moveToDocumentRoot() && rtx.hasFirstChild())

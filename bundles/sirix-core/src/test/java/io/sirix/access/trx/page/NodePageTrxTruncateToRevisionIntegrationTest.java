@@ -31,7 +31,7 @@ public final class NodePageTrxTruncateToRevisionIntegrationTest {
 
   private Database<JsonResourceSession> database;
 
-  private JsonResourceSession resourceManager;
+  private JsonResourceSession resourceSession;
 
   private long fileSize;
 
@@ -39,9 +39,9 @@ public final class NodePageTrxTruncateToRevisionIntegrationTest {
   public void setUp() throws IOException {
     JsonTestHelper.deleteEverything();
     database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    resourceManager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+    resourceSession = database.beginResourceSession(JsonTestHelper.RESOURCE);
 
-    try (final var wtx = resourceManager.beginNodeTrx()) {
+    try (final var wtx = resourceSession.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);
       wtx.commit();
       fileSize = Files.size(RESOURCE_DATA_FILE);
@@ -65,7 +65,7 @@ public final class NodePageTrxTruncateToRevisionIntegrationTest {
 
   @Test
   public void test_when_sirix_is_setup_with_3_revisions_truncate_to_first_revision() throws IOException {
-    try (final var pageWtx = resourceManager.beginPageTrx()) {
+    try (final var pageWtx = resourceSession.beginPageTrx()) {
       pageWtx.truncateTo(1);
     }
 

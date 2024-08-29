@@ -79,16 +79,18 @@ public final class MMFileReader extends AbstractReader {
   }
 
   @Override
-  public Page read(final @NonNull PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
+  public Page read(final @NonNull PageReference reference,
+      final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
-      final long offset = reference.getKey() + LAYOUT_INT.byteSize();
-      final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
+      final long offset = reference.getKey() + LAYOUT_INT.byteSize() + LAYOUT_INT.byteSize();
+      final int uncompressedDataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
+      final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey() + LAYOUT_INT.byteSize());
 
       final byte[] page = new byte[dataLength];
 
       MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
 
-      return deserialize(resourceConfiguration, page);
+      return deserialize(resourceConfiguration, page, uncompressedDataLength);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -98,15 +100,21 @@ public final class MMFileReader extends AbstractReader {
   public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     try {
       //noinspection DataFlowIssue
-      final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
+      final var dataFileOffset = cache.get(revision, _ -> getRevisionFileData(revision)).offset();
 
-      final int dataLength = dataFileSegment.get(LAYOUT_INT, dataFileOffset);
+      final int uncompressedDataLength = dataFileSegment.get(LAYOUT_INT, dataFileOffset);
+      final int dataLength = dataFileSegment.get(LAYOUT_INT, dataFileOffset + LAYOUT_INT.byteSize());
 
       final byte[] page = new byte[dataLength];
 
-      MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, dataFileOffset + LAYOUT_INT.byteSize(), page, 0, dataLength);
+      MemorySegment.copy(dataFileSegment,
+                         LAYOUT_BYTE,
+                         dataFileOffset + LAYOUT_INT.byteSize() + LAYOUT_INT.byteSize(),
+                         page,
+                         0,
+                         dataLength);
 
-      return (RevisionRootPage) deserialize(resourceConfiguration, page);
+      return (RevisionRootPage) deserialize(resourceConfiguration, page, uncompressedDataLength);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -115,7 +123,7 @@ public final class MMFileReader extends AbstractReader {
   @Override
   public Instant readRevisionRootPageCommitTimestamp(int revision) {
     //noinspection DataFlowIssue
-    return cache.get(revision, (unused) -> getRevisionFileData(revision)).timestamp();
+    return cache.get(revision, _ -> getRevisionFileData(revision)).timestamp();
   }
 
   @Override

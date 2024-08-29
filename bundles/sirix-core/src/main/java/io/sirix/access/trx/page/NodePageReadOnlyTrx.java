@@ -282,7 +282,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final var offset = PageReadOnlyTrx.recordPageOffset(nodeKey);
     DataRecord record = page.getRecord(offset);
     if (record == null) {
-      byte[] data = page.getSlot(offset);
+      byte[] data = page.getSlotAsByteArray(offset);
       if (data != null) {
         record = getDataRecord(nodeKey, offset, data, page);
       }
@@ -308,7 +308,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     byteBufferForRecords.clear();
     BytesUtils.doWrite(byteBufferForRecords, data);
     var record =
-        resourceConfig.recordPersister.deserialize(byteBufferForRecords, key, page.getDeweyId(offset), resourceConfig);
+        resourceConfig.recordPersister.deserialize(byteBufferForRecords, key, page.getDeweyIdAsByteArray(offset), resourceConfig);
     byteBufferForRecords.clear();
     page.setRecord(record);
     return record;
@@ -352,12 +352,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     assert revisionKey <= resourceSession.getMostRecentRevisionNumber();
     if (trxIntentLog == null) {
       final Cache<Integer, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
-      RevisionRootPage revisionRootPage = cache.get(revisionKey);
-      if (revisionRootPage == null) {
-        revisionRootPage = pageReader.readRevisionRootPage(revisionKey, resourceConfig);
-        cache.put(revisionKey, revisionRootPage);
-      }
-      return revisionRootPage;
+      return cache.get(revisionKey, _ -> pageReader.readRevisionRootPage(revisionKey, resourceConfig));
     } else {
       if (revisionKey == 0 && uberPage.getRevisionRootReference() != null) {
         final var revisionRootPageReference = uberPage.getRevisionRootReference();
