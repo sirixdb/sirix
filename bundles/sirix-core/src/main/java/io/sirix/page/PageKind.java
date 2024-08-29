@@ -266,8 +266,6 @@ public enum PageKind {
       sink.writeInt(entriesBitmap.cardinality());
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
         var data = keyValueLeafPage.getSlotAsByteArray(i);
-        boolean isSlotSet = keyValueLeafPage.isSlotSet(i);
-        boolean bitmapSet = entriesBitmap.get(i);
 
         if (data != null) {
           assert entriesBitmap.get(i);
@@ -275,13 +273,6 @@ public enum PageKind {
           final int length = data.length;
           sink.writeInt(length);
           sink.write(data);
-        } else if (recordPageKey == 0 && indexType == IndexType.DOCUMENT){
-          assert !entriesBitmap.get(i);
-          System.out.println(
-              "Slot " + i + ": Data Length = " + 0 + ", isSlotSet = " + isSlotSet + ", Bitmap = " + bitmapSet
-                  + ", RecordPageKey = " + recordPageKey + ", IndexType = " + indexType + " Revision = "
-                  + keyValueLeafPage.getRevision());
-
         }
       }
 
