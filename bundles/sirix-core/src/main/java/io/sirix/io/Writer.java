@@ -83,4 +83,8 @@ public interface Writer extends Reader {
    * Truncate, that is remove all file content.
    */
   Writer truncate();
+
+  static int bytesToIntLittleEndian(byte b1, byte b2, byte b3, byte b4) {
+    return (b1 & 0xFF) | ((b2 & 0xFF) << 8) | ((b3 & 0xFF) << 16) | ((b4 & 0xFF) << 24);
+  }
 }

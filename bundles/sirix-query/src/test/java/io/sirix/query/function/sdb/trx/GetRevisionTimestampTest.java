@@ -67,8 +67,8 @@ public final class GetRevisionTimestampTest {
 
   @Test
   public void test() throws QueryException {
-    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().close();
+    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXmlNodeTrx());
+    holder.getXmlNodeTrx().close();
 
     final Path database = PATHS.PATH1.getFile();
 
