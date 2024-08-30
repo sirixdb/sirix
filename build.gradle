@@ -127,10 +127,46 @@ subprojects {
                                  "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED"]
     }
 
+    def applyLicenseHeader = project.hasProperty('applyLicenseHeader') ? project.applyLicenseHeader.toBoolean() : true
+    def spotlessFiles = project.hasProperty('spotlessFiles') ? project.spotlessFiles.split(",") : []
+
+
     spotless {
         enforceCheck false
         java {
-            licenseHeaderFile "${rootDir}/LICENSE"
+
+            def javaFiles = spotlessFiles.findAll { it.endsWith('.java') }
+            if (javaFiles) {
+                def relativeJavaFiles = javaFiles.collect { file ->
+                    file.toString().replace(project.projectDir.toString() + File.separator, '').replace('\\', '/')
+                }
+
+                println "Targeting Java files for formatting: ${relativeJavaFiles}"
+                target(relativeJavaFiles)
+            } else {
+                println "No specific Java files provided. No files will be targeted for Java formatting."
+                target([])
+            }
+            eclipse().configFile "${rootDir}/eclipse/sirix-formatter.xml"
+//            removeUnusedImports()
+            if (applyLicenseHeader) {
+                licenseHeaderFile "${rootDir}/LICENSE"
+            }
+        }
+
+        kotlin {
+            def kotlinFiles = spotlessFiles.findAll { it.endsWith('.kt') }
+            if (kotlinFiles) {
+                def relativeKotlinFiles = kotlinFiles.collect { file ->
+                    file.toString().replace(project.projectDir.toString() + File.separator, '').replace('\\', '/')
+                }
+                println "Targeting Kotlin files for formatting: ${relativeKotlinFiles}"
+                target(relativeKotlinFiles)
+            } else {
+                println "No specific Kotlin files provided. No files will be targeted for Kotlin formatting."
+                target([])
+            }
+            ktfmt().kotlinlangStyle()
         }
     }
 
@@ -289,6 +325,8 @@ subprojects {
     }
 }
 
+
+apply from: "$rootDir/gradle/preCommit.gradle"
 //task jacocoRootReport(type: JacocoReport) {
 //    description = 'Generates an aggregate report from all subprojects'
 //    dependsOn = subprojects.test

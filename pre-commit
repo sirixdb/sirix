@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# Workaround for Git GUI users to have environment variables available
+source ~/.zshrc
+
+# Immediately exit if any command has a non-zero exit status
+#set -e
+
+echo "Running formatter..."
+
+# Get the list of staged Java and Kotlin files
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(java|kt)$')
+
+# If no files to format, exit with status 0 to complete the commit
+if [ -z "$staged_files" ]; then
+  echo "No Java or Kotlin files to format."
+  exit 0
+fi
+
+# Convert the list of staged files into a comma-separated string of absolute paths
+formatted_files=$(echo "$staged_files" | while read -r file; do
+  realpath "$file"
+done | tr '\n' ',' | sed 's/,$//')
+
+# Check if there are any files to format
+if [ -z "$formatted_files" ]; then
+  echo "No files to format."
+  exit 0
+fi
+
+# Run Spotless with the paths of the staged files
+# Check for formatting errors and exit with the appropriate code
+if ! ./gradlew spotlessApply -PspotlessFiles="$formatted_files" -PapplyLicenseHeader=false --daemon; then
+  echo "Spotless formatting failed."
+  exit 1
+fi
+
+# Re-add any changes that Spotless created
+# Re-add only the files that were staged before formatting
+for file in $staged_files; do
+  git add "$file"
+done
+
+# Return the exit code
+exit 0
