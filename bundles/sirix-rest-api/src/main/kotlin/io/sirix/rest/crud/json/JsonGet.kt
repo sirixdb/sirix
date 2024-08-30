@@ -59,7 +59,7 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         }
     }
 
-    override fun serializeResourceInternal(
+    override fun getSerializedString(
         manager: JsonResourceSession,
         revisions: IntArray,
         nodeId: Long?,

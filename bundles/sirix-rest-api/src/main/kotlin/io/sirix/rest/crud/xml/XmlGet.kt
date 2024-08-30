@@ -139,7 +139,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
         }
     }
 
-    override fun serializeResourceInternal(
+    override fun getSerializedString(
         manager: XmlResourceSession, revisions: IntArray, nodeId: Long?, ctx: RoutingContext
     ): String {
         val out = ByteArrayOutputStream()

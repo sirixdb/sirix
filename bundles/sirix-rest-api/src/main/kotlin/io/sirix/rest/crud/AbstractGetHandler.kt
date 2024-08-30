@@ -234,7 +234,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         vertxContext: Context
     ): String {
         return vertxContext.executeBlocking { promise: Promise<String> ->
-            val serializedString = serializeResourceInternal(manager, revisions, nodeId, ctx)
+            val serializedString = getSerializedString(manager, revisions, nodeId, ctx)
             promise.complete(serializedString)
         }.await()
         ctx.response().setStatusCode(200)
@@ -266,7 +266,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         endResultSeqIndex: Long?
     )
 
-    protected abstract fun serializeResourceInternal(
+    protected abstract fun getSerializedString(
         manager: T,
         revisions: IntArray,
         nodeId: Long?,
