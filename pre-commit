@@ -19,7 +19,7 @@ fi
 
 # Convert the list of staged files into a comma-separated string of absolute paths
 formatted_files=$(echo "$staged_files" | while read -r file; do
-  echo "$(realpath "$file")"
+  realpath "$file"
 done | tr '\n' ',' | sed 's/,$//')
 
 # Check if there are any files to format
@@ -29,16 +29,17 @@ if [ -z "$formatted_files" ]; then
 fi
 
 # Run Spotless with the paths of the staged files
-./gradlew spotlessApply -PspotlessFiles="$formatted_files" -PapplyLicenseHeader=false --daemon
-
 # Check for formatting errors and exit with the appropriate code
-if [ $? -ne 0 ]; then
+if ! ./gradlew spotlessApply -PspotlessFiles="$formatted_files" -PapplyLicenseHeader=false --daemon; then
   echo "Spotless formatting failed."
   exit 1
 fi
 
 # Re-add any changes that Spotless created
-git add -u
+# Re-add only the files that were staged before formatting
+for file in $staged_files; do
+  git add "$file"
+done
 
 # Return the exit code
 exit 0
