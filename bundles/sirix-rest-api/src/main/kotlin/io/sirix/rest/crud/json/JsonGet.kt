@@ -1,12 +1,8 @@
 package io.sirix.rest.crud.json
 
-import io.vertx.core.Context
-import io.vertx.core.Promise
-import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
 import io.sirix.access.Databases
 import io.sirix.api.Database
 import io.sirix.api.json.JsonNodeReadOnlyTrx
@@ -24,42 +20,14 @@ import io.sirix.query.json.*
 import java.io.StringWriter
 import java.nio.file.Path
 
-class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider): AbstractGetHandler <JsonResourceSession, JsonDBCollection, JsonNodeReadOnlyTrx> (location, authz) {
-    override fun query(
-        xmlDBStore: XmlSessionDBStore,
-        jsonDBStore: JsonSessionDBStore,
-        startResultSeqIndex: Long?,
-        query: String,
-        queryCtx: SirixQueryContext,
-        endResultSeqIndex: Long?,
-        routingContext: RoutingContext
-    ): String {
-        val out = StringBuilder()
+class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider) :
+    AbstractGetHandler<JsonResourceSession, JsonDBCollection, JsonNodeReadOnlyTrx>(location, authz) {
 
-        executeQueryAndSerialize(
-            routingContext,
-            xmlDBStore,
-            jsonDBStore,
-            out,
-            startResultSeqIndex,
-            query,
-            queryCtx,
-            endResultSeqIndex
-        )
-
-        val body = out.toString()
-
-        routingContext.response().setStatusCode(200)
-            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-
-        return body
-    }
-
-    private fun executeQueryAndSerialize(
+    override fun executeQueryAndSerialize(
         routingContext: RoutingContext,
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
-        out: StringBuilder,
+        out: Any,
         startResultSeqIndex: Long?,
         query: String,
         queryCtx: SirixQueryContext,
@@ -67,7 +35,7 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
     ) {
         SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
             if (startResultSeqIndex == null) {
-                val serializer = JsonDBSerializer(out, false)
+                val serializer = JsonDBSerializer(out as StringBuilder, false)
                 PermissionCheckingQuery(
                     sirixCompileChain,
                     query,
@@ -85,119 +53,121 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
                     keycloak,
                     authz,
                     routingContext.get("user"),
-                    JsonDBSerializer(out, true)
+                    JsonDBSerializer(out as StringBuilder, true)
                 ) { serializer, startItem -> serializer.serialize(startItem) }
             }
         }
     }
 
-    override suspend fun serializeResource(
-        manager: JsonResourceSession, revisions: IntArray, nodeId: Long?,
-        ctx: RoutingContext,
-        vertxContext: Context
+    override fun serializeResourceInternal(
+        manager: JsonResourceSession,
+        revisions: IntArray,
+        nodeId: Long?,
+        ctx: RoutingContext
     ): String {
-        val serializedString = vertxContext.executeBlocking { promise: Promise<String> ->
-            val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
-            val lastTopLevelNodeKey = ctx.queryParam("lastTopLevelNodeKey").getOrNull(0)?.toLong()
+        val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
+        val lastTopLevelNodeKey = ctx.queryParam("lastTopLevelNodeKey").getOrNull(0)?.toLong()
 
-            val numberOfNodes = ctx.queryParam("numberOfNodes").getOrNull(0)?.toLong()
-            val maxChildren = ctx.queryParam("maxChildren").getOrNull(0)?.toLong()
+        val numberOfNodes = ctx.queryParam("numberOfNodes").getOrNull(0)?.toLong()
+        val maxChildren = ctx.queryParam("maxChildren").getOrNull(0)?.toLong()
 
-            val out = StringWriter()
+        val out = StringWriter()
 
-            val withMetaData: String? = ctx.queryParam("withMetaData").getOrNull(0)
-            val maxLevel: String? = ctx.queryParam("maxLevel").getOrNull(0)
-            val prettyPrint: String? = ctx.queryParam("prettyPrint").getOrNull(0)
+        val withMetaData: String? = ctx.queryParam("withMetaData").getOrNull(0)
+        val maxLevel: String? = ctx.queryParam("maxLevel").getOrNull(0)
+        val prettyPrint: String? = ctx.queryParam("prettyPrint").getOrNull(0)
 
-            if (nextTopLevelNodes == null) {
-                val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions)
+        if (nextTopLevelNodes == null) {
+            val serializerBuilder = JsonSerializer.newBuilder(manager, out).revisions(revisions)
 
-                nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
+            nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 
-                if (withMetaData != null) {
-                    when (withMetaData) {
-                        "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
-                        "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
-                        else -> serializerBuilder.withMetaData(true)
-                    }
+            if (withMetaData != null) {
+                when (withMetaData) {
+                    "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
+                    "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
+                    else -> serializerBuilder.withMetaData(true)
                 }
-
-                if (maxLevel != null) {
-                    serializerBuilder.maxLevel(maxLevel.toLong())
-                }
-
-                if (maxChildren != null) {
-                    serializerBuilder.maxChildren(maxChildren.toLong())
-                }
-
-                if (prettyPrint != null) {
-                    serializerBuilder.prettyPrint()
-                }
-
-                if (numberOfNodes != null) {
-                    serializerBuilder.numberOfNodes(numberOfNodes)
-                }
-
-                val serializer = serializerBuilder.build()
-
-                promise.complete(JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId))
-            } else {
-                val serializerBuilder =
-                    JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions)
-
-                nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
-
-                if (withMetaData != null) {
-                    when (withMetaData) {
-                        "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
-                        "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
-                        else -> serializerBuilder.withMetaData(true)
-                    }
-                }
-
-                if (maxLevel != null) {
-                    serializerBuilder.maxLevel(maxLevel.toLong())
-                }
-
-                if (maxChildren != null) {
-                    serializerBuilder.maxChildren(maxChildren.toLong())
-                }
-
-                if (prettyPrint != null) {
-                    serializerBuilder.prettyPrint()
-                }
-
-                if (lastTopLevelNodeKey != null) {
-                    serializerBuilder.lastTopLevelNodeKey(lastTopLevelNodeKey)
-                }
-
-                if (numberOfNodes != null) {
-                    serializerBuilder.numberOfNodes(numberOfNodes)
-                }
-
-                val serializer = serializerBuilder.build()
-
-                promise.complete(JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId))
             }
-        }.await()
 
-        ctx.response().setStatusCode(200)
-            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+            if (maxLevel != null) {
+                serializerBuilder.maxLevel(maxLevel.toLong())
+            }
 
-        return serializedString!!
+            if (maxChildren != null) {
+                serializerBuilder.maxChildren(maxChildren.toLong())
+            }
+
+            if (prettyPrint != null) {
+                serializerBuilder.prettyPrint()
+            }
+
+            if (numberOfNodes != null) {
+                serializerBuilder.numberOfNodes(numberOfNodes)
+            }
+
+            val serializer = serializerBuilder.build()
+
+            return JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId)
+        } else {
+            val serializerBuilder =
+                JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions)
+
+            nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
+
+            if (withMetaData != null) {
+                when (withMetaData) {
+                    "nodeKeyAndChildCount" -> serializerBuilder.withNodeKeyAndChildCountMetaData(true)
+                    "nodeKey" -> serializerBuilder.withNodeKeyMetaData(true)
+                    else -> serializerBuilder.withMetaData(true)
+                }
+            }
+
+            if (maxLevel != null) {
+                serializerBuilder.maxLevel(maxLevel.toLong())
+            }
+
+            if (maxChildren != null) {
+                serializerBuilder.maxChildren(maxChildren.toLong())
+            }
+
+            if (prettyPrint != null) {
+                serializerBuilder.prettyPrint()
+            }
+
+            if (lastTopLevelNodeKey != null) {
+                serializerBuilder.lastTopLevelNodeKey(lastTopLevelNodeKey)
+            }
+
+            if (numberOfNodes != null) {
+                serializerBuilder.numberOfNodes(numberOfNodes)
+            }
+
+            val serializer = serializerBuilder.build()
+
+            return JsonSerializeHelper().serialize(serializer, out, ctx, manager, revisions, nodeId)
+        }
     }
 
     override suspend fun openDatabase(dbFile: Path): Database<JsonResourceSession> {
         return Databases.openJsonDatabase(dbFile)
     }
 
-    override suspend fun getDBCollection(databaseName: String?, database: Database<JsonResourceSession>): JsonDBCollection {
+    override suspend fun getDBCollection(
+        databaseName: String?,
+        database: Database<JsonResourceSession>
+    ): JsonDBCollection {
         return JsonDBCollection(databaseName, database)
     }
 
-    override fun  handleQueryExtra(rtx: JsonNodeReadOnlyTrx, dbCollection: JsonDBCollection, queryContext: SirixQueryContext, jsonSessionDBStore: JsonSessionDBStore) {
+    override fun handleQueryExtra(
+        rtx: JsonNodeReadOnlyTrx,
+        dbCollection: JsonDBCollection,
+        queryContext: SirixQueryContext,
+        jsonSessionDBStore: JsonSessionDBStore
+    ) {
         val jsonItem = JsonItemFactory()
-                .getSequence(rtx, dbCollection)
+            .getSequence(rtx, dbCollection)
 
         if (jsonItem != null) {
             queryContext.contextItem = jsonItem
@@ -239,4 +209,9 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
             }
         }
     }
+
+    override fun createOutputStream(): Any = StringBuilder()
+
+    override fun getOutputString(out: Any): String = (out as StringBuilder).toString()
+
 }

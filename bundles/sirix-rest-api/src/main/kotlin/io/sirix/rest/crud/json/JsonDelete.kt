@@ -2,7 +2,6 @@ package io.sirix.rest.crud.json
 
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
-import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.brackit.query.jdm.StructuredItemStore
 import io.sirix.access.DatabaseType

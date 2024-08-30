@@ -1,7 +1,5 @@
 package io.sirix.rest.crud.json
 
-import io.vertx.core.Context
-import io.vertx.core.Promise
 import io.vertx.core.parsetools.JsonParser
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.await

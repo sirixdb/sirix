@@ -1,7 +1,5 @@
 package io.sirix.rest.crud.xml
 
-import io.vertx.core.Context
-import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
@@ -23,7 +21,8 @@ import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Path
 
-class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider): AbstractGetHandler <XmlResourceSession, XmlDBCollection, XmlNodeReadOnlyTrx> (location, authz) {
+class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider) :
+    AbstractGetHandler<XmlResourceSession, XmlDBCollection, XmlNodeReadOnlyTrx>(location, authz) {
 //    override suspend fun xquery(
 //        manager: XmlResourceSession?,
 //        dbCollection: XmlDBCollection?,
@@ -105,58 +104,23 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
 //        }.await()
 //    }
 
-    override fun query(
-        xmlDBStore: XmlSessionDBStore,
-        jsonDBStore: JsonSessionDBStore,
-        startResultSeqIndex: Long?,
-        query: String,
-        queryCtx: SirixQueryContext,
-        endResultSeqIndex: Long?,
-        routingContext: RoutingContext
-    ): String {
-        val out = ByteArrayOutputStream()
-
-        executeQueryAndSerialize(
-            routingContext,
-            xmlDBStore,
-            jsonDBStore,
-            out,
-            startResultSeqIndex,
-            query,
-            queryCtx,
-            endResultSeqIndex
-        )
-
-        val body = out.toString()
-
-        routingContext.response().setStatusCode(200)
-            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-
-        return body
-    }
-
-    private fun executeQueryAndSerialize(
+    override fun executeQueryAndSerialize(
         routingContext: RoutingContext,
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
-        out: ByteArrayOutputStream,
+        out: Any,
         startResultSeqIndex: Long?,
         query: String,
         queryCtx: SirixQueryContext,
         endResultSeqIndex: Long?
     ) {
-        PrintStream(out).use { printStream ->
+        PrintStream(out as ByteArrayOutputStream).use { printStream ->
             SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
                 if (startResultSeqIndex == null) {
                     PermissionCheckingQuery(
-                        sirixCompileChain,
-                        query,
-                        keycloak,
-                        routingContext.get("user"),
-                        authz
+                        sirixCompileChain, query, keycloak, routingContext.get("user"), authz
                     ).prettyPrint().serialize(
-                        queryCtx,
-                        XmlDBSerializer(printStream, true, true)
+                        queryCtx, XmlDBSerializer(printStream, true, true)
                     )
                 } else {
                     QuerySerializer.serializePaginated(
@@ -175,10 +139,8 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
         }
     }
 
-    override suspend fun serializeResource(
-        manager: XmlResourceSession, revisions: IntArray, nodeId: Long?,
-        ctx: RoutingContext,
-        vertxContext: Context
+    override fun serializeResourceInternal(
+        manager: XmlResourceSession, revisions: IntArray, nodeId: Long?, ctx: RoutingContext
     ): String {
         val out = ByteArrayOutputStream()
 
@@ -186,15 +148,19 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
 
         nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
 
-        if (ctx.queryParam("maxLevel").isNotEmpty())
-            serializerBuilder.maxLevel(ctx.queryParam("maxLevel")[0].toLong())
+        if (ctx.queryParam("maxLevel").isNotEmpty()) serializerBuilder.maxLevel(ctx.queryParam("maxLevel")[0].toLong())
 
         val serializer = serializerBuilder.emitIDs().emitRESTful().emitRESTSequence().prettyPrint().build()
 
         return XmlSerializeHelper().serializeXml(serializer, out, ctx, manager, nodeId)
     }
 
-    override fun  handleQueryExtra(rtx: XmlNodeReadOnlyTrx, dbCollection: XmlDBCollection, queryContext: SirixQueryContext, jsonDBStore: JsonSessionDBStore) {
+    override fun handleQueryExtra(
+        rtx: XmlNodeReadOnlyTrx,
+        dbCollection: XmlDBCollection,
+        queryContext: SirixQueryContext,
+        jsonDBStore: JsonSessionDBStore
+    ) {
         val dbNode = XmlDBNode(rtx, dbCollection)
 
         queryContext.contextItem = dbNode
@@ -205,7 +171,13 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
         return Databases.openXmlDatabase(dbFile)
     }
 
-    override suspend fun getDBCollection(databaseName: String?, database: Database<XmlResourceSession>): XmlDBCollection {
+    override suspend fun getDBCollection(
+        databaseName: String?, database: Database<XmlResourceSession>
+    ): XmlDBCollection {
         return XmlDBCollection(databaseName, database)
     }
+
+    override fun createOutputStream(): Any = ByteArrayOutputStream()
+
+    override fun getOutputString(out: Any): String = (out as ByteArrayOutputStream).toString()
 }
