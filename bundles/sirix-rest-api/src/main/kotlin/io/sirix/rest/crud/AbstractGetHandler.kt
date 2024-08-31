@@ -19,6 +19,7 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.nio.file.Path
 
 abstract class AbstractGetHandler<T : ResourceSession<*, *>,
@@ -34,11 +35,9 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         val query: String? = ctx.queryParam("query").getOrElse(0) {
             jsonBody?.getString("query")
         }
-
         withContext(context.dispatcher()) {
             get(databaseName, ctx, resource, query, context, ctx.get("user") as User, jsonBody)
         }
-
         return ctx.currentRoute()
     }
 
@@ -93,7 +92,6 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         nodeId: String?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
     ): String? {
         val dbCollection = getDBCollection(databaseName, database)
-
         dbCollection.use {
             val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
             val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
@@ -144,7 +142,6 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
             } else {
                 Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
             }
-
             val queryCtx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(
                 xmlDBStore,
                 jsonDBStore,
@@ -152,9 +149,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                 commitMessage,
                 commitTimestamp
             )
-
             var body: String?
-
             queryCtx.use {
                 if (manager != null && dbCollection != null && revisionNumber != null) {
                     @Suppress("UNCHECKED_CAST") val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0]) as R
@@ -168,62 +163,32 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
 
                         handleQueryExtra(rtx, dbCollection, queryCtx, jsonDBStore)
 
-                        body = query(
+                        body = executeQueryAndSerialize(
+                            routingContext,
                             xmlDBStore,
                             jsonDBStore,
+                            createOutputStream(),
                             startResultSeqIndex,
                             query,
                             queryCtx,
-                            endResultSeqIndex,
-                            routingContext
+                            endResultSeqIndex
                         )
                     }
-
                 } else {
-                    body = query(
+                    body = executeQueryAndSerialize(
+                        routingContext,
                         xmlDBStore,
                         jsonDBStore,
+                        createOutputStream(),
                         startResultSeqIndex,
                         query,
                         queryCtx,
-                        endResultSeqIndex,
-                        routingContext
+                        endResultSeqIndex
                     )
                 }
             }
-
             promise.complete(body)
         }.await()
-    }
-
-    private fun query(
-        xmlDBStore: XmlSessionDBStore,
-        jsonDBStore: JsonSessionDBStore,
-        startResultSeqIndex: Long?,
-        query: String,
-        queryCtx: SirixQueryContext,
-        endResultSeqIndex: Long?,
-        routingContext: RoutingContext
-    ): String {
-        val out = createOutputStream()
-
-        executeQueryAndSerialize(
-            routingContext,
-            xmlDBStore,
-            jsonDBStore,
-            out,
-            startResultSeqIndex,
-            query,
-            queryCtx,
-            endResultSeqIndex
-        )
-
-        val body = getOutputString(out)
-
-        routingContext.response().setStatusCode(200)
-            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-
-        return body
     }
 
     private suspend fun serializeResource(
@@ -243,28 +208,27 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
 
     abstract suspend fun openDatabase(dbFile: Path): Database<T>
 
-    abstract suspend fun getDBCollection(databaseName: String?, database: Database<T>): W
+    protected abstract suspend fun getDBCollection(databaseName: String?, database: Database<T>): W
 
-    abstract fun handleQueryExtra(
+    protected abstract fun handleQueryExtra(
         rtx: R,
         dbCollection: W,
         queryContext: SirixQueryContext,
         jsonSessionDBStore: JsonSessionDBStore
     )
 
-    protected abstract fun createOutputStream(): Any
-    protected abstract fun getOutputString(out: Any): String
+    protected abstract fun createOutputStream(): OutputWrapper
 
     protected abstract fun executeQueryAndSerialize(
         routingContext: RoutingContext,
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
-        out: Any,
+        out: OutputWrapper,
         startResultSeqIndex: Long?,
         query: String,
         queryCtx: SirixQueryContext,
         endResultSeqIndex: Long?
-    )
+    ): String
 
     protected abstract fun getSerializedString(
         manager: T,
@@ -273,6 +237,11 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         ctx: RoutingContext
     ): String
 
+}
+
+sealed class OutputWrapper {
+    class StringBuilderWrapper(val sb: StringBuilder) : OutputWrapper()
+    class ByteArrayOutputStreamWrapper(val baos: ByteArrayOutputStream) : OutputWrapper()
 }
 
 

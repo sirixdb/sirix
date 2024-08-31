@@ -15,8 +15,10 @@ import io.sirix.service.json.serialize.JsonSerializer
 import io.sirix.query.JsonDBSerializer
 import io.sirix.query.SirixCompileChain
 import io.sirix.rest.crud.AbstractGetHandler
+import io.sirix.rest.crud.OutputWrapper
 import io.sirix.query.SirixQueryContext
 import io.sirix.query.json.*
+import io.vertx.core.http.HttpHeaders
 import java.io.StringWriter
 import java.nio.file.Path
 
@@ -27,15 +29,16 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         routingContext: RoutingContext,
         xmlDBStore: XmlSessionDBStore,
         jsonDBStore: JsonSessionDBStore,
-        out: Any,
+        out: OutputWrapper,
         startResultSeqIndex: Long?,
         query: String,
         queryCtx: SirixQueryContext,
         endResultSeqIndex: Long?
-    ) {
+    ): String {
+        val stringBuilder = (out as OutputWrapper.StringBuilderWrapper).sb
         SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
             if (startResultSeqIndex == null) {
-                val serializer = JsonDBSerializer(out as StringBuilder, false)
+                val serializer = JsonDBSerializer(stringBuilder, false)
                 PermissionCheckingQuery(
                     sirixCompileChain,
                     query,
@@ -53,10 +56,13 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
                     keycloak,
                     authz,
                     routingContext.get("user"),
-                    JsonDBSerializer(out as StringBuilder, true)
+                    JsonDBSerializer(stringBuilder, true)
                 ) { serializer, startItem -> serializer.serialize(startItem) }
             }
         }
+        routingContext.response().setStatusCode(200)
+            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+        return stringBuilder.toString()
     }
 
     override fun getSerializedString(
@@ -210,8 +216,5 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         }
     }
 
-    override fun createOutputStream(): Any = StringBuilder()
-
-    override fun getOutputString(out: Any): String = (out as StringBuilder).toString()
-
+    override fun createOutputStream(): OutputWrapper = OutputWrapper.StringBuilderWrapper(StringBuilder())
 }
