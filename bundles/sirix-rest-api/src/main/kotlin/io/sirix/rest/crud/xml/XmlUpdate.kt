@@ -8,6 +8,7 @@ import io.vertx.kotlin.coroutines.await
 import io.sirix.access.Databases
 import io.sirix.access.trx.node.HashType
 import io.sirix.api.xml.XmlNodeTrx
+import io.sirix.rest.crud.AbstractUpdateHandler
 import io.sirix.rest.crud.Revisions
 import io.sirix.rest.crud.SirixDBUser
 import io.sirix.service.xml.serialize.XmlSerializer
@@ -62,26 +63,9 @@ enum class XmlInsertionMode {
     }
 }
 
-class XmlUpdate(private val location: Path) {
-    suspend fun handle(ctx: RoutingContext): Route {
-        val databaseName = ctx.pathParam("database")
+class XmlUpdate(location: Path) : AbstractUpdateHandler(location) {
 
-        val resource = ctx.pathParam("resource")
-        val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
-        val insertionMode: String? = ctx.queryParam("insert").getOrNull(0)
-
-        if (databaseName == null || resource == null) {
-            throw IllegalArgumentException("Database name and resource name not given.")
-        }
-
-        val body = ctx.body().asString()
-
-        update(databaseName, resource, nodeId?.toLongOrNull(), insertionMode, body, ctx)
-
-        return ctx.currentRoute()
-    }
-
-    private suspend fun update(
+    override suspend fun update(
         databaseName: String, resPathName: String, nodeId: Long?, insertionMode: String?,
         resFileToStore: String, ctx: RoutingContext
     ) {
@@ -100,12 +84,7 @@ class XmlUpdate(private val location: Path) {
 
                 manager.use {
                     val commitMessage = ctx.queryParam("commitMessage").getOrNull(0)
-                    val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
-                    val commitTimestamp = if (commitTimestampAsString == null) {
-                        null
-                    } else {
-                        Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
-                    }
+                    val commitTimestamp = getCommitTimestamp(ctx)
 
                     val wtx = manager.beginNodeTrx()
                     val (maxNodeKey, hash) = wtx.use {
@@ -143,13 +122,7 @@ class XmlUpdate(private val location: Path) {
                     }
 
                     if (maxNodeKey > 5000) {
-                        ctx.response().statusCode = 200
-
-                        if (manager.resourceConfig.hashType == HashType.NONE) {
-                            ctx.response()
-                        } else {
-                            ctx.response().putHeader(HttpHeaders.ETAG, hash.toString())
-                        }
+                        handleResponse(ctx, maxNodeKey, hash, manager.resourceConfig, null)
                     } else {
                         val out = ByteArrayOutputStream()
                         val serializerBuilder = XmlSerializer.XmlSerializerBuilder(manager, out)
@@ -161,13 +134,11 @@ class XmlUpdate(private val location: Path) {
                     }
                 }
             }
-
             if (body != null) {
                 ctx.response().end(body)
             } else {
                 ctx.response().end()
             }
-
             promise.complete(null)
         }.await()
     }
