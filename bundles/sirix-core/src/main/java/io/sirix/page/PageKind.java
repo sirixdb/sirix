@@ -84,12 +84,16 @@ public enum PageKind {
           final RecordSerializer recordPersister = resourceConfig.recordPersister;
           final Map<Long, PageReference> references = new LinkedHashMap<>();
           final int slotsMemorySize = source.readInt();
+          final int lastSlotOffset = source.readInt();
           final int deweyIdsMemorySize;
+          final int lastDeweyIdOffset;
 
           if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
             deweyIdsMemorySize = source.readInt();
+            lastDeweyIdOffset = source.readInt();
           } else {
             deweyIdsMemorySize = -1;
+            lastDeweyIdOffset = -1;
           }
 
           var page = new KeyValueLeafPage(recordPageKey,
@@ -100,7 +104,9 @@ public enum PageKind {
                                           recordPersister,
                                           references,
                                           slotsMemorySize,
-                                          deweyIdsMemorySize);
+                                          deweyIdsMemorySize,
+                                          lastSlotOffset,
+                                          lastDeweyIdOffset);
 
           if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer serializer) {
             final var deweyIdsBitmap = SerializationType.deserializeBitSet(source);
@@ -131,21 +137,12 @@ public enum PageKind {
           final int normalEntrySize = source.readInt();
           var setBit = -1;
 
-          System.out.println(
-              "Deserialize: BitSet: (indexType: " + indexType + " pageKey: " + recordPageKey + " revision: " + revision
-                  + ") " + entriesBitmap);
-
           for (int index = 0; index < normalEntrySize; index++) {
             setBit = entriesBitmap.nextSetBit(setBit + 1);
             assert setBit >= 0;
 
             final int dataSize = source.readInt();
-            if (dataSize <= 0) {
-              System.out.println(
-                  "Deserialize: slot: " + setBit + " Unexpected zero or negative data length: " + dataSize
-                      + " for recordPageKey: " + recordPageKey);
-              continue;
-            }
+            assert dataSize > 0;
 
             final byte[] data = new byte[dataSize];
             source.read(data);
@@ -209,10 +206,13 @@ public enum PageKind {
       sink.writeByte(indexType.getID());
       // Write used slot memory size.
       sink.writeInt(usedSlotsMemorySize);
+      // Write last slot offset.
+      sink.writeInt(keyValueLeafPage.getLastSlotIndex());
 
       // Write dewey IDs.
       if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer persistence) {
         sink.writeInt(usedDeweyIdMemorySize);
+        sink.writeInt(keyValueLeafPage.getLastDeweyIdIndex());
 
         var deweyIdsBitmap = new BitSet(Constants.NDP_NODE_COUNT);
         for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
@@ -248,10 +248,6 @@ public enum PageKind {
         }
       }
       SerializationType.serializeBitSet(sink, entriesBitmap);
-
-      System.out.println(
-          "Really Serialize: BitSet: (indexType: " + indexType + " pageKey: " + recordPageKey + " revision: "
-              + keyValueLeafPage.getRevision() + ") " + entriesBitmap);
 
       var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
       final var overlongEntriesSortedByKey = references.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList();

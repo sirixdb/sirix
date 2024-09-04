@@ -34,12 +34,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * The page currently is not thread safe (might have to be for concurrent write-transactions)!
  * </p>
  */
-@SuppressWarnings({ "unchecked", "ConstantValue" })
+@SuppressWarnings({ "unchecked" })
 public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private static final int INT_SIZE = Integer.BYTES;
-
-
 
   public final Arena arena = Arena.ofAuto();
 
@@ -54,6 +52,26 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private final boolean areDeweyIDsStored;
 
   private final boolean doResizeMemorySegmentsIfNeeded;
+
+  /**
+   * Start of free space.
+   */
+  private int slotMemoryFreeSpaceStart;
+
+  /**
+   * Start of free space.
+   */
+  private int deweyIdMemoryFreeSpaceStart;
+
+  /**
+   * The index of the last slot (the slot with the largest offset).
+   */
+  private int lastSlotIndex;
+
+  /**
+   * The index of the last slot (the slot with the largest offset).
+   */
+  private int lastDeweyIdIndex;
 
   /**
    * Determines if references to {@link OverflowPage}s have been added or not.
@@ -131,6 +149,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.slotOffsets = Arrays.copyOf(pageToClone.slotOffsets, pageToClone.slotOffsets.length);
     this.deweyIdOffsets = Arrays.copyOf(pageToClone.deweyIdOffsets, pageToClone.deweyIdOffsets.length);
     this.doResizeMemorySegmentsIfNeeded = true;
+    this.slotMemoryFreeSpaceStart = pageToClone.slotMemoryFreeSpaceStart;
+    this.lastSlotIndex = pageToClone.lastSlotIndex;
+    this.deweyIdMemoryFreeSpaceStart = pageToClone.deweyIdMemoryFreeSpaceStart;
+    this.lastDeweyIdIndex = pageToClone.lastDeweyIdIndex;
   }
 
   /**
@@ -165,6 +187,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
     this.doResizeMemorySegmentsIfNeeded = true;
+    this.slotMemoryFreeSpaceStart = 0;
+    this.lastSlotIndex = -1;
+    this.deweyIdMemoryFreeSpaceStart = 0;
+    this.lastDeweyIdIndex = -1;
   }
 
   /**
@@ -181,7 +207,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
       final RecordSerializer recordPersister, final Map<Long, PageReference> references, final int slotMemorySize,
-      final int deweyIdMemorySize) {
+      final int deweyIdMemorySize, final int lastSlotIndex, final int lastDeweyIdIndex) {
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = indexType;
@@ -203,6 +229,37 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
     this.doResizeMemorySegmentsIfNeeded = false;
+    this.slotMemoryFreeSpaceStart = 0;
+    this.lastSlotIndex = lastSlotIndex;
+
+    if (areDeweyIDsStored) {
+      this.deweyIdMemoryFreeSpaceStart = 0;
+      this.lastDeweyIdIndex = lastDeweyIdIndex;
+    } else {
+      this.deweyIdMemoryFreeSpaceStart = 0;
+      this.lastDeweyIdIndex = -1;
+    }
+  }
+
+  // Update the last slot index after setting a slot.
+  private void updateLastSlotIndex(int slotNumber, boolean isSlotMemory) {
+    if (isSlotMemory) {
+      if (lastSlotIndex >= 0) {
+        if (slotOffsets[slotNumber] > slotOffsets[lastSlotIndex]) {
+          lastSlotIndex = slotNumber;
+        }
+      } else {
+        lastSlotIndex = slotNumber;
+      }
+    } else {
+      if (lastDeweyIdIndex >= 0) {
+        if (deweyIdOffsets[slotNumber] > deweyIdOffsets[lastDeweyIdIndex]) {
+          lastDeweyIdIndex = slotNumber;
+        }
+      } else {
+        lastDeweyIdIndex = slotNumber;
+      }
+    }
   }
 
   @Override
@@ -287,7 +344,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private static final int ALIGNMENT = 4; // 4-byte alignment for int
 
-  private int alignOffset(int offset) {
+  private static int alignOffset(int offset) {
     return (offset + ALIGNMENT - 1) & -ALIGNMENT;
   }
 
@@ -326,12 +383,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     int sizeDelta = 0;
 
     boolean resized = false;
+    boolean isSlotMemory = memory == slotMemory;
 
     // Check if resizing is needed.
     if (!hasEnoughSpace(offsets, memory, requiredSize + sizeDelta)) {
       // Resize the memory segment.
-      long newSize = Math.max(memory.byteSize() * 2, memory.byteSize() + requiredSize + sizeDelta);
-      memory = resizeMemorySegment(memory, newSize, offsets);
+      int newSize = Math.max(((int) memory.byteSize()) * 2, ((int) memory.byteSize()) + requiredSize + sizeDelta);
+
+      memory = resizeMemorySegment(memory, newSize, offsets, isSlotMemory);
       resized = true;
     }
 
@@ -352,8 +411,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
     } else {
       // If the slot is empty, determine where to place the new data.
-      currentOffset = findFreeSpace(offsets, memory, requiredSize, (int) memory.byteSize());
+      currentOffset = findFreeSpaceForSlots(requiredSize, isSlotMemory);
+      //currentOffset = findFreeSpace(offsets, memory, requiredSize, (int) memory.byteSize());
       offsets[slotNumber] = alignOffset(currentOffset);
+      updateLastSlotIndex(slotNumber, isSlotMemory);
     }
 
     // Perform any necessary shifting.
@@ -366,7 +427,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     memory.set(ValueLayout.JAVA_INT, alignedOffset, dataSize);
     memory.asSlice(alignedOffset + INT_SIZE, dataSize).copyFrom(data);
 
+    // Update slotMemoryFreeSpaceStart after adding the slot.
+    updateFreeSpaceStart(offsets, memory, isSlotMemory);
+
     return resized ? memory : null;
+  }
+
+  private void updateFreeSpaceStart(int[] offsets, MemorySegment memory, boolean isSlotMemory) {
+    int freeSpaceStart = (int) memory.byteSize() - getAvailableSpace(offsets, memory);
+    if (isSlotMemory) {
+      slotMemoryFreeSpaceStart = freeSpaceStart;
+    } else {
+      deweyIdMemoryFreeSpaceStart = freeSpaceStart;
+    }
   }
 
   boolean hasEnoughSpace(int[] offsets, MemorySegment memory, int requiredDataSize) {
@@ -375,11 +448,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Check if the available space can accommodate the new slot.
-    return getAvailableSpace(offsets, memory, true) >= requiredDataSize;
+    return getAvailableSpace(offsets, memory) >= requiredDataSize;
   }
 
-  int getAvailableSpace(int[] offsets, MemorySegment memory, boolean doAlign) {
-    int lastSlotIndex = getLastSlotIndex(offsets);
+  int getAvailableSpace(int[] offsets, MemorySegment memory) {
+    boolean isSlotMemory = memory == slotMemory;
+
+    int lastSlotIndex = getLastIndex(isSlotMemory);
 
     // If no slots are set yet, start from the beginning of the memory.
     int lastOffset = (lastSlotIndex >= 0) ? offsets[lastSlotIndex] : 0;
@@ -395,14 +470,26 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Calculate available space from the end of the last slot to the end of memory.
-    if (doAlign) {
-      return (int) memory.byteSize() - alignOffset(alignedLastOffset + lastSlotSize);
+    return (int) memory.byteSize() - alignOffset(alignedLastOffset + lastSlotSize);
+  }
+
+  int getLastIndex(boolean isSlotMemory) {
+    if (isSlotMemory) {
+      return lastSlotIndex;
     } else {
-      return (int) memory.byteSize() - (alignedLastOffset + lastSlotSize);
+      return lastDeweyIdIndex;
     }
   }
 
-  MemorySegment resizeMemorySegment(MemorySegment oldMemory, long newSize, int[] offsets) {
+  public int getLastSlotIndex() {
+    return lastSlotIndex;
+  }
+
+  public int getLastDeweyIdIndex() {
+    return lastDeweyIdIndex;
+  }
+
+  MemorySegment resizeMemorySegment(MemorySegment oldMemory, int newSize, int[] offsets, boolean isSlotMemory) {
     MemorySegment newMemory = arena.allocate(newSize);
     MemorySegment.copy(oldMemory, 0, newMemory, 0, oldMemory.byteSize());
 
@@ -410,8 +497,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     for (int i = 0; i < offsets.length; i++) {
       if (offsets[i] >= 0) {
         offsets[i] = alignOffset(offsets[i]);
+        updateLastSlotIndex(i, oldMemory == slotMemory);
       }
     }
+
+    // Update slotMemoryFreeSpaceStart to reflect the new free space start position.
+    updateFreeSpaceStart(offsets, newMemory, isSlotMemory);
 
     return newMemory;
   }
@@ -430,13 +521,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     if (memory == null) {
       return 0;
     }
-    return (int) memory.byteSize() - getAvailableSpace(offsets, memory, true);
+    return (int) memory.byteSize() - getAvailableSpace(offsets, memory);
   }
 
   private void shiftSlotMemory(int slotNumber, int sizeDelta, int[] offsets, MemorySegment memory) {
     if (sizeDelta == 0) {
       return; // No shift needed if there's no size change.
     }
+
+    boolean isSlotMemory = memory == slotMemory;
 
     // Find the start offset of the slot to be shifted.
     int startOffset = offsets[slotNumber];
@@ -456,7 +549,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     int alignedShiftStartOffset = alignOffset(shiftStartOffset);
 
     // Calculate the end offset of the memory region to shift.
-    int lastSlotIndex = getLastSlotIndex(offsets);
+    int lastSlotIndex = getLastIndex(isSlotMemory);
     int alignedEndOffset = alignOffset(offsets[lastSlotIndex]);
 
     // Calculate the size of the last slot, ensuring it is aligned.
@@ -494,22 +587,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     for (int i = 0; i < offsets.length; i++) {
       if (i != slotNumber && offsets[i] >= alignedStartOffset) {
         offsets[i] = alignOffset(offsets[i] + sizeDelta);
+        updateLastSlotIndex(i, isSlotMemory);
       }
     }
-  }
-
-  private int getLastSlotIndex(int[] offsets) {
-    int lastSlotIndex = -1;
-    int maxOffset = Integer.MIN_VALUE;
-
-    for (int i = 0; i < offsets.length; i++) {
-      if (offsets[i] >= 0 && offsets[i] > maxOffset) {
-        maxOffset = offsets[i];
-        lastSlotIndex = i;
-      }
-    }
-
-    return lastSlotIndex;
   }
 
   @Override
@@ -581,42 +661,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return memorySegment.toArray(ValueLayout.JAVA_BYTE);
   }
 
-  private int findFreeSpace(int[] offsets, MemorySegment memorySegment, int requiredSize, int maxLength) {
-    int currentOffset = 0;
+  public int findFreeSpaceForSlots(int requiredSize, boolean isSlotMemory) {
+    // Align the start of the free space
+    int alignedFreeSpaceStart = alignOffset(isSlotMemory ? slotMemoryFreeSpaceStart : deweyIdMemoryFreeSpaceStart);
+    int freeSpaceEnd = isSlotMemory ? (int) slotMemory.byteSize() : (int) deweyIdMemory.byteSize();
 
-    // Sort the offsets to ensure we're checking in order of memory layout.
-    int[] sortedOffsets = Arrays.stream(offsets).filter(offset -> offset >= 0) // Filter out unassigned slots
-                                .sorted().toArray();
-
-    // Iterate through existing segments to find free space between them.
-    for (int offset : sortedOffsets) {
-      int length = memorySegment.get(ValueLayout.JAVA_INT, offset);
-      int endOffset = offset + INT_SIZE + length;
-
-      // Align the current offset to the next 4-byte boundary.
-      currentOffset = alignOffset(currentOffset);
-
-      // Check if there's enough space before the current segment.
-      if (offset - currentOffset >= requiredSize) {
-        return currentOffset;
-      }
-
-      // Move current offset to the end of the current segment.
-      currentOffset = endOffset;
+    // Check if there's enough space in the current free space range
+    if (freeSpaceEnd - alignedFreeSpaceStart >= requiredSize) {
+      return alignedFreeSpaceStart;
     }
 
-    // Align the current offset to the next 4-byte boundary.
-    currentOffset = alignOffset(currentOffset);
-
-    // Check if there's enough space at the end of the memory.
-    if (maxLength - currentOffset >= requiredSize) {
-      return currentOffset;
-    }
-
-    // If no free space is found.
+    int freeMemoryStart = isSlotMemory ? slotMemoryFreeSpaceStart : deweyIdMemoryFreeSpaceStart;
+    int freeMemoryEnd = isSlotMemory ? (int) slotMemory.byteSize() : (int) deweyIdMemory.byteSize();
     throw new IllegalStateException(
-        "Not enough space in memory segment to store the data (currentOffset " + currentOffset + " requiredSize: "
-            + requiredSize + ", maxLength: " + maxLength + ")");
+        "Not enough space in memory segment to store the data (freeSpaceStart " + freeMemoryStart + " requiredSize: "
+            + requiredSize + ", maxLength: " + freeMemoryEnd + ")");
   }
 
   @Override
