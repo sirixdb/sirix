@@ -105,14 +105,15 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           cache.get(revision, _ -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
 
       // Read page from file.
-      final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
+      final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON * 2).order(ByteOrder.nativeOrder());
 
       dataFileChannel.read(buffer, dataFileRevisionRootPageOffset);
 
       buffer.position(0);
+      buffer.getInt();
       final int dataLength = buffer.getInt();
 
-      dataFileChannel.truncate(dataFileRevisionRootPageOffset + IOStorage.OTHER_BEACON + dataLength);
+      dataFileChannel.truncate(dataFileRevisionRootPageOffset + IOStorage.OTHER_BEACON * 2 + dataLength);
     } catch (InterruptedException | ExecutionException | TimeoutException | IOException e) {
       throw new IllegalStateException(e);
     }
@@ -157,12 +158,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       final byte[] serializedPage;
       final int uncompressedLength;
 
+      final var byteArray = byteBufferBytes.toByteArray();
       if (page instanceof KeyValueLeafPage) {
-        final var byteArray = byteBufferBytes.toByteArray();
         uncompressedLength = Writer.bytesToIntLittleEndian(byteArray[0], byteArray[1], byteArray[2], byteArray[3]);
         serializedPage = Arrays.copyOfRange(byteArray, 4, byteArray.length);;
       } else {
-        final var byteArray = byteBufferBytes.toByteArray();
         uncompressedLength = byteArray.length;
         try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
           try (final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {

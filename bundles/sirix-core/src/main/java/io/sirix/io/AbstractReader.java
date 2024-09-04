@@ -28,7 +28,7 @@ public abstract class AbstractReader implements Reader {
    */
   protected final PagePersister pagePersister;
 
-  private final byte[] bytes = new byte[100_000];
+  private final byte[] bytes = new byte[130_000];
 
   public AbstractReader(ByteHandler byteHandler, PagePersister pagePersister, SerializationType type) {
     this.byteHandler = byteHandler;
@@ -40,7 +40,15 @@ public abstract class AbstractReader implements Reader {
       throws IOException {
     // perform byte operations
     try (final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page))) {
-      inputStream.read(bytes, 0, uncompressedLength);
+      int bytesRead = 0;
+      while (bytesRead < uncompressedLength) {
+        int read = inputStream.read(bytes, bytesRead, uncompressedLength - bytesRead);
+        if (read == -1) {
+          throw new IOException("Unexpected end of stream while reading decompressed data.");
+        }
+        bytesRead += read;
+      }
+      assert bytesRead == uncompressedLength : "Read bytes mismatch: expected " + uncompressedLength + " but got " + bytesRead;
     }
     wrappedForRead.write(bytes, 0, uncompressedLength);
     final var deserializedPage = pagePersister.deserializePage(resourceConfiguration, wrappedForRead, type);

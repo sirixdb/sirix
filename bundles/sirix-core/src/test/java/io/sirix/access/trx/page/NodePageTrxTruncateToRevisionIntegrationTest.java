@@ -54,7 +54,7 @@ public final class NodePageTrxTruncateToRevisionIntegrationTest {
       wtx.insertObjectRecordAsFirstChild("a", new BooleanValue(false));
       wtx.commit();
       assertTrue(Files.size(RESOURCE_DATA_FILE) > fileSize);
-      Assertions.assertEquals(4, wtx.getRevisionNumber());
+      assertEquals(4, wtx.getRevisionNumber());
     }
   }
 

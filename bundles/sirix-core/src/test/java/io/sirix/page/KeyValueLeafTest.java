@@ -27,8 +27,198 @@ class KeyValueLeafPageTest {
   }
 
   @Test
+  void testLastSlotIndexAfterSingleInsertion() {
+    byte[] data = new byte[] { 1, 2, 3, 4 };
+    keyValueLeafPage.setSlot(data, 0);
+
+    assertEquals(0, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 0 after inserting one slot.");
+  }
+
+  @Test
+  void testLastSlotIndexAfterMultipleInsertions() {
+    byte[] data1 = new byte[] { 1, 2, 3, 4 };
+    byte[] data2 = new byte[] { 5, 6, 7, 8 };
+
+    keyValueLeafPage.setSlot(data1, 0);
+    keyValueLeafPage.setSlot(data2, 1);
+
+    assertEquals(1, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 1 after inserting two slots.");
+  }
+
+  @Test
+  void testLastSlotIndexAfterMiddleSlotUpdate() {
+    byte[] data1 = new byte[] { 1, 2, 3, 4 };
+    byte[] data2 = new byte[] { 5, 6, 7, 8 };
+    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+
+    keyValueLeafPage.setSlot(data1, 0);
+    keyValueLeafPage.setSlot(data2, 1);
+    keyValueLeafPage.setSlot(data3, 2);
+
+    keyValueLeafPage.setSlot(new byte[] { 13, 14 }, 1); // Update the second slot
+
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should remain 2 after updating the middle slot.");
+  }
+
+  @Test
+  void testLastSlotIndexAfterSequentialInsertions() {
+    byte[] data1 = new byte[] { 1, 2, 3, 4 };
+    byte[] data2 = new byte[] { 5, 6, 7, 8 };
+    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+
+    keyValueLeafPage.setSlot(data1, 0);
+    assertEquals(0, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 0 after the first insertion.");
+
+    keyValueLeafPage.setSlot(data2, 1);
+    assertEquals(1, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 1 after the second insertion.");
+
+    keyValueLeafPage.setSlot(data3, 2);
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 2 after the third insertion.");
+  }
+
+  @Test
+  void testLastSlotIndexWithGapsInInsertions() {
+    byte[] data1 = new byte[] { 1, 2, 3, 4 };
+    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+
+    keyValueLeafPage.setSlot(data1, 0);
+    assertEquals(0, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 0 after inserting at index 0.");
+
+    keyValueLeafPage.setSlot(data3, 2);
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 2 after inserting at index 2, with a gap at index 1.");
+  }
+
+  @Test
+  void testLastSlotIndexAfterOutOfOrderInsertions() {
+    byte[] data1 = new byte[] { 1, 2, 3, 4 };
+    byte[] data2 = new byte[] { 5, 6, 7, 8 };
+    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+
+    // Insert data at different indices
+    keyValueLeafPage.setSlot(data3, 2);
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 2 after inserting at index 2.");
+
+    keyValueLeafPage.setSlot(data1, 0);
+    assertEquals(0, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be updated to 0 after inserting at index 0.");
+
+    keyValueLeafPage.setSlot(data2, 2);
+    assertEquals(0, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should remain 0 after setting a new slot at index 2.");
+
+    // Insert at a new higher index
+    keyValueLeafPage.setSlot(new byte[] { 21, 22, 23, 24 }, 3);
+    assertEquals(3, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 3 after inserting at index 3.");
+  }
+
+
+  @Test
+  void testLastSlotIndexAfterUpdates() {
+    byte[] data1 = new byte[] { 1, 2, 3, 4 };
+    byte[] data2 = new byte[] { 5, 6, 7, 8 };
+    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+
+    keyValueLeafPage.setSlot(data1, 0);
+    keyValueLeafPage.setSlot(data2, 1);
+    keyValueLeafPage.setSlot(data3, 2);
+
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 2 after three sequential insertions.");
+
+    // Update the slot at index 0
+    keyValueLeafPage.setSlot(new byte[] { 13, 14, 15, 16 }, 0);
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should remain 2 after updating the slot at index 0.");
+
+    // Update the slot at index 2
+    keyValueLeafPage.setSlot(new byte[] { 17, 18, 19, 20 }, 2);
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should remain 2 after updating the slot at index 2.");
+  }
+
+  @Test
+  void testLastSlotIndexAfterInserts() {
+    byte[] data1 = new byte[] { 1, 2, 3, 4 };
+    byte[] data2 = new byte[] { 5, 6, 7, 8 };
+    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+
+    // Insert slots sequentially at indices 0, 1, and 2
+    keyValueLeafPage.setSlot(data1, 0);
+    assertEquals(0, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 0 after inserting at index 0.");
+
+    keyValueLeafPage.setSlot(data2, 1);
+    assertEquals(1, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 1 after inserting at index 1.");
+
+    keyValueLeafPage.setSlot(data3, 2);
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 2 after inserting at index 2.");
+
+    // Insert a new slot at index 3
+    byte[] data4 = new byte[] { 13, 14, 15, 16 };
+    keyValueLeafPage.setSlot(data4, 3);
+    assertEquals(3, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 3 after inserting at index 3.");
+
+    // Update the slot at index 2
+    byte[] updatedData3 = new byte[] { 17, 18, 19, 20 };
+    keyValueLeafPage.setSlot(updatedData3, 2);
+    assertEquals(3, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should remain 3 after updating the slot at index 2.");
+
+    // Insert another slot at index 4
+    byte[] data5 = new byte[] { 21, 22, 23, 24 };
+    keyValueLeafPage.setSlot(data5, 4);
+    assertEquals(4, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 4 after inserting at index 4.");
+  }
+
+  @Test
+  void testLastSlotIndexWithMultipleUpdates() {
+    byte[] data1 = new byte[] { 1, 2, 3, 4 };
+    byte[] data2 = new byte[] { 5, 6, 7, 8 };
+    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+
+    keyValueLeafPage.setSlot(data1, 0);
+    keyValueLeafPage.setSlot(data2, 1);
+    keyValueLeafPage.setSlot(data3, 2);
+
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 2 after inserting three slots.");
+
+    // Update all slots
+    keyValueLeafPage.setSlot(new byte[] { 13, 14, 15, 16 }, 0);
+    keyValueLeafPage.setSlot(new byte[] { 17, 18, 19, 20 }, 1);
+    keyValueLeafPage.setSlot(new byte[] { 21, 22, 23, 24 }, 2);
+
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should remain 2 after updating all slots.");
+  }
+
+  @Test
+  void testLastSlotIndexAfterInsertionAtHighIndex() {
+    byte[] data1 = new byte[] { 1, 2, 3, 4 };
+
+    keyValueLeafPage.setSlot(data1, 10);
+
+    assertEquals(10, keyValueLeafPage.getLastSlotIndex(),
+                 "The last slot index should be 10 after inserting at index 10.");
+  }
+
+  @Test
   void testSetSlotWithoutShifting() {
-    byte[] data = new byte[]{1, 2, 3, 4};
+    byte[] data = new byte[] { 1, 2, 3, 4 };
     keyValueLeafPage.setSlot(data, 0);
 
     MemorySegment slot = keyValueLeafPage.getSlot(0);
@@ -39,8 +229,8 @@ class KeyValueLeafPageTest {
 
   @Test
   void testSetSlotWithShiftingRight() {
-    byte[] data1 = new byte[]{1, 2, 3, 4};
-    byte[] data2 = new byte[]{5, 6, 7, 8, 9, 10};
+    byte[] data1 = new byte[] { 1, 2, 3, 4 };
+    byte[] data2 = new byte[] { 5, 6, 7, 8, 9, 10 };
 
     keyValueLeafPage.setSlot(data1, 0);
     keyValueLeafPage.setSlot(data2, 1);
@@ -57,9 +247,9 @@ class KeyValueLeafPageTest {
 
   @Test
   void testSetSlotWithShiftingLeft() {
-    byte[] data1 = new byte[]{1, 2, 3, 4, 5, 6, 7, 8};
-    byte[] data2 = new byte[]{9, 10};
-    byte[] data3 = new byte[]{11, 12, 13};
+    byte[] data1 = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+    byte[] data2 = new byte[] { 9, 10 };
+    byte[] data3 = new byte[] { 11, 12, 13 };
 
     keyValueLeafPage.setSlot(data1, 0);
     keyValueLeafPage.setSlot(data2, 1);
@@ -90,8 +280,14 @@ class KeyValueLeafPageTest {
 
   @Test
   void testDeweyIdOperations() {
-    byte[] deweyId1 = new byte[]{1, 2, 3};
-    byte[] deweyId2 = new byte[]{4, 5};
+    byte[] deweyId1 = new byte[] { 1, 2, 3 };
+    byte[] deweyId2 = new byte[] { 4, 5 };
+
+    long recordPageKey = 1L;
+    keyValueLeafPage = new KeyValueLeafPage(recordPageKey,
+                                            IndexType.DOCUMENT,
+                                            new ResourceConfiguration.Builder("testResource").useDeweyIDs(true).build(),
+                                            1);
 
     keyValueLeafPage.setDeweyId(deweyId1, 0);
     keyValueLeafPage.setDeweyId(deweyId2, 1);
@@ -122,12 +318,16 @@ class KeyValueLeafPageTest {
     byte[] recordData = new byte[50];
     int[] offsets = new int[5];
     Arrays.fill(offsets, -1); // Initially, no slots are occupied.
-    MemorySegment memory = MemorySegment.ofArray(new byte[200]); // Create a memory segment of 200 bytes.
 
-    // Set some initial data.
-    keyValueLeafPage.setSlot(recordData, 0);
-    assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, memory, 50),
-               "There should be enough space for the new data.");
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment memory = arena.allocate(200); // Create a memory segment of 200 bytes.
+
+      // Set some initial data.
+      keyValueLeafPage.setSlotMemory(memory);
+      keyValueLeafPage.setSlot(recordData, 0);
+      assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, memory, 50),
+                 "There should be enough space for the new data.");
+    }
   }
 
   @Test
@@ -136,14 +336,18 @@ class KeyValueLeafPageTest {
     byte[] recordData = new byte[50];
     int[] offsets = new int[5];
     Arrays.fill(offsets, -1); // Initially, no slots are occupied.
-    MemorySegment memory = MemorySegment.ofArray(new byte[100]); // Create a memory segment of 100 bytes.
 
-    // Set some initial data.
-    keyValueLeafPage.setSlot(recordData, 0);
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment memory = arena.allocate(106); // Create a memory segment of 106 bytes (100 + 4(size) + 2(aligned).
 
-    // Check that there's exactly enough space left.
-    assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, memory, 50),
-               "There should be exactly enough space for the new data.");
+      // Set some initial data.
+      keyValueLeafPage.setSlotMemory(memory);
+      keyValueLeafPage.setSlot(recordData, 0);
+
+      // Check that there's exactly enough space left.
+      assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, memory, 50),
+                 "There should be exactly enough space for the new data.");
+    }
   }
 
   @Test
@@ -152,21 +356,25 @@ class KeyValueLeafPageTest {
     byte[] recordData = new byte[50];
     int[] offsets = new int[5];
     Arrays.fill(offsets, -1); // Initially, no slots are occupied.
-    MemorySegment memory = MemorySegment.ofArray(new byte[80]); // Create a memory segment of 80 bytes.
 
-    // Set some initial data.
-    keyValueLeafPage.setSlot(recordData, 0);
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment memory = arena.allocate(80); // Create a memory segment of 80 bytes.
 
-    // Check that there's not enough space for new data.
-    assertFalse(keyValueLeafPage.hasEnoughSpace(offsets, memory, 100),
-                "There should not be enough space for the new data.");
+      // Set some initial data.
+      keyValueLeafPage.setSlotMemory(memory);
+      keyValueLeafPage.setSlot(recordData, 0);
+
+      // Check that there's not enough space for new data.
+      assertFalse(keyValueLeafPage.hasEnoughSpace(offsets, memory, 100),
+                  "There should not be enough space for the new data.");
+    }
   }
 
   @Test
   void testHasEnoughSpaceWithLargeOffset() {
     // Simulate a situation with large offset values and small memory.
     byte[] recordData = new byte[20];
-    int[] offsets = new int[]{0, 24, -1};
+    int[] offsets = new int[] { 0, 24, -1 };
 
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment memory = arena.allocate(50); // Small memory segment.
@@ -188,11 +396,15 @@ class KeyValueLeafPageTest {
     // Simulate a situation with an empty memory segment.
     int[] offsets = new int[5];
     Arrays.fill(offsets, -1); // Initially, no slots are occupied.
-    MemorySegment memory = MemorySegment.ofArray(new byte[0]); // Empty memory segment.
 
-    // Check that there's not enough space.
-    assertFalse(keyValueLeafPage.hasEnoughSpace(offsets, memory, 1),
-                "There should not be enough space with an empty memory segment.");
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment memory = arena.allocate(0); // Empty memory segment.
+
+      keyValueLeafPage.setSlotMemory(memory);
+      // Check that there's not enough space.
+      assertFalse(keyValueLeafPage.hasEnoughSpace(offsets, memory, 1),
+                  "There should not be enough space with an empty memory segment.");
+    }
   }
 
   @Test
@@ -201,259 +413,22 @@ class KeyValueLeafPageTest {
     byte[] recordData = new byte[50];
     int[] offsets = new int[5];
     Arrays.fill(offsets, -1); // Initially, no slots are occupied.
-    MemorySegment memory = MemorySegment.ofArray(new byte[50]); // Small memory segment.
 
-    // Set some initial data.
-    keyValueLeafPage.setSlot(recordData, 0);
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment memory = arena.allocate(54); // Small memory segment.
 
-    // Resize memory segment to accommodate more data.
-    memory = keyValueLeafPage.resizeMemorySegment(memory, 200, offsets);
+      // Set some initial data.
+      keyValueLeafPage.setSlotMemory(memory);
+      keyValueLeafPage.setSlot(recordData, 0);
 
-    // Check that there's now enough space.
-    assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, memory, 100),
-               "There should be enough space after resizing the memory segment.");
-  }
+      // Resize the memory segment.
+      MemorySegment resizedMemory = arena.allocate(100);
 
-  @Test
-  void testSetSlotNewEntry() {
-    byte[] recordData = new byte[50];
-    int offset = 0;
+      keyValueLeafPage.setSlotMemory(resizedMemory);
 
-    keyValueLeafPage.setSlot(recordData, offset);
-    byte[] retrievedData = keyValueLeafPage.getSlotAsByteArray(offset);
-
-    assertArrayEquals(recordData, retrievedData, "The stored and retrieved data should be equal.");
-  }
-
-  @Test
-  void testSetSlotUpdateEntry() {
-    byte[] recordData = new byte[50];
-    int offset = 0;
-
-    keyValueLeafPage.setSlot(recordData, offset);
-
-    // Update the slot with new data
-    byte[] newRecordData = new byte[50];
-    for (int i = 0; i < newRecordData.length; i++) {
-      newRecordData[i] = (byte) (i + 1);
+      // Check that there's enough space after resizing.
+      assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, resizedMemory, 50),
+                 "There should be enough space after resizing the memory segment.");
     }
-
-    keyValueLeafPage.setSlot(newRecordData, offset);
-    byte[] retrievedData = keyValueLeafPage.getSlotAsByteArray(offset);
-
-    assertArrayEquals(newRecordData, retrievedData, "The updated data should be retrieved.");
-  }
-
-  @Test
-  void testSetSlotExceedingInitialCapacity() {
-    byte[] recordData = new byte[50];
-    int offset = 0;
-
-    keyValueLeafPage.setSlot(recordData, offset);
-
-    // Simulate setting a slot that requires more memory than initially allocated.
-    byte[] largeRecordData = new byte[100];
-    // Update the slot with new data
-    for (int i = 0; i < largeRecordData.length; i++) {
-      largeRecordData[i] = (byte) (i + 1);
-    }
-
-    keyValueLeafPage.setSlot(largeRecordData, offset);
-    byte[] retrievedData = keyValueLeafPage.getSlotAsByteArray(offset);
-
-    assertArrayEquals(largeRecordData,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-  }
-
-  @Test
-  void testSetSlotShiftRightWithFollowingSlotSet() {
-    byte[] recordData = new byte[50];
-    Arrays.fill(recordData, (byte) 1);
-
-    keyValueLeafPage.setSlot(recordData, 0);
-
-    Arrays.fill(recordData, (byte) 2);
-    keyValueLeafPage.setSlot(recordData, 1);
-
-    // Simulate setting a slot that requires more memory than initially allocated.
-    byte[] largeRecordData = new byte[100];
-    Arrays.fill(largeRecordData, (byte) 3);
-
-    keyValueLeafPage.setSlot(largeRecordData, 0);
-    byte[] retrievedData = keyValueLeafPage.getSlotAsByteArray(0);
-
-    assertArrayEquals(largeRecordData,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-
-    retrievedData = keyValueLeafPage.getSlotAsByteArray(1);
-
-    assertArrayEquals(recordData,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-  }
-
-  @Test
-  void testSetSlotShiftLeftWithFollowingSlotSet() {
-    byte[] recordData0 = new byte[50];
-    Arrays.fill(recordData0, (byte) 1);
-
-    keyValueLeafPage.setSlot(recordData0, 0);
-
-    byte[] recordData1 = new byte[50];
-    Arrays.fill(recordData1, (byte) 2);
-    keyValueLeafPage.setSlot(recordData1, 1);
-
-    // Simulate setting a slot that requires less memory than initially allocated.
-    byte[] smallRecordData = new byte[20];
-    Arrays.fill(smallRecordData, (byte) 3);
-
-    keyValueLeafPage.setSlot(smallRecordData, 0);
-    byte[] retrievedData = keyValueLeafPage.getSlotAsByteArray(0);
-
-    assertArrayEquals(smallRecordData,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-
-    retrievedData = keyValueLeafPage.getSlotAsByteArray(1);
-
-    assertArrayEquals(recordData1,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-  }
-
-  @Test
-  void when_random_order_testSetSlotShiftLeftWithNoFollowingSlotSet() {
-    byte[] recordData1 = new byte[50];
-    Arrays.fill(recordData1, (byte) 2);
-    keyValueLeafPage.setSlot(recordData1, 1);
-
-    byte[] recordData0 = new byte[50];
-    Arrays.fill(recordData0, (byte) 1);
-
-    keyValueLeafPage.setSlot(recordData0, 0);
-
-    // Simulate setting a slot that requires less memory than initially allocated.
-    byte[] smallRecordData = new byte[20];
-    Arrays.fill(smallRecordData, (byte) 3);
-
-    keyValueLeafPage.setSlot(smallRecordData, 0);
-    byte[] retrievedData = keyValueLeafPage.getSlotAsByteArray(0);
-
-    assertArrayEquals(smallRecordData,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-
-    retrievedData = keyValueLeafPage.getSlotAsByteArray(1);
-
-    assertArrayEquals(recordData1,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-  }
-
-  @Test
-  void when_random_order_testSetSlotShiftLeftWithFollowingSlotSet() {
-    byte[] recordData1 = new byte[50];
-    Arrays.fill(recordData1, (byte) 1);
-    keyValueLeafPage.setSlot(recordData1, 1);
-
-    byte[] recordData0 = new byte[50];
-    Arrays.fill(recordData0, (byte) 0);
-
-    keyValueLeafPage.setSlot(recordData0, 0);
-
-    byte[] recordData2 = new byte[50];
-    Arrays.fill(recordData2, (byte) 2);
-
-    keyValueLeafPage.setSlot(recordData2, 2);
-
-    // Simulate setting a slot that requires less memory than initially allocated.
-    byte[] smallRecordData = new byte[20];
-    Arrays.fill(smallRecordData, (byte) 3);
-
-    keyValueLeafPage.setSlot(smallRecordData, 0);
-    byte[] retrievedData = keyValueLeafPage.getSlotAsByteArray(0);
-
-    assertArrayEquals(smallRecordData,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-
-    retrievedData = keyValueLeafPage.getSlotAsByteArray(1);
-
-    assertArrayEquals(recordData1,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-
-    retrievedData = keyValueLeafPage.getSlotAsByteArray(2);
-
-    assertArrayEquals(recordData2,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-  }
-
-  @Test
-  void testSetSlotExceedingInitialCapacityWithFollowingSlotsSet() {
-    byte[] recordData0 = new byte[50];
-    Arrays.fill(recordData0, (byte) 1);
-    keyValueLeafPage.setSlot(recordData0, 0);
-
-    byte[] recordData1 = new byte[50];
-    Arrays.fill(recordData1, (byte) 2);
-    keyValueLeafPage.setSlot(recordData1, 1);
-
-    byte[] recordData2 = new byte[50];
-    Arrays.fill(recordData2, (byte) 3);
-    keyValueLeafPage.setSlot(recordData2, 2);
-
-    // Simulate setting a slot that requires more memory than initially allocated.
-    byte[] largeRecordData = new byte[100];
-    Arrays.fill(largeRecordData, (byte) 4);
-
-    keyValueLeafPage.setSlot(largeRecordData, 0);
-    byte[] retrievedData = keyValueLeafPage.getSlotAsByteArray(0);
-
-    assertArrayEquals(largeRecordData,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-
-    retrievedData = keyValueLeafPage.getSlotAsByteArray(1);
-
-    assertArrayEquals(recordData1,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-
-    retrievedData = keyValueLeafPage.getSlotAsByteArray(2);
-
-    assertArrayEquals(recordData2,
-                      retrievedData,
-                      "The data should be stored even if it exceeds the initial capacity.");
-  }
-
-  @Test
-  void testSetSlotMultipleSlots() {
-    byte[] recordData1 = new byte[Constants.MAX_RECORD_SIZE];
-    byte[] recordData2 = new byte[Constants.MAX_RECORD_SIZE];
-    int offset1 = 0;
-    int offset2 = 1;
-
-    keyValueLeafPage.setSlot(recordData1, offset1);
-    keyValueLeafPage.setSlot(recordData2, offset2);
-
-    byte[] retrievedData1 = keyValueLeafPage.getSlotAsByteArray(offset1);
-    byte[] retrievedData2 = keyValueLeafPage.getSlotAsByteArray(offset2);
-
-    assertArrayEquals(recordData1, retrievedData1, "The first slot data should be retrieved correctly.");
-    assertArrayEquals(recordData2, retrievedData2, "The second slot data should be retrieved correctly.");
-  }
-
-  @Test
-  void testSetSlotInvalidOffset() {
-    byte[] recordData = new byte[Constants.MAX_RECORD_SIZE];
-    int invalidOffset = Constants.NDP_NODE_COUNT; // Out of bounds
-
-    assertThrows(IndexOutOfBoundsException.class,
-                 () -> keyValueLeafPage.setSlot(recordData, invalidOffset),
-                 "Setting a slot at an invalid offset should throw an exception.");
   }
 }
