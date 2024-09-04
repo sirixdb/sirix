@@ -1,7 +1,5 @@
 package io.sirix.rest.crud.json
 
-import io.vertx.core.Context
-import io.vertx.core.Promise
 import io.vertx.core.parsetools.JsonParser
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.await
@@ -24,7 +22,6 @@ import io.sirix.service.json.shredder.JsonShredder
 import java.io.StringWriter
 import java.nio.file.Path
 
-private const val MAX_NODES_TO_SERIALIZE = 5000
 
 class JsonCreate(
     location: Path,
@@ -92,20 +89,6 @@ class JsonCreate(
         )
     }
 
-    override suspend fun createDatabaseIfNotExists(
-        dbFile: Path,
-        context: Context
-    ): DatabaseConfiguration? {
-        val dbConfig = prepareDatabasePath(dbFile, context)
-        return context.executeBlocking { promise: Promise<DatabaseConfiguration> ->
-            if (!Databases.existsDatabase(dbFile)) {
-                Databases.createJsonDatabase(dbConfig)
-            }
-
-            promise.complete(dbConfig)
-        }.await()
-    }
-
 
     private suspend fun insertJsonSubtreeAsFirstChild(
         manager: JsonResourceSession,
@@ -147,5 +130,9 @@ class JsonCreate(
 
     override suspend fun openDatabase(dbFile: Path, sirixDBUser: User): Database<JsonResourceSession> {
         return Databases.openJsonDatabase(dbFile, sirixDBUser)
+    }
+
+    override fun createDatabase(dbConfig: DatabaseConfiguration?) {
+        Databases.createJsonDatabase(dbConfig)
     }
 }

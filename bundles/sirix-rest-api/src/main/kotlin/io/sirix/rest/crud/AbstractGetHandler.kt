@@ -10,6 +10,7 @@ import io.sirix.rest.crud.json.JsonSessionDBStore
 import io.sirix.rest.crud.xml.XmlSessionDBStore
 import io.vertx.core.Context
 import io.vertx.core.Promise
+import io.vertx.core.http.HttpHeaders
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
@@ -18,12 +19,14 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.nio.file.Path
 
-abstract class AbstractGetHandler <T : ResourceSession<*, *>,
-        W: AutoCloseable, R: NodeCursor>(
-private val location: Path,
-private val authz: AuthorizationProvider){
+abstract class AbstractGetHandler<T : ResourceSession<*, *>,
+        W : AutoCloseable, R : NodeCursor>(
+    private val location: Path,
+    private val authz: AuthorizationProvider
+) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
         val databaseName: String = ctx.pathParam("database")
@@ -32,17 +35,15 @@ private val authz: AuthorizationProvider){
         val query: String? = ctx.queryParam("query").getOrElse(0) {
             jsonBody?.getString("query")
         }
-
         withContext(context.dispatcher()) {
             get(databaseName, ctx, resource, query, context, ctx.get("user") as User, jsonBody)
         }
-
         return ctx.currentRoute()
     }
 
     suspend fun get(
-            databaseName: String, ctx: RoutingContext, resource: String?, query: String?,
-            vertxContext: Context, user: User, jsonBody: JsonObject?
+        databaseName: String, ctx: RoutingContext, resource: String?, query: String?,
+        vertxContext: Context, user: User, jsonBody: JsonObject?
     ) {
         val revision: String? = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp: String? = ctx.queryParam("revision-timestamp").getOrNull(0)
@@ -63,15 +64,15 @@ private val authz: AuthorizationProvider){
             manager.use {
                 body = if (!query.isNullOrEmpty()) {
                     queryResource(
-                            databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
-                            vertxContext, user, jsonBody
+                        databaseName, database, revision, revisionTimestamp, manager, ctx, nodeId, query,
+                        vertxContext, user, jsonBody
                     )
                 } else {
                     val revisions: IntArray =
-                            Revisions.getRevisionsToSerialize(
-                                    startRevision, endRevision, startRevisionTimestamp,
-                                    endRevisionTimestamp, manager, revision, revisionTimestamp
-                            )
+                        Revisions.getRevisionsToSerialize(
+                            startRevision, endRevision, startRevisionTimestamp,
+                            endRevisionTimestamp, manager, revision, revisionTimestamp
+                        )
 
                     serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx, vertxContext)
                 }
@@ -85,51 +86,50 @@ private val authz: AuthorizationProvider){
         }
     }
 
-     private suspend fun queryResource(
-            databaseName: String?, database: Database<T>, revision: String?,
-            revisionTimestamp: String?, manager: T, ctx: RoutingContext,
-            nodeId: String?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
+    private suspend fun queryResource(
+        databaseName: String?, database: Database<T>, revision: String?,
+        revisionTimestamp: String?, manager: T, ctx: RoutingContext,
+        nodeId: String?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
     ): String? {
         val dbCollection = getDBCollection(databaseName, database)
-
         dbCollection.use {
             val revisionNumber = Revisions.getRevisionNumber(revision, revisionTimestamp, manager)
             val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrElse(0) { null }
             val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrElse(0) { null }
 
             return xquery(
-                    manager,
-                    dbCollection,
-                    nodeId,
-                    revisionNumber,
-                    query,
-                    ctx,
-                    vertxContext,
-                    user,
-                    startResultSeqIndex?.toLong(),
-                    endResultSeqIndex?.toLong(),
-                    jsonBody
+                manager,
+                dbCollection,
+                nodeId,
+                revisionNumber,
+                query,
+                ctx,
+                vertxContext,
+                user,
+                startResultSeqIndex?.toLong(),
+                endResultSeqIndex?.toLong(),
+                jsonBody
             )
         }
     }
 
     suspend fun xquery(
-            manager: T?,
-            dbCollection: W?,
-            nodeId: String?,
-            revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
-            user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?, jsonBody: JsonObject?
+        manager: T?,
+        dbCollection: W?,
+        nodeId: String?,
+        revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
+        user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?, jsonBody: JsonObject?
     ): String? {
         return vertxContext.executeBlocking { promise: Promise<String> ->
             // Initialize queryResource context and store.
             val jsonDBStore = JsonSessionDBStore(
-                    routingContext,
-                    BasicJsonDBStore.newBuilder().storeDeweyIds(true).build(),
-                    user,
-                    authz
+                routingContext,
+                BasicJsonDBStore.newBuilder().storeDeweyIds(true).build(),
+                user,
+                authz
             )
             val xmlDBStore =
-                    XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().storeDeweyIds(true).build(), user, authz)
+                XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().storeDeweyIds(true).build(), user, authz)
 
             val commitMessage = routingContext.queryParam("commitMessage").getOrElse(0) {
                 jsonBody?.getString("commitMessage")
@@ -142,17 +142,14 @@ private val authz: AuthorizationProvider){
             } else {
                 Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
             }
-
             val queryCtx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(
-                    xmlDBStore,
-                    jsonDBStore,
-                    SirixQueryContext.CommitStrategy.AUTO,
-                    commitMessage,
-                    commitTimestamp
+                xmlDBStore,
+                jsonDBStore,
+                SirixQueryContext.CommitStrategy.AUTO,
+                commitMessage,
+                commitTimestamp
             )
-
             var body: String?
-
             queryCtx.use {
                 if (manager != null && dbCollection != null && revisionNumber != null) {
                     @Suppress("UNCHECKED_CAST") val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0]) as R
@@ -166,52 +163,85 @@ private val authz: AuthorizationProvider){
 
                         handleQueryExtra(rtx, dbCollection, queryCtx, jsonDBStore)
 
-                        body = query(
-                                xmlDBStore,
-                                jsonDBStore,
-                                startResultSeqIndex,
-                                query,
-                                queryCtx,
-                                endResultSeqIndex,
-                                routingContext
-                        )
-                    }
-
-                } else {
-                    body = query(
+                        body = executeQueryAndSerialize(
+                            routingContext,
                             xmlDBStore,
                             jsonDBStore,
+                            createOutputStream(),
                             startResultSeqIndex,
                             query,
                             queryCtx,
-                            endResultSeqIndex,
-                            routingContext
+                            endResultSeqIndex
+                        )
+                    }
+                } else {
+                    body = executeQueryAndSerialize(
+                        routingContext,
+                        xmlDBStore,
+                        jsonDBStore,
+                        createOutputStream(),
+                        startResultSeqIndex,
+                        query,
+                        queryCtx,
+                        endResultSeqIndex
                     )
                 }
             }
-
             promise.complete(body)
         }.await()
     }
 
-    abstract suspend fun serializeResource(
-            manager: T, revisions: IntArray, nodeId: Long?,
-            ctx: RoutingContext,
-            vertxContext: Context
-    ): String
+    private suspend fun serializeResource(
+        manager: T,
+        revisions: IntArray,
+        nodeId: Long?,
+        ctx: RoutingContext,
+        vertxContext: Context
+    ): String {
+        return vertxContext.executeBlocking { promise: Promise<String> ->
+            val serializedString = getSerializedString(manager, revisions, nodeId, ctx)
+            promise.complete(serializedString)
+        }.await()
+        ctx.response().setStatusCode(200)
+            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+    }
 
     abstract suspend fun openDatabase(dbFile: Path): Database<T>
 
-    abstract suspend fun getDBCollection(databaseName: String?, database: Database<T>): W
+    protected abstract suspend fun getDBCollection(databaseName: String?, database: Database<T>): W
 
-    abstract  fun handleQueryExtra(rtx: R, dbCollection: W, queryContext: SirixQueryContext, jsonSessionDBStore: JsonSessionDBStore)
-    abstract fun query(
-            xmlDBStore: XmlSessionDBStore,
-            jsonDBStore: JsonSessionDBStore,
-            startResultSeqIndex: Long?,
-            query: String,
-            queryCtx: SirixQueryContext,
-            endResultSeqIndex: Long?,
-            routingContext: RoutingContext
+    protected abstract fun handleQueryExtra(
+        rtx: R,
+        dbCollection: W,
+        queryContext: SirixQueryContext,
+        jsonSessionDBStore: JsonSessionDBStore
+    )
+
+    protected abstract fun createOutputStream(): OutputWrapper
+
+    protected abstract fun executeQueryAndSerialize(
+        routingContext: RoutingContext,
+        xmlDBStore: XmlSessionDBStore,
+        jsonDBStore: JsonSessionDBStore,
+        out: OutputWrapper,
+        startResultSeqIndex: Long?,
+        query: String,
+        queryCtx: SirixQueryContext,
+        endResultSeqIndex: Long?
     ): String
+
+    protected abstract fun getSerializedString(
+        manager: T,
+        revisions: IntArray,
+        nodeId: Long?,
+        ctx: RoutingContext
+    ): String
+
 }
+
+sealed class OutputWrapper {
+    class StringBuilderWrapper(val sb: StringBuilder) : OutputWrapper()
+    class ByteArrayOutputStreamWrapper(val baos: ByteArrayOutputStream) : OutputWrapper()
+}
+
+
