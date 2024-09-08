@@ -34,31 +34,31 @@ public final class OpenRevisions extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
     if (args.length != 4) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final var col = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
+    final var collection = (JsonDBCollection) queryContext.getJsonItemStore().lookup(((Str) args[0]).stringValue());
 
-    if (col == null) {
+    if (collection == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final var expResName = ((Str) args[1]).stringValue();
-    final var millis = ((DateTime) args[2]).subtract(new DateTime("1970-01-01T00:00:00-00:00"))
+    final var resourceName = ((Str) args[1]).stringValue();
+    final var epochMillis = ((DateTime) args[2]).subtract(new DateTime("1970-01-01T00:00:00-00:00"))
                                            .divide(new DTD(false, (byte) 0, (byte) 0, (byte) 0, 1000))
                                            .longValue();
 
-    final var startPointInTime = Instant.ofEpochMilli(millis);
+    final var startPointInTime = Instant.ofEpochMilli(epochMillis);
     final var endDateTime = ((DateTime) args[3]).stringValue();
     final var endPointInTime = Instant.parse(endDateTime);
 
     if (!startPointInTime.isBefore(endPointInTime))
       throw new QueryException(new QNm("No valid arguments specified!"));
 
-    final var startDocNode = col.getDocument(expResName, startPointInTime);
-    final var endDocNode = col.getDocument(expResName, endPointInTime);
+    final var startDocNode = collection.getDocument(resourceName, startPointInTime);
+    final var endDocNode = collection.getDocument(resourceName, endPointInTime);
 
     var startRevision = startDocNode.getTrx().getRevisionNumber();
     final int endRevision = endDocNode.getTrx().getRevisionNumber();
@@ -67,7 +67,7 @@ public final class OpenRevisions extends AbstractFunction {
     documentNodes.add(startDocNode);
 
     while (++startRevision < endRevision) {
-      documentNodes.add(col.getDocument(expResName, startRevision));
+      documentNodes.add(collection.getDocument(resourceName, startRevision));
     }
 
     documentNodes.add(endDocNode);

@@ -37,9 +37,9 @@ public final class GetChildCount extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+  public Sequence execute(StaticContext staticContext, QueryContext queryContext, Sequence[] args) {
+    final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
 
-    return new Int64(doc.getTrx().getChildCount());
+    return new Int64(document.getTrx().getChildCount());
   }
 }

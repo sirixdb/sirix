@@ -39,18 +39,18 @@ public final class DropDatabase extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
     if (args.length != 1) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final JsonDBCollection col = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
+    final JsonDBCollection collection = (JsonDBCollection) queryContext.getJsonItemStore().lookup(((Str) args[0]).stringValue());
 
-    if (col == null) {
+    if (collection == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    col.delete();
+    collection.delete();
 
     return null;
   }

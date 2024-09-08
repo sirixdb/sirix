@@ -41,13 +41,13 @@ public final class SelectJsonItem extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
     final JsonDBItem node = ((JsonDBItem) args[0]);
-    final JsonNodeReadOnlyTrx rtx = node.getTrx();
+    final JsonNodeReadOnlyTrx readOnlyTrx = node.getTrx();
     final long nodeKey = FunUtil.getLong(args, 1, "nodeKey", 0, null, true);
 
-    if (rtx.moveTo(nodeKey)) {
-      return new JsonItemFactory().getSequence(rtx, node.getCollection());
+    if (readOnlyTrx.moveTo(nodeKey)) {
+      return new JsonItemFactory().getSequence(readOnlyTrx, node.getCollection());
     } else {
       throw new QueryException(new QNm("Couldn't select node."));
     }

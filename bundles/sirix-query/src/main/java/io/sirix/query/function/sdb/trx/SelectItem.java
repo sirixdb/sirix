@@ -45,17 +45,17 @@ public final class SelectItem extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
     final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
-    final NodeReadOnlyTrx rtx = item.getTrx();
+    final NodeReadOnlyTrx readOnlyTrx = item.getTrx();
     final long nodeKey = FunUtil.getLong(args, 1, "nodeKey", 0, null, true);
 
-    if (rtx.moveTo(nodeKey)) {
-      if (rtx instanceof XmlNodeReadOnlyTrx) {
-        return new XmlDBNode((XmlNodeReadOnlyTrx) rtx, ((XmlDBNode) item).getCollection());
-      } else if (rtx instanceof JsonNodeReadOnlyTrx) {
+    if (readOnlyTrx.moveTo(nodeKey)) {
+      if (readOnlyTrx instanceof XmlNodeReadOnlyTrx) {
+        return new XmlDBNode((XmlNodeReadOnlyTrx) readOnlyTrx, ((XmlDBNode) item).getCollection());
+      } else if (readOnlyTrx instanceof JsonNodeReadOnlyTrx) {
         final JsonDBItem jsonItem = (JsonDBItem) item;
-        return new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtx, jsonItem.getCollection());
+        return new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) readOnlyTrx, jsonItem.getCollection());
       }
     }
 

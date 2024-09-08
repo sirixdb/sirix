@@ -44,7 +44,7 @@ public final class LastExisting extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
     final JsonDBItem item = (JsonDBItem) args[0];
 
     final var resourceManager = item.getTrx().getResourceSession();
@@ -58,17 +58,17 @@ public final class LastExisting extends AbstractFunction {
 
     if (indexNode != null) {
       final var revision = indexNode.getRevisions()[indexNode.getRevisions().length - 1];
-      final var rtx = resourceManager.beginNodeReadOnlyTrx(revision);
-      final var hasMoved = rtx.moveTo(item.getNodeKey());
+      final var readOnlyTrx = resourceManager.beginNodeReadOnlyTrx(revision);
+      final var hasMoved = readOnlyTrx.moveTo(item.getNodeKey());
 
       if (hasMoved) {
         if (revision < resourceManager.getMostRecentRevisionNumber()) {
           // Has been inserted, but never been removed, thus open most recent revision.
-          rtx.close();
+          readOnlyTrx.close();
           return getJsonItem(item, resourceManager.getMostRecentRevisionNumber(), resourceManager);
         } else {
-          rtx.moveTo(item.getNodeKey());
-          return new JsonItemFactory().getSequence(rtx, item.getCollection());
+          readOnlyTrx.moveTo(item.getNodeKey());
+          return new JsonItemFactory().getSequence(readOnlyTrx, item.getCollection());
         }
       } else {
         return getJsonItem(item, revision - 1, resourceManager);
@@ -76,11 +76,11 @@ public final class LastExisting extends AbstractFunction {
     }
 
     for (int revisionNumber = resourceManager.getMostRecentRevisionNumber(); revisionNumber > 0; revisionNumber--) {
-      final var rtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
-      if (rtx.moveTo(item.getNodeKey())) {
-        return new JsonItemFactory().getSequence(rtx, item.getCollection());
+      final var readOnlyTrx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+      if (readOnlyTrx.moveTo(item.getNodeKey())) {
+        return new JsonItemFactory().getSequence(readOnlyTrx, item.getCollection());
       } else {
-        rtx.close();
+        readOnlyTrx.close();
       }
     }
     return null;

@@ -56,23 +56,23 @@ public final class CreatePathIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
     if (args.length != 2 && args.length != 3) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final JsonDBItem doc = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx rtx = doc.getTrx();
-    final JsonResourceSession manager = rtx.getResourceSession();
+    final JsonDBItem document = (JsonDBItem) args[0];
+    final JsonNodeReadOnlyTrx readOnlyTrx = document.getTrx();
+    final JsonResourceSession resourceManager = readOnlyTrx.getResourceSession();
 
-    final Optional<JsonNodeTrx> optionalWriteTrx = manager.getNodeTrx();
-    final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(() -> manager.beginNodeTrx());
+    final Optional<JsonNodeTrx> optionalWriteTrx = resourceManager.getNodeTrx();
+    final JsonNodeTrx writeTrx = optionalWriteTrx.orElseGet(() -> resourceManager.beginNodeTrx());
 
-    if (rtx.getRevisionNumber() < manager.getMostRecentRevisionNumber()) {
-      wtx.revertTo(rtx.getRevisionNumber());
+    if (readOnlyTrx.getRevisionNumber() < resourceManager.getMostRecentRevisionNumber()) {
+      writeTrx.revertTo(readOnlyTrx.getRevisionNumber());
     }
 
-    final JsonIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber() - 1);
+    final JsonIndexController controller = writeTrx.getResourceSession().getWtxIndexController(writeTrx.getRevisionNumber() - 1);
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -88,14 +88,14 @@ public final class CreatePathIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef idxDef =
+    final IndexDef pathIdxDef =
         IndexDefs.createPathIdxDef(paths, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH), IndexDef.DbType.JSON);
     try {
-      controller.createIndexes(ImmutableSet.of(idxDef), wtx);
+      controller.createIndexes(ImmutableSet.of(pathIdxDef), writeTrx);
     } catch (final SirixIOException e) {
       throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
     }
-    return idxDef.materialize();
+    return pathIdxDef.materialize();
   }
 
 }

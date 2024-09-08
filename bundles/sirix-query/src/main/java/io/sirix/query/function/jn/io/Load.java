@@ -58,20 +58,20 @@ public final class Load extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param createNew determines if a new collection has to be created or not
+   * @param createIfNotExists determines if a new collection has to be created or not
    */
-  public Load(final boolean createNew) {
-    this(LOAD, createNew);
+  public Load(final boolean createIfNotExists) {
+    this(LOAD, createIfNotExists);
   }
 
   /**
    * Constructor.
    *
    * @param name the function name
-   * @param createNew determines if a new collection has to be created or not
+   * @param createIfNotExists determines if a new collection has to be created or not
    */
-  public Load(final QNm name, final boolean createNew) {
-    super(name, createNew
+  public Load(final QNm name, final boolean createIfNotExists) {
+    super(name, createIfNotExists
         ? new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
             new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
             new SequenceType(AtomicType.STR, Cardinality.OneOrMany))
@@ -93,58 +93,60 @@ public final class Load extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
     try {
-      final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
-      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
+      final String collectionName = FunUtil.getString(args, 0, "collectionName", "collection", null, true);
+      final String resourceName = FunUtil.getString(args, 1, "resourceName", "resource", null, false);
       final Sequence resources = args[2];
+      final boolean createIfNotExists = args.length < 4 || args[3].booleanValue();
+      final JsonDBStore store = (JsonDBStore) queryContext.getJsonItemStore();
+      final Object options;
+
       if (resources == null) {
         throw new QueryException(new QNm("No sequence of resources specified!"));
       }
-      final boolean createNew = args.length < 4 || args[3].booleanValue();
 
-      final Object options;
       if (args.length >= 5) {
         options = (Object) args[4];
       } else {
         options = new ArrayObject(new QNm[0], new Sequence[0]);
       }
 
-      final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
-      JsonDBCollection coll;
-      if (createNew) {
-        coll = create(store, collName, resName, resources, options);
+      JsonDBCollection collection;
+
+      if (createIfNotExists) {
+        collection = create(store, collectionName, resourceName, resources, options);
       } else {
         try {
-          coll = store.lookup(collName);
-          add(coll, resName, resources, options);
+          collection = store.lookup(collectionName);
+          add(collection, resourceName, resources, options);
         } catch (final DocumentException e) {
           // collection does not exist
-          coll = create(store, collName, resName, resources, options);
+          collection = create(store, collectionName, resourceName, resources, options);
         }
       }
 
-      return coll;
+      return collection;
     } catch (final Exception e) {
       throw new QueryException(new QNm(e.getMessage()), e);
     }
   }
 
-  private static void add(final JsonDBCollection coll, final String resName,
+  private static void add(final JsonDBCollection collection, final String resourceName,
       final Sequence resources, final Object options) {
     if (resources instanceof Atomic res) {
       try (final JsonReader reader =
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(res.stringValue())))) {
-        coll.add(resName, reader, options);
+        collection.add(resourceName, reader, options);
       } catch (final Exception e) {
         throw new QueryException(new QNm(e.getMessage()), e);
       }
     } else if (resources instanceof FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
-        int size = coll.getDatabase().listResources().size();
+        int size = collection.getDatabase().listResources().size();
         for (Item item; (item = iter.next()) != null; ) {
           try (final JsonReader reader = new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue())))) {
-            coll.add("resource" + size++, reader, options);
+            collection.add("resource" + size++, reader, options);
           } catch (final Exception e) {
             throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
           }
@@ -153,12 +155,12 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private JsonDBCollection create(final JsonDBStore store, final String collName, final String resName,
+  private JsonDBCollection create(final JsonDBStore store, final String collectionName, final String resourceName,
       final Sequence resources, final Object options) throws IOException {
     if (resources instanceof Atomic atomic) {
       try (final JsonReader reader =
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(atomic.stringValue())))) {
-        return store.create(collName, resName, reader, options);
+        return store.create(collectionName, resourceName, reader, options);
       } catch (final Exception e) {
         throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
       }
@@ -170,7 +172,7 @@ public final class Load extends AbstractFunction {
           jsonReaders.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
         }
 
-        final JsonDBCollection collection = store.create(collName, jsonReaders, options);
+        final JsonDBCollection collection = store.create(collectionName, jsonReaders, options);
 
         jsonReaders.forEach(this::closeReader);
 

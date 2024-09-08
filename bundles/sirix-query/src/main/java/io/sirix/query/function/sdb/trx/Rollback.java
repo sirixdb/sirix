@@ -40,13 +40,13 @@ public final class Rollback extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+    final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
 
-    if (doc.getTrx() instanceof NodeTrx) {
-      final NodeTrx wtx = (NodeTrx) doc.getTrx();
-      final long revision = wtx.getRevisionNumber();
-      wtx.rollback();
+    if (document.getTrx() instanceof NodeTrx) {
+      final NodeTrx writeTrx = (NodeTrx) document.getTrx();
+      final long revision = writeTrx.getRevisionNumber();
+      writeTrx.rollback();
       return new Int64(revision);
     } else {
       throw new QueryException(new QNm("The transaction is not a write transaction!"));

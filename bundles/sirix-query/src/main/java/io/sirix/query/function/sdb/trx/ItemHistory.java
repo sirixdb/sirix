@@ -53,12 +53,12 @@ public final class ItemHistory extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
     final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
-    final NodeReadOnlyTrx rtx = item.getTrx();
+    final NodeReadOnlyTrx readOnlyTrx = item.getTrx();
 
-    final var resMgr = rtx.getResourceSession();
-    final NodeReadOnlyTrx rtxInMostRecentRevision = resMgr.beginNodeReadOnlyTrx();
+    final var resourceManager = readOnlyTrx.getResourceSession();
+    final NodeReadOnlyTrx rtxInMostRecentRevision = resourceManager.beginNodeReadOnlyTrx();
 
     final RevisionReferencesNode node =
         rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
@@ -68,7 +68,7 @@ public final class ItemHistory extends AbstractFunction {
       final var resourceSession = item.getTrx().getResourceSession();
       int revision = resourceSession.getMostRecentRevisionNumber();
       while (revision > 0) {
-        final NodeReadOnlyTrx rtxInRevision = resMgr.beginNodeReadOnlyTrx(revision);
+        final NodeReadOnlyTrx rtxInRevision = resourceManager.beginNodeReadOnlyTrx(revision);
         if (rtxInRevision.moveTo(item.getNodeKey())) {
           if (rtxInRevision instanceof XmlNodeReadOnlyTrx) {
             assert item instanceof XmlDBNode;
@@ -92,7 +92,7 @@ public final class ItemHistory extends AbstractFunction {
       final List<Item> sequences = new ArrayList<>(revisions.length);
 
       for (final int revision : revisions) {
-        final NodeReadOnlyTrx rtxInRevision = resMgr.beginNodeReadOnlyTrx(revision);
+        final NodeReadOnlyTrx rtxInRevision = resourceManager.beginNodeReadOnlyTrx(revision);
 
         if (rtxInRevision.moveTo(item.getNodeKey())) {
           if (rtxInRevision instanceof XmlNodeReadOnlyTrx) {

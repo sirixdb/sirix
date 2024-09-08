@@ -47,18 +47,18 @@ public final class FindNameIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final JsonDBItem doc = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx rtx = doc.getTrx();
-    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
+  public Sequence execute(StaticContext staticContext, QueryContext queryContext, Sequence[] args) {
+    final JsonDBItem document = (JsonDBItem) args[0];
+    final JsonNodeReadOnlyTrx readOnlyTrx = document.getTrx();
+    final JsonIndexController controller = readOnlyTrx.getResourceSession().getRtxIndexController(readOnlyTrx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
     }
 
     final QNm qnm = new QNm(((Str) args[1]).stringValue());
-    final Optional<IndexDef> indexDef = controller.getIndexes().findNameIndex(qnm);
+    final Optional<IndexDef> nameIndex = controller.getIndexes().findNameIndex(qnm);
 
-    return indexDef.map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));
+    return nameIndex.map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));
   }
 }

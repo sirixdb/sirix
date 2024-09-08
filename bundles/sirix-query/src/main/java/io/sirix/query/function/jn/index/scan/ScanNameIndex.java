@@ -48,10 +48,10 @@ public final class ScanNameIndex extends AbstractScanIndex {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final JsonDBItem doc = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx rtx = doc.getTrx();
-    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
+  public Sequence execute(StaticContext staticContext, QueryContext queryContext, Sequence[] args) {
+    final JsonDBItem document = (JsonDBItem) args[0];
+    final JsonNodeReadOnlyTrx readOnlyTrx = document.getTrx();
+    final JsonIndexController controller = readOnlyTrx.getResourceSession().getRtxIndexController(readOnlyTrx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -62,13 +62,13 @@ public final class ScanNameIndex extends AbstractScanIndex {
 
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND, "Index no %s for collection %s and document %s not found.",
-                               idx, doc.getCollection().getName(),
-                               doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
+                               idx, document.getCollection().getName(),
+                               document.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     if (indexDef.getType() != IndexType.NAME) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
-          "Index no %s for collection %s and document %s is not a name index.", idx, doc.getCollection().getName(),
-          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
+          "Index no %s for collection %s and document %s is not a name index.", idx, document.getCollection().getName(),
+          document.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
 
     final String names = FunUtil.getString(args, 2, "$names", null, null, false);
@@ -76,6 +76,6 @@ public final class ScanNameIndex extends AbstractScanIndex {
         ? controller.createNameFilter(Set.of(names.split(";")))
         : null;
 
-    return getSequence(doc, controller.openNameIndex(doc.getTrx().getPageTrx(), indexDef, filter));
+    return getSequence(document, controller.openNameIndex(document.getTrx().getPageTrx(), indexDef, filter));
   }
 }

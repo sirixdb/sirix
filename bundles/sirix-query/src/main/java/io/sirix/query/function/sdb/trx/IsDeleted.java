@@ -43,13 +43,13 @@ public final class IsDeleted extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
     final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
-    final NodeReadOnlyTrx rtx = item.getTrx();
+    final NodeReadOnlyTrx readOnlyTrx = item.getTrx();
 
-    final var resMgr = rtx.getResourceSession();
-    final var mostRecentRevisionNumber = resMgr.getMostRecentRevisionNumber();
-    final NodeReadOnlyTrx rtxInMostRecentRevision = getTrx(resMgr, mostRecentRevisionNumber);
+    final var resourceManager = readOnlyTrx.getResourceSession();
+    final var mostRecentRevisionNumber = resourceManager.getMostRecentRevisionNumber();
+    final NodeReadOnlyTrx rtxInMostRecentRevision = getTrx(resourceManager, mostRecentRevisionNumber);
 
     final RevisionReferencesNode node =
         rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
@@ -59,13 +59,13 @@ public final class IsDeleted extends AbstractFunction {
     } else {
       final var revisions = node.getRevisions();
       final var mostRecentRevisionOfItem = revisions[revisions.length - 1];
-      final NodeReadOnlyTrx rtxInMostRecentRevisionOfItem = getTrx(resMgr, mostRecentRevisionOfItem);
+      final NodeReadOnlyTrx rtxInMostRecentRevisionOfItem = getTrx(resourceManager, mostRecentRevisionOfItem);
 
       return rtxInMostRecentRevisionOfItem.moveTo(item.getNodeKey()) ? Bool.FALSE : Bool.TRUE;
     }
   }
 
-  private NodeReadOnlyTrx getTrx(ResourceSession<?, ?> resMgr, int mostRecentRevisionOfItem) {
-    return resMgr.beginNodeReadOnlyTrx(mostRecentRevisionOfItem);
+  private NodeReadOnlyTrx getTrx(ResourceSession<?, ?> resourceManager, int mostRecentRevisionOfItem) {
+    return resourceManager.beginNodeReadOnlyTrx(mostRecentRevisionOfItem);
   }
 }

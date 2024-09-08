@@ -40,9 +40,9 @@ public final class GetRevisionTimestamp extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
-    final Instant instant = doc.getTrx().getRevisionTimestamp();
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+    final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
+    final Instant instant = document.getTrx().getRevisionTimestamp();
     final String dateTime = DateTimeFormatter.ISO_INSTANT.format(instant);
     return new DateTime(dateTime);
   }

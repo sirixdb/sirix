@@ -52,7 +52,7 @@ public final class LevelOrder extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
     final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
 
     final int depth = FunUtil.getInt(args, 1, "depth", Integer.MAX_VALUE, null, false);
@@ -95,20 +95,20 @@ public final class LevelOrder extends AbstractFunction {
       @Override
       public Iter iterate() {
         return new BaseIter() {
-          Stream<?> s;
+          Stream<?> stream;
 
           @Override
           public Item next() {
-            if (s == null) {
-              s = new SirixNodeStream(axis, node.getCollection());
+            if (stream == null) {
+              stream = new SirixNodeStream(axis, node.getCollection());
             }
-            return (Item) s.next();
+            return (Item) stream.next();
           }
 
           @Override
           public void close() {
-            if (s != null) {
-              s.close();
+            if (stream != null) {
+              stream.close();
             }
           }
         };

@@ -79,51 +79,51 @@ public final class Diff extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
     if (args.length < 4 || args.length > 7) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final var dbName = ((Str) args[0]).stringValue();
-    final var col = (JsonDBCollection) ctx.getJsonItemStore().lookup(dbName);
+    final var databaseName = ((Str) args[0]).stringValue();
+    final var collection = (JsonDBCollection) queryContext.getJsonItemStore().lookup(databaseName);
 
-    if (col == null) {
+    if (collection == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final var expResName = ((Str) args[1]).stringValue();
+    final var resourceName = ((Str) args[1]).stringValue();
     final var oldRevision = FunUtil.getInt(args, 2, "revision1", -1, null, true);
     final var newRevision = FunUtil.getInt(args, 3, "revision2", -1, null, true);
     final var startNodeKey = FunUtil.getInt(args, 4, "startNodeKey", 0, null, false);
     final var maxLevel = FunUtil.getInt(args, 5, "maxLevel", 0, null, false);
-    final var doc = col.getDocument(expResName);
-    final var resourceMgr = doc.getResourceSession();
+    final var document = collection.getDocument(resourceName);
+    final var resourceManager = document.getResourceSession();
 
-    if (resourceMgr.getResourceConfig().areDeweyIDsStored && oldRevision == newRevision - 1) {
-      return readDiffFromFileAndCalculateViaDeweyIDs(dbName,
-                                                     expResName,
+    if (resourceManager.getResourceConfig().areDeweyIDsStored && oldRevision == newRevision - 1) {
+      return readDiffFromFileAndCalculateViaDeweyIDs(databaseName,
+                                                     resourceName,
                                                      oldRevision,
                                                      newRevision,
                                                      startNodeKey,
                                                      maxLevel == 0 ? Integer.MAX_VALUE : maxLevel,
-                                                     resourceMgr);
+                                                     resourceManager);
     }
 
-    final JsonDiff jsonDiff = new BasicJsonDiff(col.getDatabase().getName());
+    final JsonDiff jsonDiff = new BasicJsonDiff(collection.getDatabase().getName());
 
-    return new Str(jsonDiff.generateDiff(doc.getResourceSession(), oldRevision, newRevision, startNodeKey, maxLevel));
+    return new Str(jsonDiff.generateDiff(document.getResourceSession(), oldRevision, newRevision, startNodeKey, maxLevel));
   }
 
   @NonNull
-  private Str readDiffFromFileAndCalculateViaDeweyIDs(String dbName, String expResName, int oldRevision,
-      int newRevision, int startNodeKey, int maxLevel, JsonResourceSession resourceMgr) {
+  private Str readDiffFromFileAndCalculateViaDeweyIDs(String databaseName, String resourceName, int oldRevision,
+      int newRevision, int startNodeKey, int maxLevel, JsonResourceSession resourceManager) {
     // Fast track... just read the info from a file and use dewey IDs to determine changes in the desired subtree.
-    try (final var rtx = resourceMgr.beginNodeReadOnlyTrx(newRevision)) {
-      rtx.moveTo(startNodeKey);
+    try (final var readOnlyTrx = resourceManager.beginNodeReadOnlyTrx(newRevision)) {
+      readOnlyTrx.moveTo(startNodeKey);
 
-      final var metaInfo = createMetaInfo(dbName, expResName, oldRevision, newRevision);
+      final var metaInfo = createMetaInfo(databaseName, resourceName, oldRevision, newRevision);
       final var diffs = metaInfo.getAsJsonArray("diffs");
-      final var updateOperations = rtx.getUpdateOperationsInSubtreeOfNode(rtx.getDeweyID(), maxLevel);
+      final var updateOperations = readOnlyTrx.getUpdateOperationsInSubtreeOfNode(readOnlyTrx.getDeweyID(), maxLevel);
       updateOperations.forEach(diffs::add);
 
       return new Str(metaInfo.toString());

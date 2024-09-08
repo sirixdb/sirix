@@ -55,23 +55,23 @@ public final class CreateCASIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
+  public Sequence execute(StaticContext staticContext, QueryContext queryContext, Sequence[] args) {
     if (args.length != 2 && args.length != 3) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final JsonDBItem doc = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx rtx = doc.getTrx();
-    final JsonResourceSession manager = rtx.getResourceSession();
+    final JsonDBItem document = (JsonDBItem) args[0];
+    final JsonNodeReadOnlyTrx readOnlyTrx = document.getTrx();
+    final JsonResourceSession resourceManager = readOnlyTrx.getResourceSession();
 
-    final Optional<JsonNodeTrx> optionalWriteTrx = manager.getNodeTrx();
-    final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(manager::beginNodeTrx);
+    final Optional<JsonNodeTrx> optionalWriteTrx = resourceManager.getNodeTrx();
+    final JsonNodeTrx writeTrx = optionalWriteTrx.orElseGet(resourceManager::beginNodeTrx);
 
-    if (rtx.getRevisionNumber() < manager.getMostRecentRevisionNumber()) {
-      wtx.revertTo(rtx.getRevisionNumber());
+    if (readOnlyTrx.getRevisionNumber() < resourceManager.getMostRecentRevisionNumber()) {
+      writeTrx.revertTo(readOnlyTrx.getRevisionNumber());
     }
 
-    final JsonIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber() - 1);
+    final JsonIndexController controller = writeTrx.getResourceSession().getWtxIndexController(writeTrx.getRevisionNumber() - 1);
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -80,7 +80,7 @@ public final class CreateCASIndex extends AbstractFunction {
     Type type = null;
     if (args[1] != null) {
       final QNm name = new QNm(Namespaces.XS_NSURI, ((Str) args[1]).stringValue());
-      type = sctx.getTypes().resolveAtomicType(name);
+      type = staticContext.getTypes().resolveAtomicType(name);
     }
 
     final Set<Path<QNm>> paths = new HashSet<>();
@@ -93,14 +93,14 @@ public final class CreateCASIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef idxDef = IndexDefs.createCASIdxDef(false, type, paths,
+    final IndexDef casIdxDef = IndexDefs.createCASIdxDef(false, type, paths,
         controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS), IndexDef.DbType.JSON);
     try {
-      controller.createIndexes(Set.of(idxDef), wtx);
+      controller.createIndexes(Set.of(casIdxDef), writeTrx);
     } catch (final SirixIOException e) {
       throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
     }
 
-    return idxDef.materialize();
+    return casIdxDef.materialize();
   }
 }

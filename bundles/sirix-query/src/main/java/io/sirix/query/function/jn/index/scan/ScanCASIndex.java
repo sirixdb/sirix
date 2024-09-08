@@ -54,10 +54,10 @@ public final class ScanCASIndex extends AbstractScanIndex {
   }
 
   @Override
-  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final JsonDBItem doc = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx rtx = doc.getTrx();
-    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
+  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+    final JsonDBItem document = (JsonDBItem) args[0];
+    final JsonNodeReadOnlyTrx readOnlyTrx = document.getTrx();
+    final JsonIndexController controller = readOnlyTrx.getResourceSession().getRtxIndexController(readOnlyTrx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -71,8 +71,8 @@ public final class ScanCASIndex extends AbstractScanIndex {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
                                "Index no %s for collection %s and document %s not found.",
                                idx,
-                               doc.getCollection().getName(),
-                               doc.getTrx()
+                               document.getCollection().getName(),
+                               document.getTrx()
                                   .getResourceSession()
                                   .getResourceConfig()
                                   .getResource()
@@ -83,8 +83,8 @@ public final class ScanCASIndex extends AbstractScanIndex {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
                                "Index no %s for collection %s and document %s is not a CAS index.",
                                idx,
-                               doc.getCollection().getName(),
-                               doc.getTrx()
+                               document.getCollection().getName(),
+                               document.getTrx()
                                   .getResourceSession()
                                   .getResourceConfig()
                                   .getResource()
@@ -93,7 +93,7 @@ public final class ScanCASIndex extends AbstractScanIndex {
     }
 
     final Type keyType = indexDef.getContentType();
-    final Atomic key = Cast.cast(sctx, (Atomic) args[2], keyType, true);
+    final Atomic key = Cast.cast(staticContext, (Atomic) args[2], keyType, true);
     final String[] searchModes = { "<", "<=", "==", ">", ">=" };
     final String searchMode = FunUtil.getString(args, 3, "$search-mode", "==", searchModes, true);
 
@@ -110,10 +110,10 @@ public final class ScanCASIndex extends AbstractScanIndex {
 
     final String paths = FunUtil.getString(args, 4, "$paths", null, null, false);
     final CASFilter filter = (paths != null)
-        ? controller.createCASFilter(Set.of(paths.split(";")), key, mode, new JsonPCRCollector(rtx))
-        : controller.createCASFilter(ImmutableSet.of(), key, mode, new JsonPCRCollector(rtx));
+        ? controller.createCASFilter(Set.of(paths.split(";")), key, mode, new JsonPCRCollector(readOnlyTrx))
+        : controller.createCASFilter(ImmutableSet.of(), key, mode, new JsonPCRCollector(readOnlyTrx));
 
-    return getSequence(doc, controller.openCASIndex(doc.getTrx().getPageTrx(), indexDef, filter));
+    return getSequence(document, controller.openCASIndex(document.getTrx().getPageTrx(), indexDef, filter));
   }
 
 }
