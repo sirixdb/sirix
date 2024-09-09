@@ -51,10 +51,10 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
   }
 
   @Override
-  public Sequence execute(StaticContext staticContext, QueryContext queryContext, Sequence[] args) {
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
     final JsonDBItem document = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx readOnlyTrx = document.getTrx();
-    final JsonIndexController controller = readOnlyTrx.getResourceSession().getRtxIndexController(readOnlyTrx.getRevisionNumber());
+    final JsonNodeReadOnlyTrx rtx = document.getTrx();
+    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -76,8 +76,8 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
     }
 
     final Type keyType = indexDef.getContentType();
-    final Atomic min = Cast.cast(staticContext, (Atomic) args[2], keyType, true);
-    final Atomic max = Cast.cast(staticContext, (Atomic) args[3], keyType, true);
+    final Atomic min = Cast.cast(sctx, (Atomic) args[2], keyType, true);
+    final Atomic max = Cast.cast(sctx, (Atomic) args[3], keyType, true);
     final boolean incMin = FunUtil.getBoolean(args, 4, "$include-low-key", true, true);
     final boolean incMax = FunUtil.getBoolean(args, 5, "$include-high-key", true, true);
     final String paths = FunUtil.getString(args, 6, "$paths", null, null, false);
@@ -85,7 +85,7 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
         ? Set.of()
         : Set.of(paths.split(";"));
     final CASFilterRange filter =
-        controller.createCASFilterRange(setOfPaths, min, max, incMin, incMax, new JsonPCRCollector(readOnlyTrx));
+        controller.createCASFilterRange(setOfPaths, min, max, incMin, incMax, new JsonPCRCollector(rtx));
 
     return getSequence(document, controller.openCASIndex(document.getTrx().getPageTrx(), indexDef, filter));
   }

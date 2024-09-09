@@ -53,17 +53,17 @@ public final class FindCASIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(StaticContext staticContext, QueryContext queryContext, Sequence[] args) {
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
     final JsonDBItem document = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx readOnlyTrx = document.getTrx();
-    final JsonIndexController controller = readOnlyTrx.getResourceSession().getRtxIndexController(readOnlyTrx.getRevisionNumber());
+    final JsonNodeReadOnlyTrx rtx = document.getTrx();
+    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
     }
 
     final QNm name = new QNm(Namespaces.XS_NSURI, ((Str) args[1]).stringValue());
-    final Type type = staticContext.getTypes().resolveAtomicType(name);
+    final Type type = sctx.getTypes().resolveAtomicType(name);
     final Path<QNm> path = Path.parse(((Str) args[2]).stringValue(), PathParser.Type.JSON);
     final Optional<IndexDef> casIndex = controller.getIndexes().findCASIndex(path, type);
 

@@ -224,6 +224,7 @@ public final class Main {
 
   private static String readStringFromScannerWithEndMark(LineReader lineReader) {
     StringBuilder strbuf = new StringBuilder();
+
     for (int i = 0; ; i++) {
       String line = lineReader.readLine("sirix > ");
       if (line == null || line.isEmpty()) break;

@@ -48,10 +48,10 @@ public final class ScanNameIndex extends AbstractScanIndex {
   }
 
   @Override
-  public Sequence execute(StaticContext staticContext, QueryContext queryContext, Sequence[] args) {
+  public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
     final JsonDBItem document = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx readOnlyTrx = document.getTrx();
-    final JsonIndexController controller = readOnlyTrx.getResourceSession().getRtxIndexController(readOnlyTrx.getRevisionNumber());
+    final JsonNodeReadOnlyTrx rtx = document.getTrx();
+    final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
