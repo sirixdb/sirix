@@ -52,7 +52,7 @@ public final class LevelOrder extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
 
     final int depth = FunUtil.getInt(args, 1, "depth", Integer.MAX_VALUE, null, false);

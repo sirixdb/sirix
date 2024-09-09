@@ -112,12 +112,12 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   }
 
   @Override
-  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 4) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final XmlDBCollection collection = (XmlDBCollection) queryContext.getNodeStore().lookup(((Str) args[0]).stringValue());
+    final XmlDBCollection collection = (XmlDBCollection) ctx.getNodeStore().lookup(((Str) args[0]).stringValue());
 
     if (collection == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));

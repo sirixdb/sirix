@@ -34,12 +34,12 @@ public final class OpenRevisions extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 4) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final var collection = (JsonDBCollection) queryContext.getJsonItemStore().lookup(((Str) args[0]).stringValue());
+    final var collection = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
 
     if (collection == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));

@@ -37,18 +37,18 @@ public final class SelectParent extends AbstractFunction {
     }
 
     @Override
-    public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+    public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
         final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
-        final NodeReadOnlyTrx readOnlyTrx = item.getTrx();
+        final NodeReadOnlyTrx rtx = item.getTrx();
 
-        if (readOnlyTrx instanceof XmlNodeReadOnlyTrx) {
-            if (((XmlNodeReadOnlyTrx) readOnlyTrx).moveToParent()) {
-                return new XmlDBNode((XmlNodeReadOnlyTrx) readOnlyTrx, ((XmlDBNode) item).getCollection());
+        if (rtx instanceof XmlNodeReadOnlyTrx) {
+            if (((XmlNodeReadOnlyTrx) rtx).moveToParent()) {
+                return new XmlDBNode((XmlNodeReadOnlyTrx) rtx, ((XmlDBNode) item).getCollection());
             }
-        } else if (readOnlyTrx instanceof JsonNodeReadOnlyTrx) {
-            if (((JsonNodeReadOnlyTrx) readOnlyTrx).moveToParent()) {
+        } else if (rtx instanceof JsonNodeReadOnlyTrx) {
+            if (((JsonNodeReadOnlyTrx) rtx).moveToParent()) {
                 final JsonDBItem jsonItem = (JsonDBItem) item;
-                return new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) readOnlyTrx, jsonItem.getCollection());
+                return new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtx, jsonItem.getCollection());
             }
         }
 

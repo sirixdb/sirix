@@ -79,13 +79,13 @@ public final class Diff extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length < 4 || args.length > 7) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
     final var databaseName = ((Str) args[0]).stringValue();
-    final var collection = (JsonDBCollection) queryContext.getJsonItemStore().lookup(databaseName);
+    final var collection = (JsonDBCollection) ctx.getJsonItemStore().lookup(databaseName);
 
     if (collection == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
@@ -97,16 +97,16 @@ public final class Diff extends AbstractFunction {
     final var startNodeKey = FunUtil.getInt(args, 4, "startNodeKey", 0, null, false);
     final var maxLevel = FunUtil.getInt(args, 5, "maxLevel", 0, null, false);
     final var document = collection.getDocument(resourceName);
-    final var resourceManager = document.getResourceSession();
+    final var resourceSession = document.getResourceSession();
 
-    if (resourceManager.getResourceConfig().areDeweyIDsStored && oldRevision == newRevision - 1) {
+    if (resourceSession.getResourceConfig().areDeweyIDsStored && oldRevision == newRevision - 1) {
       return readDiffFromFileAndCalculateViaDeweyIDs(databaseName,
                                                      resourceName,
                                                      oldRevision,
                                                      newRevision,
                                                      startNodeKey,
                                                      maxLevel == 0 ? Integer.MAX_VALUE : maxLevel,
-                                                     resourceManager);
+                                                     resourceSession);
     }
 
     final JsonDiff jsonDiff = new BasicJsonDiff(collection.getDatabase().getName());
@@ -118,12 +118,12 @@ public final class Diff extends AbstractFunction {
   private Str readDiffFromFileAndCalculateViaDeweyIDs(String databaseName, String resourceName, int oldRevision,
       int newRevision, int startNodeKey, int maxLevel, JsonResourceSession resourceManager) {
     // Fast track... just read the info from a file and use dewey IDs to determine changes in the desired subtree.
-    try (final var readOnlyTrx = resourceManager.beginNodeReadOnlyTrx(newRevision)) {
-      readOnlyTrx.moveTo(startNodeKey);
+    try (final var rtx = resourceManager.beginNodeReadOnlyTrx(newRevision)) {
+      rtx.moveTo(startNodeKey);
 
       final var metaInfo = createMetaInfo(databaseName, resourceName, oldRevision, newRevision);
       final var diffs = metaInfo.getAsJsonArray("diffs");
-      final var updateOperations = readOnlyTrx.getUpdateOperationsInSubtreeOfNode(readOnlyTrx.getDeweyID(), maxLevel);
+      final var updateOperations = rtx.getUpdateOperationsInSubtreeOfNode(rtx.getDeweyID(), maxLevel);
       updateOperations.forEach(diffs::add);
 
       return new Str(metaInfo.toString());

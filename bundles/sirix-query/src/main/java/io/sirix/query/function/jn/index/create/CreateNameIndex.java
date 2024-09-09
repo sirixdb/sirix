@@ -54,23 +54,23 @@ public final class CreateNameIndex extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 2 && args.length != 3) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
     final JsonDBItem document = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx readOnlyTrx = document.getTrx();
-    final JsonResourceSession resourceManager = readOnlyTrx.getResourceSession();
+    final JsonNodeReadOnlyTrx rtx = document.getTrx();
+    final JsonResourceSession resourceSession = rtx.getResourceSession();
 
-    final Optional<JsonNodeTrx> optionalWriteTrx = resourceManager.getNodeTrx();
-    final JsonNodeTrx writeTrx = optionalWriteTrx.orElseGet(resourceManager::beginNodeTrx);
+    final Optional<JsonNodeTrx> optionalWriteTrx = resourceSession.getNodeTrx();
+    final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(resourceSession::beginNodeTrx);
 
-    if (readOnlyTrx.getRevisionNumber() < resourceManager.getMostRecentRevisionNumber()) {
-      writeTrx.revertTo(readOnlyTrx.getRevisionNumber());
+    if (rtx.getRevisionNumber() < resourceSession.getMostRecentRevisionNumber()) {
+      wtx.revertTo(rtx.getRevisionNumber());
     }
 
-    final JsonIndexController controller = writeTrx.getResourceSession().getWtxIndexController(writeTrx.getRevisionNumber() - 1);
+    final JsonIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber() - 1);
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
@@ -89,7 +89,7 @@ public final class CreateNameIndex extends AbstractFunction {
     final IndexDef selectiveNameIdxDef = IndexDefs.createSelectiveNameIdxDef(include,
         controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME), IndexDef.DbType.JSON);
     try {
-      controller.createIndexes(ImmutableSet.of(selectiveNameIdxDef), writeTrx);
+      controller.createIndexes(ImmutableSet.of(selectiveNameIdxDef), wtx);
     } catch (final SirixIOException e) {
       throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
     }

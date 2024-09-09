@@ -53,11 +53,11 @@ public final class ItemHistory extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
-    final NodeReadOnlyTrx readOnlyTrx = item.getTrx();
+    final NodeReadOnlyTrx rtx = item.getTrx();
 
-    final var resourceManager = readOnlyTrx.getResourceSession();
+    final var resourceManager = rtx.getResourceSession();
     final NodeReadOnlyTrx rtxInMostRecentRevision = resourceManager.beginNodeReadOnlyTrx();
 
     final RevisionReferencesNode node =

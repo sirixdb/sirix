@@ -47,7 +47,7 @@ public final class Commit extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
 
     final String commitMessage = args.length >= 2 ? FunUtil.getString(args, 1, "commitMessage", null, null, false) : null;
@@ -56,31 +56,31 @@ public final class Commit extends AbstractFunction {
     final Instant commitTimestamp = args.length == 3 ? dateTimeToInstant.convert(dateTime) : null;
 
     if (document.getTrx() instanceof NodeTrx) {
-      final NodeTrx writeTrx = (NodeTrx) document.getTrx();
-      final long revision = writeTrx.getRevisionNumber();
-      writeTrx.commit(commitMessage, commitTimestamp);
+      final NodeTrx wtx = (NodeTrx) document.getTrx();
+      final long revision = wtx.getRevisionNumber();
+      wtx.commit(commitMessage, commitTimestamp);
       return new Int64(revision);
     } else {
-      final ResourceSession<?, ?> manager = document.getTrx().getResourceSession();
+      final ResourceSession<?, ?> resourceSession = document.getTrx().getResourceSession();
       boolean newTrxOpened = false;
-      NodeTrx writeTrx = null;
+      NodeTrx wtx = null;
       try {
-        if (manager.getNodeTrx().isPresent()) {
-          writeTrx = manager.getNodeTrx().get();
+        if (resourceSession.getNodeTrx().isPresent()) {
+          wtx = resourceSession.getNodeTrx().get();
         } else {
           newTrxOpened = true;
-          writeTrx = manager.beginNodeTrx();
+          wtx = resourceSession.beginNodeTrx();
         }
         final int revision = document.getTrx().getRevisionNumber();
-        if (revision < manager.getMostRecentRevisionNumber()) {
-          writeTrx.revertTo(document.getTrx().getRevisionNumber());
+        if (revision < resourceSession.getMostRecentRevisionNumber()) {
+          wtx.revertTo(document.getTrx().getRevisionNumber());
         }
-        final int revisionToCommit = writeTrx.getRevisionNumber();
-        writeTrx.commit(commitMessage, commitTimestamp);
+        final int revisionToCommit = wtx.getRevisionNumber();
+        wtx.commit(commitMessage, commitTimestamp);
         return new Int64(revisionToCommit);
       } finally {
-        if (newTrxOpened && writeTrx != null) {
-          writeTrx.close();
+        if (newTrxOpened && wtx != null) {
+          wtx.close();
         }
       }
     }

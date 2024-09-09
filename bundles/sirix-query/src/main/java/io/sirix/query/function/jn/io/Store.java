@@ -85,7 +85,7 @@ public final class Store extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
 
       final String collectionName = FunUtil.getString(args, 0, "collectionName", "collection", null, true);
@@ -93,7 +93,7 @@ public final class Store extends AbstractFunction {
       final Sequence nodes = args[2];
       final boolean createIfNotExists = args.length < 4 || args[3].booleanValue();
       final Object options;
-      final JsonDBStore store = (JsonDBStore) queryContext.getJsonItemStore();
+      final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
 
       if (nodes == null) {
         throw new QueryException(new QNm("No sequence of nodes specified!"));

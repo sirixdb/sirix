@@ -93,13 +93,13 @@ public final class Load extends AbstractFunction {
   }
 
   @Override
-  public Sequence execute(final StaticContext staticContext, final QueryContext queryContext, final Sequence[] args) {
+  public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collectionName = FunUtil.getString(args, 0, "collectionName", "collection", null, true);
       final String resourceName = FunUtil.getString(args, 1, "resourceName", "resource", null, false);
       final Sequence resources = args[2];
       final boolean createIfNotExists = args.length < 4 || args[3].booleanValue();
-      final JsonDBStore store = (JsonDBStore) queryContext.getJsonItemStore();
+      final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
       final Object options;
 
       if (resources == null) {
