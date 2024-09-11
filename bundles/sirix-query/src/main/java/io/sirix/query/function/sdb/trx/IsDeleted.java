@@ -65,7 +65,7 @@ public final class IsDeleted extends AbstractFunction {
     }
   }
 
-  private NodeReadOnlyTrx getTrx(ResourceSession<?, ?> resourceManager, int mostRecentRevisionOfItem) {
-    return resourceManager.beginNodeReadOnlyTrx(mostRecentRevisionOfItem);
+  private NodeReadOnlyTrx getTrx(ResourceSession<?, ?> resourceSession, int mostRecentRevisionOfItem) {
+    return resourceSession.beginNodeReadOnlyTrx(mostRecentRevisionOfItem);
   }
 }
