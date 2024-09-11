@@ -116,9 +116,9 @@ public final class Diff extends AbstractFunction {
 
   @NonNull
   private Str readDiffFromFileAndCalculateViaDeweyIDs(String databaseName, String resourceName, int oldRevision,
-      int newRevision, int startNodeKey, int maxLevel, JsonResourceSession resourceManager) {
+      int newRevision, int startNodeKey, int maxLevel, JsonResourceSession resourceSession) {
     // Fast track... just read the info from a file and use dewey IDs to determine changes in the desired subtree.
-    try (final var rtx = resourceManager.beginNodeReadOnlyTrx(newRevision)) {
+    try (final var rtx = resourceSession.beginNodeReadOnlyTrx(newRevision)) {
       rtx.moveTo(startNodeKey);
 
       final var metaInfo = createMetaInfo(databaseName, resourceName, oldRevision, newRevision);
