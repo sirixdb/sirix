@@ -59,14 +59,14 @@ public final class CreateNameIndex extends AbstractFunction {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final JsonDBItem doc = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx rtx = doc.getTrx();
-    final JsonResourceSession manager = rtx.getResourceSession();
+    final JsonDBItem document = (JsonDBItem) args[0];
+    final JsonNodeReadOnlyTrx rtx = document.getTrx();
+    final JsonResourceSession resourceSession = rtx.getResourceSession();
 
-    final Optional<JsonNodeTrx> optionalWriteTrx = manager.getNodeTrx();
-    final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(manager::beginNodeTrx);
+    final Optional<JsonNodeTrx> optionalWriteTrx = resourceSession.getNodeTrx();
+    final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(resourceSession::beginNodeTrx);
 
-    if (rtx.getRevisionNumber() < manager.getMostRecentRevisionNumber()) {
+    if (rtx.getRevisionNumber() < resourceSession.getMostRecentRevisionNumber()) {
       wtx.revertTo(rtx.getRevisionNumber());
     }
 
@@ -86,14 +86,14 @@ public final class CreateNameIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef idxDef = IndexDefs.createSelectiveNameIdxDef(include,
+    final IndexDef selectiveNameIdxDef = IndexDefs.createSelectiveNameIdxDef(include,
         controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME), IndexDef.DbType.JSON);
     try {
-      controller.createIndexes(ImmutableSet.of(idxDef), wtx);
+      controller.createIndexes(ImmutableSet.of(selectiveNameIdxDef), wtx);
     } catch (final SirixIOException e) {
       throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
     }
-    return idxDef.materialize();
+    return selectiveNameIdxDef.materialize();
   }
 
 }

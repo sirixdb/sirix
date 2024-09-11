@@ -16,25 +16,25 @@ public abstract class AbstractScanIndex extends AbstractFunction {
     super(name, signature, isBuiltIn);
   }
 
-  public Sequence getSequence(final JsonDBItem doc, final Iterator<NodeReferences> index) {
+  public Sequence getSequence(final JsonDBItem document, final Iterator<NodeReferences> index) {
     return new LazySequence() {
       @Override
       public Iter iterate() {
         return new BaseIter() {
-          Stream<?> s;
+          Stream<?> stream;
 
           @Override
           public Item next() {
-            if (s == null) {
-              s = new SirixJsonItemKeyStream(index, doc.getCollection(), doc.getTrx());
+            if (stream == null) {
+              stream = new SirixJsonItemKeyStream(index, document.getCollection(), document.getTrx());
             }
-            return (Item) s.next();
+            return (Item) stream.next();
           }
 
           @Override
           public void close() {
-            if (s != null) {
-              s.close();
+            if (stream != null) {
+              stream.close();
             }
           }
         };

@@ -55,8 +55,8 @@ public final class ScanCASIndex extends AbstractScanIndex {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final JsonDBItem doc = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx rtx = doc.getTrx();
+    final JsonDBItem document = (JsonDBItem) args[0];
+    final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
@@ -71,8 +71,8 @@ public final class ScanCASIndex extends AbstractScanIndex {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
                                "Index no %s for collection %s and document %s not found.",
                                idx,
-                               doc.getCollection().getName(),
-                               doc.getTrx()
+                               document.getCollection().getName(),
+                               document.getTrx()
                                   .getResourceSession()
                                   .getResourceConfig()
                                   .getResource()
@@ -83,8 +83,8 @@ public final class ScanCASIndex extends AbstractScanIndex {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
                                "Index no %s for collection %s and document %s is not a CAS index.",
                                idx,
-                               doc.getCollection().getName(),
-                               doc.getTrx()
+                               document.getCollection().getName(),
+                               document.getTrx()
                                   .getResourceSession()
                                   .getResourceConfig()
                                   .getResource()
@@ -113,7 +113,7 @@ public final class ScanCASIndex extends AbstractScanIndex {
         ? controller.createCASFilter(Set.of(paths.split(";")), key, mode, new JsonPCRCollector(rtx))
         : controller.createCASFilter(ImmutableSet.of(), key, mode, new JsonPCRCollector(rtx));
 
-    return getSequence(doc, controller.openCASIndex(doc.getTrx().getPageTrx(), indexDef, filter));
+    return getSequence(document, controller.openCASIndex(document.getTrx().getPageTrx(), indexDef, filter));
   }
 
 }

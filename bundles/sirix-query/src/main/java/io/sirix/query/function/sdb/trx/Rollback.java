@@ -41,10 +41,10 @@ public final class Rollback extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+    final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
 
-    if (doc.getTrx() instanceof NodeTrx) {
-      final NodeTrx wtx = (NodeTrx) doc.getTrx();
+    if (document.getTrx() instanceof NodeTrx) {
+      final NodeTrx wtx = (NodeTrx) document.getTrx();
       final long revision = wtx.getRevisionNumber();
       wtx.rollback();
       return new Int64(revision);

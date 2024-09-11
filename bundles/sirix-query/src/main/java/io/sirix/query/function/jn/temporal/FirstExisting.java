@@ -43,21 +43,20 @@ public final class FirstExisting extends AbstractFunction {
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final JsonDBItem item = (JsonDBItem) args[0];
+    final var resourceSession = item.getTrx().getResourceSession();
 
     final RevisionReferencesNode indexNode =
         item.getTrx().getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
 
     if (indexNode != null) {
       final var revision = indexNode.getRevisions()[0];
-      final var resourceManager = item.getTrx().getResourceSession();
-      final var rtx = resourceManager.beginNodeReadOnlyTrx(revision);
+      final var rtx = resourceSession.beginNodeReadOnlyTrx(revision);
       rtx.moveTo(item.getNodeKey());
       return new JsonItemFactory().getSequence(rtx, item.getCollection());
     }
 
-    final var resourceManager = item.getTrx().getResourceSession();
-    for (int revisionNumber = 1; revisionNumber <= resourceManager.getMostRecentRevisionNumber(); revisionNumber++) {
-      final var rtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+    for (int revisionNumber = 1; revisionNumber <= resourceSession.getMostRecentRevisionNumber(); revisionNumber++) {
+      final var rtx = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
       if (rtx.moveTo(item.getNodeKey())) {
         return new JsonItemFactory().getSequence(rtx, item.getCollection());
       } else {

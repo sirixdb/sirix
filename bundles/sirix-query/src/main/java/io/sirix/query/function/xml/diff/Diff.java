@@ -89,7 +89,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
    */
   public final static QNm DIFF = new QNm(XMLFun.XML_NSURI, XMLFun.XML_PREFIX, "diff");
 
-  private final StringBuilder buf;
+  private final StringBuilder buffer;
 
   private final List<DiffTuple> diffs;
 
@@ -106,7 +106,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   public Diff(final QNm name, final Signature signature) {
     super(name, signature, true);
 
-    buf = new StringBuilder();
+    buffer = new StringBuilder();
     diffs = new ArrayList<>();
     pool = Executors.newSingleThreadExecutor();
   }
@@ -117,26 +117,26 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final XmlDBCollection col = (XmlDBCollection) ctx.getNodeStore().lookup(((Str) args[0]).stringValue());
+    final XmlDBCollection collection = (XmlDBCollection) ctx.getNodeStore().lookup(((Str) args[0]).stringValue());
 
-    if (col == null) {
+    if (collection == null) {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final String expResName = ((Str) args[1]).stringValue();
-    final int rev1 = FunUtil.getInt(args, 2, "revision1", -1, null, false);
-    final int rev2 = FunUtil.getInt(args, 3, "revision2", -1, null, false);
-    final XmlDBNode doc = col.getDocument(expResName);
+    final String resourceName = ((Str) args[1]).stringValue();
+    final int revision1 = FunUtil.getInt(args, 2, "revision1", -1, null, false);
+    final int revision2 = FunUtil.getInt(args, 3, "revision2", -1, null, false);
+    final XmlDBNode doc = collection.getDocument(resourceName);
 
     diffs.clear();
-    buf.setLength(0);
+    buffer.setLength(0);
     latch = new CountDownLatch(1);
 
-    try (final XmlResourceSession resMrg = doc.getTrx().getResourceSession()) {
-      pool.submit(() -> DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<>(resMrg,
-                                                                                rev2,
-                                                                                rev1,
-                                                                                resMrg.getResourceConfig().hashType
+    try (final XmlResourceSession resourceSession = doc.getTrx().getResourceSession()) {
+      pool.submit(() -> DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<>(resourceSession,
+                                                                                revision2,
+                                                                                revision1,
+                                                                                resourceSession.getResourceConfig().hashType
                                                                                     == HashType.NONE
                                                                                     ? DiffOptimized.NO
                                                                                     : DiffOptimized.HASHED,
@@ -165,14 +165,14 @@ public final class Diff extends AbstractFunction implements DiffObserver {
                                                .map(DiffTuple::getOldNodeKey)
                                                .collect(Collectors.toSet());
 
-      buf.append("let $doc := ");
-      createDocString(args, rev1);
-      buf.append(System.getProperty("line.separator"));
-      buf.append("return (");
-      buf.append(System.getProperty("line.separator"));
+      buffer.append("let $doc := ");
+      createDocString(args, revision1);
+      buffer.append(System.getProperty("line.separator"));
+      buffer.append("return (");
+      buffer.append(System.getProperty("line.separator"));
 
-      try (final XmlNodeReadOnlyTrx oldRtx = resMrg.beginNodeReadOnlyTrx(rev1);
-           final XmlNodeReadOnlyTrx newRtx = resMrg.beginNodeReadOnlyTrx(rev2)) {
+      try (final XmlNodeReadOnlyTrx oldRtx = resourceSession.beginNodeReadOnlyTrx(revision1);
+           final XmlNodeReadOnlyTrx newRtx = resourceSession.beginNodeReadOnlyTrx(revision2)) {
 
         final Iterator<DiffTuple> iter = diffs.iterator();
         while (iter.hasNext()) {
@@ -214,13 +214,13 @@ public final class Diff extends AbstractFunction implements DiffObserver {
                 continue;
 
               if (newRtx.isAttribute()) {
-                buf.append("  insert node ").append(printNode(newRtx)).append(" into sdb:select-item($doc");
-                buf.append(",");
-                buf.append(newRtx.getParentKey());
-                buf.append(")");
+                buffer.append("  insert node ").append(printNode(newRtx)).append(" into sdb:select-item($doc");
+                buffer.append(",");
+                buffer.append(newRtx.getParentKey());
+                buffer.append(")");
               } else {
-                buf.append("  insert nodes ");
-                buf.append(printSubtreeNode(newRtx));
+                buffer.append("  insert nodes ");
+                buffer.append(printSubtreeNode(newRtx));
 
                 if (oldRtx.isDocumentRoot()) {
                   buildUpdateStatement(newRtx);
@@ -230,38 +230,38 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               }
 
               if (i + 1 < length)
-                buf.append(",");
+                buffer.append(",");
 
-              buf.append(System.getProperty("line.separator"));
+              buffer.append(System.getProperty("line.separator"));
               break;
             case DELETED:
               if ((newRtx.isAttribute() || newRtx.isNameNode()) && nodeKeysOfInserts.contains(newRtx.getParentKey()))
                 continue;
 
-              buf.append("  delete nodes sdb:select-item($doc");
-              buf.append(", ");
-              buf.append(diffTuple.getOldNodeKey());
-              buf.append(")");
+              buffer.append("  delete nodes sdb:select-item($doc");
+              buffer.append(", ");
+              buffer.append(diffTuple.getOldNodeKey());
+              buffer.append(")");
 
               if (i + 1 < length)
-                buf.append(",");
+                buffer.append(",");
 
-              buf.append(System.getProperty("line.separator"));
+              buffer.append(System.getProperty("line.separator"));
               break;
             case REPLACEDNEW:
               if (newRtx.getKind() == NodeKind.ATTRIBUTE && nodeKeysOfInserts.contains(newRtx.getParentKey()))
                 continue;
 
-              buf.append("  replace node sdb:select-item($doc");
-              buf.append(", ");
-              buf.append(diffTuple.getOldNodeKey());
-              buf.append(") with ");
-              buf.append(printSubtreeNode(newRtx));
+              buffer.append("  replace node sdb:select-item($doc");
+              buffer.append(", ");
+              buffer.append(diffTuple.getOldNodeKey());
+              buffer.append(") with ");
+              buffer.append(printSubtreeNode(newRtx));
 
               if (i + 1 < length)
-                buf.append(",");
+                buffer.append(",");
 
-              buf.append(System.getProperty("line.separator"));
+              buffer.append(System.getProperty("line.separator"));
               break;
             case UPDATED:
               if (oldRtx.isText() || oldRtx.isComment()) {
@@ -273,8 +273,8 @@ public final class Diff extends AbstractFunction implements DiffObserver {
                 }
                 if (!Objects.equal(oldRtx.getValue(), newRtx.getValue())) {
                   if (!isNameEqual) {
-                    buf.append(",");
-                    buf.append(System.getProperty("line.separator"));
+                    buffer.append(",");
+                    buffer.append(System.getProperty("line.separator"));
                   }
                   replaceValue(newRtx, diffTuple);
                 }
@@ -283,9 +283,9 @@ public final class Diff extends AbstractFunction implements DiffObserver {
               }
 
               if (i + 1 < length)
-                buf.append(",");
+                buffer.append(",");
 
-              buf.append(System.getProperty("line.separator"));
+              buffer.append(System.getProperty("line.separator"));
               // $CASES-OMITTED$
             default:
               // Do nothing.
@@ -294,52 +294,52 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       }
     }
 
-    buf.append(")");
-    buf.append(System.getProperty("line.separator"));
+    buffer.append(")");
+    buffer.append(System.getProperty("line.separator"));
 
-    return new Str(buf.toString());
+    return new Str(buffer.toString());
   }
 
   private void replaceValue(final XmlNodeReadOnlyTrx newRtx, final DiffTuple diffTuple) {
-    buf.append("  replace value of node sdb:select-item($doc");
-    buf.append(", ");
-    buf.append(diffTuple.getOldNodeKey());
-    buf.append(") with ");
-    buf.append("\"");
-    buf.append(newRtx.getValue());
-    buf.append("\"");
+    buffer.append("  replace value of node sdb:select-item($doc");
+    buffer.append(", ");
+    buffer.append(diffTuple.getOldNodeKey());
+    buffer.append(") with ");
+    buffer.append("\"");
+    buffer.append(newRtx.getValue());
+    buffer.append("\"");
   }
 
   private void renameNode(final XmlNodeReadOnlyTrx newRtx, final DiffTuple diffTuple) {
-    buf.append("  rename node sdb:select-item($doc");
-    buf.append(", ");
-    buf.append(diffTuple.getOldNodeKey());
-    buf.append(") as \"");
-    buf.append(Utils.buildName(newRtx.getName()));
-    buf.append("\"");
+    buffer.append("  rename node sdb:select-item($doc");
+    buffer.append(", ");
+    buffer.append(diffTuple.getOldNodeKey());
+    buffer.append(") as \"");
+    buffer.append(Utils.buildName(newRtx.getName()));
+    buffer.append("\"");
   }
 
   private void buildUpdateStatement(final XmlNodeReadOnlyTrx rtx) {
     if (rtx.hasLeftSibling()) {
-      buf.append(" before sdb:select-item($doc");
+      buffer.append(" before sdb:select-item($doc");
     } else {
       rtx.moveToParent();
-      buf.append(" as first into sdb:select-item($doc");
+      buffer.append(" as first into sdb:select-item($doc");
     }
 
-    buf.append(", ");
-    buf.append(rtx.getNodeKey());
-    buf.append(")");
+    buffer.append(", ");
+    buffer.append(rtx.getNodeKey());
+    buffer.append(")");
   }
 
-  private void createDocString(final Sequence[] args, final int rev1) {
-    buf.append("xml:doc('");
-    buf.append(((Str) args[0]).stringValue());
-    buf.append("','");
-    buf.append(((Str) args[1]).stringValue());
-    buf.append("', ");
-    buf.append(rev1);
-    buf.append(")");
+  private void createDocString(final Sequence[] args, final int revision1) {
+    buffer.append("xml:doc('");
+    buffer.append(((Str) args[0]).stringValue());
+    buffer.append("','");
+    buffer.append(((Str) args[1]).stringValue());
+    buffer.append("', ");
+    buffer.append(revision1);
+    buffer.append(")");
   }
 
   @Override
