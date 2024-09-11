@@ -50,8 +50,8 @@ public final class FindPathIndex extends AbstractFunction {
 
   @Override
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final JsonDBItem doc = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx rtx = doc.getTrx();
+    final JsonDBItem document = (JsonDBItem) args[0];
+    final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
@@ -59,8 +59,8 @@ public final class FindPathIndex extends AbstractFunction {
     }
 
     final Path<QNm> path = Path.parse(((Str) args[1]).stringValue(), PathParser.Type.JSON);
-    final Optional<IndexDef> indexDef = controller.getIndexes().findPathIndex(path);
+    final Optional<IndexDef> pathIndex = controller.getIndexes().findPathIndex(path);
 
-    return indexDef.map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));
+    return pathIndex.map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));
   }
 }

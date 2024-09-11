@@ -46,9 +46,9 @@ public final class GetPath extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+    final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
 
-    final NodeReadOnlyTrx rtx = doc.getTrx();
+    final NodeReadOnlyTrx rtx = document.getTrx();
 
     if (rtx.getResourceSession().getResourceConfig().withPathSummary) {
       try (final PathSummaryReader pathSummaryReader = rtx.getResourceSession()
@@ -99,14 +99,14 @@ public final class GetPath extends AbstractFunction {
     return null;
   }
 
-  private int addArrayPosition(JsonNodeReadOnlyTrx trx) {
-    if (trx.getParentKind() == NodeKind.OBJECT_KEY && trx.isArray()) {
+  private int addArrayPosition(JsonNodeReadOnlyTrx rtx) {
+    if (rtx.getParentKind() == NodeKind.OBJECT_KEY && rtx.isArray()) {
       return -1;
     }
 
     int j = 0;
-    while (trx.hasLeftSibling()) {
-      trx.moveToLeftSibling();
+    while (rtx.hasLeftSibling()) {
+      rtx.moveToLeftSibling();
       j++;
     }
     return j;

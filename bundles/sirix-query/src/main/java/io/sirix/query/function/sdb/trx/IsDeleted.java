@@ -47,9 +47,9 @@ public final class IsDeleted extends AbstractFunction {
     final StructuredDBItem<?> item = ((StructuredDBItem<?>) args[0]);
     final NodeReadOnlyTrx rtx = item.getTrx();
 
-    final var resMgr = rtx.getResourceSession();
-    final var mostRecentRevisionNumber = resMgr.getMostRecentRevisionNumber();
-    final NodeReadOnlyTrx rtxInMostRecentRevision = getTrx(resMgr, mostRecentRevisionNumber);
+    final var resourceSession = rtx.getResourceSession();
+    final var mostRecentRevisionNumber = resourceSession.getMostRecentRevisionNumber();
+    final NodeReadOnlyTrx rtxInMostRecentRevision = getTrx(resourceSession, mostRecentRevisionNumber);
 
     final RevisionReferencesNode node =
         rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
@@ -59,13 +59,13 @@ public final class IsDeleted extends AbstractFunction {
     } else {
       final var revisions = node.getRevisions();
       final var mostRecentRevisionOfItem = revisions[revisions.length - 1];
-      final NodeReadOnlyTrx rtxInMostRecentRevisionOfItem = getTrx(resMgr, mostRecentRevisionOfItem);
+      final NodeReadOnlyTrx rtxInMostRecentRevisionOfItem = getTrx(resourceSession, mostRecentRevisionOfItem);
 
       return rtxInMostRecentRevisionOfItem.moveTo(item.getNodeKey()) ? Bool.FALSE : Bool.TRUE;
     }
   }
 
-  private NodeReadOnlyTrx getTrx(ResourceSession<?, ?> resMgr, int mostRecentRevisionOfItem) {
-    return resMgr.beginNodeReadOnlyTrx(mostRecentRevisionOfItem);
+  private NodeReadOnlyTrx getTrx(ResourceSession<?, ?> resourceSession, int mostRecentRevisionOfItem) {
+    return resourceSession.beginNodeReadOnlyTrx(mostRecentRevisionOfItem);
   }
 }

@@ -52,8 +52,8 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
 
   @Override
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final JsonDBItem doc = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx rtx = doc.getTrx();
+    final JsonDBItem document = (JsonDBItem) args[0];
+    final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
@@ -66,13 +66,13 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
 
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND, "Index no %s for collection %s and document %s not found.",
-                               idx, doc.getCollection().getName(),
-                               doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
+                               idx, document.getCollection().getName(),
+                               document.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     if (indexDef.getType() != IndexType.CAS) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
-          "Index no %s for collection %s and document %s is not a CAS index.", idx, doc.getCollection().getName(),
-          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
+          "Index no %s for collection %s and document %s is not a CAS index.", idx, document.getCollection().getName(),
+          document.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
 
     final Type keyType = indexDef.getContentType();
@@ -87,6 +87,6 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
     final CASFilterRange filter =
         controller.createCASFilterRange(setOfPaths, min, max, incMin, incMax, new JsonPCRCollector(rtx));
 
-    return getSequence(doc, controller.openCASIndex(doc.getTrx().getPageTrx(), indexDef, filter));
+    return getSequence(document, controller.openCASIndex(document.getTrx().getPageTrx(), indexDef, filter));
   }
 }

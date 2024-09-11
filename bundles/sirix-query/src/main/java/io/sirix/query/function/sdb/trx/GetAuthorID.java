@@ -38,9 +38,9 @@ public final class GetAuthorID extends AbstractFunction {
 
   @Override
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+    final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
 
-    final var author = doc.getTrx().getUser();
+    final var author = document.getTrx().getUser();
 
     return author.map(user -> new Str(user.getId().toString())).orElse(null);
   }
