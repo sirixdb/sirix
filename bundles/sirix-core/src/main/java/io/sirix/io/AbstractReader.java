@@ -53,6 +53,7 @@ public abstract class AbstractReader implements Reader {
     wrappedForRead.write(bytes, 0, uncompressedLength);
     final var deserializedPage = pagePersister.deserializePage(resourceConfiguration, wrappedForRead, type);
     wrappedForRead.clear();
+    assert !deserializedPage.isClosed();
     return deserializedPage;
   }
 

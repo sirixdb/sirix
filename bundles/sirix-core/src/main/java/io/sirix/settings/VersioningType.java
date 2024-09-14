@@ -25,6 +25,7 @@ import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageFragmentKeyImpl;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.KeyValuePage;
@@ -53,7 +54,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() == 1 : "Only one version of the page!";
-      return pages.getFirst();
+      return (T) new KeyValueLeafPage((KeyValueLeafPage) pages.getFirst());
     }
 
     @Override
@@ -410,6 +411,9 @@ public enum VersioningType {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
+      for (var page : pages) {
+        assert page.getPinCount() > 0;
+      }
       assert pages.size() <= revToRestore;
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();

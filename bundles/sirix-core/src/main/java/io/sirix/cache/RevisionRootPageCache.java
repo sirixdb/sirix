@@ -29,8 +29,10 @@ package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.page.RevisionRootPage;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
+import java.util.function.BiFunction;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
@@ -63,12 +65,18 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
   }
 
   @Override
+  public RevisionRootPage get(Integer key,
+      BiFunction<? super Integer, ? super RevisionRootPage, ? extends RevisionRootPage> mappingFunction) {
+    return cache.asMap().compute(key, mappingFunction);
+  }
+
+  @Override
   public void putIfAbsent(Integer key, RevisionRootPage value) {
     cache.asMap().putIfAbsent(key, value);
   }
 
   @Override
-  public void put(Integer key, RevisionRootPage value) {
+  public void put(Integer key, @NonNull RevisionRootPage value) {
     cache.put(key, value);
   }
 

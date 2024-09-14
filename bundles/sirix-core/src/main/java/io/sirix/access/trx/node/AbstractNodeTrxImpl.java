@@ -346,7 +346,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * @param trxID     transaction ID
    * @param revNumber revision number
    */
-  private void reInstantiate(final @NonNegative long trxID, final @NonNegative int revNumber) {
+  private void reInstantiate(final @NonNegative int trxID, final @NonNegative int revNumber) {
     // Reset page transaction to new uber page.
     resourceSession.closeNodePageWriteTransaction(getId());
     pageTrx =
@@ -397,7 +397,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     modificationCount = 0L;
 
     // Close current page transaction.
-    final long trxID = getId();
+    final int trxID = getId();
     final int revision = getRevisionNumber();
     final int revNumber = pageTrx.getUberPage().isBootstrap() ? 0 : revision - 1;
 
@@ -445,7 +445,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       resourceSession.assertAccess(revision);
 
       // Close current page transaction.
-      final long trxID = getId();
+      final int trxID = getId();
       final int revNumber = getRevisionNumber();
 
       // Reset internal transaction state to new uber page.
@@ -555,7 +555,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         }
 
         // Release all state immediately.
-        final long trxId = getId();
+        final int trxId = getId();
         nodeReadOnlyTrx.close();
         resourceSession.closeWriteTransaction(trxId);
         removeCommitFile();

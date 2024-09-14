@@ -352,9 +352,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     page.commit(this);
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
 
-    container.getComplete().clearPage();
-    page.clearPage();
-
     // Remove page reference.
     reference.setPage(null);
   }
@@ -565,11 +562,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     PageContainer mostRecentPageContainer1 =
         getMostRecentPageContainer(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
 
-    if (mostRecentPageContainer1 != null) {
+    if (mostRecentPageContainer1 != null && !mostRecentPageContainer1.getModified().isClosed()
+        && !mostRecentPageContainer1.getComplete().isClosed()) {
       return mostRecentPageContainer1;
     }
 
-    final Function<IndexLogKey, PageContainer> fetchPageContainer = (key) -> {
+    final Function<IndexLogKey, PageContainer> fetchPageContainer = _ -> {
       final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
 
       // Get the reference to the unordered key/value page storing the records.
@@ -689,7 +687,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public long getTrxId() {
+  public int getTrxId() {
     return pageRtx.getTrxId();
   }
 
