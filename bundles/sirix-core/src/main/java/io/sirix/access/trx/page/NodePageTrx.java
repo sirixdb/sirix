@@ -354,6 +354,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     // Remove page reference.
     reference.setPage(null);
+    page.clear();
   }
 
   @Override
