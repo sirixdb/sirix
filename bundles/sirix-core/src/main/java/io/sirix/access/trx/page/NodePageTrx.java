@@ -352,9 +352,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     page.commit(this);
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
 
+    container.getComplete().clear();
+    page.clear();
+
     // Remove page reference.
     reference.setPage(null);
-    page.clear();
   }
 
   @Override
