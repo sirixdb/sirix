@@ -743,8 +743,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public Page clear() {
-    //    var e = new Exception();
-    //    e.printStackTrace();
     if (!isClosed) {
       assert
           pinCount.get() == 0 :
