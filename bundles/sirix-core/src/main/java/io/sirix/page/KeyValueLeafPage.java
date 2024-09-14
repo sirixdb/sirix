@@ -18,6 +18,8 @@ import net.openhft.chronicle.bytes.BytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -25,6 +27,7 @@ import java.lang.foreign.ValueLayout;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * <p>
@@ -37,7 +40,11 @@ import java.util.concurrent.ConcurrentHashMap;
 @SuppressWarnings({ "unchecked" })
 public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
+
   private static final int INT_SIZE = Integer.BYTES;
+
+  private final AtomicInteger pinCount = new AtomicInteger();
 
   public final Arena arena = Arena.ofAuto();
 
@@ -126,6 +133,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private int hash;
 
+  private boolean isClosed;
+
   /**
    * Copy constructor.
    *
@@ -139,8 +148,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.records = Arrays.copyOf(pageToClone.records, pageToClone.records.length);
     this.slotMemory = arena.allocate(pageToClone.slotMemory.byteSize());
     MemorySegment.copy(pageToClone.slotMemory, 0, this.slotMemory, 0, pageToClone.slotMemory.byteSize());
-    this.deweyIdMemory = arena.allocate(pageToClone.deweyIdMemory.byteSize());
-    MemorySegment.copy(pageToClone.deweyIdMemory, 0, this.deweyIdMemory, 0, pageToClone.deweyIdMemory.byteSize());
+    if (pageToClone.areDeweyIDsStored) {
+      this.deweyIdMemory = arena.allocate(pageToClone.deweyIdMemory.byteSize());
+      MemorySegment.copy(pageToClone.deweyIdMemory, 0, this.deweyIdMemory, 0, pageToClone.deweyIdMemory.byteSize());
+    } else {
+      this.deweyIdMemory = null;
+    }
     this.indexType = pageToClone.indexType;
     this.recordPersister = pageToClone.recordPersister;
     this.resourceConfig = pageToClone.resourceConfig;
@@ -172,9 +185,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.recordPageKey = recordPageKey;
     this.records = new DataRecord[Constants.NDP_NODE_COUNT];
     this.areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
-    this.slotMemory = arena.allocate(Constants.NDP_NODE_COUNT * Constants.MAX_RECORD_SIZE);
+    this.slotMemory = arena.allocate(65536);
     if (areDeweyIDsStored) {
-      this.deweyIdMemory = arena.allocate(Constants.NDP_NODE_COUNT * Constants.MAX_DEWEYID_SIZE);
+      this.deweyIdMemory = arena.allocate(4096);
     } else {
       this.deweyIdMemory = null;
     }
@@ -239,6 +252,26 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       this.deweyIdMemoryFreeSpaceStart = 0;
       this.lastDeweyIdIndex = -1;
     }
+  }
+
+  @Override
+  public void incrementPinCount() {
+    assert !isClosed;
+    pinCount.incrementAndGet();
+  }
+
+  @Override
+  public void decrementPinCount() {
+    assert !isClosed;
+    var count = pinCount.decrementAndGet();
+    assert
+        count >= 0 :
+        "Pin count must be >= 0, but is " + count + " (page: " + recordPageKey + ", indexType: " + indexType + ")";
+  }
+
+  @Override
+  public int getPinCount() {
+    return pinCount.get();
   }
 
   // Update the last slot index after setting a slot.
@@ -315,11 +348,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public <C extends KeyValuePage<DataRecord>> C copy() {
-    return (C) new KeyValueLeafPage(this);
-  }
-
-  @Override
   public DataRecord[] records() {
     return records;
   }
@@ -350,11 +378,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public void setSlot(byte[] recordData, int slotNumber) {
-    var memorySegment = setData(MemorySegment.ofArray(recordData), slotNumber, slotOffsets, slotMemory);
-
-    if (memorySegment != null) {
-      slotMemory = memorySegment;
-    }
+    setData(MemorySegment.ofArray(recordData), slotNumber, slotOffsets, slotMemory);
   }
 
   // For testing.
@@ -364,11 +388,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public void setSlot(MemorySegment data, int slotNumber) {
-    var memorySegment = setData(data, slotNumber, slotOffsets, slotMemory);
-
-    if (memorySegment != null) {
-      slotMemory = memorySegment;
-    }
+    setData(data, slotNumber, slotOffsets, slotMemory);
   }
 
   private MemorySegment setData(MemorySegment data, int slotNumber, int[] offsets, MemorySegment memory) {
@@ -391,6 +411,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       int newSize = Math.max(((int) memory.byteSize()) * 2, ((int) memory.byteSize()) + requiredSize + sizeDelta);
 
       memory = resizeMemorySegment(memory, newSize, offsets, isSlotMemory);
+
       resized = true;
     }
 
@@ -493,11 +514,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     MemorySegment newMemory = arena.allocate(newSize);
     MemorySegment.copy(oldMemory, 0, newMemory, 0, oldMemory.byteSize());
 
+    if (isSlotMemory) {
+      slotMemory = newMemory;
+    } else {
+      deweyIdMemory = newMemory;
+    }
+
     // Update offsets to reference the new memory segment.
     for (int i = 0; i < offsets.length; i++) {
       if (offsets[i] >= 0) {
         offsets[i] = alignOffset(offsets[i]);
-        updateLastSlotIndex(i, oldMemory == slotMemory);
+        updateLastSlotIndex(i, isSlotMemory);
       }
     }
 
@@ -606,7 +633,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   public boolean isSlotSet(int slotNumber) {
-    return slotOffsets[slotNumber] >= 0;
+    return slotOffsets[slotNumber] != -1;
   }
 
   @Override
@@ -715,8 +742,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public Page clearPage() {
-    return KeyValuePage.super.clearPage();
+  public Page clear() {
+    //    var e = new Exception();
+    //    e.printStackTrace();
+//    if (!isClosed) {
+//      assert
+//          pinCount.get() == 0 :
+//          "Pin count must be 0, but is " + pinCount.get() + " (page: " + recordPageKey + ", indexType: " + indexType
+//              + ")";
+//      isClosed = true;
+//      arena.close();
+//    }
+    return this;
+  }
+
+  @Override
+  public boolean isClosed() {
+    return isClosed;
   }
 
   @Override

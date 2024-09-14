@@ -709,7 +709,7 @@ public final class ResourceConfiguration {
     /**
      * Determines if node history should be stored or not.
      */
-    private boolean storeNodeHistory;
+    private boolean storeNodeHistory = true;
 
     private BinaryEncodingVersion binaryEncodingVersion = BINARY_ENCODING_VERSION;
 

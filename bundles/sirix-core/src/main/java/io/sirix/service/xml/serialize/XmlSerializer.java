@@ -608,15 +608,15 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
     /**
      * Constructor, setting the necessary stuff.
      *
-     * @param resourceMgr Sirix {@link ResourceSession}
+     * @param resourceSession Sirix {@link ResourceSession}
      * @param stream {@link OutputStream} to write to
      * @param revisions revisions to serialize
      */
-    public XmlSerializerBuilder(final XmlResourceSession resourceMgr, final OutputStream stream,
+    public XmlSerializerBuilder(final XmlResourceSession resourceSession, final OutputStream stream,
         final int... revisions) {
       maxLevel = -1;
       nodeKey = 0;
-      this.session = requireNonNull(resourceMgr);
+      this.session = requireNonNull(resourceSession);
       this.stream = requireNonNull(stream);
       if (revisions == null || revisions.length == 0) {
         version = this.session.getMostRecentRevisionNumber();
