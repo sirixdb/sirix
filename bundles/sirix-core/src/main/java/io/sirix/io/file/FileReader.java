@@ -178,7 +178,7 @@ public final class FileReader implements Reader {
 
   @Override
   public Instant readRevisionRootPageCommitTimestamp(int revision) {
-    return cache.get(revision, (unused) -> getRevisionFileData(revision)).timestamp();
+    return cache.get(revision, _ -> getRevisionFileData(revision)).timestamp();
   }
 
   @Override

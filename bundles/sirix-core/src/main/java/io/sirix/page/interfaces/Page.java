@@ -22,9 +22,6 @@ package io.sirix.page.interfaces;
 
 import io.sirix.api.PageTrx;
 import io.sirix.page.PageReference;
-import io.sirix.page.delegates.BitmapReferencesPage;
-import io.sirix.page.delegates.FullReferencesPage;
-import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.settings.Constants;
 import org.checkerframework.checker.index.qual.NonNegative;
 
@@ -39,7 +36,7 @@ import java.util.List;
  */
 public interface Page extends Closeable {
 
-  default Page clearPage() {
+  default Page clear() {
     return this;
   }
 
@@ -107,5 +104,9 @@ public interface Page extends Closeable {
   @Override
   default void close() {
     // Nothing to do.
+  }
+
+  default boolean isClosed() {
+    return false;
   }
 }

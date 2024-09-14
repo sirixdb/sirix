@@ -6,29 +6,33 @@ import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.PolyNull;
 
 import java.util.Map;
-import java.util.function.Function;
+import java.util.concurrent.ConcurrentMap;
+import java.util.function.BiFunction;
 
 public final class RecordPageCache implements Cache<PageReference, KeyValueLeafPage> {
 
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, KeyValueLeafPage> cache;
 
-  public RecordPageCache(final int maxSize) {
+  public RecordPageCache(final int maxWeight) {
     final RemovalListener<PageReference, KeyValueLeafPage> removalListener =
-        (PageReference key, KeyValueLeafPage page, RemovalCause _) -> {
+        (PageReference key, KeyValueLeafPage page, RemovalCause cause) -> {
+          assert cause.wasEvicted();
           assert key != null;
           key.setPage(null);
           assert page != null;
-          page.close();
+          assert page.getPinCount() == 0 : "Page must not be pinned: " + page.getPinCount();
+          page.clear();
         };
 
     cache = Caffeine.newBuilder()
-                    .initialCapacity(maxSize)
-                    .maximumSize(maxSize)
+                    .maximumWeight(maxWeight)
+                    .weigher((PageReference pageRef, KeyValueLeafPage value) -> value.getPinCount() > 0
+                        ? 0
+                        : value.getUsedSlotsSize())
                     .scheduler(scheduler)
-                    .removalListener(removalListener)
+                    .evictionListener(removalListener)
                     .build();
   }
 
@@ -39,18 +43,13 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
 
   @Override
   public KeyValueLeafPage get(PageReference key) {
-    var keyValueLeafPage = cache.getIfPresent(key);
-    //    if (keyValueLeafPage != null) {
-    //      keyValueLeafPage = new KeyValueLeafPage(keyValueLeafPage);
-    //    }
-
-    return keyValueLeafPage;
+    return cache.getIfPresent(key);
   }
 
   @Override
   public KeyValueLeafPage get(PageReference key,
-      Function<? super PageReference, ? extends @PolyNull KeyValueLeafPage> mappingFunction) {
-    return cache.get(key, mappingFunction);
+      BiFunction<? super PageReference, ? super KeyValueLeafPage, ? extends KeyValueLeafPage> mappingFunction) {
+    return cache.asMap().compute(key, mappingFunction);
   }
 
   @Override
@@ -71,6 +70,11 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
   @Override
   public void toSecondCache() {
     throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public ConcurrentMap<PageReference, KeyValueLeafPage> asMap() {
+    return cache.asMap();
   }
 
   @Override
