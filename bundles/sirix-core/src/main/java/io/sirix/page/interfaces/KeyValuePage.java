@@ -40,6 +40,11 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
    */
   MemorySegment deweyIds();
 
+  void incrementPinCount();
+
+  void decrementPinCount();
+
+  int getPinCount();
 
   /**
    * Get the unique page record identifier.
@@ -74,6 +79,8 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
 
   Set<Entry<Long, PageReference>> referenceEntrySet();
 
+  boolean isClosed();
+
   /**
    * Store or overwrite a single reference associated with a key for overlong entries. That is
    * entries which are larger than a predefined threshold are written to OverflowPages and thus are
@@ -104,8 +111,6 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
    */
   <C extends KeyValuePage<V>> C newInstance(@NonNegative long recordPageKey,
       @NonNull IndexType indexType, @NonNull PageReadOnlyTrx pageReadTrx);
-
-  <C extends KeyValuePage<V>> C copy();
 
   /**
    * Get the index type.

@@ -2,10 +2,11 @@ package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.index.name.Names;
-import org.checkerframework.checker.nullness.qual.PolyNull;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
-import java.util.function.Function;
+import java.util.concurrent.ConcurrentMap;
+import java.util.function.BiFunction;
 
 public final class NamesCache implements Cache<NamesCacheKey, Names> {
 
@@ -30,12 +31,12 @@ public final class NamesCache implements Cache<NamesCacheKey, Names> {
   }
 
   @Override
-  public Names get(NamesCacheKey key, Function<? super NamesCacheKey, ? extends @PolyNull Names> mappingFunction) {
-    return cache.get(key, mappingFunction);
+  public Names get(NamesCacheKey key, BiFunction<? super NamesCacheKey, ? super Names, ? extends Names> mappingFunction) {
+    return cache.asMap().compute(key, mappingFunction);
   }
 
   @Override
-  public void put(NamesCacheKey key, Names value) {
+  public void put(NamesCacheKey key, @NonNull Names value) {
     cache.put(key, value);
   }
 
