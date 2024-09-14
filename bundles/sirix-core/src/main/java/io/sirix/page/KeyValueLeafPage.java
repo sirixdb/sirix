@@ -46,7 +46,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private final AtomicInteger pinCount = new AtomicInteger();
 
-  public final Arena arena = Arena.ofAuto();
+  public final Arena arena = Arena.ofShared();
 
   /**
    * The current revision.
@@ -745,14 +745,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public Page clear() {
     //    var e = new Exception();
     //    e.printStackTrace();
-//    if (!isClosed) {
-//      assert
-//          pinCount.get() == 0 :
-//          "Pin count must be 0, but is " + pinCount.get() + " (page: " + recordPageKey + ", indexType: " + indexType
-//              + ")";
-//      isClosed = true;
-//      arena.close();
-//    }
+    if (!isClosed) {
+      assert
+          pinCount.get() == 0 :
+          "Pin count must be 0, but is " + pinCount.get() + " (page: " + recordPageKey + ", indexType: " + indexType
+              + ")";
+      isClosed = true;
+      arena.close();
+    }
     return this;
   }
 
