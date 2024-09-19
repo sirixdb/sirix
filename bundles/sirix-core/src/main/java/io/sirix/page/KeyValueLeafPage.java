@@ -378,7 +378,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public void setSlot(byte[] recordData, int slotNumber) {
-    setData(MemorySegment.ofArray(recordData), slotNumber, slotOffsets, slotMemory);
+    setData(recordData, slotNumber, slotOffsets, slotMemory);
   }
 
   // For testing.
@@ -391,12 +391,29 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     setData(data, slotNumber, slotOffsets, slotMemory);
   }
 
-  private MemorySegment setData(MemorySegment data, int slotNumber, int[] offsets, MemorySegment memory) {
-    if (data == null || data.byteSize() == 0) {
+  private MemorySegment setData(Object data, int slotNumber, int[] offsets, MemorySegment memory) {
+    if (data == null) {
       return null;
     }
 
-    var dataSize = (int) data.byteSize();
+    int dataSize;
+
+    if (data instanceof MemorySegment) {
+      dataSize = (int) ((MemorySegment) data).byteSize();
+
+      if (dataSize == 0) {
+        return null;
+      }
+    } else if (data instanceof byte[]) {
+      dataSize = ((byte[]) data).length;
+
+      if (dataSize == 0) {
+        return null;
+      }
+    } else {
+      throw new IllegalArgumentException("Data must be either a MemorySegment or a byte array.");
+    }
+
     int requiredSize = INT_SIZE + dataSize;
     int currentOffset = offsets[slotNumber];
 
@@ -423,7 +440,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       if (currentSize == requiredSize) {
         // If the size is the same, update it directly.
         memory.set(ValueLayout.JAVA_INT, alignedOffset, dataSize);
-        memory.asSlice(alignedOffset + INT_SIZE, dataSize).copyFrom(data);
+        if (data instanceof MemorySegment) {
+          MemorySegment.copy((MemorySegment) data, 0, memory, alignedOffset + INT_SIZE, dataSize);
+        } else {
+          MemorySegment.copy(data, 0, memory, ValueLayout.JAVA_BYTE, alignedOffset + INT_SIZE, dataSize);
+        }
 
         return null; // No resizing needed
       } else {
@@ -433,7 +454,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     } else {
       // If the slot is empty, determine where to place the new data.
       currentOffset = findFreeSpaceForSlots(requiredSize, isSlotMemory);
-      //currentOffset = findFreeSpace(offsets, memory, requiredSize, (int) memory.byteSize());
       offsets[slotNumber] = alignOffset(currentOffset);
       updateLastSlotIndex(slotNumber, isSlotMemory);
     }
@@ -446,7 +466,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Write the new data into the slot.
     int alignedOffset = alignOffset(currentOffset);
     memory.set(ValueLayout.JAVA_INT, alignedOffset, dataSize);
-    memory.asSlice(alignedOffset + INT_SIZE, dataSize).copyFrom(data);
+
+    if (data instanceof MemorySegment) {
+      MemorySegment.copy((MemorySegment) data, 0, memory, alignedOffset + INT_SIZE, dataSize);
+    } else {
+      MemorySegment.copy(data, 0, memory, ValueLayout.JAVA_BYTE, alignedOffset + INT_SIZE, dataSize);
+    }
 
     // Update slotMemoryFreeSpaceStart after adding the slot.
     updateFreeSpaceStart(offsets, memory, isSlotMemory);
@@ -734,7 +759,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     int count = 0;
     for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
       final DataRecord record = entries[i];
-      if (record != null || getSlot(i) != null) {
+      if (record != null || isSlotSet(i)) {
         count++;
       }
     }
