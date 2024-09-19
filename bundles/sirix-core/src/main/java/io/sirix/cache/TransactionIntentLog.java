@@ -78,6 +78,10 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public void clear() {
     logKey = 0;
+    for (final PageContainer pageContainer : list) {
+      pageContainer.getComplete().clear();
+      pageContainer.getModified().clear();
+    }
     list.clear();
   }
 

@@ -119,7 +119,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   private void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
-    bufferManagers.put(resourceFile, new BufferManagerImpl(1_000_000, 65_536 * 1_0000, 5_000, 50_000, 500, 20));
+    bufferManagers.put(resourceFile, new BufferManagerImpl(500_000, 65_536 * 100, 5_000, 50_000, 500, 20));
   }
 
   @Override
