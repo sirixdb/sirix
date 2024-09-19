@@ -180,6 +180,7 @@ public enum PageKind {
 
       if (bytes != null) {
         sink.write(bytes.bytesForWrite());
+        bytes.clear();
         return;
       }
 
