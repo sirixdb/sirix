@@ -70,8 +70,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                             PageReference pageReference, KeyValueLeafPage page) {
   }
 
-  private final PageReference pageReferenceForUnpinning = new PageReference();
-
   /**
    * Page reader exclusively assigned to this transaction.
    */
@@ -527,9 +525,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         if (trxIntentLog == null) {
           if (resourceBufferManager.getRecordPageCache().get(pathSummaryRecordPage.pageReference) != null) {
             assert !pathSummaryRecordPage.page.isClosed();
-            pathSummaryRecordPage.page.decrementPinCount();
-            resourceBufferManager.getRecordPageCache()
-                                 .put(pathSummaryRecordPage.pageReference, pathSummaryRecordPage.page);
+            resourceBufferManager.getRecordPageCache().get(pathSummaryRecordPage.pageReference, (_, _) -> {
+              var kvPage = pathSummaryRecordPage.page;
+              kvPage.decrementPinCount();
+              return kvPage;
+            });
+//            pathSummaryRecordPage.page.decrementPinCount();
+//            resourceBufferManager.getRecordPageCache()
+//                                 .put(pathSummaryRecordPage.pageReference, pathSummaryRecordPage.page);
           }
         } else {
           pathSummaryRecordPage.pageReference.setPage(null);
@@ -549,10 +552,15 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (secondMostRecentlyReadRecordPage != null
           && resourceBufferManager.getRecordPageCache().get(secondMostRecentlyReadRecordPage.pageReference) != null) {
         assert !secondMostRecentlyReadRecordPage.page.isClosed();
-        secondMostRecentlyReadRecordPage.page.decrementPinCount();
-        resourceBufferManager.getRecordPageCache()
-                             .put(secondMostRecentlyReadRecordPage.pageReference,
-                                  secondMostRecentlyReadRecordPage.page);
+        resourceBufferManager.getRecordPageCache().get(secondMostRecentlyReadRecordPage.pageReference, (_, _) -> {
+          var kvPage = secondMostRecentlyReadRecordPage.page;
+          kvPage.decrementPinCount();
+          return kvPage;
+        });
+//        secondMostRecentlyReadRecordPage.page.decrementPinCount();
+//        resourceBufferManager.getRecordPageCache()
+//                             .put(secondMostRecentlyReadRecordPage.pageReference,
+//                                  secondMostRecentlyReadRecordPage.page);
       }
       assert mostRecentlyReadRecordPage == null || !mostRecentlyReadRecordPage.page.isClosed();
       secondMostRecentlyReadRecordPage = mostRecentlyReadRecordPage;
@@ -603,14 +611,17 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
 
     var mostRecentPageFragment = pages.getFirst();
-    resourceBufferManager.getPageCache().put(pageReference, mostRecentPageFragment);
+    resourceBufferManager.getPageCache().get(pageReference, (_, _) -> {
+      mostRecentPageFragment.decrementPinCount();
+      return mostRecentPageFragment;
+    });
 
     var pageFragments = pageReference.getPageFragments();
     for (int i = 1; i < pages.size(); i++) {
       var pageFragment = pages.get(i);
       pageFragment.decrementPinCount();
       var pageFragmentKey = pageFragments.get(i - 1);
-      resourceBufferManager.getPageCache().put(new PageReference().setKey(pageFragmentKey.key()), pageFragment);
+      resourceBufferManager.getPageCache().get(new PageReference().setKey(pageFragmentKey.key()), (_, _) -> pageFragment);
     }
   }
 
@@ -621,9 +632,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     if (page != null) {
       if (trxIntentLog == null || indexLogKey.getIndexType() != IndexType.PATH_SUMMARY) {
-        var kvLeafPage = ((KeyValueLeafPage) page);
-        kvLeafPage.incrementPinCount();
-        resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, kvLeafPage);
+        resourceBufferManager.getPageCache().get(pageReferenceToRecordPage, (_, _) -> {
+          var kvLeafPage = ((KeyValueLeafPage) page);
+          kvLeafPage.incrementPinCount();
+          return kvLeafPage;
+        });
       }
       setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, (KeyValueLeafPage) page);
       return page;
