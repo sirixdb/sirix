@@ -28,17 +28,23 @@ public final class PageCache implements Cache<PageReference, Page> {
       page.clear();
     };
 
-    cache = Caffeine.newBuilder().maximumWeight(maxWeight).weigher((PageReference _, Page value) -> {
-      if (value instanceof KeyValueLeafPage keyValueLeafPage) {
-        if (keyValueLeafPage.getPinCount() > 0) {
-          return 0;
-        } else {
-          return keyValueLeafPage.getUsedSlotsSize();
-        }
-      } else {
-        return 1000;
-      }
-    }).scheduler(Scheduler.systemScheduler()).evictionListener(removalListener).executor(Runnable::run).build();
+    cache = Caffeine.newBuilder()
+                    .maximumWeight(maxWeight)
+                    .weigher((PageReference _, Page value) -> {
+                      if (value instanceof KeyValueLeafPage keyValueLeafPage) {
+                        if (keyValueLeafPage.getPinCount() > 0) {
+                          return 0;
+                        } else {
+                          return keyValueLeafPage.getUsedSlotsSize();
+                        }
+                      } else {
+                        return 1000;
+                      }
+                    })
+                    .scheduler(Scheduler.systemScheduler())
+                    .evictionListener(removalListener)
+                    .executor(Runnable::run)
+                    .build();
   }
 
   @Override
