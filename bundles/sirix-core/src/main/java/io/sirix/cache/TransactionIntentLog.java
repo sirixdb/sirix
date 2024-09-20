@@ -1,5 +1,6 @@
 package io.sirix.cache;
 
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 
@@ -64,6 +65,11 @@ public final class TransactionIntentLog implements AutoCloseable {
   public void put(final PageReference key, final PageContainer value) {
     bufferManager.getRecordPageCache().remove(key);
     bufferManager.getPageCache().remove(key);
+
+    if (value.getComplete() instanceof KeyValueLeafPage) {
+      assert value.getCompleteAsUnorderedKeyValuePage().getPinCount() == 0;
+      assert value.getModifiedAsUnorderedKeyValuePage().getPinCount() == 0;
+    }
 
     key.setKey(Constants.NULL_ID_LONG);
     key.setPage(null);
