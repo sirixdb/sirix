@@ -28,7 +28,7 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
 
     cache = Caffeine.newBuilder()
                     .maximumWeight(maxWeight)
-                    .weigher((PageReference pageRef, KeyValueLeafPage value) -> value.getPinCount() > 0
+                    .weigher((PageReference _, KeyValueLeafPage value) -> value.getPinCount() > 0
                         ? 0
                         : value.getUsedSlotsSize())
                     .scheduler(scheduler)

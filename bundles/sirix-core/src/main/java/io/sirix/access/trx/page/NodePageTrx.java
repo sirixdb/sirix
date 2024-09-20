@@ -175,7 +175,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer = mostRecentPageContainer;
     mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
-    pageContainerCache = new LinkedHashMap<>(2_500) {
+    pageContainerCache = new LinkedHashMap<>(2_500, 0.75f, true) {
       @Override
       protected boolean removeEldestEntry(Map.Entry<IndexLogKey, PageContainer> eldest) {
         return size() > 2_500;
@@ -392,7 +392,15 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final int revision = uberPage.getRevisionNumber();
       serializeIndexDefinitions(revision);
 
+      log.getList().forEach(pageContainer -> {
+        pageContainer.getComplete().clear();
+        pageContainer.getModified().clear();
+      });
       log.clear();
+      pageContainerCache.values().forEach(pageContainer -> {
+        pageContainer.getComplete().clear();
+        pageContainer.getModified().clear();
+      });
       pageContainerCache.clear();
 
       // Delete commit file which denotes that a commit must write the log in the data file.
@@ -478,7 +486,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public synchronized void close() {
+  public void close() {
     if (!isClosed) {
       pageRtx.assertNotClosed();
 
