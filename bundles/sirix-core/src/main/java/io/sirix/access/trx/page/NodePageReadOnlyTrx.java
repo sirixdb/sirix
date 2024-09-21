@@ -186,11 +186,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
     }
 
-    if (trxIntentLog == null) {
+    //if (trxIntentLog == null) {
       assert reference.getLogKey() == Constants.NULL_ID_INT;
-      page = resourceBufferManager.getPageCache().get(reference, (pageReference, _) -> {
+      page = resourceBufferManager.getPageCache().get(reference, (_, _) -> {
         try {
-          return pageReader.read(pageReference, resourceSession.getResourceConfig());
+          return pageReader.read(reference, resourceSession.getResourceConfig());
         } catch (final SirixIOException e) {
           throw new IllegalStateException(e);
         }
@@ -199,17 +199,17 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         reference.setPage(page);
       }
       return page;
-    }
+    //}
 
-    if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
-      page = pageReader.read(reference, resourceSession.getResourceConfig());
-    }
-
-    if (page != null) {
-      putIntoPageCache(reference, page);
-      reference.setPage(page);
-    }
-    return page;
+//    if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
+//      page = pageReader.read(reference, resourceSession.getResourceConfig());
+//    }
+//
+//    if (page != null) {
+//      putIntoPageCache(reference, page);
+//      reference.setPage(page);
+//    }
+//    return page;
   }
 
   private void putIntoPageCache(PageReference reference, Page page) {
