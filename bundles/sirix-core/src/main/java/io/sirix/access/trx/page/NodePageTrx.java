@@ -175,10 +175,10 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer = mostRecentPageContainer;
     mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
-    pageContainerCache = new LinkedHashMap<>(2_500, 0.75f, true) {
+    pageContainerCache = new LinkedHashMap<>(100, 0.75f, true) {
       @Override
       protected boolean removeEldestEntry(Map.Entry<IndexLogKey, PageContainer> eldest) {
-        return size() > 2_500;
+        return size() > 100;
       }
     };
   }
@@ -490,6 +490,21 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     if (!isClosed) {
       pageRtx.assertNotClosed();
 
+      if (mostRecentPageContainer.pageContainer != null) {
+        mostRecentPageContainer.pageContainer.getComplete().clear();
+        mostRecentPageContainer.pageContainer.getModified().clear();
+      }
+
+      if (secondMostRecentPageContainer.pageContainer != null) {
+        secondMostRecentPageContainer.pageContainer.getComplete().clear();
+        secondMostRecentPageContainer.pageContainer.getModified().clear();
+      }
+
+      if (mostRecentPathSummaryPageContainer.pageContainer != null) {
+        mostRecentPathSummaryPageContainer.pageContainer.getComplete().clear();
+        mostRecentPathSummaryPageContainer.pageContainer.getModified().clear();
+      }
+
       final UberPage lastUberPage = readUberPage();
 
       pageRtx.resourceSession.setLastCommittedUberPage(lastUberPage);
@@ -522,7 +537,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     return pageContainerCache.computeIfAbsent(new IndexLogKey(indexType,
                                                               recordPageKey,
                                                               indexNumber,
-                                                              newRevisionRootPage.getRevision()), (unused) -> {
+                                                              newRevisionRootPage.getRevision()), _ -> {
       final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
       final var leafPageReference =
           pageRtx.getLeafPageReference(pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);
