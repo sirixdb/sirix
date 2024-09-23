@@ -1,6 +1,7 @@
 package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
@@ -28,32 +29,21 @@ public abstract class AbstractReader implements Reader {
    */
   protected final PagePersister pagePersister;
 
-  private final byte[] bytes = new byte[130_000];
-
   public AbstractReader(ByteHandler byteHandler, PagePersister pagePersister, SerializationType type) {
     this.byteHandler = byteHandler;
     this.pagePersister = pagePersister;
     this.type = type;
   }
 
-  public Page deserialize(ResourceConfiguration resourceConfiguration, byte[] page, int uncompressedLength)
-      throws IOException {
+  public Page deserialize(ResourceConfiguration resourceConfiguration, byte[] page) throws IOException {
     // perform byte operations
+    byte[] bytes;
     try (final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page))) {
-      int bytesRead = 0;
-      while (bytesRead < uncompressedLength) {
-        int read = inputStream.read(bytes, bytesRead, uncompressedLength - bytesRead);
-        if (read == -1) {
-          throw new IOException("Unexpected end of stream while reading decompressed data.");
-        }
-        bytesRead += read;
-      }
-      assert bytesRead == uncompressedLength : "Read bytes mismatch: expected " + uncompressedLength + " but got " + bytesRead;
+      bytes = inputStream.readAllBytes();
     }
-    wrappedForRead.write(bytes, 0, uncompressedLength);
+    wrappedForRead.write(bytes);
     final var deserializedPage = pagePersister.deserializePage(resourceConfiguration, wrappedForRead, type);
     wrappedForRead.clear();
-    assert !deserializedPage.isClosed();
     return deserializedPage;
   }
 

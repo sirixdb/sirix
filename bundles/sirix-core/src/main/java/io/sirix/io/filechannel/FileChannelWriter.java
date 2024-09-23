@@ -156,14 +156,11 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
 
       final byte[] serializedPage;
-      final int uncompressedLength;
 
       final var byteArray = byteBufferBytes.toByteArray();
       if (page instanceof KeyValueLeafPage) {
-        uncompressedLength = Writer.bytesToIntLittleEndian(byteArray[0], byteArray[1], byteArray[2], byteArray[3]);
-        serializedPage = Arrays.copyOfRange(byteArray, 4, byteArray.length);;
+        serializedPage = byteArray;
       } else {
-        uncompressedLength = byteArray.length;
         try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
           try (final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
             dataOutput.write(byteArray);
@@ -196,7 +193,6 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         bufferedBytes.writePosition(bufferedBytes.writePosition() + offsetToAdd);
       }
 
-      bufferedBytes.writeInt(uncompressedLength);
       bufferedBytes.writeInt(serializedPage.length);
       bufferedBytes.write(serializedPage);
 

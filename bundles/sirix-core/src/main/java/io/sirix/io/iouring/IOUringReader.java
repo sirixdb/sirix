@@ -26,19 +26,20 @@ import com.google.common.hash.HashFunction;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixIOException;
-import io.sirix.io.AbstractReader;
-import io.sirix.io.IOStorage;
-import io.sirix.io.Reader;
-import io.sirix.io.RevisionFileData;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
-import io.sirix.page.interfaces.Page;
 import one.jasyncfio.AsyncFile;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+
+import io.sirix.io.AbstractReader;
+import io.sirix.io.IOStorage;
+import io.sirix.io.Reader;
+import io.sirix.io.RevisionFileData;
+import io.sirix.page.interfaces.Page;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -113,22 +114,19 @@ public final class IOUringReader extends AbstractReader {
 
       final long position = reference.getKey();
       dataFile.read(buffer, position).join();
-      buffer.flip();
-      final int uncompressedDataLength = buffer.getInt();
 
-      dataFile.read(buffer, position + 4).join();
       buffer.flip();
       final int dataLength = buffer.getInt();
 
       buffer = ByteBuffer.allocateDirect(dataLength).order(ByteOrder.nativeOrder());
 
-      dataFile.read(buffer, position + Integer.BYTES + Integer.BYTES).join();
+      dataFile.read(buffer, position + Integer.BYTES).join();
       buffer.flip();
       final byte[] page = new byte[dataLength];
       buffer.get(page);
 
       // Perform byte operations.
-      return deserialize(resourceConfiguration, page, uncompressedDataLength);
+      return deserialize(resourceConfiguration, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -137,25 +135,21 @@ public final class IOUringReader extends AbstractReader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     try {
-      final var dataFileOffset = cache.get(revision, _ -> getRevisionFileData(revision)).offset();
+      final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
       ByteBuffer buffer = ByteBuffer.allocateDirect(Integer.BYTES).order(ByteOrder.nativeOrder());
       dataFile.read(buffer, dataFileOffset).join();
       buffer.flip();
-      final int uncompressedDataLength = buffer.getInt();
-
-      dataFile.read(buffer, dataFileOffset + Integer.BYTES).join();
-      buffer.flip();
       final int dataLength = buffer.getInt();
 
       buffer = ByteBuffer.allocateDirect(dataLength).order(ByteOrder.nativeOrder());
-      dataFile.read(buffer, dataFileOffset + Integer.BYTES + Integer.BYTES).join();
+      dataFile.read(buffer, dataFileOffset + Integer.BYTES).join();
       buffer.flip();
       final byte[] page = new byte[dataLength];
       buffer.get(page);
 
       // Perform byte operations.
-      return (RevisionRootPage) deserialize(resourceConfiguration, page, uncompressedDataLength);
+      return (RevisionRootPage) deserialize(resourceConfiguration, page);
     } catch (IOException e) {
       throw new SirixIOException(e);
     }
@@ -163,7 +157,7 @@ public final class IOUringReader extends AbstractReader {
 
   @Override
   public Instant readRevisionRootPageCommitTimestamp(int revision) {
-    return cache.get(revision, _ -> getRevisionFileData(revision)).timestamp();
+    return cache.get(revision, (unused) -> getRevisionFileData(revision)).timestamp();
   }
 
   @Override
