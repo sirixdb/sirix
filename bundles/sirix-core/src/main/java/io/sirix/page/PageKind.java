@@ -180,8 +180,6 @@ public enum PageKind {
 
       if (bytes != null) {
         sink.write(bytes.bytesForWrite());
-        keyValueLeafPage.clear();
-        bytes.clear();
         return;
       }
 
@@ -298,11 +296,7 @@ public enum PageKind {
         throw new UncheckedIOException(e);
       }
 
-      VanillaBytes<Void> bytesToSet = Bytes.allocateDirect(Integer.BYTES + serializedPage.length);
-      bytesToSet.writeInt(uncompressedLength);
-      bytesToSet.write(serializedPage);
-
-      keyValueLeafPage.setBytes(bytesToSet);
+      keyValueLeafPage.setBytes(Bytes.wrapForRead(serializedPage));
     }
   },
 
