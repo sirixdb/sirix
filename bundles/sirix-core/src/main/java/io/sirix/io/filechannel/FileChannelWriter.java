@@ -38,7 +38,6 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -105,15 +104,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           cache.get(revision, _ -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
 
       // Read page from file.
-      final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON * 2).order(ByteOrder.nativeOrder());
+      final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
 
       dataFileChannel.read(buffer, dataFileRevisionRootPageOffset);
 
       buffer.position(0);
-      buffer.getInt();
       final int dataLength = buffer.getInt();
 
-      dataFileChannel.truncate(dataFileRevisionRootPageOffset + IOStorage.OTHER_BEACON * 2 + dataLength);
+      dataFileChannel.truncate(dataFileRevisionRootPageOffset + IOStorage.OTHER_BEACON + dataLength);
     } catch (InterruptedException | ExecutionException | TimeoutException | IOException e) {
       throw new IllegalStateException(e);
     }
@@ -154,10 +152,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     try {
       // Serialize page.
       pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
+      final var byteArray = byteBufferBytes.toByteArray();
 
       final byte[] serializedPage;
 
-      final var byteArray = byteBufferBytes.toByteArray();
       if (page instanceof KeyValueLeafPage) {
         serializedPage = byteArray;
       } else {

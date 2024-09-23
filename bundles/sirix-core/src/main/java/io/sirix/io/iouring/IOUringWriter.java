@@ -174,16 +174,15 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
       // Serialize page.
       pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
 
-      final byte[] serializedPage;
-      final int uncompressedLength;
+      // Serialize page.
+      pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
 
+      final byte[] serializedPage;
+
+      final var byteArray = byteBufferBytes.toByteArray();
       if (page instanceof KeyValueLeafPage) {
-        final var byteArray = byteBufferBytes.toByteArray();
-        uncompressedLength = Writer.bytesToIntLittleEndian(byteArray[0], byteArray[1], byteArray[2], byteArray[3]);
-        serializedPage = Arrays.copyOfRange(byteArray, 4, byteArray.length);;
+        serializedPage = byteArray;
       } else {
-        final var byteArray = byteBufferBytes.toByteArray();
-        uncompressedLength = byteArray.length;
         try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
           try (final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
             dataOutput.write(byteArray);
@@ -220,7 +219,6 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
       //        pageBuffer.put(buffer);
       //      }
 
-      pageBuffer.putInt(uncompressedLength);
       pageBuffer.putInt(serializedPage.length);
       pageBuffer.put(serializedPage);
 
