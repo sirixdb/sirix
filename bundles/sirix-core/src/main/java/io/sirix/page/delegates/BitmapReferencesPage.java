@@ -221,7 +221,7 @@ public final class BitmapReferencesPage implements Page {
   }
 
   @Override
-  public Page clearPage() {
+  public Page clear() {
     references.clear();
     bitmap.clear();
     return this;

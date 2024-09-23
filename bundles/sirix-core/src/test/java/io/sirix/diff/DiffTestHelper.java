@@ -55,7 +55,7 @@ public final class DiffTestHelper {
   }
 
   static void setUpFirst(final Holder holder) {
-    XmlDocumentCreator.createVersioned(holder.getXdmNodeWriteTrx());
+    XmlDocumentCreator.createVersioned(holder.getXmlNodeTrx());
   }
 
   static void setUpSecond(final Holder holder)
@@ -68,9 +68,9 @@ public final class DiffTestHelper {
   static void setUpThird(final Holder holder) throws IOException {
     try (final FileInputStream fis =
         new FileInputStream(RESOURCES.resolve("revXMLsDelete1").resolve("1.xml").toFile())) {
-      new XmlShredder.Builder(holder.getXdmNodeWriteTrx(), XmlShredder.createFileReader(fis),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
-      final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx();
+      new XmlShredder.Builder(holder.getXmlNodeTrx(), XmlShredder.createFileReader(fis),
+                              InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
+      final XmlNodeTrx wtx = holder.getXmlNodeTrx();
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.moveToFirstChild();
@@ -107,10 +107,10 @@ public final class DiffTestHelper {
 
   static void setUpSeventh(final Holder holder)
       {
-    final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx();
+    final XmlNodeTrx wtx = holder.getXmlNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx(1);
     rtx.moveTo(1);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -120,10 +120,10 @@ public final class DiffTestHelper {
 
   static void setUpEighth(final Holder holder)
       {
-    final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx();
+    final XmlNodeTrx wtx = holder.getXmlNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx(1);
     rtx.moveTo(11);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -138,11 +138,11 @@ public final class DiffTestHelper {
     for (final Path file : files) {
       try (final FileInputStream fis = new FileInputStream(file.toFile())) {
         if (i == 0) {
-          final XmlShredder init = new XmlShredder.Builder(holder.getXdmNodeWriteTrx(),
+          final XmlShredder init = new XmlShredder.Builder(holder.getXmlNodeTrx(),
               XmlShredder.createFileReader(fis), InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
           init.call();
         } else {
-          final XMLUpdateShredder init = new XMLUpdateShredder(holder.getXdmNodeWriteTrx(),
+          final XMLUpdateShredder init = new XMLUpdateShredder(holder.getXmlNodeTrx(),
               XmlShredder.createFileReader(fis), InsertPosition.AS_FIRST_CHILD, file, ShredderCommit.COMMIT);
           init.call();
         }
@@ -333,14 +333,14 @@ public final class DiffTestHelper {
   static void checkFullDiff(final Holder holder, final DiffObserver observer,
       final DiffOptimized optimized) {
     DiffFactory.invokeFullXmlDiff(
-        new DiffFactory.Builder<>(holder.getResourceManager(), 2, 1, optimized,
-            ImmutableSet.of(observer)));
+        new DiffFactory.Builder<>(holder.getResourceSession(), 2, 1, optimized,
+                                  ImmutableSet.of(observer)));
   }
 
   static void checkStructuralDiff(final Holder holder, final DiffObserver observer,
       final DiffOptimized optimized) {
     DiffFactory.invokeStructuralXmlDiff(
-        new DiffFactory.Builder<>(holder.getResourceManager(), 2, 1, optimized,
-            ImmutableSet.of(observer)));
+        new DiffFactory.Builder<>(holder.getResourceSession(), 2, 1, optimized,
+                                  ImmutableSet.of(observer)));
   }
 }

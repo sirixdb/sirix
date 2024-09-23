@@ -53,13 +53,6 @@ public final class OverflowPage implements Page {
     throw new UnsupportedOperationException();
   }
 
-//  @Override
-//  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
-//      final SerializationType type) {
-//    out.writeInt(data.length);
-//    out.write(data);
-//  }
-
   public byte[] getData() {
     return data;
   }

@@ -55,7 +55,7 @@ public final class NodePageTest {
   /**
    * {@link Holder} instance.
    */
-  private Holder mHolder;
+  private Holder holder;
 
   /**
    * Sirix {@link PageReadOnlyTrx} instance.
@@ -67,14 +67,14 @@ public final class NodePageTest {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceSession();
+    pageReadTrx = holder.getResourceSession().beginPageReadOnlyTrx();
   }
 
   @After
   public void tearDown() throws SirixException {
     pageReadTrx.close();
-    mHolder.close();
+    holder.close();
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
   }

@@ -23,7 +23,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   /**
    * Sirix {@link ResourceSession}.
    */
-  protected final ResourceSession<R, W> resMgr;
+  protected final ResourceSession<R, W> session;
 
   /**
    * Stack for reading end element.
@@ -60,7 +60,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
     stack = new LongArrayList();
     this.revisions = revisions == null ? new int[1] : new int[revisions.length + 1];
     initialize(revision, revisions);
-    this.resMgr = requireNonNull(resMgr);
+    this.session = requireNonNull(resMgr);
     startNodeKey = 0;
   }
 
@@ -78,7 +78,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
     stack = new LongArrayList();
     this.revisions = revisions == null ? new int[1] : new int[revisions.length + 1];
     initialize(revision, revisions);
-    this.resMgr = requireNonNull(resMgr);
+    this.session = requireNonNull(resMgr);
     startNodeKey = key;
   }
 
@@ -106,10 +106,10 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
     emitStartDocument();
 
     final int nrOfRevisions = revisions.length;
-    final int length = (nrOfRevisions == 1 && revisions[0] < 0) ? resMgr.getMostRecentRevisionNumber() : nrOfRevisions;
+    final int length = (nrOfRevisions == 1 && revisions[0] < 0) ? session.getMostRecentRevisionNumber() : nrOfRevisions;
 
     for (int i = 1; i <= length; i++) {
-      try (final R rtx = resMgr.beginNodeReadOnlyTrx((nrOfRevisions == 1 && revisions[0] < 0) ? i : revisions[i - 1])) {
+      try (final R rtx = session.beginNodeReadOnlyTrx((nrOfRevisions == 1 && revisions[0] < 0) ? i : revisions[i - 1])) {
         emitRevisionStartNode(rtx);
 
         rtx.moveTo(startNodeKey);

@@ -1,28 +1,21 @@
 package io.sirix.access.node.json;
 
+import io.sirix.JsonTestHelper;
+import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.json.JsonNodeTrx;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Assertions;
-import io.sirix.JsonTestHelper;
-import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
+import org.junit.jupiter.api.*;
 
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 public final class JsonNodeTrxInsertTest {
   @BeforeEach

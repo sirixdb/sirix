@@ -64,8 +64,8 @@ public class PINodeTest {
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    mHolder = Holder.generateDeweyIDResourceSession();
+    pageReadTrx = mHolder.getResourceSession().beginPageReadOnlyTrx();
   }
 
   @After

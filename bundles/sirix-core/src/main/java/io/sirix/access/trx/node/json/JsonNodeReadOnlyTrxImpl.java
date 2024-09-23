@@ -53,7 +53,7 @@ public final class JsonNodeReadOnlyTrxImpl
    * @param documentNode        the document node
    */
   JsonNodeReadOnlyTrxImpl(final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-      final @NonNegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableJsonNode documentNode) {
+      final @NonNegative int trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableJsonNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
   }
 
