@@ -31,7 +31,7 @@ public final class LastAxisTest {
   @Before
   public void setUp() {
     XmlTestHelper.deleteEverything();
-    try (final XmlNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
+    try (final XmlNodeTrx wtx = Holder.generateWtx().getXmlNodeTrx()) {
       XmlDocumentCreator.createVersioned(wtx);
     }
     holder = Holder.generateRtx();
@@ -45,7 +45,7 @@ public final class LastAxisTest {
 
   @Test
   public void testAxis() {
-    final XmlNodeReadOnlyTrx firstRtx = holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    final XmlNodeReadOnlyTrx firstRtx = holder.getResourceSession().beginNodeReadOnlyTrx(1);
     final XmlNodeReadOnlyTrx thirdRtx = holder.getXmlNodeReadTrx();
 
     new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(thirdRtx), null) {

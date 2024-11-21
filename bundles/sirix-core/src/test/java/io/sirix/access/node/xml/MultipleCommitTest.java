@@ -56,69 +56,69 @@ public class MultipleCommitTest {
 
   @Test
   public void test() throws SirixException {
-    assertEquals(1L, holder.getXdmNodeWriteTrx().getRevisionNumber());
-    holder.getXdmNodeWriteTrx().commit();
+    assertEquals(1L, holder.getXmlNodeTrx().getRevisionNumber());
+    holder.getXmlNodeTrx().commit();
 
-    holder.getXdmNodeWriteTrx().insertElementAsFirstChild(new QNm("foo"));
-    assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
-    holder.getXdmNodeWriteTrx().moveTo(1);
-    assertEquals(new QNm("foo"), holder.getXdmNodeWriteTrx().getName());
-    holder.getXdmNodeWriteTrx().rollback();
+    holder.getXmlNodeTrx().insertElementAsFirstChild(new QNm("foo"));
+    assertEquals(2L, holder.getXmlNodeTrx().getRevisionNumber());
+    holder.getXmlNodeTrx().moveTo(1);
+    assertEquals(new QNm("foo"), holder.getXmlNodeTrx().getName());
+    holder.getXmlNodeTrx().rollback();
 
-    assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+    assertEquals(2L, holder.getXmlNodeTrx().getRevisionNumber());
   }
 
   @Test
   public void testAutoCommit() throws SirixException {
-    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().commit();
+    XmlDocumentCreator.create(holder.getXmlNodeTrx());
+    holder.getXmlNodeTrx().commit();
 
-    final NodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final NodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     rtx.close();
   }
 
   @Test
   public void testRemove() throws SirixException {
-    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().commit();
-    assertEquals(2L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+    XmlDocumentCreator.create(holder.getXmlNodeTrx());
+    holder.getXmlNodeTrx().commit();
+    assertEquals(2L, holder.getXmlNodeTrx().getRevisionNumber());
 
-    holder.getXdmNodeWriteTrx().moveToDocumentRoot();
-    holder.getXdmNodeWriteTrx().moveToFirstChild();
-    holder.getXdmNodeWriteTrx().remove();
-    holder.getXdmNodeWriteTrx().commit();
-    assertEquals(3L, holder.getXdmNodeWriteTrx().getRevisionNumber());
+    holder.getXmlNodeTrx().moveToDocumentRoot();
+    holder.getXmlNodeTrx().moveToFirstChild();
+    holder.getXmlNodeTrx().remove();
+    holder.getXmlNodeTrx().commit();
+    assertEquals(3L, holder.getXmlNodeTrx().getRevisionNumber());
   }
 
   @Test
   public void testAttributeRemove() throws SirixException {
-    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().commit();
-    holder.getXdmNodeWriteTrx().moveToDocumentRoot();
+    XmlDocumentCreator.create(holder.getXmlNodeTrx());
+    holder.getXmlNodeTrx().commit();
+    holder.getXmlNodeTrx().moveToDocumentRoot();
 
-    final AbstractAxis postorderAxis = new PostOrderAxis(holder.getXdmNodeWriteTrx());
+    final AbstractAxis postorderAxis = new PostOrderAxis(holder.getXmlNodeTrx());
     while (postorderAxis.hasNext()) {
       postorderAxis.nextLong();
-      if (holder.getXdmNodeWriteTrx().getKind() == NodeKind.ELEMENT
-          && holder.getXdmNodeWriteTrx().getAttributeCount() > 0) {
+      if (holder.getXmlNodeTrx().getKind() == NodeKind.ELEMENT
+          && holder.getXmlNodeTrx().getAttributeCount() > 0) {
         for (int i = 0, attrCount =
-            holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
-          holder.getXdmNodeWriteTrx().moveToAttribute(i);
-          holder.getXdmNodeWriteTrx().remove();
+             holder.getXmlNodeTrx().getAttributeCount(); i < attrCount; i++) {
+          holder.getXmlNodeTrx().moveToAttribute(i);
+          holder.getXmlNodeTrx().remove();
         }
       }
     }
-    holder.getXdmNodeWriteTrx().commit();
-    holder.getXdmNodeWriteTrx().moveToDocumentRoot();
+    holder.getXmlNodeTrx().commit();
+    holder.getXmlNodeTrx().moveToDocumentRoot();
 
     int attrTouch = 0;
-    final Axis descAxis = new DescendantAxis(holder.getXdmNodeWriteTrx());
+    final Axis descAxis = new DescendantAxis(holder.getXmlNodeTrx());
     while (descAxis.hasNext()) {
       descAxis.nextLong();
-      if (holder.getXdmNodeWriteTrx().getKind() == NodeKind.ELEMENT) {
+      if (holder.getXmlNodeTrx().getKind() == NodeKind.ELEMENT) {
         for (int i = 0, attrCount =
-            holder.getXdmNodeWriteTrx().getAttributeCount(); i < attrCount; i++) {
-          if (holder.getXdmNodeWriteTrx().moveToAttribute(i)) {
+             holder.getXmlNodeTrx().getAttributeCount(); i < attrCount; i++) {
+          if (holder.getXmlNodeTrx().moveToAttribute(i)) {
             attrTouch++;
           } else {
             throw new IllegalStateException("Should never occur!");
