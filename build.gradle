@@ -2,7 +2,7 @@ import org.jetbrains.kotlin.gradle.dsl.jvm.JvmTargetValidationMode
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
 buildscript {
-    ext.kotlin_version = '2.1.0'
+    ext.kotlin_version = '2.1.10'
     repositories {
         maven {
             url "https://plugins.gradle.org/m2/"
@@ -10,10 +10,10 @@ buildscript {
     }
     dependencies {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.2"
-        classpath 'net.researchgate:gradle-release:3.0.2'
+        classpath 'net.researchgate:gradle-release:3.1.0'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.51.0"
         classpath "gradle.plugin.com.github.jengelman.gradle.plugins:shadow:7.0.0"
-        classpath "com.diffplug.spotless:spotless-plugin-gradle:6.25.0"
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:7.0.2"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
