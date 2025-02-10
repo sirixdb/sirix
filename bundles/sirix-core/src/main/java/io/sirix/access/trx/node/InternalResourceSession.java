@@ -30,21 +30,21 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void assertAccess(int revision);
 
-  PageTrx createPageTransaction(long trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx);
+  PageTrx createPageTransaction(int trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx);
 
   Lock getCommitLock();
 
   void setLastCommittedUberPage(UberPage lastUberPage);
 
-  void closeWriteTransaction(long transactionID);
+  void closeWriteTransaction(int transactionID);
 
-  void setNodePageWriteTransaction(long transactionID, PageTrx pageTrx);
+  void setNodePageWriteTransaction(int transactionID, PageTrx pageTrx);
 
-  void closeNodePageWriteTransaction(long transactionID);
+  void closeNodePageWriteTransaction(int transactionID);
 
-  void closeReadTransaction(long trxId);
+  void closeReadTransaction(int trxId);
 
-  void closePageReadTransaction(Long trxId);
+  void closePageReadTransaction(Integer trxId);
 
-  void closePageWriteTransaction(Long transactionID);
+  void closePageWriteTransaction(Integer transactionID);
 }

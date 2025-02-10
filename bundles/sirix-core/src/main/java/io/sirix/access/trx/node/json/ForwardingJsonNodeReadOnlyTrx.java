@@ -122,7 +122,7 @@ public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx {
   }
 
   @Override
-  default long getId() {
+  default int getId() {
     return nodeReadOnlyTrxDelegate().getId();
   }
 

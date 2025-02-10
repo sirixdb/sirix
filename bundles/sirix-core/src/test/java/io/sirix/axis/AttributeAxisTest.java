@@ -71,7 +71,7 @@ public class AttributeAxisTest {
 
   @Test
   public void testMultipleAttributes() throws SirixException {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     final long nodeKey = wtx.insertElementAsFirstChild(new QNm("foo")).getNodeKey();
     wtx.insertAttribute(new QNm("foo0"), "0");
     wtx.moveTo(nodeKey);

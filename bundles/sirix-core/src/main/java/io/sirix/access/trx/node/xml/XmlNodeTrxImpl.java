@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.node.xml;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.access.trx.node.*;
 import io.sirix.api.Axis;
 import io.sirix.api.Movement;
@@ -52,7 +53,6 @@ import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.XMLToken;
 import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
