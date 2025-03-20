@@ -2,7 +2,7 @@ import org.jetbrains.kotlin.gradle.dsl.jvm.JvmTargetValidationMode
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
 buildscript {
-    ext.kotlin_version = '2.1.10'
+    ext.kotlin_version = '2.1.20'
     repositories {
         maven {
             url "https://plugins.gradle.org/m2/"
