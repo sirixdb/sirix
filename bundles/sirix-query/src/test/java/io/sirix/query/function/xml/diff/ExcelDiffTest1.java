@@ -72,97 +72,97 @@ public final class ExcelDiffTest1 {
    * @throws Exception if any exception occurs
    */
   private void test(final Path folder) throws Exception {
-    try (final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      XmlResourceSession resource = database.beginResourceSession(XmlTestHelper.RESOURCE);
-      Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
-      final List<Path> list = Files.list(folder).filter(fileNameFilter).sorted((first, second) -> {
-        final String firstName =
-            first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
-        final String secondName =
-            second.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
+    final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
+    XmlResourceSession resourceSession = database.beginResourceSession(XmlTestHelper.RESOURCE);
+    Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
+    final List<Path> list = Files.list(folder).filter(fileNameFilter).sorted((first, second) -> {
+      final String firstName = first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
+      final String secondName =
+          second.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
 
-        return Integer.compare(Integer.parseInt(firstName), Integer.parseInt(secondName));
-      }).toList();
+      return Integer.compare(Integer.parseInt(firstName), Integer.parseInt(secondName));
+    }).toList();
 
-      // Sort files list according to file names.
+    // Sort files list according to file names.
 
-      boolean first = true;
+    boolean first = true;
 
-      // Shredder files.
-      for (final Path file : list) {
-        if (file.getFileName().toString().endsWith(".xml")) {
-          if (first) {
-            first = false;
-            try (final XmlNodeTrx wtx = resource.beginNodeTrx();
-                 final FileInputStream fis = new FileInputStream(file.toFile())) {
-              final XmlShredder shredder = new XmlShredder.Builder(wtx,
-                                                                   XmlShredder.createFileReader(fis),
-                                                                   InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                                                 .build();
-              shredder.call();
-            }
-          } else {
-            FMSEImport.main(new String[] { PATHS.PATH1.getFile().toAbsolutePath().toString(),
-                file.toAbsolutePath().toString() });
+    // Shredder files.
+    for (final Path file : list) {
+      if (file.getFileName().toString().endsWith(".xml")) {
+        if (first) {
+          first = false;
+          try (final XmlNodeTrx wtx = resourceSession.beginNodeTrx();
+               final FileInputStream fis = new FileInputStream(file.toFile())) {
+            final XmlShredder shredder = new XmlShredder.Builder(wtx,
+                                                                 XmlShredder.createFileReader(fis),
+                                                                 InsertPosition.AS_FIRST_CHILD).commitAfterwards()
+                                                                                               .build();
+            shredder.call();
           }
-
-          resource.close();
-          resource = database.beginResourceSession(XmlTestHelper.RESOURCE);
-
-          System.out.println();
-          System.out.println();
-          System.out.println();
-          System.out.println();
-
-          final PathSummaryReader pathSummary = resource.openPathSummary();
-          final var pathSummaryAxis = new DescendantAxis(pathSummary);
-
-          while (pathSummaryAxis.hasNext()) {
-            pathSummaryAxis.nextLong();
-
-            System.out.println("nodeKey: " + pathSummary.getNodeKey());
-            System.out.println("path: " + pathSummary.getPath());
-            System.out.println("references: " + pathSummary.getReferences());
-            System.out.println("level: " + pathSummary.getLevel());
-          }
-
-          final OutputStream out = new ByteArrayOutputStream();
-          final XmlSerializer serializer = new XmlSerializerBuilder(resource, out).build();
-          serializer.call();
-          final StringBuilder sBuilder = XmlTestHelper.readFile(file, false);
-
-          final Diff diff = new Diff(sBuilder.toString(), out.toString());
-          final DetailedDiff detDiff = new DetailedDiff(diff);
-          final List<Difference> differences = detDiff.getAllDifferences();
-          for (final Difference difference : differences) {
-            System.err.println("***********************");
-            System.err.println(difference);
-            System.err.println("***********************");
-          }
-
-          assertTrue(diff.similar(), "pieces of XML are similar " + diff);
-          assertTrue(diff.identical(), "but are they identical? " + diff);
+        } else {
+          FMSEImport.main(new String[] { PATHS.PATH1.getFile().toAbsolutePath().toString(),
+              file.toAbsolutePath().toString() });
         }
-      }
 
-      try (final var baos = new ByteArrayOutputStream(); final var writer = new PrintStream(baos)) {
-        final XmlSerializer serializer =
-            new XmlSerializerBuilder(resource, writer, -1).prettyPrint().serializeTimestamp(true).emitIDs().build();
+        resourceSession.close();
+        resourceSession = database.beginResourceSession(XmlTestHelper.RESOURCE);
+
+        System.out.println();
+        System.out.println();
+        System.out.println();
+        System.out.println();
+
+        final PathSummaryReader pathSummary = resourceSession.openPathSummary();
+        final var pathSummaryAxis = new DescendantAxis(pathSummary);
+
+        while (pathSummaryAxis.hasNext()) {
+          pathSummaryAxis.nextLong();
+
+          System.out.println("nodeKey: " + pathSummary.getNodeKey());
+          System.out.println("path: " + pathSummary.getPath());
+          System.out.println("references: " + pathSummary.getReferences());
+          System.out.println("level: " + pathSummary.getLevel());
+        }
+
+        final OutputStream out = new ByteArrayOutputStream();
+        final XmlSerializer serializer = new XmlSerializerBuilder(resourceSession, out).build();
         serializer.call();
+        final StringBuilder sBuilder = XmlTestHelper.readFile(file, false);
 
-        final var content = baos.toString(StandardCharsets.UTF_8);
+        final Diff diff = new Diff(sBuilder.toString(), out.toString());
+        final DetailedDiff detDiff = new DetailedDiff(diff);
+        final List<Difference> differences = detDiff.getAllDifferences();
+        for (final Difference difference : differences) {
+          System.err.println("***********************");
+          System.err.println(difference);
+          System.err.println("***********************");
+        }
 
-        System.out.println(content);
+        assertTrue(diff.similar(), "pieces of XML are similar " + diff);
+        assertTrue(diff.identical(), "but are they identical? " + diff);
       }
     }
 
-    // Initialize query context and store.
-    final var database = PATHS.PATH1.getFile();
+    try (final var baos = new ByteArrayOutputStream(); final var writer = new PrintStream(baos)) {
+      final XmlSerializer serializer = new XmlSerializerBuilder(resourceSession, writer, -1).prettyPrint()
+                                                                                            .serializeTimestamp(true)
+                                                                                            .emitIDs()
+                                                                                            .build();
+      serializer.call();
 
-    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
+      final var content = baos.toString(StandardCharsets.UTF_8);
+
+      System.out.println(content);
+    }
+
+    // Initialize query context and store.
+    final var databaseLocation = PATHS.PATH1.getFile();
+
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(databaseLocation.getParent()).build()) {
       final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
 
-      final String dbName = database.getFileName().toString();
+      final String dbName = databaseLocation.getFileName().toString();
       final String resName = XmlTestHelper.RESOURCE;
 
       final String xq = "xml:diff('" + dbName + "','" + resName + "',1,2)";
@@ -171,12 +171,12 @@ public final class ExcelDiffTest1 {
 
       try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
         query.serialize(ctx, new PrintStream(out));
-        final String content = out.toString(StandardCharsets.UTF_8);
+        String content = out.toString(StandardCharsets.UTF_8);
         out.reset();
 
-        final var contentToApply =
-            "xquery version \"1.0\";" + "\n" + "declare namespace x14ac = \"http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac\";"
-                + "\n" + content;
+        final var contentToApply = "xquery version \"1.0\";" + "\n"
+            + "declare namespace x14ac = \"http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac\";" + "\n"
+            + content;
 
         System.out.println(contentToApply);
 
@@ -194,21 +194,22 @@ public final class ExcelDiffTest1 {
         assertEquals(contentNewRev, contentOldRev);
 
         out.reset();
-
-        final String xq4 = "xquery version \"1.0\";xml:doc('" + dbName + "','" + resName + "',3)//*[local-name()='c' and not(previous::*)]";
-        final Sequence sequence = new Query(SirixCompileChain.createWithNodeStore(store), xq4).execute(ctx);
-        final Iter iter = sequence.iterate();
-
-        StringSerializer serializer = new StringSerializer(System.out);
-
-        for (var item = iter.next(); item != null; item = iter.next()) {
-          serializer.serialize(item);
-          System.out.println();
-        }
-        // final String changes = new String(out.toByteArray(), StandardCharsets.UTF_8);
-        //
-        // System.out.println(changes);
       }
+
+      final String xq4 = "xquery version \"1.0\";xml:doc('" + dbName + "','" + resName
+          + "',3)//*[local-name()='c' and not(previous::*)]";
+      final Sequence sequence = new Query(SirixCompileChain.createWithNodeStore(store), xq4).execute(ctx);
+      final Iter iter = sequence.iterate();
+
+      StringSerializer serializer = new StringSerializer(System.out);
+
+      for (var item = iter.next(); item != null; item = iter.next()) {
+        serializer.serialize(item);
+        System.out.println();
+      }
+      // final String changes = new String(out.toByteArray(), StandardCharsets.UTF_8);
+      //
+      // System.out.println(changes);
     }
   }
 

@@ -21,13 +21,13 @@
 
 package io.sirix.utils;
 
+import io.brackit.query.atomic.QNm;
+import io.sirix.XmlTestHelper;
 import io.sirix.api.Database;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
-import io.sirix.service.InsertPosition;
-import io.brackit.query.atomic.QNm;
-import io.sirix.XmlTestHelper;
 import io.sirix.exception.SirixException;
+import io.sirix.service.InsertPosition;
 import io.sirix.service.xml.serialize.XmlSerializer;
 import io.sirix.service.xml.shredder.XmlShredder;
 

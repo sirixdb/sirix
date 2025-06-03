@@ -22,7 +22,7 @@ public interface ForwardingNodeReadOnlyTrx extends NodeReadOnlyTrx {
     NodeReadOnlyTrx delegate();
 
     @Override
-    default long getId() {
+    default int getId() {
         return delegate().getId();
     }
 
