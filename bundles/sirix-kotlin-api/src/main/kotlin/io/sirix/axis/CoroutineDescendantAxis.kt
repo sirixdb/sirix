@@ -25,7 +25,9 @@ import kotlinx.coroutines.*
 import io.sirix.api.NodeCursor
 import io.sirix.api.NodeReadOnlyTrx
 import io.sirix.api.NodeTrx
+import io.sirix.api.PageReadOnlyTrx
 import io.sirix.api.ResourceSession
+import io.sirix.index.IndexType
 import io.sirix.settings.Fixed
 import io.sirix.utils.LogWrapper
 import org.slf4j.LoggerFactory
@@ -43,6 +45,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class CoroutineDescendantAxis<R, W> :
     AbstractAxis where R : NodeReadOnlyTrx, R : NodeCursor, W : NodeTrx, W : NodeCursor {
+
     /** Logger */
     private val logger = LogWrapper(LoggerFactory.getLogger(CoroutineDescendantAxis::class.java))
 
@@ -74,6 +77,7 @@ class CoroutineDescendantAxis<R, W> :
      */
     constructor(resourceSession: ResourceSession<R, W>) : super(resourceSession.beginNodeReadOnlyTrx()) {
         this.resourceSession = resourceSession
+        initializeFields()
     }
 
     constructor(
@@ -81,6 +85,7 @@ class CoroutineDescendantAxis<R, W> :
         includeSelf: IncludeSelf
     ) : super(resourceSession.beginNodeReadOnlyTrx(), includeSelf) {
         this.resourceSession = resourceSession
+        initializeFields()
     }
 
     constructor(
@@ -89,6 +94,15 @@ class CoroutineDescendantAxis<R, W> :
         cursor: NodeCursor
     ) : super(cursor, includeSelf) {
         this.resourceSession = resourceSession
+        initializeFields()
+    }
+
+    /**
+     * Initialize fields that need explicit initialization
+     */
+    private fun initializeFields() {
+        // Fields are already initialized in their declarations above
+        // This method exists for clarity and future extensibility
     }
 
     override fun reset(nodeKey: Long) {
@@ -98,13 +112,14 @@ class CoroutineDescendantAxis<R, W> :
         mainTraversalComplete = false
         currentPosition = 0L
     }
- //Main traversal logic
-    //Execution Priority:
- //1- Handle first call
- //2- Return results from the parallel queue
- //3- Continue main preorder traversal
- //4- Wait for parallel results
- //5- Mark traversal as done
+
+    // Main traversal logic
+    // Execution Priority:
+    // 1- Handle first call
+    // 2- Return results from the parallel queue
+    // 3- Continue main preorder traversal
+    // 4- Wait for parallel results
+    // 5- Mark traversal as done
     override fun nextKey(): Long {
         // Handle first call
         if (isFirst) {
@@ -172,8 +187,6 @@ class CoroutineDescendantAxis<R, W> :
     }
 
     private fun moveUpAndFindNextSibling(): Long {
-        var currentKey = cursor.nodeKey
-
         while (cursor.hasParent() && cursor.parentKey != startKey) {
             cursor.moveTo(cursor.parentKey)
 
@@ -189,10 +202,11 @@ class CoroutineDescendantAxis<R, W> :
         mainTraversalComplete = true
         return if (parallelActive.get()) waitForParallelResults() else done()
     }
- // the next 2 functions are used for parallelization criteria
- // Page locality: avoids parallelizing siblings on the same page
- //Subtree size: must exceed parallelizationThreshold
- //Only one active parallel task at a time
+
+    // the next 2 functions are used for parallelization criteria
+    // Page locality: avoids parallelizing siblings on the same page
+    // Subtree size: must exceed parallelizationThreshold
+    // Only one active parallel task at a time
     private fun considerParallelProcessing() {
         if (!cursor.hasRightSibling()) return
 
@@ -210,11 +224,10 @@ class CoroutineDescendantAxis<R, W> :
         try {
             tempCursor.moveTo(nodeKey)
 
-            // Check if it's on a different page (simplified check)
-            val currentPage = cursor.nodeKey / 1000  // Simplified page calculation
-            val targetPage = nodeKey / 1000
+            val currentPageKey = (this.cursor as PageReadOnlyTrx).pageKey(this.cursor.nodeKey, IndexType.DOCUMENT)
+            val targetPageKey = (tempCursor as PageReadOnlyTrx).pageKey(nodeKey, IndexType.DOCUMENT)
 
-            if (currentPage == targetPage) {
+            if (currentPageKey == targetPageKey) {
                 return false  // Same page, no benefit from parallelization
             }
 
@@ -332,7 +345,6 @@ class CoroutineDescendantAxis<R, W> :
     }
 
     private fun cleanup() {
-
         parallelActive.set(false)
 
         // Cancel all active tasks
