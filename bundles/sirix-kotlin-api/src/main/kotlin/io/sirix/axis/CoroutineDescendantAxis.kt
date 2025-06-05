@@ -22,6 +22,7 @@
 package io.sirix.axis
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import io.sirix.api.NodeCursor
 import io.sirix.api.NodeReadOnlyTrx
 import io.sirix.api.NodeTrx
@@ -31,7 +32,6 @@ import io.sirix.index.IndexType
 import io.sirix.settings.Fixed
 import io.sirix.utils.LogWrapper
 import org.slf4j.LoggerFactory
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -55,8 +55,8 @@ class CoroutineDescendantAxis<R, W> :
     /** Coroutine scope for managing parallel tasks */
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    /** Thread safe Queue for results from parallel producers */
-    private val resultQueue = ConcurrentLinkedQueue<Long>()
+    /** Channel for results from parallel producers */
+    private val resultChannel = Channel<Long>(Channel.UNLIMITED)
 
     /** Active parallel tasks */
     private val activeTasks = mutableListOf<Job>()
@@ -65,7 +65,7 @@ class CoroutineDescendantAxis<R, W> :
     private val parallelActive = AtomicBoolean(false)
 
     /** Minimum descendant count to trigger parallelization */
-    private val PARELLELIZATION_THRESHOLD = 1000
+    private val PARALLELIZATION_THRESHOLD = 1000
 
     /** Current position in traversal */
     private var currentPosition = 0L
@@ -116,7 +116,7 @@ class CoroutineDescendantAxis<R, W> :
     // Main traversal logic
     // Execution Priority:
     // 1- Handle first call
-    // 2- Return results from the parallel queue
+    // 2- Return results from the parallel channel
     // 3- Continue main preorder traversal
     // 4- Wait for parallel results
     // 5- Mark traversal as done
@@ -128,8 +128,9 @@ class CoroutineDescendantAxis<R, W> :
         }
 
         // Check if we have parallel results ready
-        if (!resultQueue.isEmpty()) {
-            return resultQueue.poll()
+        val parallelResult = resultChannel.tryReceive().getOrNull()
+        if (parallelResult != null) {
+            return parallelResult
         }
 
         // Continue main traversal
@@ -152,8 +153,7 @@ class CoroutineDescendantAxis<R, W> :
             considerParallelProcessing()
             currentPosition
         } else {
-            if (cursor.hasFirstChild()) {
-                cursor.moveTo(cursor.firstChildKey)
+            if (cursor.moveToFirstChild()) {
                 currentPosition = cursor.nodeKey
                 considerParallelProcessing()
                 currentPosition
@@ -165,19 +165,15 @@ class CoroutineDescendantAxis<R, W> :
 
     private fun continueMainTraversal(): Long {
         // Try to move to first child
-        if (cursor.hasFirstChild()) {
-            val firstChildKey = cursor.firstChildKey
-            cursor.moveTo(firstChildKey)
-            currentPosition = firstChildKey
+        if (cursor.moveToFirstChild()) {
+            currentPosition = cursor.nodeKey
             considerParallelProcessing()
             return currentPosition
         }
 
         // Try to move to right sibling
-        if (cursor.hasRightSibling()) {
-            val rightSiblingKey = cursor.rightSiblingKey
-            cursor.moveTo(rightSiblingKey)
-            currentPosition = rightSiblingKey
+        if (cursor.moveToRightSibling()) {
+            currentPosition = cursor.nodeKey
             considerParallelProcessing()
             return currentPosition
         }
@@ -190,10 +186,8 @@ class CoroutineDescendantAxis<R, W> :
         while (cursor.hasParent() && cursor.parentKey != startKey) {
             cursor.moveTo(cursor.parentKey)
 
-            if (cursor.hasRightSibling()) {
-                val rightSiblingKey = cursor.rightSiblingKey
-                cursor.moveTo(rightSiblingKey)
-                currentPosition = rightSiblingKey
+            if (cursor.moveToRightSibling()) {
+                currentPosition = cursor.nodeKey
                 considerParallelProcessing()
                 return currentPosition
             }
@@ -212,7 +206,7 @@ class CoroutineDescendantAxis<R, W> :
 
         val rightSiblingKey = cursor.rightSiblingKey
 
-        // Check if right sibling is on a different page and has enough descendants
+        // Check if right sibling has enough descendants
         if (shouldParallelizeSubtree(rightSiblingKey)) {
             launchParallelTraversal(rightSiblingKey)
         }
@@ -231,40 +225,13 @@ class CoroutineDescendantAxis<R, W> :
                 return false  // Same page, no benefit from parallelization
             }
 
-            // Check descendant count if available
-            val descendantCount = getEstimatedDescendantCount(tempCursor)
-            return descendantCount >= PARELLELIZATION_THRESHOLD
+            // Get actual descendant count from node
+            val descendantCount = tempCursor.descendantCount
+            return descendantCount >= PARALLELIZATION_THRESHOLD
 
         } finally {
             tempCursor.close()
         }
-    }
-
-    private fun getEstimatedDescendantCount(cursor: NodeCursor): Int {
-        // Try to get descendant count from node metadata if available
-        // This is a simplified estimation - in reality, you'd use actual node metadata
-        var count = 0
-        val startKey = cursor.nodeKey
-
-        if (cursor.hasFirstChild()) {
-            cursor.moveTo(cursor.firstChildKey)
-            count = 1
-
-            // Quick scan to estimate size (limit to avoid blocking)
-            var scanned = 0
-            while (cursor.hasRightSibling() && scanned < 100) {
-                cursor.moveTo(cursor.rightSiblingKey)
-                count++
-                scanned++
-
-                if (cursor.hasFirstChild()) {
-                    count += 10  // Rough estimate for child subtrees
-                }
-            }
-        }
-
-        cursor.moveTo(startKey)
-        return count
     }
 
     private fun launchParallelTraversal(startKey: Long) {
@@ -292,17 +259,15 @@ class CoroutineDescendantAxis<R, W> :
             val nodeKey = stack.removeAt(stack.size - 1)
             cursor.moveTo(nodeKey)
 
-            // Add to result queue
-            resultQueue.offer(nodeKey)
+            // Send to result channel
+            resultChannel.send(nodeKey)
 
             // Add children to stack (in reverse order for preorder traversal)
             val children = mutableListOf<Long>()
-            if (cursor.hasFirstChild()) {
-                cursor.moveTo(cursor.firstChildKey)
+            if (cursor.moveToFirstChild()) {
                 children.add(cursor.nodeKey)
 
-                while (cursor.hasRightSibling()) {
-                    cursor.moveTo(cursor.rightSiblingKey)
+                while (cursor.moveToRightSibling()) {
                     children.add(cursor.nodeKey)
                 }
             }
@@ -320,21 +285,17 @@ class CoroutineDescendantAxis<R, W> :
     }
 
     private fun waitForParallelResults(): Long {
-        // Check queue first
-        if (!resultQueue.isEmpty()) {
-            return resultQueue.poll()
+        // Check channel for results
+        val result = resultChannel.tryReceive().getOrNull()
+        if (result != null) {
+            return result
         }
 
         // If no results and parallel processing is done, we're finished
-        if (!parallelActive.get()) {
-            return done()
-        }
-
-        // Wait briefly for results
-        Thread.sleep(1)  // Very short wait
-        return if (!resultQueue.isEmpty()) {
-            resultQueue.poll()
+        return if (!parallelActive.get()) {
+            done()
         } else {
+            // Return done if no immediate results - the caller will call nextKey() again
             done()
         }
     }
@@ -351,8 +312,8 @@ class CoroutineDescendantAxis<R, W> :
         activeTasks.forEach { it.cancel() }
         activeTasks.clear()
 
-        // Clear result queue
-        resultQueue.clear()
+        // Close result channel
+        resultChannel.close()
     }
 
     // Implement Closeable to properly cleanup resources
