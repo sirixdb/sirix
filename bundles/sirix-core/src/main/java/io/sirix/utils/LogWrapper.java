@@ -42,7 +42,7 @@ public final class LogWrapper {
    * @param logger logger
    */
   public LogWrapper(final Logger logger) {
-    this.logger = requireNonNull(logger);
+    this.logger = requireNonNull(logger, "Logger must not be null");
   }
 
   /**
