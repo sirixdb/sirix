@@ -103,5 +103,16 @@ public final class LogWrapper {
       logger.warn(message, objects);
     }
   }
+  /**
+   * Log trace information.
+   *
+   * @param message Message to log.
+   * @param objects objects for data
+   */
+  public void trace(final String message, final Object... objects) {
+    if (logger.isTraceEnabled()) {
+      logger.trace(message, objects);
+    }
+  }
 
 }
