@@ -48,6 +48,9 @@ class CoroutineDescendantAxis<R, W> :
 
     /** Logger */
     private val logger = LogWrapper(LoggerFactory.getLogger(CoroutineDescendantAxis::class.java))
+    /** Flag indicating if parallel processing is active */
+
+    private val parallelActive = AtomicBoolean(false)
 
     /** Resource session for creating transactions */
     private val resourceSession: ResourceSession<R, W>
@@ -61,8 +64,6 @@ class CoroutineDescendantAxis<R, W> :
     /** Active parallel tasks */
     private val activeTasks = mutableListOf<Job>()
 
-    /** Flag indicating if parallel processing is active */
-    private val parallelActive = AtomicBoolean(false)
 
     /** Minimum descendant count to trigger parallelization */
     private val PARALLELIZATION_THRESHOLD = 1000
@@ -72,12 +73,15 @@ class CoroutineDescendantAxis<R, W> :
     private var isFirst = true
     private var mainTraversalComplete = false
 
+    /** Queue for storing results in order */
+    private val resultQueue = java.util.concurrent.ConcurrentLinkedQueue<Long>()
+
     /**
      * Constructor initializing internal state.
      */
     constructor(resourceSession: ResourceSession<R, W>) : super(resourceSession.beginNodeReadOnlyTrx()) {
         this.resourceSession = resourceSession
-        initializeFields()
+        logger.debug("Initialized CoroutineDescendantAxis with resource session")
     }
 
     constructor(
@@ -85,7 +89,7 @@ class CoroutineDescendantAxis<R, W> :
         includeSelf: IncludeSelf
     ) : super(resourceSession.beginNodeReadOnlyTrx(), includeSelf) {
         this.resourceSession = resourceSession
-        initializeFields()
+        logger.debug("Initialized CoroutineDescendantAxis with resource session and includeSelf: {}", includeSelf)
     }
 
     constructor(
@@ -94,18 +98,11 @@ class CoroutineDescendantAxis<R, W> :
         cursor: NodeCursor
     ) : super(cursor, includeSelf) {
         this.resourceSession = resourceSession
-        initializeFields()
-    }
-
-    /**
-     * Initialize fields that need explicit initialization
-     */
-    private fun initializeFields() {
-        // Fields are already initialized in their declarations above
-        // This method exists for clarity and future extensibility
+        logger.debug("Initialized CoroutineDescendantAxis with resource session, includeSelf: {}, and custom cursor", includeSelf)
     }
 
     override fun reset(nodeKey: Long) {
+        logger.debug("Resetting axis to node key: {}", nodeKey)
         super.reset(nodeKey)
         cleanup()
         isFirst = true
@@ -113,51 +110,51 @@ class CoroutineDescendantAxis<R, W> :
         currentPosition = 0L
     }
 
-    // Main traversal logic
-    // Execution Priority:
-    // 1- Handle first call
-    // 2- Return results from the parallel channel
-    // 3- Continue main preorder traversal
-    // 4- Wait for parallel results
-    // 5- Mark traversal as done
     override fun nextKey(): Long {
         // Handle first call
         if (isFirst) {
+            logger.debug("Handling first call")
             isFirst = false
             return handleFirstCall()
         }
 
-        // Check if we have parallel results ready
-        val parallelResult = resultChannel.tryReceive().getOrNull()
-        if (parallelResult != null) {
-            return parallelResult
+        // Check if we have results in the queue
+        val queuedResult = resultQueue.poll()
+        if (queuedResult != null) {
+            logger.trace("Returning queued result: {}", queuedResult)
+            return queuedResult
         }
 
         // Continue main traversal
         if (!mainTraversalComplete) {
+            logger.trace("Continuing main traversal")
             return continueMainTraversal()
         }
 
         // Wait for any remaining parallel tasks
         if (parallelActive.get()) {
+            logger.trace("Waiting for parallel results")
             return waitForParallelResults()
         }
 
+        logger.debug("Traversal complete, returning done")
         return done()
     }
 
     private fun handleFirstCall(): Long {
         return if (includeSelf() == IncludeSelf.YES) {
+            logger.debug("Including self in traversal")
             currentPosition = cursor.nodeKey
-            // Start parallel processing for siblings if beneficial
             considerParallelProcessing()
             currentPosition
         } else {
             if (cursor.moveToFirstChild()) {
+                logger.debug("Moving to first child: {}", cursor.nodeKey)
                 currentPosition = cursor.nodeKey
                 considerParallelProcessing()
                 currentPosition
             } else {
+                logger.debug("No children found, returning done")
                 done()
             }
         }
@@ -166,6 +163,7 @@ class CoroutineDescendantAxis<R, W> :
     private fun continueMainTraversal(): Long {
         // Try to move to first child
         if (cursor.moveToFirstChild()) {
+            logger.trace("Moving to first child: {}", cursor.nodeKey)
             currentPosition = cursor.nodeKey
             considerParallelProcessing()
             return currentPosition
@@ -173,47 +171,53 @@ class CoroutineDescendantAxis<R, W> :
 
         // Try to move to right sibling
         if (cursor.moveToRightSibling()) {
+            logger.trace("Moving to right sibling: {}", cursor.nodeKey)
             currentPosition = cursor.nodeKey
             considerParallelProcessing()
             return currentPosition
         }
 
-        // Move up and try right siblings of ancestors
+        logger.trace("No more children or siblings, moving up")
         return moveUpAndFindNextSibling()
     }
 
     private fun moveUpAndFindNextSibling(): Long {
         while (cursor.hasParent() && cursor.parentKey != startKey) {
             cursor.moveTo(cursor.parentKey)
+            logger.trace("Moving up to parent: {}", cursor.nodeKey)
 
             if (cursor.moveToRightSibling()) {
+                logger.trace("Found right sibling: {}", cursor.nodeKey)
                 currentPosition = cursor.nodeKey
                 considerParallelProcessing()
                 return currentPosition
             }
         }
 
+        logger.debug("Main traversal complete")
         mainTraversalComplete = true
         return if (parallelActive.get()) waitForParallelResults() else done()
     }
 
-    // the next 2 functions are used for parallelization criteria
-    // Page locality: avoids parallelizing siblings on the same page
-    // Subtree size: must exceed parallelizationThreshold
-    // Only one active parallel task at a time
     private fun considerParallelProcessing() {
-        if (!cursor.hasRightSibling()) return
+        if (!cursor.hasRightSibling()) {
+            logger.trace("No right sibling to parallelize")
+            return
+        }
 
         val rightSiblingKey = cursor.rightSiblingKey
+        logger.trace("Considering parallelization for right sibling: {}", rightSiblingKey)
 
-        // Check if right sibling has enough descendants
         if (shouldParallelizeSubtree(rightSiblingKey)) {
+            logger.debug("Launching parallel traversal for right sibling: {}", rightSiblingKey)
             launchParallelTraversal(rightSiblingKey)
+        } else {
+            logger.trace("Skipping parallelization for right sibling: {}", rightSiblingKey)
         }
     }
 
     private fun shouldParallelizeSubtree(nodeKey: Long): Boolean {
-        // Create a temporary cursor to check the subtree
+        logger.trace("Checking if subtree should be parallelized: {}", nodeKey)
         val tempCursor = resourceSession.beginNodeReadOnlyTrx()
         try {
             tempCursor.moveTo(nodeKey)
@@ -222,12 +226,14 @@ class CoroutineDescendantAxis<R, W> :
             val targetPageKey = (tempCursor as PageReadOnlyTrx).pageKey(nodeKey, IndexType.DOCUMENT)
 
             if (currentPageKey == targetPageKey) {
-                return false  // Same page, no benefit from parallelization
+                logger.trace("Skipping parallelization - same page: {}", currentPageKey)
+                return false
             }
 
-            // Get actual descendant count from node
             val descendantCount = tempCursor.descendantCount
-            return descendantCount >= PARALLELIZATION_THRESHOLD
+            val shouldParallelize = descendantCount >= PARALLELIZATION_THRESHOLD
+            logger.trace("Subtree descendant count: {}, should parallelize: {}", descendantCount, shouldParallelize)
+            return shouldParallelize
 
         } finally {
             tempCursor.close()
@@ -235,22 +241,30 @@ class CoroutineDescendantAxis<R, W> :
     }
 
     private fun launchParallelTraversal(startKey: Long) {
-        if (parallelActive.get()) return  // Already have parallel processing running
+        if (parallelActive.get()) {
+            logger.trace("Parallel processing already active, skipping")
+            return
+        }
 
+        logger.debug("Starting parallel traversal from node: {}", startKey)
         parallelActive.set(true)
         val job = scope.launch {
             val producerCursor = resourceSession.beginNodeReadOnlyTrx()
             try {
                 traverseSubtreeParallel(producerCursor, startKey)
+            } catch (e: Exception) {
+                logger.error("Error in parallel traversal", e)
             } finally {
                 producerCursor.close()
                 parallelActive.set(false)
+                logger.debug("Parallel traversal completed for node: {}", startKey)
             }
         }
         activeTasks.add(job)
     }
 
     private suspend fun traverseSubtreeParallel(cursor: NodeCursor, startKey: Long) {
+        logger.trace("Starting parallel subtree traversal from: {}", startKey)
         cursor.moveTo(startKey)
         val stack = mutableListOf<Long>()
         stack.add(startKey)
@@ -259,10 +273,9 @@ class CoroutineDescendantAxis<R, W> :
             val nodeKey = stack.removeAt(stack.size - 1)
             cursor.moveTo(nodeKey)
 
-            // Send to result channel
-            resultChannel.send(nodeKey)
+            resultQueue.add(nodeKey)
+            logger.trace("Added node to result queue: {}", nodeKey)
 
-            // Add children to stack (in reverse order for preorder traversal)
             val children = mutableListOf<Long>()
             if (cursor.moveToFirstChild()) {
                 children.add(cursor.nodeKey)
@@ -272,52 +285,54 @@ class CoroutineDescendantAxis<R, W> :
                 }
             }
 
-            // Add in reverse order to maintain preorder traversal
             for (i in children.size - 1 downTo 0) {
                 stack.add(children[i])
             }
 
-            // Yield occasionally to avoid blocking
             if (stack.size % 100 == 0) {
+                logger.trace("Yielding after processing {} nodes", stack.size)
                 yield()
             }
         }
+        logger.debug("Completed parallel subtree traversal from: {}", startKey)
     }
 
     private fun waitForParallelResults(): Long {
-        // Check channel for results
-        val result = resultChannel.tryReceive().getOrNull()
+        val result = resultQueue.poll()
         if (result != null) {
+            logger.trace("Found parallel result: {}", result)
             return result
         }
 
-        // If no results and parallel processing is done, we're finished
         return if (!parallelActive.get()) {
+            logger.debug("No more parallel results, returning done")
             done()
         } else {
-            // Return done if no immediate results - the caller will call nextKey() again
+            logger.trace("No immediate results, returning done")
             done()
         }
     }
 
     override fun done(): Long {
+        logger.debug("Traversal done")
         cleanup()
         return Fixed.NULL_NODE_KEY.standardProperty
     }
 
     private fun cleanup() {
+        logger.debug("Cleaning up resources")
         parallelActive.set(false)
 
-        // Cancel all active tasks
-        activeTasks.forEach { it.cancel() }
+        activeTasks.forEach { 
+            logger.trace("Cancelling active task")
+            it.cancel() 
+        }
         activeTasks.clear()
-
-        // Close result channel
         resultChannel.close()
     }
 
-    // Implement Closeable to properly cleanup resources
     fun close() {
+        logger.debug("Closing CoroutineDescendantAxis")
         cleanup()
         scope.cancel()
     }
