@@ -39,7 +39,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   /**
    * ID of transaction.
    */
-  protected final long id;
+  protected final int id;
 
   /**
    * State of transaction including all cached stuff.
@@ -75,7 +75,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @param resourceSession     The resource manager for the current transaction
    * @param itemList            Read-transaction-exclusive item list.
    */
-  protected AbstractNodeReadOnlyTrx(final @NonNegative long trxId, final @NonNull PageReadOnlyTrx pageReadTransaction,
+  protected AbstractNodeReadOnlyTrx(final @NonNegative int trxId, final @NonNull PageReadOnlyTrx pageReadTransaction,
       final @NonNull N documentNode, final InternalResourceSession<T, W> resourceSession,
       final ItemList<AtomicValue> itemList) {
     this.itemList = itemList;
@@ -196,7 +196,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public long getId() {
+  public int getId() {
     assertNotClosed();
     return id;
   }
@@ -534,11 +534,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public synchronized void close() {
+  public void close() {
     if (!isClosed) {
-      // Close own state.
-      pageReadOnlyTrx.close();
-
       // Callback on session to make sure everything is cleaned up.
       resourceSession.closeReadTransaction(id);
 

@@ -44,12 +44,12 @@ class CoroutineAxisTest {
     fun testCoroutine() {
         /* query: //regions/africa//location */
         val resultNumber = 55
-        val firstConcurrRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
-        val secondConcurrRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
-        val thirdConcurrRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
-        val firstRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
-        val secondRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
-        val thirdRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
+        val firstConcurrRtx = holder!!.resourceSession.beginNodeReadOnlyTrx()
+        val secondConcurrRtx = holder!!.resourceSession.beginNodeReadOnlyTrx()
+        val thirdConcurrRtx = holder!!.resourceSession.beginNodeReadOnlyTrx()
+        val firstRtx = holder!!.resourceSession.beginNodeReadOnlyTrx()
+        val secondRtx = holder!!.resourceSession.beginNodeReadOnlyTrx()
+        val thirdRtx = holder!!.resourceSession.beginNodeReadOnlyTrx()
         val axis: Axis = NestedAxis(
             NestedAxis(
                 CoroutineAxis(
@@ -94,7 +94,7 @@ class CoroutineAxisTest {
     fun testPartCoroutineDescAxis1() {
         /* query: //regions/africa//location */
         val resultNumber = 55
-        val firstConcurrRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
+        val firstConcurrRtx = holder!!.resourceSession.beginNodeReadOnlyTrx()
         val axis = NestedAxis(
             NestedAxis(
                 CoroutineAxis(
@@ -137,7 +137,7 @@ class CoroutineAxisTest {
     fun testPartConcurrentDescAxis2() {
         /* query: //regions/africa//location */
         val resultNumber = 55
-        val firstConcurrRtx = holder!!.resourceManager.beginNodeReadOnlyTrx()
+        val firstConcurrRtx = holder!!.resourceSession.beginNodeReadOnlyTrx()
         val axis = NestedAxis(
             NestedAxis(
                 FilterAxis(

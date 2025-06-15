@@ -1,6 +1,7 @@
 package io.sirix.api;
 
 import io.sirix.access.trx.node.CommitCredentials;
+import io.sirix.access.trx.page.NodePageReadOnlyTrx;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.*;
@@ -12,7 +13,6 @@ import io.sirix.settings.Constants;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.io.Reader;
-import io.sirix.page.interfaces.Page;
 
 import java.util.Optional;
 
@@ -51,7 +51,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    *
    * @return the transaction-ID.
    */
-  long getTrxId();
+  int getTrxId();
 
   /**
    * Get the commit message.
@@ -127,7 +127,7 @@ public interface PageReadOnlyTrx extends AutoCloseable {
    * @throws NullPointerException     if {@code pageKind} is {@code null}
    * @throws IllegalArgumentException if {@code key} is negative
    */
-  Page getRecordPage(@NonNull IndexLogKey indexLogKey);
+  NodePageReadOnlyTrx.PageReferenceToPage getRecordPage(@NonNull IndexLogKey indexLogKey);
 
   /**
    * Determines if transaction is closed or not.

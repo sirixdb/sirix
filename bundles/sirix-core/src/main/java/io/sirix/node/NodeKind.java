@@ -878,8 +878,6 @@ public enum NodeKind implements DeweyIdSerializer {
                                                                   config.storeChildCount() ? 1 : 0,
                                                                   descendantCount);
 
-      final String name = null;// nameKey == -1 ? "" : pageReadTrx.getName(nameKey, NodeKind.OBJECT_KEY);
-
       // Returning an instance.
       return new ObjectKeyNode(hashCode, structDel, nameKey, null, pathNodeKey);
     }
