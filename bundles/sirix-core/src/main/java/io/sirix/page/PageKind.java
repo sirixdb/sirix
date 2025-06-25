@@ -32,6 +32,10 @@ import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.cache.KeyValueLeafPagePool;
+import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.io.Reader;
 import io.sirix.node.Utils;
@@ -42,6 +46,7 @@ import io.sirix.page.delegates.FullReferencesPage;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import io.sirix.utils.OS;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
@@ -49,7 +54,6 @@ import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
-import net.openhft.chronicle.bytes.VanillaBytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.ByteArrayOutputStream;
@@ -84,17 +88,23 @@ public enum PageKind {
           final RecordSerializer recordPersister = resourceConfig.recordPersister;
           final Map<Long, PageReference> references = new LinkedHashMap<>();
           final int slotsMemorySize = source.readInt();
-          final int lastSlotOffset = source.readInt();
+          final int lastSlotIndex = source.readInt();
           final int deweyIdsMemorySize;
-          final int lastDeweyIdOffset;
+          final int lastDeweyIdIndex;
 
           if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
             deweyIdsMemorySize = source.readInt();
-            lastDeweyIdOffset = source.readInt();
+            lastDeweyIdIndex = source.readInt();
           } else {
             deweyIdsMemorySize = -1;
-            lastDeweyIdOffset = -1;
+            lastDeweyIdIndex = -1;
           }
+
+          var segmentAllocator = OS.isLinux()
+              ? LinuxMemorySegmentAllocator.getInstance()
+              : WindowsMemorySegmentAllocator.getInstance();
+
+          var deweyIdsMemory = areDeweyIDsStored ? segmentAllocator.allocate(deweyIdsMemorySize) : null;
 
           var page = new KeyValueLeafPage(recordPageKey,
                                           revision,
@@ -103,10 +113,10 @@ public enum PageKind {
                                           areDeweyIDsStored,
                                           recordPersister,
                                           references,
-                                          slotsMemorySize,
-                                          deweyIdsMemorySize,
-                                          lastSlotOffset,
-                                          lastDeweyIdOffset);
+                                          segmentAllocator.allocate(slotsMemorySize),
+                                          deweyIdsMemory,
+                                          lastSlotIndex,
+                                          lastDeweyIdIndex);
 
           if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer serializer) {
             final var deweyIdsBitmap = SerializationType.deserializeBitSet(source);
@@ -196,7 +206,6 @@ public enum PageKind {
       keyValueLeafPage.addReferences(resourceConfig);
 
       int usedSlotsMemorySize = keyValueLeafPage.getUsedSlotsSize();
-      int usedDeweyIdMemorySize = keyValueLeafPage.getUsedDeweyIdSize();
 
       // Write page key.
       Utils.putVarLong(sink, recordPageKey);
@@ -211,6 +220,12 @@ public enum PageKind {
 
       // Write dewey IDs.
       if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer persistence) {
+        int usedDeweyIdMemorySize = keyValueLeafPage.getUsedDeweyIdSize();
+
+        if (usedDeweyIdMemorySize == 0) {
+          usedDeweyIdMemorySize = MemorySegmentAllocator.SEGMENT_SIZES[0]; // No dewey IDs stored, still reserve minimum size bytes (4096).
+        }
+
         sink.writeInt(usedDeweyIdMemorySize);
         sink.writeInt(keyValueLeafPage.getLastDeweyIdIndex());
 

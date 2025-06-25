@@ -25,7 +25,6 @@ import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.node.interfaces.DataRecord;
-import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageFragmentKeyImpl;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.KeyValuePage;
@@ -54,7 +53,21 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() == 1 : "Only one version of the page!";
-      return (T) new KeyValueLeafPage((KeyValueLeafPage) pages.getFirst());
+      var firstPage = pages.getFirst();
+      T completePage =  firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), pageReadTrx);
+
+      for (int i = 0; i < firstPage.size(); i++) {
+        var slot = firstPage.getSlot(i);
+
+        if (slot == null) {
+          continue;
+        }
+
+        completePage.setSlot(slot, i);
+        completePage.setDeweyId(firstPage.getDeweyId(i), i);
+      }
+
+      return completePage;
     }
 
     @Override

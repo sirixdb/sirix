@@ -2,12 +2,17 @@ package io.sirix.page;
 
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeSerializerImpl;
 import io.sirix.settings.Constants;
+import io.sirix.utils.OS;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesIn;
 import net.openhft.chronicle.bytes.BytesOut;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
@@ -18,15 +23,25 @@ import java.util.Random;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class SerializationDeserializationTest {
+public final class SerializationDeserializationTest {
 
   private static final int NUM_RANDOM_INSERTIONS = 1000; // Number of random insertions
+
+  private final MemorySegmentAllocator segmentAllocator =
+      OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
 
   private ResourceConfiguration config;
 
   @BeforeEach
   public void setUp() {
+    segmentAllocator.init();
     config = createResourceConfiguration();
+  }
+
+  @AfterEach
+  public void tearDown() {
+    // Clean up resources if necessary
+    segmentAllocator.free();
   }
 
   // Helper method to create a ResourceConfiguration
@@ -42,8 +57,17 @@ public class SerializationDeserializationTest {
 
   @Test
   public void testPermutedSlotInsertions() {
-    KeyValueLeafPage originalPage =
-        new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null, new LinkedHashMap<>(), 10_000, -1, 0, 0);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
+                                                         0,
+                                                         IndexType.DOCUMENT,
+                                                         config,
+                                                         false,
+                                                         null,
+                                                         new LinkedHashMap<>(),
+                                                         segmentAllocator.allocate(10_000),
+                                                         null,
+                                                         0,
+                                                         0);
 
     // Predefined slot numbers for permutation
     int[] slotNumbers = { 0, 5, 10, 15, 20 };
@@ -94,8 +118,17 @@ public class SerializationDeserializationTest {
 
   @RepeatedTest(100)
   public void testRandomSlotInsertions() {
-    KeyValueLeafPage originalPage =
-        new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null, new LinkedHashMap<>(), 110_000, -1, -1, -1);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
+                                                         0,
+                                                         IndexType.DOCUMENT,
+                                                         config,
+                                                         false,
+                                                         null,
+                                                         new LinkedHashMap<>(),
+                                                         segmentAllocator.allocate(110_000),
+                                                         null,
+                                                         -1,
+                                                         -1);
     Random random = new Random();
 
     byte[][] expectedData = new byte[Constants.NDP_NODE_COUNT][];
@@ -140,8 +173,17 @@ public class SerializationDeserializationTest {
 
   @Test
   public void testBasicSerialization() {
-    KeyValueLeafPage originalPage =
-        new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null, new LinkedHashMap<>(), 0, -1, -1, -1);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
+                                                         0,
+                                                         IndexType.DOCUMENT,
+                                                         config,
+                                                         false,
+                                                         null,
+                                                         new LinkedHashMap<>(),
+                                                         segmentAllocator.allocate(1),
+                                                         null,
+                                                         -1,
+                                                         -1);
 
     BytesOut<?> sink = Bytes.elasticByteBuffer();
     SerializationType type = SerializationType.DATA;
@@ -159,8 +201,17 @@ public class SerializationDeserializationTest {
 
   @Test
   public void testSlotsSerialization() {
-    KeyValueLeafPage originalPage =
-        new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null, new LinkedHashMap<>(), 1000, -1, -1, -1);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
+                                                         0,
+                                                         IndexType.DOCUMENT,
+                                                         config,
+                                                         false,
+                                                         null,
+                                                         new LinkedHashMap<>(),
+                                                         segmentAllocator.allocate(1000),
+                                                         null,
+                                                         -1,
+                                                         -1);
     originalPage.setSlot(new byte[] { 1, 2, 3 }, 1);
     originalPage.setSlot(new byte[] { 4, 5, 6 }, 10);
     originalPage.setSlot(new byte[] { 7, 8, 9 }, 100);
@@ -189,8 +240,8 @@ public class SerializationDeserializationTest {
                                                          true,
                                                          new NodeSerializerImpl(),
                                                          new LinkedHashMap<>(),
-                                                         1000,
-                                                         1000,
+                                                         segmentAllocator.allocate(1000),
+                                                         segmentAllocator.allocate(1000),
                                                          -1,
                                                          -1);
     originalPage.setDeweyId(new byte[] { 0, 1, 2 }, 2);
@@ -211,8 +262,17 @@ public class SerializationDeserializationTest {
 
   @Test
   public void testEmptyPageSerialization() {
-    KeyValueLeafPage originalPage =
-        new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null, new LinkedHashMap<>(), 0, -1, -1, -1);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
+                                                         0,
+                                                         IndexType.DOCUMENT,
+                                                         config,
+                                                         false,
+                                                         null,
+                                                         new LinkedHashMap<>(),
+                                                         segmentAllocator.allocate(1),
+                                                         null,
+                                                         -1,
+                                                         -1);
 
     BytesOut<?> sink = Bytes.elasticByteBuffer();
     SerializationType type = SerializationType.DATA;
@@ -230,8 +290,17 @@ public class SerializationDeserializationTest {
 
   @Test
   public void testMaxSlotsSerialization() {
-    KeyValueLeafPage originalPage =
-        new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null, new LinkedHashMap<>(), 10000, -1, 0, 0);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
+                                                         0,
+                                                         IndexType.DOCUMENT,
+                                                         config,
+                                                         false,
+                                                         null,
+                                                         new LinkedHashMap<>(),
+                                                         segmentAllocator.allocate(10000),
+                                                         null,
+                                                         0,
+                                                         0);
 
     for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
       originalPage.setSlot(new byte[] { (byte) i }, i);
