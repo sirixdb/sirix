@@ -42,7 +42,6 @@ import io.sirix.io.bytepipe.LZ4Compressor;
 import io.sirix.node.NodeSerializerImpl;
 import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.settings.VersioningType;
-import io.sirix.utils.OS;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
 

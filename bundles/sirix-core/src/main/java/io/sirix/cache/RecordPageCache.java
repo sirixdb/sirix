@@ -24,6 +24,7 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
           assert page != null;
           assert page.getPinCount() == 0 : "Page must not be pinned: " + page.getPinCount();
           page.clear();
+          KeyValueLeafPagePool.getInstance().returnPage(page);
         };
 
     cache = Caffeine.newBuilder()

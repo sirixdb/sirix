@@ -5,6 +5,10 @@ import com.google.common.base.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.PageTrx;
+import io.sirix.cache.KeyValueLeafPagePool;
+import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
@@ -13,21 +17,25 @@ import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.utils.ArrayIterator;
+import io.sirix.utils.OS;
 import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.chronicle.bytes.BytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.*;
+import java.nio.ByteOrder;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 
 /**
  * <p>
@@ -40,23 +48,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 @SuppressWarnings({ "unchecked" })
 public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
-
   private static final int INT_SIZE = Integer.BYTES;
 
   private final AtomicInteger pinCount = new AtomicInteger();
 
-  public final Arena arena = Arena.ofShared();
-
   /**
    * The current revision.
    */
-  private final int revision;
+  private int revision;
 
   /**
    * Determines if DeweyIDs are stored or not.
    */
-  private final boolean areDeweyIDsStored;
+  private boolean areDeweyIDsStored;
 
   private final boolean doResizeMemorySegmentsIfNeeded;
 
@@ -93,7 +97,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Key of record page. This is the base key of all contained nodes.
    */
-  private final long recordPageKey;
+  private long recordPageKey;
 
   /**
    * The record-ID mapped to the records.
@@ -115,17 +119,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * The index type.
    */
-  private final IndexType indexType;
+  private IndexType indexType;
 
   /**
    * Persistenter.
    */
-  private final RecordSerializer recordPersister;
+  private RecordSerializer recordPersister;
 
   /**
    * The resource configuration.
    */
-  private final ResourceConfiguration resourceConfig;
+  private ResourceConfiguration resourceConfig;
 
   private volatile BytesOut<?> bytes;
 
@@ -135,38 +139,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private boolean isClosed;
 
-  /**
-   * Copy constructor.
-   *
-   * @param pageToClone the page to clone
-   */
-  @SuppressWarnings("CopyConstructorMissesField")
-  public KeyValueLeafPage(final KeyValueLeafPage pageToClone) {
-    this.addedReferences = false;
-    this.references = pageToClone.references;
-    this.recordPageKey = pageToClone.recordPageKey;
-    this.records = Arrays.copyOf(pageToClone.records, pageToClone.records.length);
-    this.slotMemory = arena.allocate(pageToClone.slotMemory.byteSize());
-    MemorySegment.copy(pageToClone.slotMemory, 0, this.slotMemory, 0, pageToClone.slotMemory.byteSize());
-    if (pageToClone.areDeweyIDsStored) {
-      this.deweyIdMemory = arena.allocate(pageToClone.deweyIdMemory.byteSize());
-      MemorySegment.copy(pageToClone.deweyIdMemory, 0, this.deweyIdMemory, 0, pageToClone.deweyIdMemory.byteSize());
-    } else {
-      this.deweyIdMemory = null;
-    }
-    this.indexType = pageToClone.indexType;
-    this.recordPersister = pageToClone.recordPersister;
-    this.resourceConfig = pageToClone.resourceConfig;
-    this.revision = pageToClone.revision;
-    this.areDeweyIDsStored = pageToClone.areDeweyIDsStored;
-    this.slotOffsets = Arrays.copyOf(pageToClone.slotOffsets, pageToClone.slotOffsets.length);
-    this.deweyIdOffsets = Arrays.copyOf(pageToClone.deweyIdOffsets, pageToClone.deweyIdOffsets.length);
-    this.doResizeMemorySegmentsIfNeeded = true;
-    this.slotMemoryFreeSpaceStart = pageToClone.slotMemoryFreeSpaceStart;
-    this.lastSlotIndex = pageToClone.lastSlotIndex;
-    this.deweyIdMemoryFreeSpaceStart = pageToClone.deweyIdMemoryFreeSpaceStart;
-    this.lastDeweyIdIndex = pageToClone.lastDeweyIdIndex;
-  }
+  private MemorySegmentAllocator segmentAllocator =
+      OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
 
   /**
    * Constructor which initializes a new {@link KeyValueLeafPage}.
@@ -176,7 +150,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @param resourceConfig the resource configuration
    */
   public KeyValueLeafPage(final @NonNegative long recordPageKey, final IndexType indexType,
-      final ResourceConfiguration resourceConfig, final int revisionNumber) {
+      final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
+      final MemorySegment deweyIdMemory) {
     // Assertions instead of requireNonNull(...) checks as it's part of the
     // internal flow.
     assert resourceConfig != null : "The resource config must not be null!";
@@ -185,12 +160,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.recordPageKey = recordPageKey;
     this.records = new DataRecord[Constants.NDP_NODE_COUNT];
     this.areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
-    this.slotMemory = arena.allocate(65536);
-    if (areDeweyIDsStored) {
-      this.deweyIdMemory = arena.allocate(4096);
-    } else {
-      this.deweyIdMemory = null;
-    }
     this.indexType = indexType;
     this.resourceConfig = resourceConfig;
     this.recordPersister = resourceConfig.recordPersister;
@@ -204,6 +173,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.lastSlotIndex = -1;
     this.deweyIdMemoryFreeSpaceStart = 0;
     this.lastDeweyIdIndex = -1;
+    this.slotMemory = slotMemory;
+    this.deweyIdMemory = deweyIdMemory;
   }
 
   /**
@@ -217,24 +188,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @param recordPersister   Persistenter.
    * @param references        References to overflow pages.
    */
-  KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType,
+  public KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
-      final RecordSerializer recordPersister, final Map<Long, PageReference> references, final int slotMemorySize,
-      final int deweyIdMemorySize, final int lastSlotIndex, final int lastDeweyIdIndex) {
+      final RecordSerializer recordPersister, final Map<Long, PageReference> references, final MemorySegment slotMemory,
+      final MemorySegment deweyIdMemory, final int lastSlotIndex, final int lastDeweyIdIndex) {
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = indexType;
     this.resourceConfig = resourceConfig;
     this.areDeweyIDsStored = areDeweyIDsStored;
     this.recordPersister = recordPersister;
-    this.slotMemory = arena.allocate(slotMemorySize);
-
-    if (areDeweyIDsStored) {
-      this.deweyIdMemory = arena.allocate(deweyIdMemorySize);
-    } else {
-      this.deweyIdMemory = null;
-    }
-
+    this.slotMemory = slotMemory;
+    this.deweyIdMemory = deweyIdMemory;
     this.references = references;
     this.records = new DataRecord[Constants.NDP_NODE_COUNT];
     this.slotOffsets = new int[Constants.NDP_NODE_COUNT];
@@ -381,9 +346,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     setData(recordData, slotNumber, slotOffsets, slotMemory);
   }
 
-  // For testing.
   public void setSlotMemory(MemorySegment slotMemory) {
     this.slotMemory = slotMemory;
+  }
+
+  public void setDeweyIdMemory(MemorySegment deweyIdMemory) {
+    this.deweyIdMemory = deweyIdMemory;
   }
 
   @Override
@@ -451,6 +419,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         // Calculate sizeDelta based on whether the new data is larger or smaller.
         sizeDelta = requiredSize - currentSize;
       }
+
+      offsets[slotNumber] = alignOffset(currentOffset);
     } else {
       // If the slot is empty, determine where to place the new data.
       currentOffset = findFreeSpaceForSlots(requiredSize, isSlotMemory);
@@ -466,6 +436,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Write the new data into the slot.
     int alignedOffset = alignOffset(currentOffset);
     memory.set(ValueLayout.JAVA_INT, alignedOffset, dataSize);
+
+    // Verify the write
+    int verifiedSize = memory.get(ValueLayout.JAVA_INT, alignedOffset);
+    if (verifiedSize <= 0) {
+      throw new IllegalStateException(
+          String.format("Invalid slot size written: %d (slot: %d, offset: %d)",
+                        verifiedSize, slotNumber, alignedOffset));
+    }
+
 
     if (data instanceof MemorySegment) {
       MemorySegment.copy((MemorySegment) data, 0, memory, alignedOffset + INT_SIZE, dataSize);
@@ -536,7 +515,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   MemorySegment resizeMemorySegment(MemorySegment oldMemory, int newSize, int[] offsets, boolean isSlotMemory) {
-    MemorySegment newMemory = arena.allocate(newSize);
+    MemorySegment newMemory = segmentAllocator.allocate(newSize);
     MemorySegment.copy(oldMemory, 0, newMemory, 0, oldMemory.byteSize());
 
     if (isSlotMemory) {
@@ -567,6 +546,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public int getUsedSlotsSize() {
     return getUsedByteSize(slotOffsets, slotMemory);
+  }
+
+  public int getSlotMemoryByteSize() {
+    return (int) slotMemory.byteSize();
+  }
+
+  public int getDeweyIdMemoryByteSize() {
+    return (int) deweyIdMemory.byteSize();
   }
 
   int getUsedByteSize(int[] offsets, MemorySegment memory) {
@@ -663,14 +650,163 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public MemorySegment getSlot(int slotNumber) {
+    // Validate slot memory segment
+    assert slotMemory != null : "Slot memory segment is null";
+    assert slotMemory.byteSize() > 0 :
+        "Slot memory segment has zero length. Page key: " + recordPageKey +
+            ", revision: " + revision + ", index type: " + indexType;
+
+    // Validate slot number
+    assert slotNumber >= 0 && slotNumber < slotOffsets.length :
+        "Invalid slot number: " + slotNumber;
+
     int slotOffset = slotOffsets[slotNumber];
     if (slotOffset < 0) {
       return null;
     }
-    int slotLength = slotMemory.get(ValueLayout.JAVA_INT, slotOffset);
-    slotOffset += INT_SIZE;
-    assert slotLength > 0;
-    return slotMemory.asSlice(slotOffset, slotLength);
+
+    // CRITICAL: Validate memory segment state before reading
+    if (slotMemory == null) {
+      throw new IllegalStateException("Slot memory is null for page " + recordPageKey);
+    }
+
+    if (slotOffset + INT_SIZE > slotMemory.byteSize()) {
+      throw new IllegalStateException(String.format(
+          "Slot offset %d + %d exceeds memory segment size %d (page %d, slot %d)",
+          slotOffset, INT_SIZE, slotMemory.byteSize(), recordPageKey, slotNumber));
+    }
+
+    // Read the length from the first 4 bytes at the offset
+    int length;
+    try {
+      length = slotMemory.get(ValueLayout.JAVA_INT, slotOffset);
+    } catch (Exception e) {
+      throw new IllegalStateException(String.format(
+          "Failed to read length at offset %d (page %d, slot %d, memory size %d)",
+          slotOffset, recordPageKey, slotNumber, slotMemory.byteSize()), e);
+    }
+
+    if (length <= 0) {
+      // Print memory segment contents around the failing offset
+      String memoryDump = dumpMemorySegmentAroundOffset(slotOffset, slotNumber);
+
+      String errorMessage = String.format(
+          "Slot length must be greater than 0, but is %d (slotNumber: %d, offset: %d, revision: %d, page: %d)",
+          length, slotNumber, slotOffset, revision, recordPageKey);
+
+      // Add comprehensive debugging info
+      String debugInfo = String.format(
+          "%s\nMemory segment: size=%d, closed=%s\nSlot offsets around %d: [%d, %d, %d]\nLast slot index: %d, Free space: %d\n%s",
+          errorMessage, slotMemory.byteSize(), isClosed,
+          slotNumber,
+          slotNumber > 0 ? slotOffsets[slotNumber-1] : -1,
+          slotOffsets[slotNumber],
+          slotNumber < slotOffsets.length-1 ? slotOffsets[slotNumber+1] : -1,
+          lastSlotIndex, slotMemoryFreeSpaceStart,
+          memoryDump);
+
+      throw new AssertionError(createStackTraceMessage(debugInfo));
+    }
+
+
+    // Validate that we can read the full data
+    if (slotOffset + INT_SIZE + length > slotMemory.byteSize()) {
+      throw new IllegalStateException(String.format(
+          "Slot data extends beyond memory segment: offset=%d, length=%d, total=%d, memory_size=%d",
+          slotOffset, length, slotOffset + INT_SIZE + length, slotMemory.byteSize()));
+    }
+
+    // Return the memory segment containing just the data (skip the 4-byte length prefix)
+    return slotMemory.asSlice(slotOffset + INT_SIZE, length);
+  }
+
+  /**
+   * Dump the memory segment contents around a specific offset for debugging purposes.
+   *
+   * @param offset the offset where the issue occurred
+   * @param slotNumber the slot number for context
+   * @return a formatted string showing the memory contents
+   */
+  private String dumpMemorySegmentAroundOffset(int offset, int slotNumber) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("Memory segment dump around failing offset:\n");
+
+    // Show 64 bytes around the offset (32 before, 32 after)
+    int startOffset = Math.max(0, offset - 32);
+    int endOffset = Math.min((int) slotMemory.byteSize(), offset + 64);
+
+    sb.append(String.format("Dumping bytes %d to %d (offset %d marked with **):\n",
+                            startOffset, endOffset - 1, offset));
+
+    // Hex dump with 16 bytes per line
+    for (int i = startOffset; i < endOffset; i += 16) {
+      sb.append(String.format("%04X: ", i));
+
+      // Hex bytes
+      for (int j = 0; j < 16 && i + j < endOffset; j++) {
+        byte b = slotMemory.get(ValueLayout.JAVA_BYTE, i + j);
+        if (i + j == offset) {
+          sb.append(String.format("**%02X** ", b & 0xFF));
+        } else {
+          sb.append(String.format("%02X ", b & 0xFF));
+        }
+      }
+
+      // ASCII representation
+      sb.append(" |");
+      for (int j = 0; j < 16 && i + j < endOffset; j++) {
+        byte b = slotMemory.get(ValueLayout.JAVA_BYTE, i + j);
+        char c = (b >= 32 && b < 127) ? (char) b : '.';
+        if (i + j == offset) {
+          sb.append('*');
+        } else {
+          sb.append(c);
+        }
+      }
+      sb.append("|\n");
+    }
+
+    // Also show the specific 4 bytes that should contain the length
+    sb.append(String.format("\nSpecific 4-byte length value at offset %d:\n", offset));
+    if (offset + 4 <= slotMemory.byteSize()) {
+      for (int i = 0; i < 4; i++) {
+        byte b = slotMemory.get(ValueLayout.JAVA_BYTE, offset + i);
+        sb.append(String.format("Byte %d: 0x%02X (%d)\n", i, b & 0xFF, b));
+      }
+
+      // Show as little-endian and big-endian integers
+      try {
+        int littleEndian = slotMemory.get(ValueLayout.JAVA_INT.withOrder(ByteOrder.LITTLE_ENDIAN), offset);
+        int bigEndian = slotMemory.get(ValueLayout.JAVA_INT.withOrder(ByteOrder.BIG_ENDIAN), offset);
+        sb.append(String.format("As little-endian int: %d\n", littleEndian));
+        sb.append(String.format("As big-endian int: %d\n", bigEndian));
+      } catch (Exception e) {
+        sb.append("Failed to read as integer: ").append(e.getMessage()).append('\n');
+      }
+    }
+
+    // Show all slot offsets for context
+    sb.append("\nAll slot offsets:\n");
+    for (int i = 0; i < slotOffsets.length; i++) {
+      if (slotOffsets[i] >= 0) {
+        sb.append(String.format("Slot %d: offset %d", i, slotOffsets[i]));
+        if (i == slotNumber) {
+          sb.append(" <- FAILING SLOT");
+        }
+        sb.append('\n');
+      }
+    }
+
+    return sb.toString();
+  }
+
+
+  private static String createStackTraceMessage(String message) {
+    StringBuilder stackTraceBuilder = new StringBuilder(message + "\n");
+    for (StackTraceElement element : Thread.currentThread().getStackTrace()) {
+      stackTraceBuilder.append("\t").append(element).append("\n");
+    }
+    return stackTraceBuilder.toString();
   }
 
   @Override
@@ -733,10 +869,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public <C extends KeyValuePage<DataRecord>> C newInstance(@NonNegative long recordPageKey,
       @NonNull IndexType indexType, @NonNull PageReadOnlyTrx pageReadTrx) {
-    return (C) new KeyValueLeafPage(recordPageKey,
-                                    indexType,
-                                    pageReadTrx.getResourceSession().getResourceConfig(),
-                                    pageReadTrx.getRevisionNumber());
+    return (C) KeyValueLeafPagePool.getInstance()
+                                   .borrowPage(SIXTYFOUR_KB,
+                                               recordPageKey,
+                                               indexType,
+                                               pageReadTrx.getResourceSession().getResourceConfig(),
+                                               pageReadTrx.getRevisionNumber());
   }
 
   @Override
@@ -769,15 +907,86 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public Page clear() {
     if (!isClosed) {
-      assert
-          pinCount.get() == 0 :
-          "Pin count must be 0, but is " + pinCount.get() + " (page: " + recordPageKey + ", indexType: " + indexType
-              + ")";
-      isClosed = true;
-      arena.close();
+      // Reset state but don't modify final fields like recordPageKey
+      slotMemoryFreeSpaceStart = 0;
+      lastSlotIndex = -1;
+      deweyIdMemoryFreeSpaceStart = 0;
+      lastDeweyIdIndex = -1;
+      addedReferences = false;
+
+      // Clear arrays
+      Arrays.fill(records, null);
+      Arrays.fill(slotOffsets, -1);
+      if (areDeweyIDsStored) {
+        Arrays.fill(deweyIdOffsets, -1);
+      }
+
+      // Clear references
+      references.clear();
+
+      // Clear memory properly - fill with zeros
+      slotMemory.fill((byte) 0x00);
+      segmentAllocator.release(slotMemory);
+      if (areDeweyIDsStored && deweyIdMemory != null) {
+        deweyIdMemory.fill((byte) 0x00);
+        segmentAllocator.release(deweyIdMemory);
+      }
+
+      // Reset other state
+      bytes = null;
+      hashCode = null;
+      hash = 0;
     }
     return this;
   }
+
+  /**
+   * Reset this page for reuse with new parameters.
+   */
+  public void resetForReuse(final long recordPageKey, final int revisionNumber, final IndexType indexType,
+      final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
+      final RecordSerializer recordPersister, final Map<Long, PageReference> references, final MemorySegment slotMemory,
+      final MemorySegment deweyIdMemory, final int lastSlotIndex, final int lastDeweyIdIndex) {
+    // Update page properties
+    this.recordPageKey = recordPageKey;
+    this.indexType = indexType;
+    this.resourceConfig = resourceConfig;
+    this.revision = revisionNumber;
+    this.recordPersister = recordPersister;
+    this.areDeweyIDsStored = areDeweyIDsStored;
+    this.lastSlotIndex = lastSlotIndex;
+    this.lastDeweyIdIndex = lastDeweyIdIndex;
+
+    // Clear all state
+    this.slotMemoryFreeSpaceStart = 0;
+    this.deweyIdMemoryFreeSpaceStart = 0;
+    this.lastSlotIndex = -1;
+    this.lastDeweyIdIndex = -1;
+    this.addedReferences = false;
+
+    // Clear arrays
+    Arrays.fill(records, null);
+    Arrays.fill(slotOffsets, -1);
+    if (areDeweyIDsStored) {
+      Arrays.fill(deweyIdOffsets, -1);
+    }
+
+    // Clear references
+    references.clear();
+
+    // Reset memory to clean state
+    slotMemory.fill((byte) 0x00);
+    if (deweyIdMemory != null) {
+      deweyIdMemory.fill((byte) 0x00);
+    }
+
+    // Reset other state
+    bytes = null;
+    hashCode = null;
+    hash = 0;
+    isClosed = false;
+  }
+
 
   @Override
   public boolean isClosed() {

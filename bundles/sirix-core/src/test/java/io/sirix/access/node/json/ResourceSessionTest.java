@@ -56,8 +56,8 @@ public final class ResourceSessionTest {
                                                    .versioningApproach(VersioningType.FULL)
                                                    .storageType(StorageType.MEMORY_MAPPED)
                                                    .build());
-      try (final var manager = database.beginResourceSession(resource)) {
-        startTransactions.accept(manager);
+      try (final var session = database.beginResourceSession(resource)) {
+        startTransactions.accept(session);
       }
     }
   }
@@ -66,7 +66,7 @@ public final class ResourceSessionTest {
     final var expectedMessage =
         "No read-write transaction available, please close the running read-write transaction first.";
     final var actualMessage = exception.getMessage();
-
+    System.out.println("Actual message: " + actualMessage);
     assertTrue(actualMessage.contains(expectedMessage));
   }
 }

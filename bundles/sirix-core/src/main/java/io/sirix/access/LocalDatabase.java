@@ -82,7 +82,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    */
   private final ResourceStore<T> resourceStore;
 
-  private final PathBasedPool<ResourceSession<?, ?>> resourceManagers;
+  private final PathBasedPool<ResourceSession<?, ?>> resourceSessions;
 
   /**
    * This field should be use to fetch the locks for resource managers.
@@ -102,16 +102,16 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * @param sessions           The database sessions management instance.
    * @param resourceStore      The resource store used by this database.
    * @param writeLocks         Manages the locks for resource managers.
-   * @param resourceManagers   The pool for resource managers.
+   * @param resourceSessions   The pool for resource managers.
    */
   public LocalDatabase(final TransactionManager transactionManager, final DatabaseConfiguration dbConfig,
       final PathBasedPool<Database<?>> sessions, final ResourceStore<T> resourceStore,
-      final WriteLocksRegistry writeLocks, final PathBasedPool<ResourceSession<?, ?>> resourceManagers) {
+      final WriteLocksRegistry writeLocks, final PathBasedPool<ResourceSession<?, ?>> resourceSessions) {
     this.transactionManager = transactionManager;
     this.dbConfig = requireNonNull(dbConfig);
     this.sessions = sessions;
     this.resourceStore = resourceStore;
-    this.resourceManagers = resourceManagers;
+    this.resourceSessions = resourceSessions;
     this.writeLocks = writeLocks;
     this.resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
     this.sessions.putObject(dbConfig.getDatabaseFile(), this);
@@ -269,8 +269,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
 
     // Check that no running resource managers / sessions are opened.
-    if (this.resourceManagers.containsAnyEntry(resourceFile)) {
-      throw new IllegalStateException("Open resource managers found, must be closed first: " + resourceManagers);
+    if (this.resourceSessions.containsAnyEntry(resourceFile)) {
+      throw new IllegalStateException("Open resource managers found, must be closed first: " + resourceSessions);
     }
 
     // If file is existing and folder is a Sirix-dataplace, delete it.
@@ -361,6 +361,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     // Remove from database mapping.
     this.sessions.removeObject(dbConfig.getDatabaseFile(), this);
+
+    // Free all allocated memory if it's the last database which is closed.
+    Databases.freeAllocatedMemory();
 
     // Remove lock file.
     SirixFiles.recursiveRemove(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));
