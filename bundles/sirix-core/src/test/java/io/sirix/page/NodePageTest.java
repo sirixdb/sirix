@@ -43,8 +43,10 @@ import io.sirix.settings.Constants;
 import io.sirix.utils.NamePageHash;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.nio.ByteBuffer;
 
+import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static org.junit.Assert.assertEquals;
 
 /**
@@ -62,6 +64,8 @@ public final class NodePageTest {
    */
   private PageReadOnlyTrx pageReadTrx;
 
+  private Arena arena;
+
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
@@ -69,6 +73,7 @@ public final class NodePageTest {
     XmlTestHelper.createTestDocument();
     holder = Holder.generateDeweyIDResourceSession();
     pageReadTrx = holder.getResourceSession().beginPageReadOnlyTrx();
+    arena = Arena.ofConfined();
   }
 
   @After
@@ -77,6 +82,7 @@ public final class NodePageTest {
     holder.close();
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
+    arena.close();
   }
 
   @Test
@@ -84,7 +90,9 @@ public final class NodePageTest {
     final KeyValueLeafPage page1 = new KeyValueLeafPage(0L,
                                                         IndexType.DOCUMENT,
                                                         pageReadTrx.getResourceSession().getResourceConfig(),
-                                                        pageReadTrx.getRevisionNumber());
+                                                        pageReadTrx.getRevisionNumber(),
+                                                        arena.allocate(SIXTYFOUR_KB),
+                                                        null);
     assertEquals(0L, page1.getPageKey());
 
     final NodeDelegate del =
