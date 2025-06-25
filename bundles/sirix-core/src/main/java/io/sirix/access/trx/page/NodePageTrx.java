@@ -29,6 +29,7 @@ import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.PageTrx;
 import io.sirix.cache.IndexLogKey;
+import io.sirix.cache.KeyValueLeafPagePool;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
@@ -63,6 +64,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -355,6 +357,10 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     container.getComplete().clear();
     page.clear();
 
+    if (page instanceof KeyValueLeafPage keyValueLeafPage) {
+      KeyValueLeafPagePool.getInstance().returnPage(keyValueLeafPage);
+    }
+
     // Remove page reference.
     reference.setPage(null);
   }
@@ -613,14 +619,18 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       }
 
       if (reference.getKey() == Constants.NULL_ID_LONG) {
-        final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey,
-                                                                   indexType,
-                                                                   getResourceSession().getResourceConfig(),
-                                                                   pageRtx.getRevisionNumber());
-        final KeyValueLeafPage modifyPage = new KeyValueLeafPage(recordPageKey,
-                                                                 indexType,
-                                                                 getResourceSession().getResourceConfig(),
-                                                                 getRevisionNumber());
+        final KeyValueLeafPage completePage = KeyValueLeafPagePool.getInstance()
+                                                                  .borrowPage(SIXTYFOUR_KB,
+                                                                              recordPageKey,
+                                                                              indexType,
+                                                                              getResourceSession().getResourceConfig(),
+                                                                              pageRtx.getRevisionNumber());
+        final KeyValueLeafPage modifyPage = KeyValueLeafPagePool.getInstance()
+                                                                .borrowPage(SIXTYFOUR_KB,
+                                                                            recordPageKey,
+                                                                            indexType,
+                                                                            getResourceSession().getResourceConfig(),
+                                                                            pageRtx.getRevisionNumber());
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
       } else {
         pageContainer = dereferenceRecordPageForModification(reference);

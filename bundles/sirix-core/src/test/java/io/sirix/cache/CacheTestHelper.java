@@ -27,6 +27,10 @@ import io.sirix.exception.SirixException;
 import io.sirix.index.IndexType;
 import io.sirix.page.KeyValueLeafPage;
 
+import java.lang.foreign.Arena;
+
+import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
+
 /**
  * Helper class for testing the cache.
  *
@@ -46,6 +50,8 @@ public class CacheTestHelper {
 
   private static final int VERSIONSTORESTORE = 3;
 
+  private static Arena arena = Arena.ofConfined();
+
   /**
    * Setup the cache.
    *
@@ -59,14 +65,18 @@ public class CacheTestHelper {
       final KeyValueLeafPage page = new KeyValueLeafPage(i,
                                                          IndexType.DOCUMENT,
                                                          PAGE_READ_TRX.getResourceSession().getResourceConfig(),
-                                                         PAGE_READ_TRX.getRevisionNumber());
+                                                         PAGE_READ_TRX.getRevisionNumber(),
+                                                         arena.allocate(SIXTYFOUR_KB),
+                                                         null);
       final KeyValueLeafPage[] revs = new KeyValueLeafPage[VERSIONSTORESTORE];
 
       for (int j = 0; j < VERSIONSTORESTORE; j++) {
         PAGES[i][j + 1] = new KeyValueLeafPage(i,
                                                IndexType.DOCUMENT,
                                                PAGE_READ_TRX.getResourceSession().getResourceConfig(),
-                                               PAGE_READ_TRX.getRevisionNumber());
+                                               PAGE_READ_TRX.getRevisionNumber(),
+                                               arena.allocate(SIXTYFOUR_KB),
+                                               null);
         revs[j] = PAGES[i][j + 1];
       }
       PAGES[i][0] = page;
