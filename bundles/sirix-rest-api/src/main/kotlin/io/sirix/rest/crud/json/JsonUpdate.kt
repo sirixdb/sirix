@@ -3,15 +3,12 @@ package io.sirix.rest.crud.json
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
 import io.vertx.core.Promise
-import io.vertx.core.http.HttpHeaders
-import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.await
 import io.sirix.access.Databases
-import io.sirix.access.trx.node.HashType
 import io.sirix.access.trx.node.json.objectvalue.*
 import io.sirix.api.json.JsonNodeTrx
-import io.sirix.rest.crud.Revisions
+import io.sirix.rest.crud.AbstractUpdateHandler
 import io.sirix.rest.crud.SirixDBUser
 import io.sirix.rest.crud.json.JsonInsertionMode.Companion.getInsertionModeByName
 import io.sirix.service.json.JsonNumber
@@ -22,6 +19,7 @@ import java.io.StringWriter
 import java.nio.file.Path
 import java.time.Instant
 import java.util.*
+
 
 @Suppress("unused")
 enum class JsonInsertionMode {
@@ -219,26 +217,32 @@ enum class JsonInsertionMode {
                 jsonReader.beginObject()
                 ObjectValue()
             }
+
             JsonToken.BEGIN_ARRAY -> {
                 jsonReader.beginArray()
                 ArrayValue()
             }
+
             JsonToken.BOOLEAN -> {
                 val booleanVal: Boolean = jsonReader.nextBoolean()
                 BooleanValue(booleanVal)
             }
+
             JsonToken.STRING -> {
                 val stringVal: String = jsonReader.nextString()
                 StringValue(stringVal)
             }
+
             JsonToken.NULL -> {
                 jsonReader.nextNull()
                 NullValue()
             }
+
             JsonToken.NUMBER -> {
                 val numberVal: Number = JsonNumber.stringToNumber(jsonReader.nextString())
                 NumberValue(numberVal)
             }
+
             JsonToken.END_ARRAY, JsonToken.END_DOCUMENT, JsonToken.END_OBJECT, JsonToken.NAME -> throw AssertionError()
             else -> throw AssertionError()
         }
@@ -287,26 +291,10 @@ enum class JsonInsertionMode {
     }
 }
 
-class JsonUpdate(private val location: Path) {
-    suspend fun handle(ctx: RoutingContext): Route {
-        val databaseName = ctx.pathParam("database")
+class JsonUpdate(location: Path) :
+    AbstractUpdateHandler(location) {
 
-        val resource = ctx.pathParam("resource")
-        val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
-        val insertionMode: String? = ctx.queryParam("insert").getOrNull(0)
-
-        if (databaseName == null || resource == null) {
-            throw IllegalArgumentException("Database name and resource name not given.")
-        }
-
-        val body = ctx.body().asString()
-
-        update(databaseName, resource, nodeId?.toLongOrNull(), insertionMode, body, ctx)
-
-        return ctx.currentRoute()
-    }
-
-    private suspend fun update(
+    override suspend fun update(
         databaseName: String, resPathName: String, nodeId: Long?, insertionModeAsString: String?,
         resFileToStore: String, ctx: RoutingContext
     ) {
@@ -324,12 +312,7 @@ class JsonUpdate(private val location: Path) {
 
                 manager.use {
                     val commitMessage = ctx.queryParam("commitMessage").getOrNull(0)
-                    val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
-                    val commitTimestamp = if (commitTimestampAsString == null) {
-                        null
-                    } else {
-                        Revisions.parseRevisionTimestamp(commitTimestampAsString).toInstant()
-                    }
+                    val commitTimestamp = getCommitTimestamp(ctx)
                     val wtx = manager.beginNodeTrx()
                     val revision = wtx.revisionNumber
                     val (maxNodeKey, hash) = wtx.use {
@@ -340,16 +323,7 @@ class JsonUpdate(private val location: Path) {
                         if (wtx.isDocumentRoot && wtx.hasFirstChild()) {
                             wtx.moveToFirstChild()
                         }
-
-                        if (manager.resourceConfig.hashType != HashType.NONE && !wtx.isDocumentRoot) {
-                            val hashCode = ctx.request().getHeader(HttpHeaders.ETAG)
-                                ?: throw IllegalStateException("Hash code is missing in ETag HTTP-Header.")
-
-                            if (wtx.hash != hashCode.toLong()) {
-                                throw IllegalArgumentException("Someone might have changed the resource in the meantime.")
-                            }
-                        }
-
+                        checkHashCode(ctx, wtx, manager.resourceConfig)
                         if (insertionModeAsString == null) {
                             throw IllegalArgumentException("Insertion mode must be given.")
                         }
@@ -361,11 +335,41 @@ class JsonUpdate(private val location: Path) {
                         @Suppress("unused")
                         if (jsonReader.peek() != JsonToken.BEGIN_ARRAY && jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
                             when (jsonReader.peek()) {
-                                JsonToken.STRING -> insertionModeByName.insertString(wtx, jsonReader, commitMessage, commitTimestamp)
-                                JsonToken.NULL -> insertionModeByName.insertNull(wtx, jsonReader, commitMessage, commitTimestamp)
-                                JsonToken.NUMBER -> insertionModeByName.insertNumber(wtx, jsonReader, commitMessage, commitTimestamp)
-                                JsonToken.BOOLEAN -> insertionModeByName.insertBoolean(wtx, jsonReader, commitMessage, commitTimestamp)
-                                JsonToken.NAME -> insertionModeByName.insertObjectRecord(wtx, jsonReader, commitMessage, commitTimestamp)
+                                JsonToken.STRING -> insertionModeByName.insertString(
+                                    wtx,
+                                    jsonReader,
+                                    commitMessage,
+                                    commitTimestamp
+                                )
+
+                                JsonToken.NULL -> insertionModeByName.insertNull(
+                                    wtx,
+                                    jsonReader,
+                                    commitMessage,
+                                    commitTimestamp
+                                )
+
+                                JsonToken.NUMBER -> insertionModeByName.insertNumber(
+                                    wtx,
+                                    jsonReader,
+                                    commitMessage,
+                                    commitTimestamp
+                                )
+
+                                JsonToken.BOOLEAN -> insertionModeByName.insertBoolean(
+                                    wtx,
+                                    jsonReader,
+                                    commitMessage,
+                                    commitTimestamp
+                                )
+
+                                JsonToken.NAME -> insertionModeByName.insertObjectRecord(
+                                    wtx,
+                                    jsonReader,
+                                    commitMessage,
+                                    commitTimestamp
+                                )
+
                                 else -> throw IllegalStateException()
                             }
                         } else {
@@ -384,13 +388,7 @@ class JsonUpdate(private val location: Path) {
                     }
 
                     if (maxNodeKey > 5000) {
-                        ctx.response().statusCode = 200
-
-                        if (manager.resourceConfig.hashType == HashType.NONE) {
-                            ctx.response()
-                        } else {
-                            ctx.response().putHeader(HttpHeaders.ETAG, hash.toString())
-                        }
+                        handleResponse(ctx, maxNodeKey, hash, manager.resourceConfig, null)
                     } else {
                         val out = StringWriter()
                         val serializerBuilder = JsonSerializer.newBuilder(manager, out)

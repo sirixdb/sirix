@@ -38,8 +38,8 @@ public final class GetNodeKey extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+    final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
 
-    return new Int64(doc.getNodeKey());
+    return new Int64(document.getNodeKey());
   }
 }

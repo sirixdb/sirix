@@ -46,20 +46,20 @@ public final class AllTimes extends AbstractFunction {
       @Override
       public Iter iterate() {
         return new BaseIter() {
-          Stream<?> s;
+          Stream<?> stream;
 
           @Override
           public Item next() {
-            if (s == null) {
-              s = item.getAllTimes();
+            if (stream == null) {
+              stream = item.getAllTimes();
             }
-            return (Item) s.next();
+            return (Item) stream.next();
           }
 
           @Override
           public void close() {
-            if (s != null) {
-              s.close();
+            if (stream != null) {
+              stream.close();
             }
           }
         };

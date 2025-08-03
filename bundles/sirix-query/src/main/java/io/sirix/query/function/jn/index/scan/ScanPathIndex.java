@@ -49,8 +49,8 @@ public final class ScanPathIndex extends AbstractScanIndex {
 
   @Override
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final JsonDBItem doc = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx rtx = doc.getTrx();
+    final JsonDBItem document = (JsonDBItem) args[0];
+    final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
@@ -62,19 +62,19 @@ public final class ScanPathIndex extends AbstractScanIndex {
 
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND, "Index no %s for collection %s and document %s not found.",
-                               idx, doc.getCollection().getName(),
-                               doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
+                               idx, document.getCollection().getName(),
+                               document.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     if (indexDef.getType() != IndexType.PATH) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
-          "Index no %s for collection %s and document %s is not a path index.", idx, doc.getCollection().getName(),
-          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
+          "Index no %s for collection %s and document %s is not a path index.", idx, document.getCollection().getName(),
+          document.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     final String paths = FunUtil.getString(args, 2, "$paths", null, null, false);
     final PathFilter filter = (paths != null)
-        ? controller.createPathFilter(Set.of(paths.split(";")), doc.getTrx())
+        ? controller.createPathFilter(Set.of(paths.split(";")), document.getTrx())
         : null;
 
-    return getSequence(doc, controller.openPathIndex(doc.getTrx().getPageTrx(), indexDef, filter));
+    return getSequence(document, controller.openPathIndex(document.getTrx().getPageTrx(), indexDef, filter));
   }
 }

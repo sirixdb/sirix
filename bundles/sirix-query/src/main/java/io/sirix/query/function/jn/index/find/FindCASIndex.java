@@ -54,8 +54,8 @@ public final class FindCASIndex extends AbstractFunction {
 
   @Override
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final JsonDBItem doc = (JsonDBItem) args[0];
-    final JsonNodeReadOnlyTrx rtx = doc.getTrx();
+    final JsonDBItem document = (JsonDBItem) args[0];
+    final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonIndexController controller = rtx.getResourceSession().getRtxIndexController(rtx.getRevisionNumber());
 
     if (controller == null) {
@@ -65,8 +65,8 @@ public final class FindCASIndex extends AbstractFunction {
     final QNm name = new QNm(Namespaces.XS_NSURI, ((Str) args[1]).stringValue());
     final Type type = sctx.getTypes().resolveAtomicType(name);
     final Path<QNm> path = Path.parse(((Str) args[2]).stringValue(), PathParser.Type.JSON);
-    final Optional<IndexDef> indexDef = controller.getIndexes().findCASIndex(path, type);
+    final Optional<IndexDef> casIndex = controller.getIndexes().findCASIndex(path, type);
 
-    return indexDef.map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));
+    return casIndex.map(IndexDef::getID).map(Int32::new).orElse(new Int32(-1));
   }
 }
