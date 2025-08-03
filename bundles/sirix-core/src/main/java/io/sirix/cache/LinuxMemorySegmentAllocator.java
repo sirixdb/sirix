@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +63,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
   private final AtomicBoolean isInitialized = new AtomicBoolean(false);
 
+  private final AtomicLong maxBufferSize = new AtomicLong(MAX_BUFFER_SIZE);
+
   /**
    * Private constructor to enforce singleton pattern.
    * Use getInstance() to obtain the singleton instance.
@@ -79,7 +82,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   }
 
   @Override
-  public void init() {
+  public void init(long maxBufferSize) {
     if (!isInitialized.compareAndSet(false, true)) {
       return;
     }
@@ -92,20 +95,21 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     }
 
     // Pre-allocate and touch memory segments
-    preAllocateAndTouchMemory();
+    preAllocateAndTouchMemory(maxBufferSize);
   }
 
-  private void preAllocateAndTouchMemory() {
+  private void preAllocateAndTouchMemory(long maxBufferSize) {
     for (int index = 0; index < SEGMENT_SIZES.length; index++) {
       long segmentSize = SEGMENT_SIZES[index];
       Deque<MemorySegment> pool = segmentPools[index];
 
       // Map a large memory segment and split it into smaller segments
-      MemorySegment hugeSegment = mapMemory(MAX_BUFFER_SIZE);
+      MemorySegment hugeSegment = mapMemory(maxBufferSize);
+      this.maxBufferSize.set(maxBufferSize);
 
       topLevelMappedSegments.add(hugeSegment);
 
-      for (long l = 0, max = MAX_BUFFER_SIZE / segmentSize; l < max; l++) {
+      for (long l = 0, max = maxBufferSize / segmentSize; l < max; l++) {
         long actualOffset = l * segmentSize;
         MemorySegment segment = hugeSegment.asSlice(actualOffset, segmentSize);
 
@@ -117,6 +121,11 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         pool.add(segment);
       }
     }
+  }
+
+  @Override
+  public long getMaxBufferSize() {
+    return maxBufferSize.get();
   }
 
   @Override

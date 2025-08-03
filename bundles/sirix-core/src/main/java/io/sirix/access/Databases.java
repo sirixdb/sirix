@@ -3,10 +3,7 @@ package io.sirix.access;
 import io.sirix.api.*;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
-import io.sirix.cache.BufferManager;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
-import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
+import io.sirix.cache.*;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.utils.LogWrapper;
@@ -89,7 +86,7 @@ public final class Databases {
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
     requireNonNull(dbConfig);
 
-    initAllocator();
+    initAllocator(dbConfig.getMaxSegmentAllocationSize());
 
     boolean returnVal = true;
     // if file is existing, skipping
@@ -176,10 +173,11 @@ public final class Databases {
 
   public static void freeAllocatedMemory() {
     if (MANAGER.sessions().isEmpty()) {
-      // If no sessions are left, we can clean up the allocator.
-      MemorySegmentAllocator segmentAllocator =
-          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
-      segmentAllocator.free();
+//      // If no sessions are left, we can clean up the allocator.
+//      MemorySegmentAllocator segmentAllocator =
+//          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
+//      segmentAllocator.free();
+      KeyValueLeafPagePool.getInstance().free();
       BUFFER_MANAGERS.values()
                      .forEach((resourcePathsToBufferManagers -> resourcePathsToBufferManagers.forEach((_, bufferManager) -> bufferManager.clearAllCaches())));
     }
@@ -282,15 +280,16 @@ public final class Databases {
       throw new IllegalStateException("Configuration may not be null!");
     }
 
-    initAllocator();
+    initAllocator(dbConfig.getMaxSegmentAllocationSize());
     return databaseType.createDatabase(dbConfig, user);
   }
 
-  private static void initAllocator() {
+  private static void initAllocator(long maxSegmentAllocationSize) {
     if (MANAGER.sessions().isEmpty()) {
-      MemorySegmentAllocator segmentAllocator =
-          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
-      segmentAllocator.init();
+      KeyValueLeafPagePool.getInstance().init(maxSegmentAllocationSize);
+//      MemorySegmentAllocator segmentAllocator =
+//          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
+//      segmentAllocator.init(maxSegmentAllocationSize);
     }
   }
 
