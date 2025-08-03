@@ -357,10 +357,6 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     container.getComplete().clear();
     page.clear();
 
-    if (page instanceof KeyValueLeafPage keyValueLeafPage) {
-      KeyValueLeafPagePool.getInstance().returnPage(keyValueLeafPage);
-    }
-
     // Remove page reference.
     reference.setPage(null);
   }

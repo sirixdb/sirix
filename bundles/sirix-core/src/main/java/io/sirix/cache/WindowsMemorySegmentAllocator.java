@@ -6,6 +6,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
 import java.util.Deque;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
@@ -43,6 +44,7 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
   }
 
   private static final WindowsMemorySegmentAllocator INSTANCE = new WindowsMemorySegmentAllocator();
+  private AtomicLong maxBufferSize = new AtomicLong(Long.MAX_VALUE);
 
   private WindowsMemorySegmentAllocator() {
   }
@@ -52,11 +54,18 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
   }
 
   @Override
-  public void init() {
+  public void init(long maxSegmentAllocationSize) {
     // Initialize Deques for each size class
     for (int i = 0; i < PAGE_SIZES.length; i++) {
       segmentPools[i] = new ConcurrentLinkedDeque<>();
     }
+
+    this.maxBufferSize.set(maxSegmentAllocationSize);
+  }
+
+  @Override
+  public long getMaxBufferSize() {
+    return this.maxBufferSize.get();
   }
 
   /**

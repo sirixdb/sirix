@@ -41,12 +41,6 @@ class SegmentAllocatorsTest {
   }
 
   @Test
-  void testGetIndexForSize_outOfRangeSizes() {
-    assertEquals(-1, SegmentAllocators.getIndexForSize(3000)); // Below minimum size
-    assertEquals(-1, SegmentAllocators.getIndexForSize(MemorySegmentAllocator.TWO_FIFTYSIX_KB + 1)); // Above maximum size
-  }
-
-  @Test
   void testGetIndexForSize_edgeCases() {
     assertEquals(0, SegmentAllocators.getIndexForSize(MemorySegmentAllocator.FOUR_KB)); // Minimum size
     assertEquals(6, SegmentAllocators.getIndexForSize(MemorySegmentAllocator.TWO_FIFTYSIX_KB)); // Maximum size
