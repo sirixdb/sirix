@@ -38,8 +38,8 @@ public final class GetHash extends AbstractFunction {
 
   @Override
   public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args) {
-    final StructuredDBItem<?> doc = ((StructuredDBItem<?>) args[0]);
+    final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
 
-    return new Str(String.valueOf(doc.getTrx().getHash()));
+    return new Str(String.valueOf(document.getTrx().getHash()));
   }
 }

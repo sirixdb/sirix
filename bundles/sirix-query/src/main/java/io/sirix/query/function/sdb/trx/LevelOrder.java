@@ -95,20 +95,20 @@ public final class LevelOrder extends AbstractFunction {
       @Override
       public Iter iterate() {
         return new BaseIter() {
-          Stream<?> s;
+          Stream<?> stream;
 
           @Override
           public Item next() {
-            if (s == null) {
-              s = new SirixNodeStream(axis, node.getCollection());
+            if (stream == null) {
+              stream = new SirixNodeStream(axis, node.getCollection());
             }
-            return (Item) s.next();
+            return (Item) stream.next();
           }
 
           @Override
           public void close() {
-            if (s != null) {
-              s.close();
+            if (stream != null) {
+              stream.close();
             }
           }
         };

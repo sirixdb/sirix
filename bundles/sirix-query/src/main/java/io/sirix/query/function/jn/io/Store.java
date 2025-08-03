@@ -50,20 +50,20 @@ public final class Store extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param createNew determines if a new collection has to be created or not
+   * @param createIfNotExists determines if a new collection has to be created or not
    */
-  public Store(final boolean createNew) {
-    this(STORE, createNew);
+  public Store(final boolean createIfNotExists) {
+    this(STORE, createIfNotExists);
   }
 
   /**
    * Constructor.
    *
    * @param name the function name
-   * @param createNew determines if a new collection has to be created or not
+   * @param createIfNotExists determines if a new collection has to be created or not
    */
-  public Store(final QNm name, final boolean createNew) {
-    super(name, createNew
+  public Store(final QNm name, final boolean createIfNotExists) {
+    super(name, createIfNotExists
         ? new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
             new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
@@ -87,31 +87,33 @@ public final class Store extends AbstractFunction {
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
-      final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
-      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
+
+      final String collectionName = FunUtil.getString(args, 0, "collectionName", "collection", null, true);
+      final String resourceName = FunUtil.getString(args, 1, "resourceName", "resource", null, false);
       final Sequence nodes = args[2];
+      final boolean createIfNotExists = args.length < 4 || args[3].booleanValue();
+      final Object options;
+      final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
+
       if (nodes == null) {
         throw new QueryException(new QNm("No sequence of nodes specified!"));
       }
-      final boolean createNew = args.length < 4 || args[3].booleanValue();
 
-      final Object options;
       if (args.length >= 5) {
         options = (Object) args[4];
       } else {
         options = new ArrayObject(new QNm[0], new Sequence[0]);
       }
 
-      final JsonDBStore store = (JsonDBStore) ctx.getJsonItemStore();
-      if (createNew) {
-        create(store, collName, resName, nodes, options);
+      if (createIfNotExists) {
+        create(store, collectionName, resourceName, nodes, options);
       } else {
         try {
-          final JsonDBCollection coll = store.lookup(collName);
-          add(coll, resName, nodes, options);
+          final JsonDBCollection collection = store.lookup(collectionName);
+          add(collection, resourceName, nodes, options);
         } catch (final DocumentException e) {
           // collection does not exist
-          create(store, collName, resName, nodes, options);
+          create(store, collectionName, resourceName, nodes, options);
         }
       }
 
@@ -121,21 +123,21 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void add(final JsonDBCollection coll, final String resName,
+  private static void add(final JsonDBCollection collection, final String resourceName,
       final Sequence nodes, final Object options) {
     if (nodes instanceof Str) {
       try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
-        coll.add(resName, reader, options);
+        collection.add(resourceName, reader, options);
       } catch (final Exception e) {
         throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
       }
     } else if (nodes instanceof final FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
-        int size = coll.getDatabase().listResources().size();
+        int size = collection.getDatabase().listResources().size();
         for (Item item; (item = iter.next()) != null; ) {
           // TODO: use item shredder
           try (final JsonReader reader = JsonShredder.createStringReader(((Str) item).stringValue())) {
-            coll.add("resource" + size++, reader, options);
+            collection.add("resource" + size++, reader, options);
           } catch (final Exception e) {
             throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
           }
@@ -144,14 +146,14 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void create(final JsonDBStore store, final String collName, final String resName,
+  private static void create(final JsonDBStore store, final String collectionName, final String resourceName,
       final Sequence nodes, Object options) {
     if (nodes instanceof Str string) {
       if (string.stringValue().isEmpty()) {
-        store.create(collName, resName, (String) null, options);
+        store.create(collectionName, resourceName, (String) null, options);
       } else {
         try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
-          store.create(collName, resName, reader);
+          store.create(collectionName, resourceName, reader);
         } catch (final Exception e) {
           throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
         }
@@ -164,7 +166,7 @@ public final class Store extends AbstractFunction {
           list.add((Str) item);
         }
 
-        store.createFromJsonStrings(collName, new ArrayStream<>(list.toArray(new Str[0])));
+        store.createFromJsonStrings(collectionName, new ArrayStream<>(list.toArray(new Str[0])));
       }
     }
   }
