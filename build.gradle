@@ -2,7 +2,7 @@ import org.jetbrains.kotlin.gradle.dsl.jvm.JvmTargetValidationMode
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
 buildscript {
-    ext.kotlin_version = '2.1.21'
+    ext.kotlin_version = '2.0.0'
     repositories {
         maven {
             url "https://plugins.gradle.org/m2/"
@@ -10,16 +10,16 @@ buildscript {
     }
     dependencies {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.2"
-        classpath 'net.researchgate:gradle-release:3.1.0'
+        classpath 'net.researchgate:gradle-release:3.0.2'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.51.0"
         classpath "gradle.plugin.com.github.jengelman.gradle.plugins:shadow:7.0.0"
-        classpath "com.diffplug.spotless:spotless-plugin-gradle:7.0.4"
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:6.25.0"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
 
 plugins {
-    id "org.sonarqube" version "6.2.0.5505"
+    id "org.sonarqube" version "4.4.1.3373"
 }
 
 sonarqube {
@@ -74,7 +74,7 @@ allprojects {
     repositories {
         mavenCentral()
         maven {
-            url = "https://central.sonatype.com/api/v1/publisher/deployments"
+            url = "https://central.sonatype.com/repository/maven-snapshots/"
         }
         maven {
             url "https://kotlin.bintray.com/kotlinx"
@@ -127,46 +127,10 @@ subprojects {
                                  "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED"]
     }
 
-    def applyLicenseHeader = project.hasProperty('applyLicenseHeader') ? project.applyLicenseHeader.toBoolean() : true
-    def spotlessFiles = project.hasProperty('spotlessFiles') ? project.spotlessFiles.split(",") : []
-
-
     spotless {
         enforceCheck false
         java {
-
-            def javaFiles = spotlessFiles.findAll { it.endsWith('.java') }
-            if (javaFiles) {
-                def relativeJavaFiles = javaFiles.collect { file ->
-                    file.toString().replace(project.projectDir.toString() + File.separator, '').replace('\\', '/')
-                }
-
-                println "Targeting Java files for formatting: ${relativeJavaFiles}"
-                target(relativeJavaFiles)
-            } else {
-                println "No specific Java files provided. No files will be targeted for Java formatting."
-                target([])
-            }
-            eclipse().configFile "${rootDir}/eclipse/sirix-formatter.xml"
-//            removeUnusedImports()
-            if (applyLicenseHeader) {
-                licenseHeaderFile "${rootDir}/LICENSE"
-            }
-        }
-
-        kotlin {
-            def kotlinFiles = spotlessFiles.findAll { it.endsWith('.kt') }
-            if (kotlinFiles) {
-                def relativeKotlinFiles = kotlinFiles.collect { file ->
-                    file.toString().replace(project.projectDir.toString() + File.separator, '').replace('\\', '/')
-                }
-                println "Targeting Kotlin files for formatting: ${relativeKotlinFiles}"
-                target(relativeKotlinFiles)
-            } else {
-                println "No specific Kotlin files provided. No files will be targeted for Kotlin formatting."
-                target([])
-            }
-            ktfmt().kotlinlangStyle()
+            licenseHeaderFile "${rootDir}/LICENSE"
         }
     }
 
@@ -228,7 +192,7 @@ subprojects {
                     password System.getenv("SONATYPE_NEXUS_PASSWORD")
                 }
                 def releasesRepoUrl = "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
-                def snapshotsRepoUrl = "https://central.sonatype.com/api/v1/publisher/deployments/upload"
+                def snapshotsRepoUrl = "https://central.sonatype.com/repository/maven-snapshots/"
                 url = rootProject.getProperties().version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
             }
         }
@@ -325,8 +289,6 @@ subprojects {
     }
 }
 
-
-apply from: "$rootDir/gradle/preCommit.gradle"
 //task jacocoRootReport(type: JacocoReport) {
 //    description = 'Generates an aggregate report from all subprojects'
 //    dependsOn = subprojects.test
