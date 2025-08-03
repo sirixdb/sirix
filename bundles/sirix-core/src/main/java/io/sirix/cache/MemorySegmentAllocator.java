@@ -14,11 +14,13 @@ public interface MemorySegmentAllocator {
 
   int[] SEGMENT_SIZES = { FOUR_KB, EIGHT_KB, SIXTEEN_KB, THIRTYTWO_KB, SIXTYFOUR_KB, ONE_TWENTYEIGHT_KB, TWO_FIFTYSIX_KB };
 
-  void init();
+  void init(long maxBufferSize);
 
   void free();
 
   MemorySegment allocate(long size);
 
   void release(MemorySegment segment);
+
+  long getMaxBufferSize();
 }

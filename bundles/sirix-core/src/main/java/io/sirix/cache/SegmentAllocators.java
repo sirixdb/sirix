@@ -27,6 +27,8 @@ class SegmentAllocators {
   }
 
   static int getIndexForSize(long size) {
+    assert size > 0 : "Size must be greater than 0";
+
     // Round up to the nearest power of two if not already a power of two
     boolean isPowerOfTwo = (size > 0) && (size & (size - 1)) == 0;
 

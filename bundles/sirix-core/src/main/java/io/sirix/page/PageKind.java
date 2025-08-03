@@ -100,23 +100,19 @@ public enum PageKind {
             lastDeweyIdIndex = -1;
           }
 
-          var segmentAllocator = OS.isLinux()
-              ? LinuxMemorySegmentAllocator.getInstance()
-              : WindowsMemorySegmentAllocator.getInstance();
-
-          var deweyIdsMemory = areDeweyIDsStored ? segmentAllocator.allocate(deweyIdsMemorySize) : null;
-
-          var page = new KeyValueLeafPage(recordPageKey,
-                                          revision,
-                                          indexType,
-                                          resourceConfig,
-                                          areDeweyIDsStored,
-                                          recordPersister,
-                                          references,
-                                          segmentAllocator.allocate(slotsMemorySize),
-                                          deweyIdsMemory,
-                                          lastSlotIndex,
-                                          lastDeweyIdIndex);
+          var page = KeyValueLeafPagePool.getInstance().borrowPage(
+              recordPageKey,
+              revision,
+              indexType,
+              resourceConfig,
+              areDeweyIDsStored,
+              recordPersister,
+              references,
+              slotsMemorySize,
+              deweyIdsMemorySize,
+              lastSlotIndex,
+              lastDeweyIdIndex
+          );
 
           if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer serializer) {
             final var deweyIdsBitmap = SerializationType.deserializeBitSet(source);
@@ -206,6 +202,10 @@ public enum PageKind {
       keyValueLeafPage.addReferences(resourceConfig);
 
       int usedSlotsMemorySize = keyValueLeafPage.getUsedSlotsSize();
+
+      if (usedSlotsMemorySize == 0) {
+        usedSlotsMemorySize = 1;
+      }
 
       // Write page key.
       Utils.putVarLong(sink, recordPageKey);
