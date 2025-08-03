@@ -227,8 +227,8 @@ subprojects {
                     username System.getenv("SONATYPE_NEXUS_USERNAME")
                     password System.getenv("SONATYPE_NEXUS_PASSWORD")
                 }
-                def releasesRepoUrl = "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
-                def snapshotsRepoUrl = "https://oss.sonatype.org/content/repositories/snapshots/"
+                def releasesRepoUrl = "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
+                def snapshotsRepoUrl = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
                 url = rootProject.getProperties().version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
             }
         }
