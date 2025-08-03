@@ -206,7 +206,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
-    this.doResizeMemorySegmentsIfNeeded = false;
+    this.doResizeMemorySegmentsIfNeeded = true;
     this.slotMemoryFreeSpaceStart = 0;
     this.lastSlotIndex = lastSlotIndex;
 
@@ -926,10 +926,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
       // Clear memory properly - fill with zeros
       slotMemory.fill((byte) 0x00);
-      segmentAllocator.release(slotMemory);
+      //segmentAllocator.release(slotMemory);
       if (areDeweyIDsStored && deweyIdMemory != null) {
         deweyIdMemory.fill((byte) 0x00);
-        segmentAllocator.release(deweyIdMemory);
+        //segmentAllocator.release(deweyIdMemory);
       }
 
       // Reset other state

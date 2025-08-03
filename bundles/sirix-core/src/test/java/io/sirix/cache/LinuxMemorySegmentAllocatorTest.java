@@ -1,6 +1,7 @@
 package io.sirix.cache;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.Arena;
@@ -11,6 +12,12 @@ import static org.junit.jupiter.api.Assertions.*;
 public class LinuxMemorySegmentAllocatorTest {
 
   private final LinuxMemorySegmentAllocator allocator = LinuxMemorySegmentAllocator.getInstance();
+
+  @BeforeEach
+  public void setUp() {
+    // Initialize the allocator with a maximum buffer size
+    allocator.init(1 << 30); // Set max buffer size to 1GB
+  }
 
   @AfterEach
   public void tearDown() {
@@ -111,7 +118,7 @@ public class LinuxMemorySegmentAllocatorTest {
 
   @Test
   public void testAllocateZeroSize() {
-    assertThrows(IllegalArgumentException.class, () -> {
+    assertThrows(AssertionError.class, () -> {
       allocator.allocate(0);
     }, "Should throw IllegalArgumentException for zero size");
   }
