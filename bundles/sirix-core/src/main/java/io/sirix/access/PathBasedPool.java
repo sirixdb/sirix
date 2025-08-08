@@ -10,6 +10,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import static java.util.Collections.unmodifiableMap;
 
@@ -29,7 +30,7 @@ public class PathBasedPool<E> {
     /**
      * The thread safe map of objects in the pool.
      */
-    private final Map<Path, Set<E>> sessions;
+    private final ConcurrentMap<Path, Set<E>> sessions;
 
     /**
      * Default Constructor
@@ -56,6 +57,15 @@ public class PathBasedPool<E> {
      */
     public boolean containsAnyEntry(final Path file) {
         return this.sessions.containsKey(file);
+    }
+
+    /**
+     * Checks if the pool is empty.
+     *
+     * @return {@code true} if the pool is empty, {@code false} otherwise.
+     */
+    public boolean isEmpty() {
+        return this.sessions.isEmpty();
     }
 
     /**

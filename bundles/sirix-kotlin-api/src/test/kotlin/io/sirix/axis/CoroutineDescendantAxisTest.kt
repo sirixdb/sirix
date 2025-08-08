@@ -67,7 +67,7 @@ class CoroutineDescendantAxisTest {
 
     @Test
     fun testIterate() {
-        val rm = holder!!.resourceManager
+        val rm = holder!!.resourceSession
         val rtx = holder!!.xmlNodeReadTrx
         rtx.moveToDocumentRoot()
         AbsAxisTest.testAxisConventions(
@@ -123,7 +123,7 @@ class CoroutineDescendantAxisTest {
 
     @Test
     fun testIterateIncludingSelf() {
-        val rm = holder!!.resourceManager
+        val rm = holder!!.resourceSession
         val rtx: NodeCursor = rm.beginNodeReadOnlyTrx()
         AbsAxisTest.testAxisConventions(
             CoroutineDescendantAxis(rm, IncludeSelf.YES), longArrayOf(
@@ -193,7 +193,7 @@ class CoroutineDescendantAxisTest {
     @Test
     fun testIterationTime() {
         val rtx = holder!!.xmlNodeReadTrx
-        val rm = holder!!.resourceManager
+        val rm = holder!!.resourceSession
         rtx.moveToDocumentRoot()
         val time1 = LocalDateTime.now()
         AbsAxisTest.testAxisConventions(

@@ -21,28 +21,28 @@
 
 package io.sirix.service.xml.xpath;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
-
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.perfidix.annotation.BenchClass;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.XmlTestHelper.PATHS;
 import io.sirix.exception.SirixException;
 import io.sirix.service.xml.shredder.XmlShredder;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.perfidix.annotation.BenchClass;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
- * Performes the XMark benchmark.
+ * Performs the XMark benchmark.
  *
  * @author Tina Scherer
  */
 @BenchClass(runs = 1)
 public class XMarkTest {
 
-  // XMark 1 GB
+  // XMark 1 MB
   private static final Path XML = Paths.get("src", "test", "resources", "auction.xml");
 
   private Holder holder;
@@ -54,7 +54,6 @@ public class XMarkTest {
     XmlShredder.main(
         XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
     holder = Holder.generateRtx();
-
   }
 
   @After

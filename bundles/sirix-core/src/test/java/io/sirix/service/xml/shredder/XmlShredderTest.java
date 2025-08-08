@@ -72,7 +72,7 @@ public class XmlShredderTest {
   public void testSTAXShredder() throws Exception {
     // Setup parsed session.
     XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH2.getFile().toAbsolutePath().toString());
-    final XmlNodeReadOnlyTrx expectedTrx = holder.getXdmNodeWriteTrx();
+    final XmlNodeReadOnlyTrx expectedTrx = holder.getXmlNodeTrx();
 
     // Verify.
     final var database2 = XmlTestHelper.getDatabase(PATHS.PATH2.getFile());
@@ -109,7 +109,7 @@ public class XmlShredderTest {
   @SuppressWarnings("ResultOfMethodCallIgnored")
   @Test
   public void testShredIntoExisting() throws Exception {
-    try (final XmlNodeTrx wtx = holder.getXdmNodeWriteTrx();
+    try (final XmlNodeTrx wtx = holder.getXmlNodeTrx();
          final FileInputStream fis1 = new FileInputStream(XML.toFile());
          final FileInputStream fis2 = new FileInputStream(XML.toFile())) {
       final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1),
@@ -135,7 +135,7 @@ public class XmlShredderTest {
       expectedTrx.moveToDocumentRoot();
 
       // Verify.
-      try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
+      try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx()) {
 
         final Iterator<Long> descendants = new DescendantAxis(rtx);
         final Iterator<Long> expectedDescendants = new DescendantAxis(expectedTrx);
@@ -154,7 +154,7 @@ public class XmlShredderTest {
   @Test
   public void testAttributesNSPrefix() throws Exception {
     // Setup expected.
-    final XmlNodeTrx expectedTrx2 = holder.getXdmNodeWriteTrx();
+    final XmlNodeTrx expectedTrx2 = holder.getXmlNodeTrx();
     XmlDocumentCreator.createWithoutNamespace(expectedTrx2);
     expectedTrx2.commit();
 

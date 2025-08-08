@@ -163,9 +163,9 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     skipSubtrees = builder.skipSubtrees;
     diffKind = requireNonNull(builder).kind;
     oldMaxDepth = builder.oldMaxDepth;
-    synchronized (builder.resMgr) {
-      newRtx = builder.resMgr.beginNodeReadOnlyTrx(builder.newRev);
-      oldRtx = builder.resMgr.beginNodeReadOnlyTrx(builder.oldRev);
+    synchronized (builder.session) {
+      newRtx = builder.session.beginNodeReadOnlyTrx(builder.newRev);
+      oldRtx = builder.session.beginNodeReadOnlyTrx(builder.oldRev);
       hashKind = builder.hashKind;
     }
     newRtxMoved = newRtx.moveTo(builder.newStartKey);

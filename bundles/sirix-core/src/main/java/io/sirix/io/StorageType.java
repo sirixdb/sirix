@@ -79,17 +79,6 @@ public enum StorageType {
     }
   },
 
-  DIRECT_IO {
-    @Override
-    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final var storage = new io.sirix.io.directio.FileChannelStorage(resourceConf, cache);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      return storage;
-    }
-  },
-
   /**
    * Memory mapped backend.
    */

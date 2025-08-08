@@ -156,7 +156,7 @@ public final class ReferencesPage4 implements Page {
   }
 
   @Override
-  public Page clearPage() {
+  public Page clear() {
     offsets.clear();
     references.clear();
     return this;

@@ -34,7 +34,7 @@ public final class AllTimeAxisTest {
   @Before
   public void setUp() {
     XmlTestHelper.deleteEverything();
-    try (final XmlNodeTrx wtx = Holder.generateWtx().getXdmNodeWriteTrx()) {
+    try (final XmlNodeTrx wtx = Holder.generateWtx().getXmlNodeTrx()) {
       XmlDocumentCreator.createVersioned(wtx);
     }
     holder = Holder.generateRtx();
@@ -48,8 +48,8 @@ public final class AllTimeAxisTest {
 
   @Test
   public void testAxis() {
-    try (final XmlNodeReadOnlyTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
-         final XmlNodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
+    try (final XmlNodeReadOnlyTrx firstReader = holder.getResourceSession().beginNodeReadOnlyTrx(1);
+         final XmlNodeReadOnlyTrx secondReader = holder.getResourceSession().beginNodeReadOnlyTrx(2);
          final XmlNodeReadOnlyTrx thirdReader = holder.getXmlNodeReadTrx()) {
       new IteratorTester<>(ITERATIONS,
                            IteratorFeature.UNMODIFIABLE,
@@ -57,7 +57,7 @@ public final class AllTimeAxisTest {
                            null) {
         @Override
         protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-          return new AllTimeAxis<>(holder.getResourceManager(), holder.getXmlNodeReadTrx());
+          return new AllTimeAxis<>(holder.getResourceSession(), holder.getXmlNodeReadTrx());
         }
       }.test();
     }
@@ -65,7 +65,7 @@ public final class AllTimeAxisTest {
 
   @Test
   public void testAxisWithDeletedNode() {
-    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+    try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx()) {
       wtx.moveTo(4);
       wtx.insertCommentAsRightSibling("foooooo");
 
@@ -79,10 +79,10 @@ public final class AllTimeAxisTest {
       wtx.commit();
     }
 
-    try (final XmlNodeReadOnlyTrx firstReader = holder.getResourceManager().beginNodeReadOnlyTrx(1);
-         final XmlNodeReadOnlyTrx secondReader = holder.getResourceManager().beginNodeReadOnlyTrx(2);
-         final XmlNodeReadOnlyTrx thirdReader = holder.getResourceManager().beginNodeReadOnlyTrx(3);
-         final XmlNodeReadOnlyTrx fourthReader = holder.getResourceManager().beginNodeReadOnlyTrx(4)) {
+    try (final XmlNodeReadOnlyTrx firstReader = holder.getResourceSession().beginNodeReadOnlyTrx(1);
+         final XmlNodeReadOnlyTrx secondReader = holder.getResourceSession().beginNodeReadOnlyTrx(2);
+         final XmlNodeReadOnlyTrx thirdReader = holder.getResourceSession().beginNodeReadOnlyTrx(3);
+         final XmlNodeReadOnlyTrx fourthReader = holder.getResourceSession().beginNodeReadOnlyTrx(4)) {
 
       firstReader.moveTo(4);
       secondReader.moveTo(4);
