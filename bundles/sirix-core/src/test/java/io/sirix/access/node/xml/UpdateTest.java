@@ -69,7 +69,7 @@ public class UpdateTest {
   @Before
   public void setUp() {
     XmlTestHelper.deleteEverything();
-    holder = Holder.generateDeweyIDResourceMgr();
+    holder = Holder.generateDeweyIDResourceSession();
   }
 
   @After
@@ -258,7 +258,7 @@ public class UpdateTest {
 
   @Test
   public void testDelete() {
-    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+    try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx()) {
       XmlDocumentCreator.create(wtx);
       wtx.moveTo(4);
       wtx.insertElementAsRightSibling(new QNm("blabla"));
@@ -270,7 +270,7 @@ public class UpdateTest {
       wtx.commit();
       testDelete(wtx);
       wtx.close();
-      try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
+      try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx()) {
         testDelete(rtx);
       }
     }
@@ -287,13 +287,13 @@ public class UpdateTest {
 
   @Test
   public void testInsert() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     testInsert(wtx);
     wtx.commit();
     testInsert(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testInsert(rtx);
     rtx.close();
   }
@@ -327,12 +327,12 @@ public class UpdateTest {
 
   @Test
   public void testNodeTransactionIsolation() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     wtx.insertElementAsFirstChild(new QNm(""));
     testNodeTransactionIsolation(wtx);
     wtx.commit();
     testNodeTransactionIsolation(wtx);
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testNodeTransactionIsolation(rtx);
     wtx.moveToFirstChild();
     wtx.insertElementAsFirstChild(new QNm(""));
@@ -357,7 +357,7 @@ public class UpdateTest {
   /** Test NamePage. */
   @Test
   public void testNamePage() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
     wtx.moveTo(7);
@@ -367,13 +367,13 @@ public class UpdateTest {
     wtx.moveTo(5);
     wtx.commit();
     wtx.close();
-    XmlNodeReadOnlyTrxImpl rtx = (XmlNodeReadOnlyTrxImpl) holder.getResourceManager().beginNodeReadOnlyTrx(1);
+    XmlNodeReadOnlyTrxImpl rtx = (XmlNodeReadOnlyTrxImpl) holder.getResourceSession().beginNodeReadOnlyTrx(1);
     assertEquals(1, rtx.getRevisionNumber());
     assertTrue(rtx.moveTo(7));
     assertEquals("c", rtx.getName().getLocalName());
     assertTrue(rtx.moveTo(11));
     assertEquals("c", rtx.getName().getLocalName());
-    rtx = (XmlNodeReadOnlyTrxImpl) holder.getResourceManager().beginNodeReadOnlyTrx();
+    rtx = (XmlNodeReadOnlyTrxImpl) holder.getResourceSession().beginNodeReadOnlyTrx();
     assertEquals(2, rtx.getRevisionNumber());
     assertNull(rtx.getPageTransaction().getName(NamePageHash.generateHashForString("c"), NodeKind.ELEMENT));
     assertEquals(0, rtx.getNameCount("blablabla", NodeKind.ATTRIBUTE));
@@ -387,14 +387,14 @@ public class UpdateTest {
    */
   @Test
   public void testInsertAsFirstChildUpdateText() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
     wtx.moveTo(1L);
     wtx.insertTextAsFirstChild("foo");
     wtx.commit();
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     assertTrue(rtx.moveTo(1L));
     Assert.assertEquals(4L, rtx.getFirstChildKey());
     assertEquals(5L, rtx.getChildCount());
@@ -409,14 +409,14 @@ public class UpdateTest {
    */
   @Test
   public void testInsertAsRightSiblingUpdateTextFirst() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
     wtx.moveTo(4L);
     wtx.insertTextAsRightSibling("foo");
     wtx.commit();
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     assertTrue(rtx.moveTo(1L));
     Assert.assertEquals(4L, rtx.getFirstChildKey());
     assertEquals(5L, rtx.getChildCount());
@@ -431,14 +431,14 @@ public class UpdateTest {
    */
   @Test
   public void testInsertAsRightSiblingUpdateTextSecond() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
     wtx.moveTo(5L);
     wtx.insertTextAsRightSibling("foo");
     wtx.commit();
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     assertTrue(rtx.moveTo(1L));
     Assert.assertEquals(4L, rtx.getFirstChildKey());
     assertEquals(5L, rtx.getChildCount());
@@ -451,14 +451,14 @@ public class UpdateTest {
   /** Ordinary remove test. */
   @Test
   public void testRemoveDescendantFirst() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
     wtx.moveTo(4L);
     wtx.remove();
     wtx.commit();
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     Assert.assertEquals(0, rtx.getNodeKey());
     assertTrue(rtx.moveToFirstChild());
     Assert.assertEquals(1, rtx.getNodeKey());
@@ -480,18 +480,18 @@ public class UpdateTest {
 
   @Test
   public void testInsertChild() {
-    XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     wtx.insertElementAsFirstChild(new QNm("foo"));
     wtx.commit();
     wtx.close();
 
-    XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     Assert.assertEquals(1L, rtx.getRevisionNumber());
     rtx.close();
 
     // Insert 100 children.
     for (int i = 1; i <= 50; i++) {
-      wtx = holder.getResourceManager().beginNodeTrx();
+      wtx = holder.getResourceSession().beginNodeTrx();
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.insertElementAsFirstChild(new QNm("bar"));
@@ -499,7 +499,7 @@ public class UpdateTest {
       wtx.commit();
       wtx.close();
 
-      rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+      rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
       rtx.moveToDocumentRoot();
       rtx.moveToFirstChild();
       rtx.moveToFirstChild();
@@ -509,7 +509,7 @@ public class UpdateTest {
       rtx.close();
     }
 
-    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     rtx.moveToDocumentRoot();
     rtx.moveToFirstChild();
     rtx.moveToFirstChild();
@@ -521,11 +521,11 @@ public class UpdateTest {
 
   @Test
   public void testInsertPath() {
-    XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     wtx.commit();
     wtx.close();
 
-    wtx = holder.getResourceManager().beginNodeTrx();
+    wtx = holder.getResourceSession().beginNodeTrx();
     assertTrue(wtx.moveToDocumentRoot());
     Assert.assertEquals(1L, wtx.insertElementAsFirstChild(new QNm("")).getNodeKey());
     Assert.assertEquals(2L, wtx.insertElementAsFirstChild(new QNm("")).getNodeKey());
@@ -535,7 +535,7 @@ public class UpdateTest {
     wtx.commit();
     wtx.close();
 
-    final XmlNodeTrx wtx2 = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx2 = holder.getResourceSession().beginNodeTrx();
     assertTrue(wtx2.moveToDocumentRoot());
     assertTrue(wtx2.moveToFirstChild());
     Assert.assertEquals(5L, wtx2.insertElementAsFirstChild(new QNm("")).getNodeKey());
@@ -545,7 +545,7 @@ public class UpdateTest {
 
   @Test
   public void testPageBoundary() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
 
     // Document root.
     wtx.insertElementAsFirstChild(new QNm(""));
@@ -558,7 +558,7 @@ public class UpdateTest {
     wtx.commit();
     testPageBoundary(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testPageBoundary(rtx);
     rtx.close();
   }
@@ -570,7 +570,7 @@ public class UpdateTest {
 
   @Test(expected = SirixUsageException.class)
   public void testRemoveDocument() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveToDocumentRoot();
     try {
@@ -584,7 +584,7 @@ public class UpdateTest {
   /** Test for text concatenation. */
   @Test
   public void testRemoveDescendant() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(0L);
     // assertEquals(10L, wtx.getDescendantCount());
@@ -596,7 +596,7 @@ public class UpdateTest {
     wtx.commit();
     testRemoveDescendant(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testRemoveDescendant(rtx);
     rtx.close();
   }
@@ -622,7 +622,7 @@ public class UpdateTest {
   /** Test for text concatenation. */
   @Test
   public void testRemoveDescendantTextConcat2() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
     wtx.moveTo(9L);
@@ -633,7 +633,7 @@ public class UpdateTest {
     wtx.commit();
     testRemoveDescendantTextConcat2(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testRemoveDescendantTextConcat2(rtx);
     rtx.close();
   }
@@ -655,10 +655,10 @@ public class UpdateTest {
 
   @Test
   public void testReplaceElementWithTwoSiblingTextNodesWithTextNode() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
-    XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     rtx.moveTo(12);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -666,7 +666,7 @@ public class UpdateTest {
     wtx.commit();
     testReplaceElementWithTextNode(wtx);
     wtx.close();
-    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testReplaceElementWithTextNode(rtx);
     rtx.close();
   }
@@ -688,10 +688,10 @@ public class UpdateTest {
 
   @Test
   public void testReplaceTextNodeWithTextNode() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
-    XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     rtx.moveTo(12);
     wtx.moveTo(4);
     wtx.replaceNode(rtx);
@@ -699,7 +699,7 @@ public class UpdateTest {
     wtx.commit();
     testReplaceTextNode(wtx);
     wtx.close();
-    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testReplaceTextNode(rtx);
     rtx.close();
   }
@@ -712,10 +712,10 @@ public class UpdateTest {
 
   @Test
   public void testReplaceElementNode() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
-    XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     rtx.moveTo(11);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -723,7 +723,7 @@ public class UpdateTest {
     wtx.commit();
     testReplaceElementNode(wtx);
     wtx.close();
-    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testReplaceElementNode(rtx);
     rtx.close();
   }
@@ -745,7 +745,7 @@ public class UpdateTest {
 
   @Test
   public void testReplaceElement() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(5);
     wtx.replaceNode(XmlShredder.createStringReader("<d>foobar</d>"));
@@ -753,7 +753,7 @@ public class UpdateTest {
     wtx.commit();
     testReplaceElement(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testReplaceElement(rtx);
     rtx.close();
   }
@@ -813,7 +813,7 @@ public class UpdateTest {
 
   @Test
   public void testFirstMoveToFirstChild() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(7);
     wtx.moveSubtreeToFirstChild(6);
@@ -821,7 +821,7 @@ public class UpdateTest {
     wtx.commit();
     testFirstMoveToFirstChild(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testFirstMoveToFirstChild(rtx);
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.builder();
@@ -875,7 +875,7 @@ public class UpdateTest {
 
   @Test
   public void testSecondMoveToFirstChild() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(5);
     wtx.moveSubtreeToFirstChild(4);
@@ -883,7 +883,7 @@ public class UpdateTest {
     wtx.commit();
     testSecondMoveToFirstChild(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testSecondMoveToFirstChild(rtx);
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.builder();
@@ -927,7 +927,7 @@ public class UpdateTest {
 
   @Test
   public void testThirdMoveToFirstChild() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(5);
     wtx.moveSubtreeToFirstChild(11);
@@ -935,7 +935,7 @@ public class UpdateTest {
     wtx.commit();
     testThirdMoveToFirstChild(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testThirdMoveToFirstChild(rtx);
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.builder();
@@ -981,7 +981,7 @@ public class UpdateTest {
 
   @Test
   public void testFourthMoveToFirstChild() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(9);
     wtx.insertAttribute(new QNm("ns", "p", "hiphip"), "hurray");
@@ -994,7 +994,7 @@ public class UpdateTest {
     wtx.commit();
     testFourthMoveToFirstChild(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testFourthMoveToFirstChild(rtx);
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.builder();
@@ -1041,7 +1041,7 @@ public class UpdateTest {
 
   @Test(expected = SirixUsageException.class)
   public void testFifthMoveToFirstChild() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(4);
     wtx.moveSubtreeToFirstChild(11);
@@ -1051,7 +1051,7 @@ public class UpdateTest {
 
   @Test
   public void testFirstMoveSubtreeToRightSibling() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
 
     wtx.moveToDocumentRoot();
@@ -1077,7 +1077,7 @@ public class UpdateTest {
 
     testFirstMoveSubtreeToRightSibling(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testFirstMoveSubtreeToRightSibling(rtx);
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.builder();
@@ -1118,7 +1118,7 @@ public class UpdateTest {
 
   @Test
   public void testSecondMoveSubtreeToRightSibling() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(9);
     wtx.moveSubtreeToRightSibling(5);
@@ -1128,7 +1128,7 @@ public class UpdateTest {
     wtx.commit();
     testSecondMoveSubtreeToRightSibling(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testSecondMoveSubtreeToRightSibling(rtx);
     rtx.moveToDocumentRoot();
     final Builder<SirixDeweyID> builder = ImmutableSet.builder();
@@ -1175,7 +1175,7 @@ public class UpdateTest {
 
   @Test
   public void testThirdMoveSubtreeToRightSibling() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(9);
     wtx.moveSubtreeToRightSibling(4);
@@ -1183,7 +1183,7 @@ public class UpdateTest {
     wtx.commit();
     testThirdMoveSubtreeToRightSibling(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testThirdMoveSubtreeToRightSibling(rtx);
     rtx.close();
   }
@@ -1205,7 +1205,7 @@ public class UpdateTest {
 
   @Test
   public void testFourthMoveSubtreeToRightSibling() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(8);
     wtx.moveSubtreeToRightSibling(4);
@@ -1213,7 +1213,7 @@ public class UpdateTest {
     wtx.commit();
     testFourthMoveSubtreeToRightSibling(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testFourthMoveSubtreeToRightSibling(rtx);
     rtx.close();
   }
@@ -1235,19 +1235,19 @@ public class UpdateTest {
   @Test
   public void testFirstCopySubtreeAsFirstChild() {
     // Test for one node.
-    XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
-    XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     rtx.moveTo(4);
-    wtx = holder.getResourceManager().beginNodeTrx();
+    wtx = holder.getResourceSession().beginNodeTrx();
     wtx.moveTo(9);
     wtx.copySubtreeAsFirstChild(rtx);
     testFirstCopySubtreeAsFirstChild(wtx);
     wtx.commit();
     wtx.close();
-    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testFirstCopySubtreeAsFirstChild(rtx);
     rtx.close();
   }
@@ -1268,19 +1268,19 @@ public class UpdateTest {
   @Test
   public void testSecondCopySubtreeAsFirstChild() {
     // Test for more than one node.
-    XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
-    XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     rtx.moveTo(5);
-    wtx = holder.getResourceManager().beginNodeTrx();
+    wtx = holder.getResourceSession().beginNodeTrx();
     wtx.moveTo(9);
     wtx.copySubtreeAsFirstChild(rtx);
     testSecondCopySubtreeAsFirstChild(wtx);
     wtx.commit();
     wtx.close();
-    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testSecondCopySubtreeAsFirstChild(rtx);
     rtx.close();
   }
@@ -1310,19 +1310,19 @@ public class UpdateTest {
   @Test
   public void testFirstCopySubtreeAsRightSibling() {
     // Test for more than one node.
-    XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
-    XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     rtx.moveTo(5);
-    wtx = holder.getResourceManager().beginNodeTrx();
+    wtx = holder.getResourceSession().beginNodeTrx();
     wtx.moveTo(9);
     wtx.copySubtreeAsRightSibling(rtx);
     testFirstCopySubtreeAsRightSibling(wtx);
     wtx.commit();
     wtx.close();
-    rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     testFirstCopySubtreeAsRightSibling(rtx);
     rtx.close();
   }
@@ -1347,7 +1347,7 @@ public class UpdateTest {
 
   @Test
   public void testSubtreeInsertAsFirstChildFirst() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(5);
     wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(XmlDocumentCreator.XML_WITHOUT_XMLDECL));
@@ -1356,7 +1356,7 @@ public class UpdateTest {
     wtx.moveTo(14);
     testSubtreeInsertAsFirstChildFirst(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     rtx.moveTo(14);
     testSubtreeInsertAsFirstChildFirst(rtx);
     rtx.close();
@@ -1364,7 +1364,7 @@ public class UpdateTest {
 
   @Test
   public void testSubtreeInsertWithFirstNodeBeingAComment() throws IOException {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     final Path pomFile = Paths.get("src", "test", "resources", "pom.xml");
     try (final var fis = new FileInputStream(pomFile.toFile())) {
       wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(fis));
@@ -1383,7 +1383,7 @@ public class UpdateTest {
 
   @Test
   public void testSubtreeInsertAsFirstChildSecond() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(11);
     wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(XmlDocumentCreator.XML_WITHOUT_XMLDECL));
@@ -1392,7 +1392,7 @@ public class UpdateTest {
     wtx.moveTo(14);
     testSubtreeInsertAsFirstChildSecond(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     rtx.moveTo(14);
     testSubtreeInsertAsFirstChildSecond(rtx);
     rtx.close();
@@ -1412,7 +1412,7 @@ public class UpdateTest {
 
   @Test
   public void testSubtreeInsertAsRightSibling() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.moveTo(5);
     wtx.insertSubtreeAsRightSibling(XmlShredder.createStringReader(XmlDocumentCreator.XML_WITHOUT_XMLDECL));
@@ -1421,7 +1421,7 @@ public class UpdateTest {
     wtx.moveTo(14);
     testSubtreeInsertAsRightSibling(wtx);
     wtx.close();
-    final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     rtx.moveTo(14);
     testSubtreeInsertAsRightSibling(rtx);
     rtx.close();

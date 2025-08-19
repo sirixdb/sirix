@@ -41,7 +41,7 @@ public final class XmlRevertTest {
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.deleteEverything();
-    holder = Holder.openResourceManager();
+    holder = Holder.openResourceSession();
   }
 
   @After
@@ -52,7 +52,7 @@ public final class XmlRevertTest {
 
   @Test
   public void test() throws SirixException {
-    XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     Assert.assertEquals(1L, wtx.getRevisionNumber());
     XmlDocumentCreator.create(wtx);
     Assert.assertEquals(1L, wtx.getRevisionNumber());
@@ -60,7 +60,7 @@ public final class XmlRevertTest {
     Assert.assertEquals(2L, wtx.getRevisionNumber());
     wtx.close();
 
-    wtx = holder.getResourceManager().beginNodeTrx();
+    wtx = holder.getResourceSession().beginNodeTrx();
     Assert.assertEquals(2L, wtx.getRevisionNumber());
     wtx.moveToFirstChild();
     wtx.insertElementAsFirstChild(new QNm("bla"));
@@ -68,19 +68,19 @@ public final class XmlRevertTest {
     Assert.assertEquals(3L, wtx.getRevisionNumber());
     wtx.close();
 
-    wtx = holder.getResourceManager().beginNodeTrx();
+    wtx = holder.getResourceSession().beginNodeTrx();
     Assert.assertEquals(3L, wtx.getRevisionNumber());
     wtx.revertTo(1);
     wtx.commit();
     Assert.assertEquals(4L, wtx.getRevisionNumber());
     wtx.close();
 
-    wtx = holder.getResourceManager().beginNodeTrx();
+    wtx = holder.getResourceSession().beginNodeTrx();
     Assert.assertEquals(4L, wtx.getRevisionNumber());
     final long rev3MaxNodeKey = wtx.getMaxNodeKey();
     wtx.close();
 
-    wtx = holder.getResourceManager().beginNodeTrx();
+    wtx = holder.getResourceSession().beginNodeTrx();
     Assert.assertEquals(4L, wtx.getRevisionNumber());
     wtx.revertTo(1);
     wtx.moveToFirstChild();

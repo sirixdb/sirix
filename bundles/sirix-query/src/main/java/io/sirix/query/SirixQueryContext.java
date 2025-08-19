@@ -1,11 +1,5 @@
 package io.sirix.query;
 
-import io.sirix.query.json.BasicJsonDBStore;
-import io.sirix.query.json.JsonDBItem;
-import io.sirix.query.json.JsonDBStore;
-import io.sirix.query.node.BasicXmlDBStore;
-import io.sirix.query.node.XmlDBNode;
-import io.sirix.query.node.XmlDBStore;
 import io.brackit.query.BrackitQueryContext;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
@@ -19,13 +13,19 @@ import io.brackit.query.jdm.node.NodeFactory;
 import io.brackit.query.jdm.type.ItemType;
 import io.brackit.query.update.UpdateList;
 import io.brackit.query.update.op.UpdateOp;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.json.JsonDBStore;
+import io.sirix.query.node.BasicXmlDBStore;
+import io.sirix.query.node.XmlDBNode;
+import io.sirix.query.node.XmlDBStore;
+import it.unimi.dsi.fastutil.ints.IntArraySet;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.time.Instant;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -171,7 +171,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
       return Optional.empty();
     };
 
-    final var trxIDs = new HashSet<Long>();
+    final var trxIDs = new IntArraySet();
 
     updateList.stream()
               .map(UpdateOp::getTarget)
@@ -190,7 +190,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
       return Optional.empty();
     };
 
-    final var trxIDs = new HashSet<Long>();
+    final var trxIDs = new IntArraySet();
 
     updateList.stream()
               .map(UpdateOp::getTarget)

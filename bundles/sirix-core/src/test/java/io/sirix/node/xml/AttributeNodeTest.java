@@ -62,8 +62,8 @@ public class AttributeNodeTest {
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
-    holder = Holder.generateDeweyIDResourceMgr();
-    pageReadOnlyTrx = holder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceSession();
+    pageReadOnlyTrx = holder.getResourceSession().beginPageReadOnlyTrx();
   }
 
   @After

@@ -118,8 +118,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     this.bufferManagers = Databases.getBufferManager(dbConfig.getDatabaseFile());
   }
 
-  private void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
-    bufferManagers.put(resourceFile, new BufferManagerImpl(10_000, 1_000, 5_000, 50_000, 500, 20));
+  private void addResourceToBufferManagerMapping(Path resourceFile) {
+    bufferManagers.put(resourceFile, new BufferManagerImpl(500_000, 65_536 * 100, 5_000, 50_000, 500, 20));
   }
 
   @Override
@@ -148,7 +148,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     // Add resource to buffer manager mapping.
     if (!bufferManagers.containsKey(resourcePath)) {
-      addResourceToBufferManagerMapping(resourcePath, resourceConfig);
+      addResourceToBufferManagerMapping(resourcePath);
     }
 
     return resourceStore.beginResourceSession(resourceConfig, bufferManagers.get(resourcePath), resourcePath);
@@ -220,7 +220,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
 
     if (!bufferManagers.containsKey(path)) {
-      addResourceToBufferManagerMapping(path, resourceConfig);
+      addResourceToBufferManagerMapping(path);
     }
 
     return returnVal;

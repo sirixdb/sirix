@@ -94,7 +94,7 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
-  public long getId() {
+  public int getId() {
     return delegate().getId();
   }
 

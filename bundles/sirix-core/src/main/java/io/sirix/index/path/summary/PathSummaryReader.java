@@ -528,7 +528,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public long getId() {
+  public int getId() {
     throw new UnsupportedOperationException();
   }
 
