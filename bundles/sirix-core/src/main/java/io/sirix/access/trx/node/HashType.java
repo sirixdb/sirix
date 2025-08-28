@@ -19,6 +19,6 @@ public enum HashType {
         return hashType;
       }
     }
-    throw new IllegalArgumentException(STR."No constant with name \{string} found");
+    throw new IllegalArgumentException("No constant with name " + string + " found");
   }
 }

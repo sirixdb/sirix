@@ -101,7 +101,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
-          cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
+          cache.get(revision, _ -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
 
       // Read page from file.
       final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());

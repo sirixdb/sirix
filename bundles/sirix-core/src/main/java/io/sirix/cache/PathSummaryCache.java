@@ -11,8 +11,9 @@ public class PathSummaryCache implements Cache<Integer, PathSummaryData> {
 
   public PathSummaryCache(final int maxSize) {
     cache = Caffeine.newBuilder()
+                    .initialCapacity(maxSize)
                     .maximumSize(maxSize)
-                    .expireAfterAccess(5, TimeUnit.MINUTES)
+                    .scheduler(scheduler)
                     .build();
   }
 

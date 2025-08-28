@@ -152,6 +152,12 @@ public final class DatabaseConfiguration {
   private DatabaseType databaseType;
 
   /**
+   * Maximum buffer size for memory segment allocation.
+   * Default is 1GB.
+   */
+  private long maxSegmentAllocationSize = 1L << 30; // 1GB default
+
+  /**
    * Constructor with the path to be set.
    *
    * @param file file to be set
@@ -179,6 +185,28 @@ public final class DatabaseConfiguration {
   public DatabaseType getDatabaseType() {
     return databaseType;
   }
+
+  /**
+   * Set the maximum buffer size for memory segment allocation.
+   *
+   * @param size maximum buffer size in bytes
+   * @return this {@link DatabaseConfiguration} instance
+   */
+  public DatabaseConfiguration setMaxSegmentAllocationSize(final long size) {
+    checkArgument(size > 0, "Max buffer size must be positive");
+    this.maxSegmentAllocationSize = size;
+    return this;
+  }
+
+  /**
+   * Get the maximum buffer size for memory segment allocation.
+   *
+   * @return maximum buffer size in bytes
+   */
+  public long getMaxSegmentAllocationSize() {
+    return maxSegmentAllocationSize;
+  }
+
 
   /**
    * Set unique maximum resource ID.
@@ -260,6 +288,7 @@ public final class DatabaseConfiguration {
       jsonWriter.name("file").value(filePath);
       jsonWriter.name("ID").value(config.maxResourceID);
       jsonWriter.name("databaseType").value(config.databaseType.toString());
+      jsonWriter.name("maxSegmentAllocationSize").value(config.maxSegmentAllocationSize);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -287,10 +316,13 @@ public final class DatabaseConfiguration {
       final String databaseType = jsonReader.nextName();
       assert databaseType.equals("databaseType");
       final String type = jsonReader.nextString();
+      final String maxSegmentAllocationSizeName = jsonReader.nextName();
+      assert maxSegmentAllocationSizeName.equals("maxSegmentAllocationSize");
+      final long maxSegmentAllocationSize = jsonReader.nextLong();
       jsonReader.endObject();
       final DatabaseType dbType = DatabaseType.fromString(type)
                                               .orElseThrow(() -> new IllegalStateException("Type can not be unknown."));
-      return new DatabaseConfiguration(dbFile).setMaximumResourceID(ID).setDatabaseType(dbType);
+      return new DatabaseConfiguration(dbFile).setMaximumResourceID(ID).setDatabaseType(dbType).setMaxSegmentAllocationSize(maxSegmentAllocationSize);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

@@ -152,8 +152,8 @@ public final class FullReferencesPage implements Page {
   }
 
   @Override
-  public Page clearPage() {
+  public Page clear() {
     Arrays.fill(references, null);
-    return Page.super.clearPage();
+    return Page.super.clear();
   }
 }

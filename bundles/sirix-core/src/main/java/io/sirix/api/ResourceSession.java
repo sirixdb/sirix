@@ -347,7 +347,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param ID The ID of the reader.
    * @return The node reader if available.
    */
-  Optional<R> getNodeReadTrxByTrxId(Long ID);
+  Optional<R> getNodeReadTrxByTrxId(Integer ID);
 
   /**
    * Determines if this resource manager has a running read-write transaction.

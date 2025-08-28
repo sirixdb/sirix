@@ -60,15 +60,15 @@ public class XmlResourceSessionTest {
 
   @Test
   public void testSingleton() {
-    try (final var database = Holder.openResourceManager().getDatabase()) {
+    try (final var database = Holder.openResourceSession().getDatabase()) {
       assertEquals(database, holder.getDatabase());
 
       try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
-        assertEquals(manager, holder.getResourceManager());
+        assertEquals(manager, holder.getResourceSession());
       }
 
       try (final XmlResourceSession manager2 = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
-        assertNotSame(manager2, holder.getResourceManager());
+        assertNotSame(manager2, holder.getResourceSession());
       }
     }
   }
@@ -84,7 +84,7 @@ public class XmlResourceSessionTest {
     } catch (final IllegalStateException e) {
       // Must fail.
     } finally {
-      holder.getResourceManager().close();
+      holder.getResourceSession().close();
     }
   }
 
@@ -97,7 +97,7 @@ public class XmlResourceSessionTest {
 
   @Test
   public void testInsertChild() {
-    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+    try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx()) {
       XmlDocumentCreator.create(wtx);
       wtx.moveToDocumentRoot();
       Assert.assertEquals(NodeKind.XML_DOCUMENT, wtx.getKind());
@@ -115,7 +115,7 @@ public class XmlResourceSessionTest {
     XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
     Assert.assertEquals(0L, rtx.getRevisionNumber());
 
-    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+    try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx()) {
       Assert.assertEquals(1L, wtx.getRevisionNumber());
 
       // Commit and check.
@@ -123,32 +123,32 @@ public class XmlResourceSessionTest {
     }
 
     try {
-      rtx = holder.getResourceManager().beginNodeReadOnlyTrx(Constants.UBP_ROOT_REVISION_NUMBER);
+      rtx = holder.getResourceSession().beginNodeReadOnlyTrx(Constants.UBP_ROOT_REVISION_NUMBER);
 
       assertEquals(Constants.UBP_ROOT_REVISION_NUMBER, rtx.getRevisionNumber());
     } finally {
       rtx.close();
     }
 
-    try (final XmlNodeReadOnlyTrx rtx2 = holder.getResourceManager().beginNodeReadOnlyTrx()) {
+    try (final XmlNodeReadOnlyTrx rtx2 = holder.getResourceSession().beginNodeReadOnlyTrx()) {
       Assert.assertEquals(1L, rtx2.getRevisionNumber());
     }
   }
 
   @Test
   public void testShreddedRevision() {
-    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+    try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx()) {
       XmlDocumentCreator.create(wtx);
       Assert.assertEquals(1L, wtx.getRevisionNumber());
       wtx.commit();
     }
 
-    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx()) {
       Assert.assertEquals(1L, rtx.getRevisionNumber());
       rtx.moveTo(12L);
       assertEquals("bar", rtx.getValue());
 
-      try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+      try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx()) {
         Assert.assertEquals(2L, wtx.getRevisionNumber());
         wtx.moveTo(12L);
         wtx.setValue("bar2");
@@ -159,7 +159,7 @@ public class XmlResourceSessionTest {
       }
     }
 
-    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx()) {
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx()) {
       Assert.assertEquals(1L, rtx.getRevisionNumber());
       rtx.moveTo(12L);
       assertEquals("bar", rtx.getValue());
@@ -209,23 +209,23 @@ public class XmlResourceSessionTest {
 
   @Test
   public void testIdempotentClose() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
     wtx.commit();
     wtx.close();
     wtx.close();
 
-    final NodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+    final NodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     assertFalse(rtx.moveTo(14L));
     rtx.close();
     rtx.close();
-    holder.getResourceManager().close();
+    holder.getResourceSession().close();
   }
 
   @Test
   public void testAutoCommitWithNodeThreshold() {
     // After each bunch of 5 nodes commit.
-    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx(5)) {
+    try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx(5)) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
       Assert.assertEquals(4, wtx.getRevisionNumber());
@@ -235,7 +235,7 @@ public class XmlResourceSessionTest {
   @Test
   public void testAutoCommitWithScheduler() throws InterruptedException {
     // After 500 milliseconds commit.
-    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx(500, TimeUnit.MILLISECONDS)) {
+    try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx(500, TimeUnit.MILLISECONDS)) {
       TimeUnit.MILLISECONDS.sleep(1500);
       assertTrue(wtx.getRevisionNumber() >= 3);
     }
@@ -247,7 +247,7 @@ public class XmlResourceSessionTest {
     final Instant afterAllCommits;
     final Instant afterFirstCommit;
     final Instant afterSecondCommit;
-    try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx(2000, TimeUnit.MILLISECONDS)) {
+    try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx(2000, TimeUnit.MILLISECONDS)) {
       TimeUnit.MILLISECONDS.sleep(2100);
       afterFirstCommit = Instant.now();
       TimeUnit.MILLISECONDS.sleep(2100);
@@ -257,20 +257,20 @@ public class XmlResourceSessionTest {
       afterAllCommits = Instant.now();
     }
 
-    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(start)) {
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx(start)) {
       Assert.assertEquals(0, rtx.getRevisionNumber());
     }
 
-    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(afterFirstCommit)) {
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx(afterFirstCommit)) {
       Assert.assertEquals(1, rtx.getRevisionNumber());
     }
 
-    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(afterSecondCommit)) {
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx(afterSecondCommit)) {
       Assert.assertEquals(2, rtx.getRevisionNumber());
     }
 
-    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(afterAllCommits)) {
-      assertEquals(holder.getResourceManager().getMostRecentRevisionNumber(), rtx.getRevisionNumber());
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx(afterAllCommits)) {
+      assertEquals(holder.getResourceSession().getMostRecentRevisionNumber(), rtx.getRevisionNumber());
     }
   }
 }
