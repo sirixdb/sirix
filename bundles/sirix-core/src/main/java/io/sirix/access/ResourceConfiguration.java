@@ -31,20 +31,20 @@ package io.sirix.access;
 import com.google.common.base.MoreObjects;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
-import io.sirix.access.trx.node.HashType;
-import io.sirix.node.NodeSerializerImpl;
-import io.sirix.node.interfaces.RecordSerializer;
-import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.BinaryEncodingVersion;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerKind;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.LZ4Compressor;
+import io.sirix.node.NodeSerializerImpl;
+import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.OS;
+import net.openhft.hashing.LongHashFunction;
+import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -169,8 +169,8 @@ public final class ResourceConfiguration {
   /**
    * Standard storage.
    */
-  private static final StorageType STORAGE =
-      OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
+  private static final StorageType STORAGE = StorageType.FILE_CHANNEL;
+      //OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
 
   /**
    * Standard versioning approach.
@@ -709,7 +709,7 @@ public final class ResourceConfiguration {
     /**
      * Determines if node history should be stored or not.
      */
-    private boolean storeNodeHistory;
+    private boolean storeNodeHistory = true;
 
     private BinaryEncodingVersion binaryEncodingVersion = BINARY_ENCODING_VERSION;
 

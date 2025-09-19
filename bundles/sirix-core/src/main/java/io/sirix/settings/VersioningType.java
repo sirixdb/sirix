@@ -25,11 +25,12 @@ import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageFragmentKeyImpl;
 import io.sirix.page.PageReference;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.PageFragmentKey;
+import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -53,7 +54,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() == 1 : "Only one version of the page!";
-      return pages.get(0);
+      return (T) new KeyValueLeafPage((KeyValueLeafPage) pages.getFirst());
     }
 
     @Override
@@ -61,28 +62,25 @@ public enum VersioningType {
         final List<T> pages, final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx,
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() == 1;
-      final T firstPage = pages.get(0);
+      final T firstPage = pages.getFirst();
 
       final long recordPageKey = firstPage.getPageKey();
 
       final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
       final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
 
-      var slots = firstPage.slots();
-      var deweyIds = firstPage.deweyIds();
-
       for (int i = 0; i < firstPage.size(); i++) {
-        byte[] slot = slots[i];
+        var slot = firstPage.getSlot(i);
 
         if (slot == null) {
           continue;
         }
 
         completePage.setSlot(slot, i);
-        completePage.setDeweyId(deweyIds[i], i);
+        completePage.setDeweyId(firstPage.getDeweyId(i), i);
 
         modifiedPage.setSlot(slot, i);
-        modifiedPage.setDeweyId(deweyIds[i], i);
+        modifiedPage.setDeweyId(firstPage.getDeweyId(i), i);
       }
 
       final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
@@ -105,7 +103,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() <= 2;
-      final T firstPage = pages.get(0);
+      final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final T pageToReturn = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
 
@@ -115,11 +113,9 @@ public enum VersioningType {
       assert latest.getPageKey() == recordPageKey;
       assert fullDump.getPageKey() == recordPageKey;
 
-      byte[][] slots = firstPage.slots();
-      byte[][] deweyIds = firstPage.deweyIds();
-      for (int offset = 0; offset < slots.length; offset++) {
-        pageToReturn.setSlot(slots[offset], offset);
-        pageToReturn.setDeweyId(deweyIds[offset], offset);
+      for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+        pageToReturn.setSlot(firstPage.getSlot(offset), offset);
+        pageToReturn.setDeweyId(firstPage.getDeweyId(offset), offset);
       }
       for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
         pageToReturn.setPageReference(entry.getKey(), entry.getValue());
@@ -127,17 +123,15 @@ public enum VersioningType {
 
       // Skip full dump if not needed (fulldump equals latest page).
       if (pages.size() == 2) {
-        slots = firstPage.slots();
-        deweyIds = firstPage.deweyIds();
-        for (int offset = 0; offset < slots.length; offset++) {
-          byte[] recordData = firstPage.getSlot(offset);
+        for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+          var recordData = firstPage.getSlot(offset);
           if (recordData == null) {
             continue;
           }
           if (pageToReturn.getSlot(offset) == null) {
-            pageToReturn.setSlot(slots[offset], offset);
+            pageToReturn.setSlot(firstPage.getSlot(offset), offset);
           }
-          final var deweyId = deweyIds[offset];
+          final var deweyId = firstPage.getDeweyId(offset);
           if (deweyId != null && pageToReturn.getDeweyId(offset) == null) {
             pageToReturn.setDeweyId(deweyId, offset);
           }
@@ -161,7 +155,7 @@ public enum VersioningType {
         final List<T> pages, final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx,
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() <= 2;
-      final T firstPage = pages.get(0);
+      final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final int revision = pageReadTrx.getUberPage().getRevisionNumber();
 
@@ -175,14 +169,12 @@ public enum VersioningType {
       final boolean isFullDump = revision % revToRestore == 0;
 
       // Iterate through all nodes of the latest revision.
-      byte[][] slots = firstPage.slots();
-      byte[][] deweyIds = firstPage.deweyIds();
-      for (int offset = 0; offset < slots.length; offset++) {
-        completePage.setSlot(slots[offset], offset);
-        completePage.setDeweyId(deweyIds[offset], offset);
+      for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+        completePage.setSlot(firstPage.getSlot(offset), offset);
+        completePage.setDeweyId(firstPage.getDeweyId(offset), offset);
 
-        modifiedPage.setSlot(slots[offset], offset);
-        modifiedPage.setDeweyId(deweyIds[offset], offset);
+        modifiedPage.setSlot(firstPage.getSlot(offset), offset);
+        modifiedPage.setDeweyId(firstPage.getDeweyId(offset), offset);
       }
 
       // Iterate through all nodes of the latest revision.
@@ -194,17 +186,15 @@ public enum VersioningType {
       // If not all entries are filled.
       if (latest.size() != Constants.NDP_NODE_COUNT) {
         // Iterate through the full dump.
-        slots = firstPage.slots();
-        deweyIds = firstPage.deweyIds();
-        for (int offset = 0; offset < slots.length; offset++) {
-          var recordData = slots[offset];
+        for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+          var recordData = firstPage.getSlot(offset);
           if (completePage.getSlot(offset) == null) {
-            completePage.setSlot(slots[offset], offset);
+            completePage.setSlot(firstPage.getSlot(offset), offset);
           }
           if (isFullDump && modifiedPage.getSlot(offset) == null) {
             modifiedPage.setSlot(recordData, offset);
           }
-          var deweyId = deweyIds[offset];
+          var deweyId = firstPage.getDeweyId(offset);
           if (completePage.getDeweyId(offset) == null) {
             completePage.setDeweyId(deweyId, offset);
           }
@@ -263,7 +253,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       assert pages.size() <= revToRestore;
-      final T firstPage = pages.get(0);
+      final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final T pageToReturn = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), pageReadTrx);
 
@@ -274,11 +264,8 @@ public enum VersioningType {
           break;
         }
 
-        final byte[][] slots = page.slots();
-        final byte[][] deweyIds = page.deweyIds();
-
-        for (int offset = 0; offset < slots.length; offset++) {
-          final var recordData = slots[offset];
+        for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+          final var recordData = page.getSlot(offset);
 
           if (recordData == null) {
             continue;
@@ -287,7 +274,7 @@ public enum VersioningType {
           if (pageToReturn.getSlot(offset) == null) {
             pageToReturn.setSlot(recordData, offset);
           }
-          final var deweyId = deweyIds[offset];
+          final var deweyId = page.getDeweyId(offset);
           if (pageToReturn.getDeweyId(offset) == null) {
             pageToReturn.setDeweyId(deweyId, offset);
           }
@@ -319,7 +306,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
         final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
         final TransactionIntentLog log) {
-      final T firstPage = pages.get(0);
+      final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
       previousPageFragmentKeys.add(new PageFragmentKeyImpl(firstPage.getRevision(), reference.getKey()));
@@ -341,11 +328,8 @@ public enum VersioningType {
           break;
         }
 
-        final V[] records = page.records();
-        final byte[][] slots = page.slots();
-        final byte[][] deweyIds = page.deweyIds();
-        for (int offset = 0; offset < records.length; offset++) {
-          final var recordData = slots[offset];
+        for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+          final var recordData = page.getSlot(offset);
 
           if (recordData == null) {
             continue;
@@ -358,7 +342,7 @@ public enum VersioningType {
               modifiedPage.setSlot(recordData, offset);
             }
           }
-          final var deweyId = deweyIds[offset];
+          final var deweyId = page.getDeweyId(offset);
           // Caching the complete page.
           if (completePage.getDeweyId(offset) == null) {
             completePage.setDeweyId(deweyId, offset);
@@ -427,8 +411,11 @@ public enum VersioningType {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
+      for (var page : pages) {
+        assert page.getPinCount() > 0;
+      }
       assert pages.size() <= revToRestore;
-      final T firstPage = pages.get(0);
+      final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), pageReadTrx);
 
@@ -439,10 +426,8 @@ public enum VersioningType {
           break;
         }
 
-        final byte[][] slots = page.slots();
-        final byte[][] deweyIds = page.deweyIds();
-        for (int offset = 0; offset < slots.length; offset++) {
-          final var recordData = slots[offset];
+        for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+          final var recordData = page.getSlot(offset);
 
           if (recordData == null) {
             continue;
@@ -452,7 +437,7 @@ public enum VersioningType {
             returnVal.setSlot(recordData, offset);
           }
 
-          final var deweyId = deweyIds[offset];
+          final var deweyId = page.getDeweyId(offset);
           if (returnVal.getDeweyId(offset) == null) {
             returnVal.setDeweyId(deweyId, offset);
           }
@@ -483,7 +468,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
         final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
         final TransactionIntentLog log) {
-      final T firstPage = pages.get(0);
+      final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
       previousPageFragmentKeys.add(new PageFragmentKeyImpl(firstPage.getRevision(), reference.getKey()));
@@ -507,11 +492,9 @@ public enum VersioningType {
 
         final boolean isPageOutOfSlidingWindow = (i == pages.size() - 1 && revToRestore == pages.size());
 
-        final byte[][] slots = page.slots();
-        final byte[][] deweyIds = page.deweyIds();
-        for (int offset = 0; offset < slots.length; offset++) {
-          final var recordData = slots[offset];
-          final var deweyId = deweyIds[offset];
+        for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+          final var recordData = page.getSlot(offset);
+          final var deweyId = page.getDeweyId(offset);
 
           if (recordData == null) {
             continue;
@@ -592,28 +575,6 @@ public enum VersioningType {
       return retVal;
     }
   };
-
-  private static <V extends DataRecord, T extends KeyValuePage<V>> void setSlots(T pageToReadFrom,
-      T... pagesToSetSlots) {
-    final byte[][] slots = pageToReadFrom.slots();
-    for (int offset = 0; offset < slots.length; offset++) {
-      final var recordData = slots[offset];
-      for (T page : pagesToSetSlots) {
-        page.setSlot(recordData, offset);
-      }
-    }
-  }
-
-  private static <V extends DataRecord, T extends KeyValuePage<V>> void setDeweyIds(T pageToReadFrom,
-      T... pagesToSetDeweyIds) {
-    final byte[][] deweyIds = pageToReadFrom.deweyIds();
-    for (int offset = 0; offset < deweyIds.length; offset++) {
-      final var deweyId = deweyIds[offset];
-      for (T page : pagesToSetDeweyIds) {
-        page.setDeweyId(deweyId, offset);
-      }
-    }
-  }
 
   public static VersioningType fromString(String versioningType) {
     for (final var type : values()) {

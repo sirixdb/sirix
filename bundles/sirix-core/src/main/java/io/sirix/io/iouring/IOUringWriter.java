@@ -41,6 +41,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -166,16 +167,19 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @NonNull
-  private IOUringWriter writePage(ResourceConfiguration resourceConfiguration, PageReference pageReference,
-      Page page, Bytes<ByteBuffer> bufferedBytes, long offset) {
+  private IOUringWriter writePage(final ResourceConfiguration resourceConfiguration,
+      final PageReference pageReference, final Page page, final Bytes<ByteBuffer> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
       pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
-      final var byteArray = byteBufferBytes.toByteArray();
+
+      // Serialize page.
+      pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
 
       final byte[] serializedPage;
 
+      final var byteArray = byteBufferBytes.toByteArray();
       if (page instanceof KeyValueLeafPage) {
         serializedPage = byteArray;
       } else {

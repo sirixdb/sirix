@@ -222,7 +222,7 @@ public final class FMSETest {
       assert database != null;
       XmlResourceSession resource = database.beginResourceSession(XmlTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
-      final List<Path> list = Files.list(folder).filter(fileNameFilter).sorted(comparator()).collect(toList());
+      final List<Path> list = Files.list(folder).filter(fileNameFilter).sorted(comparator()).toList();
 
       // Sort files list according to file names.
 
