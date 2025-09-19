@@ -23,16 +23,16 @@ package io.sirix.axis
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import org.checkerframework.checker.index.qual.NonNegative
 import io.sirix.api.NodeCursor
 import io.sirix.api.NodeReadOnlyTrx
 import io.sirix.api.NodeTrx
+import io.sirix.api.PageReadOnlyTrx
 import io.sirix.api.ResourceSession
+import io.sirix.index.IndexType
 import io.sirix.settings.Fixed
 import io.sirix.utils.LogWrapper
 import org.slf4j.LoggerFactory
-import java.util.*
-import kotlin.coroutines.CoroutineContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * <h1>CoroutineDescendantAxis</h1>
@@ -45,268 +45,295 @@ import kotlin.coroutines.CoroutineContext
  */
 class CoroutineDescendantAxis<R, W> :
     AbstractAxis where R : NodeReadOnlyTrx, R : NodeCursor, W : NodeTrx, W : NodeCursor {
-    /** Logger  */
-    private val logger =
-        LogWrapper(LoggerFactory.getLogger(CoroutineDescendantAxis::class.java))
 
-    /** Right page coroutine producer  */
-    private var producer: Producer
+    /** Logger */
+    private val logger = LogWrapper(LoggerFactory.getLogger(CoroutineDescendantAxis::class.java))
+    /** Flag indicating if parallel processing is active */
 
-    /** Axis current resource session  */
-    private var resourceSession: ResourceSession<R, W>
+    private val parallelActive = AtomicBoolean(false)
 
-    /** Determines if it's the first call to hasNext().  */
-    private var first = false
+    /** Resource session for creating transactions */
+    private val resourceSession: ResourceSession<R, W>
 
-    /** Determines if left page still has any results to compute.  */
-    private var left = true
+    /** Coroutine scope for managing parallel tasks */
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    /** Capacity of the results queue.  */
-    private val capacity = 200
+    /** Channel for results from parallel producers */
+    private val resultChannel = Channel<Long>(Channel.UNLIMITED)
+
+    /** Active parallel tasks */
+    private val activeTasks = mutableListOf<Job>()
+
+
+    /** Minimum descendant count to trigger parallelization */
+    private val PARALLELIZATION_THRESHOLD = 1000
+
+    /** Current position in traversal */
+    private var currentPosition = 0L
+    private var isFirst = true
+    private var mainTraversalComplete = false
+
+    /** Queue for storing results in order */
+    private val resultQueue = java.util.concurrent.ConcurrentLinkedQueue<Long>()
 
     /**
      * Constructor initializing internal state.
-     *
-     * @param resourceSession to retrieve cursors for pages
      */
     constructor(resourceSession: ResourceSession<R, W>) : super(resourceSession.beginNodeReadOnlyTrx()) {
         this.resourceSession = resourceSession
-        producer = Producer()
+        logger.debug("Initialized CoroutineDescendantAxis with resource session")
     }
 
-    /**
-     * Constructor initializing internal state.
-     *
-     * @param resourceSession to retrieve cursors for pages
-     * @param includeSelf determines if current node is included or not
-     */
     constructor(
         resourceSession: ResourceSession<R, W>,
         includeSelf: IncludeSelf
     ) : super(resourceSession.beginNodeReadOnlyTrx(), includeSelf) {
         this.resourceSession = resourceSession
-        producer = Producer()
+        logger.debug("Initialized CoroutineDescendantAxis with resource session and includeSelf: {}", includeSelf)
     }
 
-    /**
-     * Constructor initializing internal state.
-     *
-     * @param resourceSession to retrieve cursor for right page
-     * @param includeSelf determines if current node is included or not
-     * @param cursor to iterate through left page
-     */
-    constructor(resourceSession: ResourceSession<R, W>, includeSelf: IncludeSelf, cursor: NodeCursor) : super(
-        cursor,
-        includeSelf
-    ) {
+    constructor(
+        resourceSession: ResourceSession<R, W>,
+        includeSelf: IncludeSelf,
+        cursor: NodeCursor
+    ) : super(cursor, includeSelf) {
         this.resourceSession = resourceSession
-        producer = Producer()
-    }
-
-    init {
-        first = true
-        left = true
+        logger.debug("Initialized CoroutineDescendantAxis with resource session, includeSelf: {}, and custom cursor", includeSelf)
     }
 
     override fun reset(nodeKey: Long) {
+        logger.debug("Resetting axis to node key: {}", nodeKey)
         super.reset(nodeKey)
-        first = true
-        left = true
+        cleanup()
+        isFirst = true
+        mainTraversalComplete = false
+        currentPosition = 0L
     }
 
-    @InternalCoroutinesApi
     override fun nextKey(): Long {
-        var key: Long
-
-        if (left) {
-            // Determines if first call to hasNext().
-            if (first) {
-                first = false
-                return nextKeyForFirst()
-            }
-            // Always follow first child if there is one.
-            if (cursor.hasFirstChild()) {
-                return nextKeyForFirstChild()
-            }
-            // Then follow right sibling if there is one.
-            if (cursor.hasRightSibling()) {
-                return nextKeyForRightSibling()
-            }
-
-            // End of left node, any other results are computed in coroutine
-            left = false
+        // Handle first call
+        if (isFirst) {
+            logger.debug("Handling first call")
+            isFirst = false
+            return handleFirstCall()
         }
 
-        // Follow right node when coroutine is enabled.
-        if (producer.running) {
-
-            // Then follow right sibling on from coroutine.
-            runBlocking { key = producer.receive() }
-
-            if (!isDone(key)) {
-                val currKey = cursor.nodeKey
-                return hasNextNode(cursor, key, currKey)
-            }
+        // Check if we have results in the queue
+        val queuedResult = resultQueue.poll()
+        if (queuedResult != null) {
+            logger.trace("Returning queued result: {}", queuedResult)
+            return queuedResult
         }
 
+        // Continue main traversal
+        if (!mainTraversalComplete) {
+            logger.trace("Continuing main traversal")
+            return continueMainTraversal()
+        }
+
+        // Wait for any remaining parallel tasks
+        if (parallelActive.get()) {
+            logger.trace("Waiting for parallel results")
+            return waitForParallelResults()
+        }
+
+        logger.debug("Traversal complete, returning done")
         return done()
     }
 
-    private fun nextKeyForFirst(): Long {
+    private fun handleFirstCall(): Long {
         return if (includeSelf() == IncludeSelf.YES) {
-            cursor.nodeKey
+            logger.debug("Including self in traversal")
+            currentPosition = cursor.nodeKey
+            considerParallelProcessing()
+            currentPosition
         } else {
-            cursor.firstChildKey
+            if (cursor.moveToFirstChild()) {
+                logger.debug("Moving to first child: {}", cursor.nodeKey)
+                currentPosition = cursor.nodeKey
+                considerParallelProcessing()
+                currentPosition
+            } else {
+                logger.debug("No children found, returning done")
+                done()
+            }
         }
     }
 
-    @InternalCoroutinesApi
-    private fun nextKeyForFirstChild(): Long {
-        if (cursor.hasRightSibling()) {
-            producer.run(cursor.rightSiblingKey)
+    private fun continueMainTraversal(): Long {
+        // Try to move to first child
+        if (cursor.moveToFirstChild()) {
+            logger.trace("Moving to first child: {}", cursor.nodeKey)
+            currentPosition = cursor.nodeKey
+            considerParallelProcessing()
+            return currentPosition
         }
-        return cursor.firstChildKey
+
+        // Try to move to right sibling
+        if (cursor.moveToRightSibling()) {
+            logger.trace("Moving to right sibling: {}", cursor.nodeKey)
+            currentPosition = cursor.nodeKey
+            considerParallelProcessing()
+            return currentPosition
+        }
+
+        logger.trace("No more children or siblings, moving up")
+        return moveUpAndFindNextSibling()
     }
 
-    private fun nextKeyForRightSibling(): Long {
-        val currKey = cursor.nodeKey
-        val key = cursor.rightSiblingKey
-        return hasNextNode(cursor, key, currKey)
+    private fun moveUpAndFindNextSibling(): Long {
+        while (cursor.hasParent() && cursor.parentKey != startKey) {
+            cursor.moveTo(cursor.parentKey)
+            logger.trace("Moving up to parent: {}", cursor.nodeKey)
+
+            if (cursor.moveToRightSibling()) {
+                logger.trace("Found right sibling: {}", cursor.nodeKey)
+                currentPosition = cursor.nodeKey
+                considerParallelProcessing()
+                return currentPosition
+            }
+        }
+
+        logger.debug("Main traversal complete")
+        mainTraversalComplete = true
+        return if (parallelActive.get()) waitForParallelResults() else done()
     }
 
-    /**
-     * Determines if the subtree-traversal is finished.
-     * @param cursor right or left page current cursor
-     * @param key next key
-     * @param currKey current node key
-     * @return `false` if finished, `true` if not
-     */
-    private fun hasNextNode(cursor: NodeCursor, key: @NonNegative Long, currKey: @NonNegative Long): Long {
-        cursor.moveTo(key)
-        return if (cursor.leftSiblingKey == startKey) {
+    private fun considerParallelProcessing() {
+        if (!cursor.hasRightSibling()) {
+            logger.trace("No right sibling to parallelize")
+            return
+        }
+
+        val rightSiblingKey = cursor.rightSiblingKey
+        logger.trace("Considering parallelization for right sibling: {}", rightSiblingKey)
+
+        if (shouldParallelizeSubtree(rightSiblingKey)) {
+            logger.debug("Launching parallel traversal for right sibling: {}", rightSiblingKey)
+            launchParallelTraversal(rightSiblingKey)
+        } else {
+            logger.trace("Skipping parallelization for right sibling: {}", rightSiblingKey)
+        }
+    }
+
+    private fun shouldParallelizeSubtree(nodeKey: Long): Boolean {
+        logger.trace("Checking if subtree should be parallelized: {}", nodeKey)
+        val tempCursor = resourceSession.beginNodeReadOnlyTrx()
+        try {
+            tempCursor.moveTo(nodeKey)
+
+            val currentPageKey = (this.cursor as PageReadOnlyTrx).pageKey(this.cursor.nodeKey, IndexType.DOCUMENT)
+            val targetPageKey = (tempCursor as PageReadOnlyTrx).pageKey(nodeKey, IndexType.DOCUMENT)
+
+            if (currentPageKey == targetPageKey) {
+                logger.trace("Skipping parallelization - same page: {}", currentPageKey)
+                return false
+            }
+
+            val descendantCount = tempCursor.descendantCount
+            val shouldParallelize = descendantCount >= PARALLELIZATION_THRESHOLD
+            logger.trace("Subtree descendant count: {}, should parallelize: {}", descendantCount, shouldParallelize)
+            return shouldParallelize
+
+        } finally {
+            tempCursor.close()
+        }
+    }
+
+    private fun launchParallelTraversal(startKey: Long) {
+        if (parallelActive.get()) {
+            logger.trace("Parallel processing already active, skipping")
+            return
+        }
+
+        logger.debug("Starting parallel traversal from node: {}", startKey)
+        parallelActive.set(true)
+        val job = scope.launch {
+            val producerCursor = resourceSession.beginNodeReadOnlyTrx()
+            try {
+                traverseSubtreeParallel(producerCursor, startKey)
+            } catch (e: Exception) {
+                logger.error("Error in parallel traversal", e)
+            } finally {
+                producerCursor.close()
+                parallelActive.set(false)
+                logger.debug("Parallel traversal completed for node: {}", startKey)
+            }
+        }
+        activeTasks.add(job)
+    }
+
+    private suspend fun traverseSubtreeParallel(cursor: NodeCursor, startKey: Long) {
+        logger.trace("Starting parallel subtree traversal from: {}", startKey)
+        cursor.moveTo(startKey)
+        val stack = mutableListOf<Long>()
+        stack.add(startKey)
+
+        while (stack.isNotEmpty() && parallelActive.get()) {
+            val nodeKey = stack.removeAt(stack.size - 1)
+            cursor.moveTo(nodeKey)
+
+            resultQueue.add(nodeKey)
+            logger.trace("Added node to result queue: {}", nodeKey)
+
+            val children = mutableListOf<Long>()
+            if (cursor.moveToFirstChild()) {
+                children.add(cursor.nodeKey)
+
+                while (cursor.moveToRightSibling()) {
+                    children.add(cursor.nodeKey)
+                }
+            }
+
+            for (i in children.size - 1 downTo 0) {
+                stack.add(children[i])
+            }
+
+            if (stack.size % 100 == 0) {
+                logger.trace("Yielding after processing {} nodes", stack.size)
+                yield()
+            }
+        }
+        logger.debug("Completed parallel subtree traversal from: {}", startKey)
+    }
+
+    private fun waitForParallelResults(): Long {
+        val result = resultQueue.poll()
+        if (result != null) {
+            logger.trace("Found parallel result: {}", result)
+            return result
+        }
+
+        return if (!parallelActive.get()) {
+            logger.debug("No more parallel results, returning done")
             done()
         } else {
-            cursor.moveTo(currKey)
-            key
+            logger.trace("No immediate results, returning done")
+            done()
         }
     }
 
-    private fun isDone(key: Long): Boolean {
-        return key == Fixed.NULL_NODE_KEY.standardProperty
-    }
-
-    /**
-     * Signals that axis traversal is done, that is `hasNext()` must return false. Is callable
-     * from subclasses which implement [.nextKey] to signal that the axis-traversal is done and
-     * [.hasNext] must return false.
-     *
-     * @return null node key to indicate that the travesal is done
-     */
     override fun done(): Long {
-        // End of results also from right page
-        left = true
-        // Cancel all coroutine tasks
-        producer.close()
+        logger.debug("Traversal done")
+        cleanup()
         return Fixed.NULL_NODE_KEY.standardProperty
     }
 
-    private inner class Producer : CoroutineScope {
-        /** Stack for remembering next nodeKey of right siblings.  */
-        private val rightSiblingKeyStack: Deque<Long> = ArrayDeque()
+    private fun cleanup() {
+        logger.debug("Cleaning up resources")
+        parallelActive.set(false)
 
-        /**
-         * Channel that stores result keys already computed by the producer. End of the result sequence is
-         * marked by the NULL_NODE_KEY.
-         */
-        private var results: Channel<Long> = Channel(capacity)
-
-        /**
-         * Actual coroutine job
-         */
-        private var producingTask: Job? = null
-
-        /** Determines if right node coroutine is running.  */
-        var running = false
-
-        /** Right page cursor  */
-        private val cursor: NodeCursor = resourceSession.beginNodeReadOnlyTrx()
-
-        override val coroutineContext: CoroutineContext
-            get() = CoroutineName("CoroutineDescendantAxis") + Dispatchers.IO
-
-        fun close() {
-            producingTask?.cancel()
-            results.close()
-            running = false
-            results = Channel(capacity)
-            cursor.close()
+        activeTasks.forEach { 
+            logger.trace("Cancelling active task")
+            it.cancel() 
         }
+        activeTasks.clear()
+        resultChannel.close()
+    }
 
-        suspend fun receive(): Long {
-            return results.receive()
-        }
-
-        @InternalCoroutinesApi
-        fun run(key: Long) {
-            // wait for last coroutine end
-            runBlocking { producingTask?.join() }
-            producingTask = launch { produce(key) }
-            running = true
-        }
-
-        @InternalCoroutinesApi
-        suspend fun produce(key: Long) {
-            produceAll(key)
-            produceFinishSign()
-        }
-
-        @InternalCoroutinesApi
-        private suspend fun produceAll(startKey: Long) {
-            var key = startKey
-            results.send(key)
-            // Compute all results from given start key
-            while (true) {
-                cursor.moveTo(key)
-
-                // Always follow first child if there is one.
-                if (cursor.hasFirstChild()) {
-                    key = cursor.firstChildKey
-                    if (cursor.hasRightSibling()) {
-                        rightSiblingKeyStack.push(cursor.rightSiblingKey)
-                    }
-                    results.send(key)
-                    continue
-                }
-
-                // Then follow right sibling if there is one.
-                if (cursor.hasRightSibling()) {
-                    val currKey: Long = cursor.node.nodeKey
-                    key = hasNextNode(cursor, cursor.rightSiblingKey, currKey)
-                    results.send(key)
-                    continue
-                }
-
-                // Then follow right sibling on stack.
-                if (rightSiblingKeyStack.size > 0) {
-                    val currKey: Long = cursor.node.nodeKey
-                    key = hasNextNode(cursor, rightSiblingKeyStack.pop(), currKey)
-                    results.send(key)
-                    continue
-                }
-                break
-            }
-        }
-
-        @InternalCoroutinesApi
-        private suspend fun produceFinishSign() {
-            try {
-                // Mark end of result sequence by the NULL_NODE_KEY only if channel is not already closed
-                withContext(NonCancellable) {
-                    results.send(Fixed.NULL_NODE_KEY.standardProperty)
-                }
-            } catch (e: InterruptedException) {
-                logger.error(e.message, e)
-            }
-        }
+    fun close() {
+        logger.debug("Closing CoroutineDescendantAxis")
+        cleanup()
+        scope.cancel()
     }
 }
