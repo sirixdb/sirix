@@ -47,17 +47,14 @@ import io.sirix.node.delegates.ValueNodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.StructNode;
-import io.sirix.node.json.NullNode;
 import io.sirix.node.json.*;
+import io.sirix.node.json.NullNode;
 import io.sirix.node.xml.*;
 import io.sirix.page.KeyValueLeafPage;
-import io.sirix.service.xml.xpath.AtomicValue;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
-import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.BytesOut;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -67,6 +64,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.foreign.MemorySegment;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 
@@ -762,14 +760,24 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      var config = resourceConfiguration;
-      final long hashCode = getHash(source, resourceConfiguration);
+      var segment = (MemorySegment) source.getUnderlying();
+      var nodeDelegate = new NodeDelegate(segment.asSlice(0, NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize()),
+                                          recordID,
+                                          resourceConfiguration,
+                                          deweyID);
+      var structNodeDelegateOffset = NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize();
+      var structNodeDelegateUpperRange = StructNodeDelegate.STRUCT_NODE_LAYOUT.byteSize();
 
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-      final StructNodeDelegate structDel = deserializeObjectOrArrayStructDelegate(source, config, nodeDel);
+      var structNodeDelegate = new StructNodeDelegate(nodeDelegate,
+                                                      segment.asSlice(structNodeDelegateOffset,
+                                                                      structNodeDelegateUpperRange),
+                                                      recordID,
+                                                      resourceConfiguration);
 
-      // Returning an instance.
-      return new ObjectNode(hashCode, structDel);
+      var objectNodeOffset = structNodeDelegateOffset + structNodeDelegateUpperRange;
+      return new ObjectNode(structNodeDelegate,
+                            segment.asSlice(objectNodeOffset),
+                            resourceConfiguration.hashType != HashType.NONE);
     }
 
     @Override
@@ -803,28 +811,35 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      var config = resourceConfiguration;
-      final long hashCode = getHash(source, resourceConfiguration);
+      var segment = (MemorySegment) source.getUnderlying();
+      var nodeDelegate = new NodeDelegate(segment.asSlice(0, NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize()),
+                                          recordID,
+                                          resourceConfiguration,
+                                          deweyID);
+      var structNodeDelegateOffset = NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize();
+      var structNodeDelegateUpperRange = StructNodeDelegate.STRUCT_NODE_LAYOUT.byteSize();
 
-      final long pathNodeKey = source.readLong();
+      var structNodeDelegate = new StructNodeDelegate(nodeDelegate,
+                                                      segment.asSlice(structNodeDelegateOffset,
+                                                                      structNodeDelegateUpperRange),
+                                                      recordID,
+                                                      resourceConfiguration);
 
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-      final StructNodeDelegate structDel = deserializeObjectOrArrayStructDelegate(source, config, nodeDel);
-
-      // Returning an instance.
-      return new ArrayNode(hashCode, structDel, pathNodeKey);
+      var arrayNodeOffset = structNodeDelegateOffset + structNodeDelegateUpperRange;
+      return new ArrayNode(structNodeDelegate,
+                           segment.asSlice(arrayNodeOffset),
+                           resourceConfiguration.hashType != HashType.NONE);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ArrayNode node = (ArrayNode) record;
-      var config = resourceConfiguration;
-      if (config.hashType != HashType.NONE)
-        writeHash(sink, node.getHash());
-      sink.writeLong(node.getPathNodeKey());
       serializeDelegate(node.getNodeDelegate(), sink);
-      serializeJsonObjectOrArrayStructDelegate(sink, node, config);
+      serializeJsonObjectOrArrayStructDelegate(sink, node, resourceConfiguration);
+      sink.writeLong(node.getPathNodeKey());
+      if (resourceConfiguration.hashType != HashType.NONE)
+        writeHash(sink, node.getHash());
     }
 
     @Override
@@ -846,40 +861,31 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      final long hashCode = getHash(source, resourceConfiguration);
-
-      final int nameKey = source.readInt();
-      final long pathNodeKey = getVarLong(source);
-
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-
-      final var currKey = nodeDel.getNodeKey();
-
-      var rightSibling = currKey - getVarLong(source);
-      var leftSibling = currKey - getVarLong(source);
-      var firstChild = currKey - getVarLong(source);
-
-      var config = resourceConfiguration;
-
-      final long descendantCount;
-
-      if (config.hashType == HashType.NONE) {
-        descendantCount = 0;
-      } else {
-        descendantCount = getVarLong(source) + 1;
-      }
-
-      // Struct delegate.
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                  firstChild,
-                                                                  rightSibling,
-                                                                  leftSibling,
-                                                                  config.storeChildCount() ? 1 : 0,
-                                                                  descendantCount);
-
-      // Returning an instance.
-      return new ObjectKeyNode(hashCode, structDel, nameKey, null, pathNodeKey);
+      var segment = (MemorySegment) source.getUnderlying();
+      
+      // Deserialize NodeDelegate
+      var nodeDelegate = new NodeDelegate(segment.asSlice(0, NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize()),
+                                          recordID,
+                                          resourceConfiguration,
+                                          deweyID);
+      
+      var structNodeDelegateOffset = NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize();
+      var structNodeDelegateUpperRange = StructNodeDelegate.STRUCT_NODE_LAYOUT.byteSize();
+      
+      // Deserialize StructNodeDelegate
+      var structNodeDelegate = new StructNodeDelegate(nodeDelegate,
+                                                      segment.asSlice(structNodeDelegateOffset,
+                                                                      structNodeDelegateUpperRange),
+                                                      recordID,
+                                                      resourceConfiguration);
+      
+      var objectKeyNodeOffset = structNodeDelegateOffset + structNodeDelegateUpperRange;
+      
+      // Return ObjectKeyNode with segment slice starting at object key data offset
+      return new ObjectKeyNode(segment.asSlice(objectKeyNodeOffset),
+                               structNodeDelegate,
+                               recordID,
+                               resourceConfiguration);
     }
 
     @Override
@@ -887,18 +893,17 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final ObjectKeyNode node = (ObjectKeyNode) record;
       var config = resourceConfiguration;
+      serializeDelegate(node.getNodeDelegate(), sink);
       if (config.hashType != HashType.NONE) {
         writeHash(sink, node.getHash());
       }
       sink.writeInt(node.getNameKey());
-      putVarLong(sink, node.getPathNodeKey());
-      serializeDelegate(node.getNodeDelegate(), sink);
-      final var nodeKey = node.getNodeKey();
-      putVarLong(sink, nodeKey - node.getRightSiblingKey());
-      putVarLong(sink, nodeKey - node.getLeftSiblingKey());
-      putVarLong(sink, nodeKey - node.getFirstChildKey());
+      sink.writeLong(node.getPathNodeKey());
+      sink.writeLong(node.getRightSiblingKey());
+      sink.writeLong(node.getLeftSiblingKey());
+      sink.writeLong(node.getFirstChildKey());
       if (config.hashType != HashType.NONE) {
-        putVarLong(sink, node.getDescendantCount() - node.getChildCount());
+        sink.writeLong(node.getDescendantCount());
       }
     }
 
@@ -921,26 +926,30 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-
-      // Val delegate.
-      final boolean isCompressed = source.readByte() == (byte) 1;
-      final byte[] vals = new byte[source.readInt()];
-      source.read(vals, 0, vals.length);
-      final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, vals, isCompressed);
-
-      // Struct delegate.
-      final StructNodeDelegate structDelegate = new StructNodeDelegate(nodeDel,
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       0,
-                                                                       0);
-
-      // Returning an instance.
-      return new ObjectStringNode(valDel, structDelegate);
+      var segment = (MemorySegment) source.getUnderlying();
+      
+      // Deserialize NodeDelegate
+      var nodeDelegate = new NodeDelegate(segment.asSlice(0, NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize()),
+                                          recordID,
+                                          resourceConfiguration,
+                                          deweyID);
+      
+      var valueNodeDelegateOffset = NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize();
+      
+      // Create ValueNodeDelegate with MemorySegment for lazy reading
+      var valueNodeDelegate = new ValueNodeDelegate(nodeDelegate, segment.asSlice(valueNodeDelegateOffset));
+      
+      // Struct delegate (value nodes don't have children)
+      var structDelegate = new StructNodeDelegate(nodeDelegate,
+                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                  0,
+                                                  0);
+      
+      // Return ObjectStringNode - value will be read lazily from MemorySegment
+      return new ObjectStringNode(valueNodeDelegate, structDelegate);
     }
 
     @Override
@@ -970,29 +979,36 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      final boolean boolValue = source.readBoolean();
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-
-      // Struct delegate.
-      final StructNodeDelegate structDelegate = new StructNodeDelegate(nodeDel,
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       0,
-                                                                       0);
-
-      // Returning an instance.
-      return new ObjectBooleanNode(boolValue, structDelegate);
+      var segment = (MemorySegment) source.getUnderlying();
+      
+      // Deserialize NodeDelegate
+      var nodeDelegate = new NodeDelegate(segment.asSlice(0, NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize()),
+                                          recordID,
+                                          resourceConfiguration,
+                                          deweyID);
+      
+      var booleanNodeOffset = NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize();
+      
+      // Struct delegate (value nodes don't have children)
+      var structDelegate = new StructNodeDelegate(nodeDelegate,
+                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                  0,
+                                                  0);
+      
+      // Return ObjectBooleanNode with segment slice starting at boolean data offset
+      // The boolean value will be read lazily from this segment
+      return new ObjectBooleanNode(segment.asSlice(booleanNodeOffset), structDelegate);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectBooleanNode node = (ObjectBooleanNode) record;
-      sink.writeBoolean(node.getValue());
       serializeDelegate(node.getNodeDelegate(), sink);
+      sink.writeBoolean(node.getValue());
     }
 
     @Override
@@ -1014,59 +1030,57 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      final byte valueType = source.readByte();
-      final Number number;
 
-      switch (valueType) {
-        case 0 -> number = source.readDouble();
-        case 1 -> number = source.readFloat();
-        case 2 -> number = source.readInt();
-        case 3 -> number = source.readLong();
-        case 4 -> number = deserializeBigInteger(source);
-        case 5 -> {
-          final BigInteger bigInt = deserializeBigInteger(source);
-          final int scale = source.readInt();
-          number = new BigDecimal(bigInt, scale);
-        }
-        default -> throw new AssertionError("Type not known.");
-      }
-
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-
-      // Struct delegate.
-      final StructNodeDelegate structDelegate = new StructNodeDelegate(nodeDel,
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       0,
-                                                                       0);
-
-      // Returning an instance.
-      return new ObjectNumberNode(number, structDelegate);
+      var segment = (MemorySegment) source.getUnderlying();
+      
+      // Deserialize NodeDelegate
+      var nodeDelegate = new NodeDelegate(segment.asSlice(0, NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize()),
+                                          recordID,
+                                          resourceConfiguration,
+                                          deweyID);
+      
+      var structNodeDelegateOffset = NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize();
+      // For value nodes, struct delegate only contains rightSibling and leftSibling (2 longs = 16 bytes)
+      var structNodeDelegateSize = 16L;
+      
+      // Deserialize StructNodeDelegate
+      var structNodeDelegate = new StructNodeDelegate(nodeDelegate,
+                                                      segment.asSlice(structNodeDelegateOffset,
+                                                                      structNodeDelegateSize),
+                                                      recordID,
+                                                      resourceConfiguration);
+      
+      var numberNodeOffset = structNodeDelegateOffset + structNodeDelegateSize;
+      
+      // Return ObjectNumberNode with segment slice starting at number data offset
+      // The number will be read lazily from this segment
+      return new ObjectNumberNode(segment.asSlice(numberNodeOffset), structNodeDelegate);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectNumberNode node = (ObjectNumberNode) record;
+      
+      serializeDelegate(node.getNodeDelegate(), sink);
+      serializeStructNodeJsonValueNode(sink, node);
+
       final Number number = node.getValue();
 
       switch (number) {
-        case Double ignored -> {
+        case Double _ -> {
           sink.writeByte((byte) 0);
           sink.writeDouble(number.doubleValue());
         }
-        case Float ignored -> {
+        case Float _ -> {
           sink.writeByte((byte) 1);
           sink.writeFloat(number.floatValue());
         }
-        case Integer ignored -> {
+        case Integer _ -> {
           sink.writeByte((byte) 2);
           sink.writeInt(number.intValue());
         }
-        case Long ignored -> {
+        case Long _ -> {
           sink.writeByte((byte) 3);
           sink.writeLong(number.longValue());
         }
@@ -1083,8 +1097,6 @@ public enum NodeKind implements DeweyIdSerializer {
         }
         case null, default -> throw new AssertionError("Type not known.");
       }
-
-      serializeDelegate(node.getNodeDelegate(), sink);
     }
 
     @Override
@@ -1105,19 +1117,24 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-
-      // Struct delegate.
-      final StructNodeDelegate structDelegate = new StructNodeDelegate(nodeDel,
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                       0,
-                                                                       0);
-
-      // Returning an instance.
+      var segment = (MemorySegment) source.getUnderlying();
+      
+      // Deserialize NodeDelegate
+      var nodeDelegate = new NodeDelegate(segment.asSlice(0, NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize()),
+                                          recordID,
+                                          resourceConfiguration,
+                                          deweyID);
+      
+      // Struct delegate (value nodes don't have children)
+      var structDelegate = new StructNodeDelegate(nodeDelegate,
+                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                  0,
+                                                  0);
+      
+      // Return ObjectNullNode
       return new ObjectNullNode(structDelegate);
     }
 
@@ -1147,20 +1164,37 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-
-      // Val delegate.
-      final boolean isCompressed = source.readByte() == (byte) 1;
-      final byte[] vals = new byte[source.readInt()];
-      source.read(vals, 0, vals.length);
-      final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, vals, isCompressed);
-
-      // Struct delegate.
-      final StructNodeDelegate structDel = deserializeStructNodeJsonValueNode(source, nodeDel);
-
-      // Returning an instance.
-      return new StringNode(valDel, structDel);
+      var segment = (MemorySegment) source.getUnderlying();
+      
+      // Deserialize NodeDelegate
+      var nodeDelegate = new NodeDelegate(segment.asSlice(0, NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize()),
+                                          recordID,
+                                          resourceConfiguration,
+                                          deweyID);
+      
+      var valueNodeDelegateOffset = NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize();
+      
+      // Create ValueNodeDelegate with MemorySegment for lazy reading
+      var valueNodeDelegate = new ValueNodeDelegate(nodeDelegate, segment.asSlice(valueNodeDelegateOffset));
+      
+      // Calculate offset after NodeDelegate + ValueDelegate to find StructDelegate
+      // ValueDelegate serializes: 1 byte (compressed flag) + 4 bytes (length) + value bytes
+      var structNodeDelegateOffset = valueNodeDelegateOffset + 1; // compressed flag
+      int valueLength = MemorySegmentUtils.readInt(segment, structNodeDelegateOffset);
+      structNodeDelegateOffset += 4 + valueLength; // skip length field + actual value
+      
+      // For value nodes, struct delegate only contains rightSibling and leftSibling (2 longs = 16 bytes)
+      var structNodeDelegateSize = 16L;
+      
+      // Deserialize StructNodeDelegate
+      var structDelegate = new StructNodeDelegate(nodeDelegate,
+                                                  segment.asSlice(structNodeDelegateOffset,
+                                                                  structNodeDelegateSize),
+                                                  recordID,
+                                                  resourceConfiguration);
+      
+      // Return StringNode - value will be read lazily from MemorySegment
+      return new StringNode(valueNodeDelegate, structDelegate);
     }
 
     @Override
@@ -1191,24 +1225,39 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      final boolean boolValue = source.readBoolean();
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-
-      // Struct delegate.
-      final StructNodeDelegate structDel = deserializeStructNodeJsonValueNode(source, nodeDel);
-
-      // Returning an instance.
-      return new BooleanNode(boolValue, structDel);
+      var segment = (MemorySegment) source.getUnderlying();
+      
+      // Deserialize NodeDelegate
+      var nodeDelegate = new NodeDelegate(segment.asSlice(0, NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize()),
+                                          recordID,
+                                          resourceConfiguration,
+                                          deweyID);
+      
+      var structNodeDelegateOffset = NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize();
+      // For value nodes, struct delegate only contains rightSibling and leftSibling (2 longs = 16 bytes)
+      var structNodeDelegateSize = 16L;
+      
+      // Deserialize StructNodeDelegate
+      var structNodeDelegate = new StructNodeDelegate(nodeDelegate,
+                                                      segment.asSlice(structNodeDelegateOffset,
+                                                                      structNodeDelegateSize),
+                                                      recordID,
+                                                      resourceConfiguration);
+      
+      var booleanNodeOffset = structNodeDelegateOffset + structNodeDelegateSize;
+      
+      // Return BooleanNode with segment slice starting at boolean data offset
+      // The boolean value will be read lazily from this segment
+      return new BooleanNode(segment.asSlice(booleanNodeOffset), structNodeDelegate);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final BooleanNode node = (BooleanNode) record;
-      sink.writeBoolean(node.getValue());
       serializeDelegate(node.getNodeDelegate(), sink);
       serializeStructNodeJsonValueNode(sink, node);
+      sink.writeBoolean(node.getValue());
     }
 
     @Override
@@ -1230,32 +1279,40 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      final byte valueType = source.readByte();
-      final Number number = switch (valueType) {
-        case 0 -> source.readDouble();
-        case 1 -> source.readFloat();
-        case 2 -> source.readInt();
-        case 3 -> source.readLong();
-        case 4 -> deserializeBigInteger(source);
-        case 5 -> {
-          final BigInteger bigInt = deserializeBigInteger(source);
-          final int scale = source.readInt();
-          yield new BigDecimal(bigInt, scale);
-        }
-        default -> throw new AssertionError("Type not known.");
-      };
-
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-      final StructNodeDelegate structDel = deserializeStructNodeJsonValueNode(source, nodeDel);
-
-      // Returning an instance.
-      return new NumberNode(number, structDel);
+      var segment = (MemorySegment) source.getUnderlying();
+      
+      // Deserialize NodeDelegate
+      var nodeDelegate = new NodeDelegate(segment.asSlice(0, NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize()),
+                                          recordID,
+                                          resourceConfiguration,
+                                          deweyID);
+      
+      var structNodeDelegateOffset = NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize();
+      // For value nodes, struct delegate only contains rightSibling and leftSibling (2 longs = 16 bytes)
+      var structNodeDelegateSize = 16L;
+      
+      // Deserialize StructNodeDelegate
+      var structNodeDelegate = new StructNodeDelegate(nodeDelegate,
+                                                      segment.asSlice(structNodeDelegateOffset,
+                                                                      structNodeDelegateSize),
+                                                      recordID,
+                                                      resourceConfiguration);
+      
+      var numberNodeOffset = structNodeDelegateOffset + structNodeDelegateSize;
+      
+      // Return NumberNode with segment slice starting at number data offset
+      // The number will be read lazily from this segment
+      return new NumberNode(segment.asSlice(numberNodeOffset), structNodeDelegate);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final NumberNode node = (NumberNode) record;
+
+      serializeDelegate(node.getNodeDelegate(), sink);
+      serializeStructNodeJsonValueNode(sink, node);
+
       final Number number = node.getValue();
 
       switch (number) {
@@ -1288,9 +1345,6 @@ public enum NodeKind implements DeweyIdSerializer {
         }
         case null, default -> throw new AssertionError("Type not known.");
       }
-
-      serializeDelegate(node.getNodeDelegate(), sink);
-      serializeStructNodeJsonValueNode(sink, node);
     }
 
     @Override
@@ -1311,14 +1365,27 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-
-      // Struct delegate.
-      final StructNodeDelegate structDel = deserializeStructNodeJsonValueNode(source, nodeDel);
-
-      // Returning an instance.
-      return new NullNode(structDel);
+      var segment = (MemorySegment) source.getUnderlying();
+      
+      // Deserialize NodeDelegate
+      var nodeDelegate = new NodeDelegate(segment.asSlice(0, NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize()),
+                                          recordID,
+                                          resourceConfiguration,
+                                          deweyID);
+      
+      var structNodeDelegateOffset = NodeDelegate.NODE_DELEGATE_LAYOUT.byteSize();
+      // For value nodes, struct delegate only contains rightSibling and leftSibling (2 longs = 16 bytes)
+      var structNodeDelegateSize = 16L;
+      
+      // Deserialize StructNodeDelegate
+      var structDelegate = new StructNodeDelegate(nodeDelegate,
+                                                  segment.asSlice(structNodeDelegateOffset,
+                                                                  structNodeDelegateSize),
+                                                  recordID,
+                                                  resourceConfiguration);
+      
+      // Return NullNode
+      return new NullNode(structDelegate);
     }
 
     @Override
@@ -1370,7 +1437,6 @@ public enum NodeKind implements DeweyIdSerializer {
       return new JsonDocumentRootNode(nodeDel, structDel);
     }
 
-    @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final JsonDocumentRootNode node = (JsonDocumentRootNode) record;
@@ -1402,6 +1468,13 @@ public enum NodeKind implements DeweyIdSerializer {
       return new HashCountEntryNode(recordID, source.readInt());
     }
 
+    public @NonNull DataRecord deserialize(final MemorySegment segment, final @NonNegative long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // HashCountEntryNode doesn't have MemorySegment constructor support yet
+      throw new UnsupportedOperationException(
+          "HASH_NAME_COUNT_TO_NAME_ENTRY MemorySegment deserialization not implemented");
+    }
+
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
@@ -1414,6 +1487,12 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      return new DeweyIDNode(recordID, new SirixDeweyID(deweyID));
+    }
+
+    public @NonNull DataRecord deserialize(final MemorySegment segment, final @NonNegative long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // DeweyIDNode uses simple constructor with recordID and deweyID
       return new DeweyIDNode(recordID, new SirixDeweyID(deweyID));
     }
 
@@ -1504,7 +1583,7 @@ public enum NodeKind implements DeweyIdSerializer {
     try (var inputStream = new DataInputStream(source.inputStream())) {
       nodeKeys.deserialize(inputStream);
     } catch (IOException e) {
-      throw new UncheckedIOException(e.getMessage(), e);
+      throw new RuntimeException(e);
     }
     return nodeKeys;
   }
@@ -1528,7 +1607,7 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Constructor.
    *
-   * @param id    unique identifier
+   * @param id unique identifier
    */
   NodeKind(final byte id) {
     this.id = id;
@@ -1573,16 +1652,16 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   private static void serializeStructNodeJsonValueNode(BytesOut<?> sink, StructNode node) {
-    putVarLong(sink, node.getNodeKey() - node.getRightSiblingKey());
-    putVarLong(sink, node.getNodeKey() - node.getLeftSiblingKey());
+    // Write fixed-size longs instead of variable-length encoded values
+    sink.writeLong(node.getRightSiblingKey());
+    sink.writeLong(node.getLeftSiblingKey());
   }
 
   @NonNull
   private static StructNodeDelegate deserializeStructNodeJsonValueNode(BytesIn<?> source, NodeDelegate nodeDel) {
-    var nodeKey = nodeDel.getNodeKey();
-
-    final long rightSibling = nodeKey - getVarLong(source);
-    final long leftSibling = nodeKey - getVarLong(source);
+    // Read fixed-size longs directly instead of variable-length values
+    final long rightSibling = source.readLong();
+    final long leftSibling = source.readLong();
     final long firstChild = Fixed.NULL_NODE_KEY.getStandardProperty();
     final long lastChild = Fixed.NULL_NODE_KEY.getStandardProperty();
     final long childCount = 0;
@@ -1600,62 +1679,29 @@ public enum NodeKind implements DeweyIdSerializer {
   @NonNull
   private static StructNodeDelegate deserializeObjectOrArrayStructDelegate(BytesIn<?> source,
       ResourceConfiguration config, NodeDelegate nodeDel) {
-    var nodeKey = nodeDel.getNodeKey();
-
-    final long rightSibling;
-    final long leftSibling;
-    final long firstChild;
-    final long lastChild;
-    final long childCount;
-
-    rightSibling = nodeKey - getVarLong(source);
-    leftSibling = nodeKey - getVarLong(source);
-    firstChild = nodeKey - getVarLong(source);
-    lastChild = nodeKey - getVarLong(source);
-    if (!config.storeChildCount()) {
-      childCount = 0;
-    } else {
-      childCount = nodeKey - getVarLong(source);
-    }
-
-    final long descendantCount;
-
-    if (config.hashType == HashType.NONE) {
-      descendantCount = 0;
-    } else {
-      descendantCount = getVarLong(source) + childCount;
-    }
-
-    return new StructNodeDelegate(nodeDel,
-                                  firstChild,
-                                  lastChild,
-                                  rightSibling,
-                                  leftSibling,
-                                  childCount,
-                                  descendantCount);
+    return new StructNodeDelegate(nodeDel, (MemorySegment) source.getUnderlying(), nodeDel.getNodeKey(), config);
   }
 
   private static void serializeJsonObjectOrArrayStructDelegate(BytesOut<?> sink, StructNode node,
       ResourceConfiguration config) {
     final boolean storeChildCount = config.storeChildCount();
 
-    putVarLong(sink, node.getNodeKey() - node.getRightSiblingKey());
-    putVarLong(sink, node.getNodeKey() - node.getLeftSiblingKey());
-
-    putVarLong(sink, node.getNodeKey() - node.getFirstChildKey());
-    putVarLong(sink, node.getNodeKey() - node.getLastChildKey());
+    sink.writeLong(node.getRightSiblingKey());
+    sink.writeLong(node.getLeftSiblingKey());
+    sink.writeLong(node.getFirstChildKey());
+    sink.writeLong(node.getLastChildKey());
     if (storeChildCount) {
-      putVarLong(sink, node.getNodeKey() - node.getChildCount());
+      sink.writeLong(node.getChildCount());
     }
-
     if (config.hashType != HashType.NONE) {
-      putVarLong(sink, node.getDescendantCount() - node.getChildCount());
+      sink.writeLong(node.getDescendantCount());
     }
   }
 
   private static NodeDelegate deserializeNodeDelegateWithoutIDs(final BytesIn<?> source,
       final @NonNegative long recordID, final ResourceConfiguration resourceConfiguration) {
-    final long parentKey = recordID - getVarLong(source);
+    // Read fixed-size long instead of variable-length encoded value
+    final long parentKey = recordID - source.readLong();
     final int previousRevision = source.readInt();
     final int lastModifiedRevision = source.readInt();
     final LongHashFunction hashFunction = resourceConfiguration.nodeHashFunction;
@@ -1669,7 +1715,8 @@ public enum NodeKind implements DeweyIdSerializer {
 
   private static NodeDelegate deserializeNodeDelegate(final BytesIn<?> source, final @NonNegative long recordID,
       final byte[] id, final ResourceConfiguration resourceConfiguration) {
-    final long parentKey = recordID - getVarLong(source);
+    // Read fixed-size long instead of variable-length encoded value
+    final long parentKey = source.readLong();
     final int previousRevision = source.readInt();
     final int lastModifiedRevision = source.readInt();
     final LongHashFunction hashFunction = resourceConfiguration.nodeHashFunction;
@@ -1677,7 +1724,7 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   private static void serializeDelegate(final NodeDelegate nodeDel, final BytesOut<?> sink) {
-    putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getParentKey());
+    sink.writeLong(nodeDel.getParentKey());
     sink.writeInt(nodeDel.getPreviousRevisionNumber());
     sink.writeInt(nodeDel.getLastModifiedRevisionNumber());
   }
@@ -1690,25 +1737,24 @@ public enum NodeKind implements DeweyIdSerializer {
 
     final boolean storeChildCount = config.storeChildCount();
 
-    putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getRightSiblingKey());
-    putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getLeftSiblingKey());
+    sink.writeLong(nodeDel.getRightSiblingKey());
+    sink.writeLong(nodeDel.getLeftSiblingKey());
 
     if (!isValueNode) {
-      putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getFirstChildKey());
-      putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getLastChildKey());
+      sink.writeLong(nodeDel.getFirstChildKey());
+      sink.writeLong(nodeDel.getLastChildKey());
       if (storeChildCount) {
-        putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getChildCount());
+        sink.writeLong(nodeDel.getChildCount());
       }
 
       if (config.hashType != HashType.NONE) {
-        putVarLong(sink, nodeDel.getDescendantCount() - nodeDel.getChildCount());
+        sink.writeLong(nodeDel.getDescendantCount());
       }
     }
   }
 
   private static StructNodeDelegate deserializeStructDel(final NodeKind kind, final NodeDelegate nodeDel,
       final BytesIn<?> source, final ResourceConfiguration config) {
-    final long currKey = nodeDel.getNodeKey();
     final boolean storeChildNodes = config.storeChildCount();
 
     final var isValueNode =
@@ -1721,20 +1767,21 @@ public enum NodeKind implements DeweyIdSerializer {
     final long lastChild;
     final long childCount;
 
-    rightSibling = currKey - getVarLong(source);
-    leftSibling = currKey - getVarLong(source);
+    // Read fixed-size longs directly instead of variable-length values
+    rightSibling = source.readLong();
+    leftSibling = source.readLong();
 
     if (isValueNode) {
       firstChild = Fixed.NULL_NODE_KEY.getStandardProperty();
       lastChild = Fixed.NULL_NODE_KEY.getStandardProperty();
       childCount = 0;
     } else {
-      firstChild = currKey - getVarLong(source);
-      lastChild = currKey - getVarLong(source);
+      firstChild = source.readLong();
+      lastChild = source.readLong();
       if (!storeChildNodes) {
         childCount = 0;
       } else {
-        childCount = currKey - getVarLong(source);
+        childCount = source.readLong();
       }
     }
 
@@ -1743,7 +1790,7 @@ public enum NodeKind implements DeweyIdSerializer {
     if (config.hashType == HashType.NONE || isValueNode) {
       descendantCount = 0;
     } else {
-      descendantCount = getVarLong(source) + childCount;
+      descendantCount = source.readLong();
     }
 
     if (isValueNode) {
@@ -1801,12 +1848,6 @@ public enum NodeKind implements DeweyIdSerializer {
     final byte[] bytes = bigInteger.toByteArray();
     sink.writeStopBit(bytes.length);
     sink.write(bytes);
-  }
-
-  private static BigInteger deserializeBigInteger(final BytesIn<?> source) {
-    final byte[] bytes = new byte[(int) source.readStopBit()];
-    source.read(bytes);
-    return new BigInteger(bytes);
   }
 
   /**
