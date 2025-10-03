@@ -40,7 +40,7 @@ import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.immutable.xml.ImmutableNamespace;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -103,7 +103,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     bytes.clear();
     bytes.writeLong(nodeDelegate.getNodeKey())
          .writeLong(nodeDelegate.getParentKey())
@@ -113,7 +113,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
          .writeLong(nameNodeDelegate.getLocalNameKey())
          .writeLong(nameNodeDelegate.getURIKey());
 
-    final var buffer = bytes.underlyingObject().rewind();
+    final var buffer = ((java.nio.ByteBuffer) bytes.underlyingObject()).rewind();
     buffer.limit((int) bytes.readLimit());
 
     return nodeDelegate.getHashFunction().hashBytes(buffer);

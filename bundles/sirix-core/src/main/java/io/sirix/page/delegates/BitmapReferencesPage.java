@@ -22,7 +22,7 @@
 package io.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
-import net.openhft.chronicle.bytes.BytesIn;
+import io.sirix.node.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.magicwerk.brownies.collections.GapList;
 import io.sirix.page.DeserializedBitmapReferencesPageTuple;

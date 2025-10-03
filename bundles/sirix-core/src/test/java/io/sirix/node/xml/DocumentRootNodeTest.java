@@ -23,7 +23,8 @@ package io.sirix.node.xml;
 
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
@@ -90,9 +91,9 @@ public class DocumentRootNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final XmlDocumentRootNode node2 = (XmlDocumentRootNode) NodeKind.XML_DOCUMENT.deserialize(data,
+    final XmlDocumentRootNode node2 = (XmlDocumentRootNode) NodeKind.XML_DOCUMENT.deserialize(data.asBytesIn(),
                                                                                               node.getNodeKey(),
                                                                                               node.getDeweyID()
                                                                                                   .toBytes(),

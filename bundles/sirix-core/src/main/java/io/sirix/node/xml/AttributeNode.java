@@ -44,7 +44,7 @@ import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Constants;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -127,7 +127,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     final var rawValue = valueNodeDelegate.getRawValue();
 
     bytes.clear();
@@ -142,7 +142,7 @@ public final class AttributeNode extends AbstractForwardingNode implements Value
 
     bytes.write(rawValue);
 
-    final var buffer = bytes.underlyingObject().rewind();
+    final var buffer = ((java.nio.ByteBuffer) bytes.underlyingObject()).rewind();
     buffer.limit((int) bytes.readLimit());
 
     return nodeDelegate.getHashFunction().hashBytes(buffer);

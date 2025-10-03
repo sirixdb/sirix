@@ -33,7 +33,8 @@ import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.delegates.ValueNodeDelegate;
 import io.sirix.settings.Constants;
 import io.sirix.utils.NamePageHash;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Assert;
@@ -85,16 +86,16 @@ public class PINodeTest {
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
 
     final PINode node = new PINode(structDel, nameDel, valDel);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    var hashBytes = Bytes.elasticHeapByteBuffer();
+    node.setHash(node.computeHash(hashBytes));
 
     // Create empty node.
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(data,
+    final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(data.asBytesIn(),
                                                                               node.getNodeKey(),
                                                                               node.getDeweyID().toBytes(),
                                                                               pageReadTrx.getResourceSession()

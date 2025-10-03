@@ -23,7 +23,8 @@ package io.sirix.node.xml;
 
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
 import org.junit.After;
@@ -79,13 +80,13 @@ public class NamespaceNodeTest {
 
     // Create empty node.
     final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    var hashBytes = Bytes.elasticHeapByteBuffer();
+    node.setHash(node.computeHash(hashBytes));
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(data,
+    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(data.asBytesIn(),
                                                                                node.getNodeKey(),
                                                                                node.getDeweyID().toBytes(),
                                                                                pageReadTrx.getResourceSession()
