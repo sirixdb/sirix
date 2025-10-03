@@ -21,10 +21,11 @@
 
 package io.sirix.node.json;
 
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.hashing.LongHashFunction;
+import io.sirix.settings.Constants;
+import io.sirix.settings.Fixed;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -33,13 +34,8 @@ import io.sirix.api.Database;
 import io.sirix.api.PageTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
-import io.sirix.settings.Constants;
-import io.sirix.settings.Fixed;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
@@ -66,29 +62,32 @@ public class NumberNodeTest {
 
   @Test
   public void test() throws IOException {
-    // Create empty node.
     final double value = 10.87463D;
-    final NodeDelegate del = new NodeDelegate(13,
-                                              14,
-                                              LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER,
-                                              0,
-                                              SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
-    final NumberNode node = new NumberNode(value, strucDel);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    
+    // Create data in the correct serialization format
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    data.writeLong(14); // parentKey
+    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
+    data.writeInt(0); // lastModifiedRevision
+    data.writeLong(16L); // rightSibling
+    data.writeLong(15L); // leftSibling
+    data.writeByte((byte) 0); // Type indicator for Double
+    data.writeDouble(value);
+    
+    // Deserialize to create properly initialized node
+    final NumberNode node = (NumberNode) NodeKind.NUMBER_VALUE.deserialize(
+        data.asBytesIn(), 13L, null, pageTrx.getResourceSession().getResourceConfig());
     check(node);
 
-    // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final NumberNode node2 = (NumberNode) NodeKind.NUMBER_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
+    // Serialize and deserialize node
+    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    node.getKind().serialize(data2, node, pageTrx.getResourceSession().getResourceConfig());
+    final NumberNode node2 = (NumberNode) NodeKind.NUMBER_VALUE.deserialize(
+        data2.asBytesIn(), node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 
   private void check(final NumberNode node) {
-    // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());

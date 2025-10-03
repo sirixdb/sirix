@@ -21,24 +21,19 @@
 
 package io.sirix.node.json;
 
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
 import io.sirix.api.PageTrx;
 import io.sirix.exception.SirixException;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
-import io.sirix.node.delegates.ValueNodeDelegate;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
@@ -63,27 +58,26 @@ public class ObjectStringNodeTest {
 
   @Test
   public void test() throws IOException {
-    // Create empty node.
     final byte[] value = { (byte) 17, (byte) 18 };
-    final NodeDelegate del =
-        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del,
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               0L,
-                                                               0L);
-    final ObjectStringNode node = new ObjectStringNode(valDel, strucDel);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    
+    // Create data - Object value nodes only have parent (no siblings)
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    data.writeLong(14); // parentKey
+    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
+    data.writeInt(0); // lastModifiedRevision
+    data.writeStopBit(value.length); // string length
+    data.write(value); // string value
+    
+    // Deserialize to create properly initialized node
+    final ObjectStringNode node = (ObjectStringNode) NodeKind.OBJECT_STRING_VALUE.deserialize(
+        data.asBytesIn(), 13L, null, pageTrx.getResourceSession().getResourceConfig());
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final ObjectStringNode node2 =
-        (ObjectStringNode) NodeKind.OBJECT_STRING_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
+    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    node.getKind().serialize(data2, node, pageTrx.getResourceSession().getResourceConfig());
+    final ObjectStringNode node2 = (ObjectStringNode) NodeKind.OBJECT_STRING_VALUE.deserialize(
+        data2.asBytesIn(), node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

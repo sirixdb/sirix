@@ -32,7 +32,7 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.node.xml.AbstractStructForwardingNode;
 import io.sirix.settings.Fixed;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
@@ -80,7 +80,7 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
     bytes.clear();
@@ -98,7 +98,7 @@ public final class JsonDocumentRootNode extends AbstractStructForwardingNode imp
       bytes.writeLong(structNodeDelegate.getLastChildKey());
     }
 
-    final var buffer = bytes.underlyingObject().rewind();
+    final var buffer = ((java.nio.ByteBuffer) bytes.underlyingObject()).rewind();
     buffer.limit((int) bytes.readLimit());
 
     return nodeDelegate.getHashFunction().hashBytes(buffer);

@@ -24,7 +24,8 @@ package io.sirix.node.xml;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.utils.NamePageHash;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
 import org.junit.After;
@@ -82,16 +83,16 @@ public class AttributeNodeTest {
     final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
 
     final AttributeNode node = new AttributeNode(del, nameDel, valDel, new QNm("ns", "a", "p"));
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    var hashBytes = Bytes.elasticHeapByteBuffer();
+    node.setHash(node.computeHash(hashBytes));
 
     // Create empty node.
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageReadOnlyTrx.getResourceSession().getResourceConfig());
-    final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(data,
+    final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(data.asBytesIn(),
                                                                                node.getNodeKey(),
                                                                                node.getDeweyID().toBytes(),
                                                                                pageReadOnlyTrx.getResourceSession().getResourceConfig());

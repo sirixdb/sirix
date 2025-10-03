@@ -33,7 +33,9 @@ import io.sirix.io.RevisionFileData;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.BytesIn;
+import io.sirix.node.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
@@ -127,9 +129,8 @@ public final class FileReader implements Reader {
   @NonNull
   private Page getPage(ResourceConfiguration resourceConfiguration, byte[] page) throws IOException {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
-    final Bytes<?> input = Bytes.wrapForRead(inputStream.readAllBytes());
+    final BytesIn<?> input = Bytes.wrapForRead(inputStream.readAllBytes());
     final var deserializedPage = pagePersiter.deserializePage(resourceConfiguration, input, serializationType);
-    input.clear();
     return deserializedPage;
   }
 
@@ -166,7 +167,7 @@ public final class FileReader implements Reader {
       dataFile.read(page);
 
       // Perform byte operations.
-      final Bytes<ByteBuffer> input =
+      final BytesIn<?> input =
           Bytes.wrapForRead(ByteBuffer.wrap(page)); //byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
 
       // Return reader required to instantiate and deserialize page.

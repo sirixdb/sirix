@@ -5,6 +5,7 @@ import io.sirix.api.PageTrx;
 import io.sirix.page.interfaces.Page;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
+import java.lang.foreign.MemorySegment;
 import java.util.List;
 
 /**
@@ -17,18 +18,14 @@ public final class OverflowPage implements Page {
   /**
    * Data to be stored.
    */
-  private final byte[] data;
-
-  public OverflowPage() {
-    data = new byte[0];
-  }
+  private final MemorySegment data;
 
   /**
    * Constructor.
    *
    * @param data data to be stored
    */
-  public OverflowPage(final byte[] data) {
+  public OverflowPage(final MemorySegment data) {
     assert data != null;
     this.data = data;
   }
@@ -53,7 +50,7 @@ public final class OverflowPage implements Page {
     throw new UnsupportedOperationException();
   }
 
-  public byte[] getData() {
+  public MemorySegment getData() {
     return data;
   }
 }

@@ -22,7 +22,6 @@ dependencies {
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections
     implementation implLibraries.integercompression
-    implementation implLibraries.chronicleBytes
     implementation implLibraries.fastObjectPool
     implementation implLibraries.zeroAllocationHashing
 

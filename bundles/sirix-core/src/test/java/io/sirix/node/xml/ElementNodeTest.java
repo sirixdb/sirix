@@ -25,7 +25,8 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.utils.NamePageHash;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
 import org.junit.After;
@@ -84,8 +85,8 @@ public class ElementNodeTest {
 
     final ElementNode node =
         new ElementNode(strucDel, nameDel, new LongArrayList(), new LongArrayList(), new QNm("ns", "a", "p"));
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    var hashBytes = Bytes.elasticHeapByteBuffer();
+    node.setHash(node.computeHash(hashBytes));
 
     // Create empty node.
     node.insertAttribute(97);
@@ -95,9 +96,9 @@ public class ElementNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(data,
+    final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(data.asBytesIn(),
                                                                          node.getNodeKey(),
                                                                          node.getDeweyID().toBytes(),
                                                                          pageReadTrx.getResourceSession()

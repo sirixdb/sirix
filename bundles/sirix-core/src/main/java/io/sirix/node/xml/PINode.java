@@ -30,7 +30,8 @@ package io.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -113,7 +114,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
     bytes.clear();
@@ -138,7 +139,7 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
 
     bytes.writeUtf8(new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING));
 
-    final var buffer = bytes.underlyingObject().rewind();
+    final var buffer = ((java.nio.ByteBuffer) bytes.underlyingObject()).rewind();
     buffer.limit((int) bytes.readLimit());
 
     return nodeDelegate.getHashFunction().hashBytes(buffer);

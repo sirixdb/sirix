@@ -1,14 +1,15 @@
 package io.sirix.page;
 
+import io.sirix.node.Bytes;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.KeyValueLeafPagePool;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeSerializerImpl;
 import io.sirix.settings.Constants;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.BytesOut;
+import io.sirix.node.BytesOut;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;
@@ -88,7 +89,7 @@ public final class SerializationDeserializationTest {
     expectedData[15] = newData;
 
     // Serialize the page
-    BytesOut<?> sink = Bytes.elasticByteBuffer();
+    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, originalPage, type);
 
@@ -151,7 +152,7 @@ public final class SerializationDeserializationTest {
     }
 
     // Serialize the page
-    BytesOut<?> sink = Bytes.elasticByteBuffer();
+    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, originalPage, type);
 
@@ -181,7 +182,7 @@ public final class SerializationDeserializationTest {
                                                          -1,
                                                          -1);
 
-    BytesOut<?> sink = Bytes.elasticByteBuffer();
+    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, originalPage, type);
 
@@ -212,7 +213,7 @@ public final class SerializationDeserializationTest {
     originalPage.setSlot(new byte[] { 4, 5, 6 }, 10);
     originalPage.setSlot(new byte[] { 7, 8, 9 }, 100);
 
-    BytesOut<?> sink = Bytes.elasticByteBuffer();
+    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, originalPage, type);
 
@@ -243,7 +244,7 @@ public final class SerializationDeserializationTest {
     originalPage.setDeweyId(new byte[] { 0, 1, 2 }, 2);
     originalPage.setDeweyId(new byte[] { 3, 4, 5 }, 4);
 
-    BytesOut<?> sink = Bytes.elasticByteBuffer();
+    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(configWithDeweyIDs, sink, originalPage, type);
 
@@ -270,7 +271,7 @@ public final class SerializationDeserializationTest {
                                                          -1,
                                                          -1);
 
-    BytesOut<?> sink = Bytes.elasticByteBuffer();
+    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, originalPage, type);
 
@@ -302,7 +303,7 @@ public final class SerializationDeserializationTest {
       originalPage.setSlot(new byte[] { (byte) i }, i);
     }
 
-    BytesOut<?> sink = Bytes.elasticByteBuffer();
+    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, originalPage, type);
 
