@@ -8,14 +8,15 @@ import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 
 public abstract class AbstractReader implements Reader {
 
-  private final Bytes<byte[]> wrappedForRead = Bytes.allocateElasticOnHeap(10_000);
+  private final BytesOut<?> wrappedForRead = Bytes.allocateElasticOnHeap(10_000);
 
   protected final ByteHandler byteHandler;
 
@@ -41,8 +42,9 @@ public abstract class AbstractReader implements Reader {
     try (final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page))) {
       bytes = inputStream.readAllBytes();
     }
+    wrappedForRead.clear(); // Clear before writing to ensure clean state
     wrappedForRead.write(bytes);
-    final var deserializedPage = pagePersister.deserializePage(resourceConfiguration, wrappedForRead, type);
+    final var deserializedPage = pagePersister.deserializePage(resourceConfiguration, wrappedForRead.asBytesIn(), type);
     wrappedForRead.clear();
     return deserializedPage;
   }

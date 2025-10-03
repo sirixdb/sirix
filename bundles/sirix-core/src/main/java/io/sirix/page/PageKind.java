@@ -39,6 +39,7 @@ import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.io.Reader;
 import io.sirix.node.Utils;
+import io.sirix.node.Bytes;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.page.delegates.BitmapReferencesPage;
@@ -51,9 +52,9 @@ import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.BytesOut;
+import io.sirix.node.BytesOut;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.ByteArrayOutputStream;
@@ -185,7 +186,7 @@ public enum PageKind {
       final var bytes = keyValueLeafPage.getBytes();
 
       if (bytes != null) {
-        sink.write(bytes.bytesForWrite());
+        sink.write(bytes.toByteArray());
         return;
       }
 
@@ -311,7 +312,7 @@ public enum PageKind {
         throw new UncheckedIOException(e);
       }
 
-      keyValueLeafPage.setBytes(Bytes.wrapForRead(serializedPage));
+      keyValueLeafPage.setBytes(Bytes.wrapForWrite(serializedPage));
     }
   },
 
@@ -659,7 +660,10 @@ public enum PageKind {
           final byte[] data = new byte[source.readInt()];
           source.read(data);
 
-          return new OverflowPage(data);
+          // Convert byte array to MemorySegment
+          java.lang.foreign.MemorySegment segment = java.lang.foreign.Arena.global().allocate(data.length);
+          segment.asByteBuffer().put(data);
+          return new OverflowPage(segment);
         }
         default -> throw new IllegalStateException();
       }
@@ -671,8 +675,13 @@ public enum PageKind {
       OverflowPage overflowPage = (OverflowPage) page;
       sink.writeByte(OVERFLOWPAGE.id);
       sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
-      sink.writeInt(overflowPage.getData().length);
-      sink.write(overflowPage.getData());
+      
+      // Convert MemorySegment to byte array for writing
+      java.lang.foreign.MemorySegment data = overflowPage.getData();
+      sink.writeInt((int) data.byteSize());
+      byte[] dataBytes = new byte[(int) data.byteSize()];
+      java.lang.foreign.MemorySegment.copy(data, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, dataBytes, 0, (int) data.byteSize());
+      sink.write(dataBytes);
     }
   },
 
@@ -850,7 +859,7 @@ public enum PageKind {
    * Serialize page.
    *
    * @param ResourceConfiguration the read only page transaction
-   * @param sink                  {@link Bytes<ByteBuffer>} instance
+   * @param sink                  {@link BytesOut<?>} instance
    * @param page                  {@link Page} implementation
    */
   public abstract void serializePage(final ResourceConfiguration ResourceConfiguration, final BytesOut<?> sink,
@@ -860,7 +869,7 @@ public enum PageKind {
    * Deserialize page.
    *
    * @param resourceConfiguration the resource configuration
-   * @param source                {@link Bytes<ByteBuffer>} instance
+   * @param source                {@link BytesOut<?>} instance
    * @return page instance implementing the {@link Page} interface
    */
   public abstract Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,

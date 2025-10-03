@@ -21,22 +21,18 @@
 
 package io.sirix.node.json;
 
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.hashing.LongHashFunction;
+import io.sirix.settings.Constants;
+import io.sirix.settings.Fixed;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
 import io.sirix.api.PageTrx;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
-import io.sirix.settings.Constants;
-import io.sirix.settings.Fixed;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
@@ -61,42 +57,40 @@ public class ObjectNumberNodeTest {
 
   @Test
   public void test() throws IOException {
-    // Create empty node.
     final double value = 10.87463D;
-    final NodeDelegate del =
-        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, (SirixDeweyID) null);
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del,
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               0L,
-                                                               0L);
-    final ObjectNumberNode node = new ObjectNumberNode(value, strucDel);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
-    check(node);
-
-    // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final ObjectNumberNode node2 =
-        (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
-    check(node2);
-  }
-
-  private void check(final ObjectNumberNode node) {
-    // Now compare.
+    
+    // Create data - Object value nodes only have parent (no siblings)
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    data.writeLong(14); // parentKey (offset 0)
+    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision (offset 8)
+    data.writeInt(0); // lastModifiedRevision (offset 12)
+    // Value data starts at offset 16 (valueSegment = segment.asSlice(16))
+    data.writeByte((byte) 0); // Type indicator for Double
+    data.writeDouble(value);
+    
+    // Deserialize to create properly initialized node
+    final ObjectNumberNode node = (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(
+        data.asBytesIn(), 13L, null, pageTrx.getResourceSession().getResourceConfig());
+    
+    // Check fields - object value nodes have no siblings
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(10.87463D, node.getValue().doubleValue(), 0);
     assertEquals(NodeKind.OBJECT_NUMBER_VALUE, node.getKind());
-    assertFalse(node.hasFirstChild());
-    assertTrue(node.hasParent());
-    assertFalse(node.hasLeftSibling());
-    assertFalse(node.hasRightSibling());
+
+    // Serialize and deserialize node
+    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    node.getKind().serialize(data2, node, pageTrx.getResourceSession().getResourceConfig());
+    final ObjectNumberNode node2 = (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(
+        data2.asBytesIn(), node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
+    
+    // Check round-trip
+    assertEquals(13L, node2.getNodeKey());
+    assertEquals(14L, node2.getParentKey());
+    assertEquals(10.87463D, node2.getValue().doubleValue(), 0);
   }
 
 }

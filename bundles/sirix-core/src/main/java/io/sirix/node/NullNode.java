@@ -22,7 +22,7 @@
 package io.sirix.node;
 
 import com.google.common.base.Objects;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
@@ -55,7 +55,7 @@ public final class NullNode implements StructNode {
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     throw new UnsupportedOperationException();
   }
 

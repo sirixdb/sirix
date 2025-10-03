@@ -21,10 +21,11 @@
 
 package io.sirix.node.json;
 
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,12 +33,8 @@ import io.sirix.JsonTestHelper;
 import io.sirix.api.Database;
 import io.sirix.api.PageTrx;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-
-import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
@@ -64,22 +61,36 @@ public class ArrayNodeTest {
 
   @Test
   public void testNode() {
-    final NodeDelegate del =
-        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
-    final ArrayNode node = new ArrayNode(strucDel, 18);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    final long pathNodeKey = 18;
+    
+    // Use a simplified ResourceConfiguration without optional fields
+    final var config = ResourceConfiguration.newBuilder("test")
+        .hashKind(HashType.NONE)
+        .storeChildCount(false)
+        .build();
+    
+    // Create data in the correct serialization format to match ArrayNode CORE_LAYOUT
+    // Format: NodeDelegate + pathNodeKey + rightSib + leftSib + firstChild + lastChild
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    data.writeLong(14); // parentKey (offset 0)
+    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision (offset 8)
+    data.writeInt(0); // lastModifiedRevision (offset 12)
+    data.writeLong(pathNodeKey); // pathNodeKey (offset 16) - FIRST in ArrayNode!
+    data.writeLong(16L); // rightSibling (offset 24)
+    data.writeLong(15L); // leftSibling (offset 32)
+    data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // firstChild (offset 40)
+    data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // lastChild (offset 48)
+    
+    // Deserialize to create properly initialized node
+    final ArrayNode node = (ArrayNode) NodeKind.ARRAY.deserialize(
+        data.asBytesIn(), 13L, null, config);
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final ArrayNode node2 = (ArrayNode) NodeKind.ARRAY.deserialize(data,
-                                                                   node.getNodeKey(),
-                                                                   null,
-                                                                   pageTrx.getResourceSession().getResourceConfig());
+    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    node.getKind().serialize(data2, node, config);
+    final ArrayNode node2 = (ArrayNode) NodeKind.ARRAY.deserialize(
+        data2.asBytesIn(), node.getNodeKey(), null, config);
     check(node2);
   }
 

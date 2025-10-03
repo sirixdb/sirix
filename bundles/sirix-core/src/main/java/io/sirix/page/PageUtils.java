@@ -7,7 +7,7 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.page.delegates.BitmapReferencesPage;
-import net.openhft.chronicle.bytes.BytesIn;
+import io.sirix.node.BytesIn;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.cache.PageContainer;

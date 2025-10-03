@@ -46,7 +46,8 @@ import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.settings.VersioningType;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -82,7 +83,7 @@ import static java.util.Objects.requireNonNull;
  */
 final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements PageTrx {
 
-  private Bytes<ByteBuffer> bufferBytes = Bytes.elasticHeapByteBuffer(Writer.FLUSH_SIZE);
+  private BytesOut<?> bufferBytes = Bytes.elasticHeapByteBuffer(Writer.FLUSH_SIZE);
 
   /**
    * Page writer to serialize.
@@ -186,7 +187,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public Bytes<ByteBuffer> newBufferedBytesInstance() {
+  public BytesOut<?> newBufferedBytesInstance() {
     bufferBytes = Bytes.elasticHeapByteBuffer(Writer.FLUSH_SIZE);
     return bufferBytes;
   }

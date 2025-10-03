@@ -21,8 +21,9 @@
 
 package io.sirix.page;
 
+import io.sirix.node.Bytes;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
 import org.junit.After;
@@ -110,7 +111,7 @@ public final class NodePageTest {
     assertEquals(0L, node1.getNodeKey());
     page1.setRecord(node1);
 
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     final PagePersister pagePersister = new PagePersister();
     pagePersister.serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
                                 data,

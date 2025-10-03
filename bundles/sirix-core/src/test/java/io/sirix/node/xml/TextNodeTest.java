@@ -24,7 +24,8 @@ package io.sirix.node.xml;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.utils.NamePageHash;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
@@ -82,14 +83,14 @@ public class TextNodeTest {
     final StructNodeDelegate strucDel =
         new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
     final TextNode node = new TextNode(valDel, strucDel);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    var hashBytes = Bytes.elasticHeapByteBuffer();
+    node.setHash(node.computeHash(hashBytes));
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(data,
+    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(data.asBytesIn(),
                                                                 node.getNodeKey(),
                                                                 node.getDeweyID().toBytes(),
                                                                 pageReadTrx.getResourceSession().getResourceConfig());
