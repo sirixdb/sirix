@@ -38,7 +38,6 @@ implLibraries = [
         integercompression          : 'me.lemire.integercompression:JavaFastPFOR:0.1.12',
         dagger                      : 'com.google.dagger:dagger:2.32',
         daggerCompiler              : 'com.google.dagger:dagger-compiler:2.32',
-        chronicleBytes              : 'net.openhft:chronicle-bytes:2.25ea6',
         fastUtil                    : 'it.unimi.dsi:fastutil:8.5.13',
         iouring                     : 'one.jasyncfio:jasyncfio:0.0.7:linux-amd64',
         roaringbitmap               : 'org.roaringbitmap:RoaringBitmap:0.9.36',

@@ -22,8 +22,8 @@
 package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
-import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.BytesOut;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.page.interfaces.Page;

@@ -18,8 +18,8 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.utils.ArrayIterator;
 import io.sirix.utils.OS;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.chronicle.bytes.BytesOut;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -1074,7 +1074,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   private void processEntries(final ResourceConfiguration resourceConfiguration, final DataRecord[] records) {
-    var out = Bytes.elasticHeapByteBuffer(30);
     for (final DataRecord record : records) {
       if (record == null) {
         continue;
@@ -1083,15 +1082,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       final var offset = PageReadOnlyTrx.recordPageOffset(recordID);
 
       // Must be either a normal record or one which requires an overflow page.
+      // Create a new BytesOut for each record to avoid corruption of previous segments
+      var out = Bytes.elasticHeapByteBuffer(30);
       recordPersister.serialize(out, record, resourceConfiguration);
-      final var data = out.toByteArray();
-      out.clear();
-      if (data.length > PageConstants.MAX_RECORD_SIZE) {
+      final var buffer = out.getDestination();
+      if (buffer.byteSize() > PageConstants.MAX_RECORD_SIZE) {
         final var reference = new PageReference();
-        reference.setPage(new OverflowPage(data));
+        reference.setPage(new OverflowPage(buffer));
         references.put(recordID, reference);
       } else {
-        setSlot(data, offset);
+        setSlot(buffer, offset);
       }
     }
   }

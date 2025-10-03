@@ -129,7 +129,7 @@ public final class UberPage implements Page {
   }
 
   //  @Override
-  //  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
+  //  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> out,
   //      final SerializationType type) {
   //    out.writeInt(revisionCount);
   //    isBootstrap = false;

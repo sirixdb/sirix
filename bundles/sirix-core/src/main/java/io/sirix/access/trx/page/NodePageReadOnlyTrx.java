@@ -32,10 +32,8 @@ import io.sirix.api.ResourceSession;
 import io.sirix.cache.*;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
-import io.sirix.io.BytesUtils;
 import io.sirix.io.Reader;
-import io.sirix.node.DeletedNode;
-import io.sirix.node.NodeKind;
+import io.sirix.node.*;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.KeyValuePage;
@@ -44,12 +42,11 @@ import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.settings.VersioningType;
-import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.nio.ByteBuffer;
+import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -58,6 +55,7 @@ import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
+import io.sirix.node.Bytes;
 
 /**
  * Page read-only transaction. The only thing shared amongst transactions is the resource manager.
@@ -139,7 +137,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   private RecordPage pathSummaryRecordPage;
 
-  private final Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticHeapByteBuffer(40);
+  private final BytesOut<?> byteBufferForRecords = Bytes.elasticHeapByteBuffer(40);
 
   /**
    * Standard constructor.
@@ -285,7 +283,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final var offset = PageReadOnlyTrx.recordPageOffset(nodeKey);
     DataRecord record = page.getRecord(offset);
     if (record == null) {
-      byte[] data = page.getSlotAsByteArray(offset);
+      var data = page.getSlot(offset);
       if (data != null) {
         record = getDataRecord(nodeKey, offset, data, page);
       }
@@ -307,14 +305,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return record;
   }
 
-  private DataRecord getDataRecord(long key, int offset, byte[] data, KeyValueLeafPage page) {
-    byteBufferForRecords.clear();
-    BytesUtils.doWrite(byteBufferForRecords, data);
-    var record = resourceConfig.recordPersister.deserialize(byteBufferForRecords,
+  private DataRecord getDataRecord(long key, int offset, MemorySegment data, KeyValueLeafPage page) {
+    var record = resourceConfig.recordPersister.deserialize(new MemorySegmentBytesIn(data),
                                                             key,
                                                             page.getDeweyIdAsByteArray(offset),
                                                             resourceConfig);
-    byteBufferForRecords.clear();
     page.setRecord(record);
     return record;
   }

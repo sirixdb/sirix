@@ -43,7 +43,8 @@ import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongList;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -263,7 +264,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
     bytes.clear();
@@ -286,7 +287,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements N
          .writeInt(nameNodeDelegate.getLocalNameKey())
          .writeInt(nameNodeDelegate.getURIKey());
 
-    final var buffer = bytes.underlyingObject().rewind();
+    final var buffer = ((java.nio.ByteBuffer) bytes.underlyingObject()).rewind();
     buffer.limit((int) bytes.readLimit());
 
     return nodeDelegate.getHashFunction().hashBytes(buffer);

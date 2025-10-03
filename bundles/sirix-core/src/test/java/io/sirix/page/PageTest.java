@@ -1,7 +1,8 @@
 package io.sirix.page;
 
+import io.sirix.node.Bytes;
 import io.sirix.node.HashCountEntryNode;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.api.PageReadOnlyTrx;
@@ -67,7 +68,7 @@ public class PageTest {
   @Test(dataProvider = "instantiatePages")
   public void testByteRepresentation(final Page[] handlers) {
     for (final Page handler : handlers) {
-      final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+      final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
       PageKind.getKind(handler.getClass())
               .serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
                              data,
