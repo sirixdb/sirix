@@ -69,12 +69,10 @@ public class StringNodeTest {
         .build();
     
     // Create data in the correct serialization format with size prefix and padding
-    // Format: [4-byte size][3-byte padding][NodeDelegate + value + siblings][end padding]
+    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + value + siblings][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     
-    long sizePos = data.writePosition();
-    data.writeInt(0); // Size placeholder
-    data.writeByte(NodeKind.String.getId()); // NodeKind byte
+    data.writeByte(NodeKind.STRING_VALUE.getId()); // NodeKind byte
     long sizePos = data.writePosition();
     data.writeInt(0); // Size placeholder
     data.writeByte((byte) 0); // 3 bytes padding (total header = 8 bytes with NodeKind)
@@ -86,7 +84,7 @@ public class StringNodeTest {
     data.writeLong(14); // parentKey
     data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
     data.writeInt(0); // lastModifiedRevision
-    // Value (stopBit length + bytes)
+    // Value BEFORE siblings (STRING_VALUE unique order)
     data.writeStopBit(value.length);
     data.write(value);
     // Siblings
@@ -112,15 +110,20 @@ public class StringNodeTest {
     data.writePosition(currentPos);
     
     // Deserialize to create properly initialized node
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
     final StringNode node = (StringNode) NodeKind.STRING_VALUE.deserialize(
-        data.asBytesIn(), 13L, null, config);
+        bytesIn, 13L, null, config);
     check(node);
 
     // Serialize and deserialize node.
     final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    data2.writeByte(NodeKind.STRING_VALUE.getId()); // Write NodeKind to ensure proper alignment
     node.getKind().serialize(data2, node, config);
+    var bytesIn2 = data2.asBytesIn();
+    bytesIn2.readByte(); // Skip NodeKind byte
     final StringNode node2 = (StringNode) NodeKind.STRING_VALUE.deserialize(
-        data2.asBytesIn(), node.getNodeKey(), null, config);
+        bytesIn2, node.getNodeKey(), null, config);
     check(node2);
   }
 
