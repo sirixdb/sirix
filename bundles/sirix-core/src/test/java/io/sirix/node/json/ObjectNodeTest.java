@@ -71,27 +71,61 @@ public class ObjectNodeTest {
         .storeChildCount(false)
         .build();
     
-    // Create data in the correct serialization format
-    // Format: NodeDelegate + StructNode (rightSib, leftSib, firstChild, lastChild)
+    // Create data in the correct serialization format with size prefix and padding
+    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + struct fields][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    
+    data.writeByte(NodeKind.OBJECT.getId()); // NodeKind byte
+    long sizePos = data.writePosition();
+    data.writeInt(0); // Size placeholder
+    data.writeByte((byte) 0); // 3 bytes padding (total header = 8 bytes with NodeKind)
+    data.writeByte((byte) 0);
+    data.writeByte((byte) 0);
+    
+    long startPos = data.writePosition();
+    // NodeDelegate fields
     data.writeLong(14); // parentKey
     data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
     data.writeInt(0); // lastModifiedRevision
+    // Struct fields
     data.writeLong(16L); // rightSibling
     data.writeLong(15L); // leftSibling
     data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // firstChild
     data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // lastChild
     
+    // Write end padding to make size multiple of 8
+    long nodeDataSize = data.writePosition() - startPos;
+    int remainder = (int)(nodeDataSize % 8);
+    if (remainder != 0) {
+      int padding = 8 - remainder;
+      for (int i = 0; i < padding; i++) {
+        data.writeByte((byte) 0);
+      }
+    }
+    
+    // Update size prefix
+    long endPos = data.writePosition();
+    nodeDataSize = endPos - startPos;
+    long currentPos = data.writePosition();
+    data.writePosition(sizePos);
+    data.writeInt((int) nodeDataSize);
+    data.writePosition(currentPos);
+    
     // Deserialize to create properly initialized node
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
     final ObjectNode node = (ObjectNode) NodeKind.OBJECT.deserialize(
-        data.asBytesIn(), 13L, null, config);
+        bytesIn, 13L, null, config);
     check(node);
 
     // Serialize and deserialize node.
     final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    data2.writeByte(NodeKind.OBJECT.getId()); // Write NodeKind to ensure proper alignment
     node.getKind().serialize(data2, node, config);
+    var bytesIn2 = data2.asBytesIn();
+    bytesIn2.readByte(); // Skip NodeKind byte
     final ObjectNode node2 = (ObjectNode) NodeKind.OBJECT.deserialize(
-        data2.asBytesIn(), node.getNodeKey(), null, config);
+        bytesIn2, node.getNodeKey(), null, config);
     check(node2);
   }
 

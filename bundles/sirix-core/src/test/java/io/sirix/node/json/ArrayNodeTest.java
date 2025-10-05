@@ -30,9 +30,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
-import io.sirix.api.Database;
 import io.sirix.api.PageTrx;
-import io.sirix.api.json.JsonResourceSession;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 
@@ -45,12 +43,10 @@ public class ArrayNodeTest {
 
   private PageTrx pageTrx;
 
-  private Database<JsonResourceSession> database;
-
   @Before
   public void setUp() {
     JsonTestHelper.deleteEverything();
-    database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
@@ -69,28 +65,63 @@ public class ArrayNodeTest {
         .storeChildCount(false)
         .build();
     
-    // Create data in the correct serialization format to match ArrayNode CORE_LAYOUT
-    // Format: NodeDelegate + pathNodeKey + rightSib + leftSib + firstChild + lastChild
+    // Create data in the correct serialization format with size prefix and padding
+    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + pathNodeKey + struct fields][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
-    data.writeLong(14); // parentKey (offset 0)
-    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision (offset 8)
-    data.writeInt(0); // lastModifiedRevision (offset 12)
-    data.writeLong(pathNodeKey); // pathNodeKey (offset 16) - FIRST in ArrayNode!
-    data.writeLong(16L); // rightSibling (offset 24)
-    data.writeLong(15L); // leftSibling (offset 32)
-    data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // firstChild (offset 40)
-    data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // lastChild (offset 48)
+    
+    data.writeByte(NodeKind.ARRAY.getId()); // NodeKind byte
+    long sizePos = data.writePosition();
+    data.writeInt(0); // Size placeholder
+    data.writeByte((byte) 0); // 3 bytes padding (total header = 8 bytes with NodeKind)
+    data.writeByte((byte) 0);
+    data.writeByte((byte) 0);
+    
+    long startPos = data.writePosition();
+    // NodeDelegate fields
+    data.writeLong(14); // parentKey
+    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
+    data.writeInt(0); // lastModifiedRevision
+    // ArrayNode specific: pathNodeKey comes BEFORE struct fields
+    data.writeLong(pathNodeKey); // pathNodeKey
+    // Struct fields
+    data.writeLong(16L); // rightSibling
+    data.writeLong(15L); // leftSibling
+    data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // firstChild
+    data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // lastChild
+    
+    // Write end padding to make size multiple of 8
+    long nodeDataSize = data.writePosition() - startPos;
+    int remainder = (int)(nodeDataSize % 8);
+    if (remainder != 0) {
+      int padding = 8 - remainder;
+      for (int i = 0; i < padding; i++) {
+        data.writeByte((byte) 0);
+      }
+    }
+    
+    // Update size prefix
+    long endPos = data.writePosition();
+    nodeDataSize = endPos - startPos;
+    long currentPos = data.writePosition();
+    data.writePosition(sizePos);
+    data.writeInt((int) nodeDataSize);
+    data.writePosition(currentPos);
     
     // Deserialize to create properly initialized node
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
     final ArrayNode node = (ArrayNode) NodeKind.ARRAY.deserialize(
-        data.asBytesIn(), 13L, null, config);
+        bytesIn, 13L, null, config);
     check(node);
 
     // Serialize and deserialize node.
     final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    data2.writeByte(NodeKind.ARRAY.getId()); // Write NodeKind to ensure proper alignment
     node.getKind().serialize(data2, node, config);
+    var bytesIn2 = data2.asBytesIn();
+    bytesIn2.readByte(); // Skip NodeKind byte
     final ArrayNode node2 = (ArrayNode) NodeKind.ARRAY.deserialize(
-        data2.asBytesIn(), node.getNodeKey(), null, config);
+        bytesIn2, node.getNodeKey(), null, config);
     check(node2);
   }
 

@@ -1,0 +1,104 @@
+{
+  "key": "tada",
+  "metadata": {
+    "nodeKey": 15,
+    "hash": "0000000000000000",
+    "type": "OBJECT_KEY",
+    "descendantCount": 10
+  },
+  "value": {
+    "metadata": {
+      "nodeKey": 16,
+      "hash": "0000000000000000",
+      "type": "ARRAY",
+      "descendantCount": 9,
+      "childCount": 5
+    },
+    "value": [
+      {
+        "metadata": {
+          "nodeKey": 17,
+          "hash": "0000000000000000",
+          "type": "OBJECT",
+          "descendantCount": 2,
+          "childCount": 1
+        },
+        "value": [
+          {
+            "key": "foo",
+            "metadata": {
+              "nodeKey": 18,
+              "hash": "0000000000000000",
+              "type": "OBJECT_KEY",
+              "descendantCount": 1
+            },
+            "value": {
+              "metadata": {
+                "nodeKey": 19,
+                "hash": "0000000000000000",
+                "type": "OBJECT_STRING_VALUE"
+              },
+              "value": "bar"
+            }
+          }
+        ]
+      },
+      {
+        "metadata": {
+          "nodeKey": 20,
+          "hash": "0000000000000000",
+          "type": "OBJECT",
+          "descendantCount": 2,
+          "childCount": 1
+        },
+        "value": [
+          {
+            "key": "baz",
+            "metadata": {
+              "nodeKey": 21,
+              "hash": "0000000000000000",
+              "type": "OBJECT_KEY",
+              "descendantCount": 1
+            },
+            "value": {
+              "metadata": {
+                "nodeKey": 22,
+                "hash": "0000000000000000",
+                "type": "OBJECT_BOOLEAN_VALUE"
+              },
+              "value": false
+            }
+          }
+        ]
+      },
+      {
+        "metadata": {
+          "nodeKey": 23,
+          "hash": "0000000000000000",
+          "type": "STRING_VALUE"
+        },
+        "value": "boo"
+      },
+      {
+        "metadata": {
+          "nodeKey": 24,
+          "hash": "0000000000000000",
+          "type": "OBJECT",
+          "descendantCount": 0,
+          "childCount": 0
+        },
+        "value": {}
+      },
+      {
+        "metadata": {
+          "nodeKey": 25,
+          "hash": "0000000000000000",
+          "type": "ARRAY",
+          "descendantCount": 0,
+          "childCount": 0
+        },
+        "value": []
+      }
+    ]
+  }
+}
