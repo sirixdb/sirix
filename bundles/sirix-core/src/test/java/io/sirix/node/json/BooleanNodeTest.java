@@ -69,12 +69,10 @@ public class BooleanNodeTest {
         .build();
     
     // Create data in the correct serialization format with size prefix and padding
-    // Format: [4-byte size][3-byte padding][NodeDelegate + value + siblings][end padding]
+    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + value + siblings][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     
-    long sizePos = data.writePosition();
-    data.writeInt(0); // Size placeholder
-    data.writeByte(NodeKind.Boolean.getId()); // NodeKind byte
+    data.writeByte(NodeKind.BOOLEAN_VALUE.getId()); // NodeKind byte
     long sizePos = data.writePosition();
     data.writeInt(0); // Size placeholder
     data.writeByte((byte) 0); // 3 bytes padding (total header = 8 bytes with NodeKind)
@@ -86,11 +84,11 @@ public class BooleanNodeTest {
     data.writeLong(14); // parentKey
     data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
     data.writeInt(0); // lastModifiedRevision
-    // Value
-    data.writeBoolean(value);
-    // Siblings
+    // Siblings (must come BEFORE value)
     data.writeLong(16L); // rightSibling
     data.writeLong(15L); // leftSibling
+    // Value
+    data.writeBoolean(value);
     
     // Write end padding to make size multiple of 8
     long nodeDataSize = data.writePosition() - startPos;
@@ -111,15 +109,20 @@ public class BooleanNodeTest {
     data.writePosition(currentPos);
     
     // Deserialize to create properly initialized node
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
     final BooleanNode node = (BooleanNode) NodeKind.BOOLEAN_VALUE.deserialize(
-        data.asBytesIn(), 13L, null, config);
+        bytesIn, 13L, null, config);
     check(node);
 
     // Serialize and deserialize node.
     final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    data2.writeByte(NodeKind.BOOLEAN_VALUE.getId()); // Write NodeKind to ensure proper alignment
     node.getKind().serialize(data2, node, config);
+    var bytesIn2 = data2.asBytesIn();
+    bytesIn2.readByte(); // Skip NodeKind byte
     final BooleanNode node2 = (BooleanNode) NodeKind.BOOLEAN_VALUE.deserialize(
-        data2.asBytesIn(), node.getNodeKey(), null, config);
+        bytesIn2, node.getNodeKey(), null, config);
     check(node2);
   }
 
