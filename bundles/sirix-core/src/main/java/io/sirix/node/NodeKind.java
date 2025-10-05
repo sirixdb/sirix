@@ -1553,8 +1553,8 @@ public enum NodeKind implements DeweyIdSerializer {
 
   private static NodeDelegate deserializeNodeDelegateWithoutIDs(final BytesIn<?> source,
       final @NonNegative long recordID, final ResourceConfiguration resourceConfiguration) {
-    // Read fixed-size long instead of variable-length encoded value
-    final long parentKey = recordID - source.readLong();
+    // Read variable-length encoded offset value
+    final long parentKey = recordID - getVarLong(source);
     final int previousRevision = source.readInt();
     final int lastModifiedRevision = source.readInt();
     final LongHashFunction hashFunction = resourceConfiguration.nodeHashFunction;
@@ -1585,10 +1585,11 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Serialize node delegate without IDs, writing parent key as offset from node key.
    * This matches deserializeNodeDelegateWithoutIDs which expects: parentKey = recordID - offset
+   * Uses variable-length encoding for the offset.
    */
   private static void serializeDelegateWithoutIDs(final NodeDelegate nodeDel, final BytesOut<?> sink) {
     final long offset = nodeDel.getNodeKey() - nodeDel.getParentKey();
-    sink.writeLong(offset);
+    putVarLong(sink, offset);
     sink.writeInt(nodeDel.getPreviousRevisionNumber());
     sink.writeInt(nodeDel.getLastModifiedRevisionNumber());
   }
