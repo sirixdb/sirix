@@ -31,9 +31,8 @@ public class GrowingMemorySegment {
      * Create a new GrowingMemorySegment with specified initial capacity.
      * Uses off-heap memory with 8-byte alignment.
      * 
-     * Uses Arena.ofAuto() for automatic GC-based memory management.
-     * This is necessary because MemorySegments are stored in pages that can be
-     * read by multiple read-only transactions that outlive write transactions.
+     * Uses Arena.ofAuto() for memory management which automatically releases
+     * memory when the arena is no longer reachable and the memory is not accessible.
      * 
      * @param initialCapacity the initial capacity in bytes
      */
@@ -49,7 +48,8 @@ public class GrowingMemorySegment {
      * Create a new GrowingMemorySegment from an existing MemorySegment.
      * Copies data from the existing segment to new off-heap aligned memory.
      * 
-     * Uses Arena.ofAuto() for automatic GC-based memory management.
+     * Uses Arena.ofAuto() for memory management which automatically releases
+     * memory when the arena is no longer reachable and the memory is not accessible.
      * 
      * @param existingSegment the existing segment to copy data from
      */
@@ -282,20 +282,21 @@ public class GrowingMemorySegment {
     /**
      * Close this GrowingMemorySegment.
      * 
-     * This is a no-op since Arena.ofAuto() manages memory automatically via GC.
-     * The off-heap memory will be freed automatically when this object is no longer referenced.
+     * This is a no-op since Arena.global() cannot be closed.
+     * The off-heap memory allocated from the global arena persists for the
+     * lifetime of the application.
      * This method exists to maintain AutoCloseable contract from BytesOut.
      */
     public void close() {
-        // No-op: Arena.ofAuto() is GC-managed, no manual close needed
+        // No-op: Arena.global() cannot be closed
     }
     
     /**
      * Check if this segment is still alive.
      * 
-     * @return true (always true for Arena.ofAuto() which is GC-managed)
+     * @return true (always true for Arena.global() which is always alive)
      */
     public boolean isAlive() {
-        return true; // Arena.ofAuto() is always "alive" until GC'd
+        return true; // Arena.global() is always alive
     }
 }
