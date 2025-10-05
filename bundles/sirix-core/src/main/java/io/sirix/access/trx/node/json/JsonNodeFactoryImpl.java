@@ -306,7 +306,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     NumberNode.serializeNumber(value, data);
     
     // Create NumberNode from MemorySegment
-    var segment = (MemorySegment) data.asBytesIn().getUnderlying();
+    MemorySegment segment = (MemorySegment) data.getDestination();
     var node = new NumberNode(segment, nodeKey, id, config);
     
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
@@ -403,7 +403,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     ObjectNumberNode.serializeNumber(value, data);
     
     // Create ObjectNumberNode from MemorySegment
-    var segment = (MemorySegment) data.asBytesIn().getUnderlying();
+    MemorySegment segment = (MemorySegment) data.getDestination();
     var node = new ObjectNumberNode(segment, nodeKey, id, config);
     
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
