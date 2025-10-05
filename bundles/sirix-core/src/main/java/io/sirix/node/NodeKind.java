@@ -793,7 +793,7 @@ public enum NodeKind implements DeweyIdSerializer {
         sink.writeLong(node.getDescendantCount());
       }
       JsonNodeSerializer.writeEndPadding(sink, startPos);
-    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -848,7 +848,7 @@ public enum NodeKind implements DeweyIdSerializer {
         sink.writeLong(node.getDescendantCount());
       }
       JsonNodeSerializer.writeEndPadding(sink, startPos);
-    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -873,7 +873,7 @@ public enum NodeKind implements DeweyIdSerializer {
       // Read size prefix to get exact node size
       int nodeSize = JsonNodeSerializer.readSizePrefix(source);
       var segment = getSegmentSlice(source, nodeSize);
-      
+
       return new ObjectKeyNode(segment, recordID, deweyID, resourceConfiguration);
     }
 
@@ -884,7 +884,7 @@ public enum NodeKind implements DeweyIdSerializer {
       long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
       var config = resourceConfiguration;
-      
+
       // Write NodeDelegate fields, then all fixed fields, then hash+descendant at end
       sink.writeLong(node.getParentKey());
       sink.writeInt(node.getPreviousRevisionNumber());
@@ -946,7 +946,7 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.writeStopBit(value.length);
       sink.write(value);
       JsonNodeSerializer.writeEndPadding(sink, startPos);
-    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -987,7 +987,7 @@ public enum NodeKind implements DeweyIdSerializer {
       // Write value
       sink.writeBoolean(node.getValue());
       JsonNodeSerializer.writeEndPadding(sink, startPos);
-    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1021,7 +1021,7 @@ public enum NodeKind implements DeweyIdSerializer {
       final ObjectNumberNode node = (ObjectNumberNode) record;
       long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
-      
+
       // Write NodeDelegate fields only (object properties have no siblings)
       sink.writeLong(node.getParentKey());
       sink.writeInt(node.getPreviousRevisionNumber());
@@ -1029,36 +1029,8 @@ public enum NodeKind implements DeweyIdSerializer {
 
       final Number number = node.getValue();
 
-      switch (number) {
-        case Double _ -> {
-          sink.writeByte((byte) 0);
-          sink.writeDouble(number.doubleValue());
-        }
-        case Float _ -> {
-          sink.writeByte((byte) 1);
-          sink.writeFloat(number.floatValue());
-        }
-        case Integer _ -> {
-          sink.writeByte((byte) 2);
-          sink.writeInt(number.intValue());
-        }
-        case Long _ -> {
-          sink.writeByte((byte) 3);
-          sink.writeLong(number.longValue());
-        }
-        case BigInteger bigInt -> {
-          sink.writeByte((byte) 4);
-          sink.writeBigInteger(bigInt);
-        }
-        case final BigDecimal value -> {
-          sink.writeByte((byte) 5);
-          final BigInteger bigInt = value.unscaledValue();
-          final int scale = value.scale();
-          sink.writeBigInteger(bigInt);
-          sink.writeInt(scale);
-        }
-        case null, default -> throw new AssertionError("Type not known.");
-      }
+      // Use the shared serialization method to ensure consistency
+      serializeNumber(number, sink);
       JsonNodeSerializer.writeEndPadding(sink, startPos);
       JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
@@ -1098,7 +1070,7 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.writeInt(node.getPreviousRevisionNumber());
       sink.writeInt(node.getLastModifiedRevisionNumber());
       JsonNodeSerializer.writeEndPadding(sink, startPos);
-    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1143,7 +1115,7 @@ public enum NodeKind implements DeweyIdSerializer {
       // Write StructNode sibling fields
       serializeStructNodeJsonValueNode(sink, node);
       JsonNodeSerializer.writeEndPadding(sink, startPos);
-    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1186,7 +1158,7 @@ public enum NodeKind implements DeweyIdSerializer {
       // Write value
       sink.writeBoolean(node.getValue());
       JsonNodeSerializer.writeEndPadding(sink, startPos);
-    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1230,38 +1202,10 @@ public enum NodeKind implements DeweyIdSerializer {
 
       final Number number = node.getValue();
 
-      switch (number) {
-        case Double _ -> {
-          sink.writeByte((byte) 0);
-          sink.writeDouble(number.doubleValue());
-        }
-        case Float _ -> {
-          sink.writeByte((byte) 1);
-          sink.writeFloat(number.floatValue());
-        }
-        case Integer _ -> {
-          sink.writeByte((byte) 2);
-          sink.writeInt(number.intValue());
-        }
-        case Long _ -> {
-          sink.writeByte((byte) 3);
-          sink.writeLong(number.longValue());
-        }
-        case BigInteger bigInteger -> {
-          sink.writeByte((byte) 4);
-          serializeBigInteger(sink, bigInteger);
-        }
-        case final BigDecimal value -> {
-          sink.writeByte((byte) 5);
-          final BigInteger bigInt = value.unscaledValue();
-          final int scale = value.scale();
-          serializeBigInteger(sink, bigInt);
-          sink.writeInt(scale);
-        }
-        case null, default -> throw new AssertionError("Type not known.");
-      }
+      // Use the shared serialization method to ensure consistency
+      serializeNumber(number, sink);
       JsonNodeSerializer.writeEndPadding(sink, startPos);
-    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1301,7 +1245,7 @@ public enum NodeKind implements DeweyIdSerializer {
       // Write StructNode sibling fields
       serializeStructNodeJsonValueNode(sink, node);
       JsonNodeSerializer.writeEndPadding(sink, startPos);
-    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1652,8 +1596,9 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Get a properly-sized MemorySegment slice for a node from the current position.
    * Uses UNALIGNED value layouts, so no alignment requirements.
-   * @param source the BytesIn source  
-   * @param size the exact size of the node data in bytes
+   *
+   * @param source the BytesIn source
+   * @param size   the exact size of the node data in bytes
    * @return a MemorySegment slice of the specified size
    */
   private static MemorySegment getSegmentSlice(final BytesIn<?> source, final long size) {
@@ -1662,7 +1607,8 @@ public enum NodeKind implements DeweyIdSerializer {
     // So we just need to slice it further to the exact node size
     long availableSize = fullSegment.byteSize();
     if (size > availableSize) {
-      throw new IllegalStateException("Calculated node size " + size + " exceeds available segment size " + availableSize);
+      throw new IllegalStateException(
+          "Calculated node size " + size + " exceeds available segment size " + availableSize);
     }
     MemorySegment slice = fullSegment.asSlice(0, size);
     // Advance the source position by the node size
@@ -1780,10 +1726,81 @@ public enum NodeKind implements DeweyIdSerializer {
     sink.writeLong(hashCode);
   }
 
+  /**
+   * Serializes a Number value to a BytesOut sink.
+   * Supports Double, Float, Integer, Long, BigInteger, and BigDecimal.
+   * 
+   * @param value the number to serialize
+   * @param sink the sink to write to
+   */
+  public static void serializeNumber(final Number value, final BytesOut<?> sink) {
+    switch (value) {
+      case final Double val -> {
+        sink.writeByte((byte) 0);
+        sink.writeDouble(val);
+      }
+      case final Float val -> {
+        sink.writeByte((byte) 1);
+        sink.writeFloat(val);
+      }
+      case final Integer val -> {
+        sink.writeByte((byte) 2);
+        sink.writeInt(val);
+      }
+      case final Long val -> {
+        sink.writeByte((byte) 3);
+        sink.writeLong(val);
+      }
+      case final BigInteger bigInteger -> {
+        sink.writeByte((byte) 4);
+        serializeBigInteger(sink, bigInteger);
+      }
+      case final BigDecimal bigDecimal -> {
+        sink.writeByte((byte) 5);
+        final BigInteger bigInt = bigDecimal.unscaledValue();
+        final int scale = bigDecimal.scale();
+        serializeBigInteger(sink, bigInt);
+        sink.writeInt(scale);
+      }
+      case null, default -> throw new AssertionError("Type not known.");
+    }
+  }
+
+  /**
+   * Deserializes a Number value from a BytesIn source.
+   * Supports Double, Float, Integer, Long, BigInteger, and BigDecimal.
+   * 
+   * @param source the source to read from
+   * @return the deserialized Number
+   */
+  public static Number deserializeNumber(final BytesIn<?> source) {
+    final var valueType = source.readByte();
+
+    return switch (valueType) {
+      case 0 -> source.readDouble();
+      case 1 -> source.readFloat();
+      case 2 -> source.readInt();
+      case 3 -> source.readLong();
+      case 4 -> deserializeBigInteger(source);
+      case 5 -> {
+        final BigInteger bigInt = deserializeBigInteger(source);
+        final int scale = source.readInt();
+        yield new BigDecimal(bigInt, scale);
+      }
+      default -> throw new AssertionError("Type not known.");
+    };
+  }
+
   private static void serializeBigInteger(final BytesOut<?> sink, final BigInteger bigInteger) {
     final byte[] bytes = bigInteger.toByteArray();
     sink.writeStopBit(bytes.length);
     sink.write(bytes);
+  }
+
+  private static BigInteger deserializeBigInteger(final BytesIn<?> source) {
+    final byte[] bytes = new byte[(int) source.readStopBit()];
+    source.read(bytes);
+    return new BigInteger(bytes);
   }
 
   /**
