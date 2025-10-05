@@ -34,8 +34,8 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
-import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
@@ -145,6 +145,9 @@ public final class NumberNode implements StructNode, ImmutableJsonNode {
   // Number value stored in MemorySegment for lazy retrieval
   private final MemorySegment valueSegment;
   private Number cachedNumber; // Lazily loaded from valueSegment
+  
+  // Cached hash value (computed on-demand, not stored in MemorySegment)
+  private long cachedHash = 0;
 
   /**
    * Constructor for MemorySegment-based NumberNode
@@ -225,13 +228,18 @@ public final class NumberNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public long getHash() {
-    // Value nodes are leaf nodes - hash is computed on-demand, not stored
-    return 0;
+    // Value nodes don't store hash in MemorySegment, but cache it in memory
+    // If hash is 0 and hashing is enabled, compute it on-demand
+    if (cachedHash == 0 && resourceConfig.hashType != HashType.NONE) {
+      cachedHash = computeHash(Bytes.elasticHeapByteBuffer());
+    }
+    return cachedHash;
   }
 
   @Override
   public void setHash(final long hash) {
-    // Value nodes don't store hash in MemorySegment - no-op
+    // Value nodes don't store hash in MemorySegment, but cache it in memory
+    this.cachedHash = hash;
   }
 
   @Override
@@ -325,8 +333,8 @@ public final class NumberNode implements StructNode, ImmutableJsonNode {
 
   public Number getValue() {
     if (cachedNumber == null) {
-      // Lazy load from MemorySegment
-      cachedNumber = deserializeNumber(new MemorySegmentBytesIn(valueSegment));
+      // Lazy load from MemorySegment using shared deserialization method
+      cachedNumber = NodeKind.deserializeNumber(new MemorySegmentBytesIn(valueSegment));
     }
     return cachedNumber;
   }
@@ -335,69 +343,6 @@ public final class NumberNode implements StructNode, ImmutableJsonNode {
     this.cachedNumber = number;
     // Note: This updates the cache but doesn't update the MemorySegment
     // The MemorySegment is considered immutable after construction
-  }
-
-  private Number deserializeNumber(final BytesIn<?> source) {
-    final var valueType = source.readByte();
-
-    return switch (valueType) {
-      case 0 -> source.readDouble();
-      case 1 -> source.readFloat();
-      case 2 -> source.readInt();
-      case 3 -> source.readLong();
-      case 4 -> deserializeBigInteger(source);
-      case 5 -> {
-        final BigInteger bigInt = deserializeBigInteger(source);
-        final int scale = source.readInt();
-        yield new BigDecimal(bigInt, scale);
-      }
-      default -> throw new AssertionError("Type not known.");
-    };
-  }
-
-  private BigInteger deserializeBigInteger(final BytesIn<?> source) {
-    final byte[] bytes = new byte[(int) source.readStopBit()];
-    source.read(bytes);
-    return new BigInteger(bytes);
-  }
-
-  public static void serializeNumber(final Number value, final BytesOut<?> sink) {
-    switch (value) {
-      case final Double val -> {
-        sink.writeByte((byte) 0);
-        sink.writeDouble(val);
-      }
-      case final Float val -> {
-        sink.writeByte((byte) 1);
-        sink.writeFloat(val);
-      }
-      case final Integer val -> {
-        sink.writeByte((byte) 2);
-        sink.writeInt(val);
-      }
-      case final Long val -> {
-        sink.writeByte((byte) 3);
-        sink.writeLong(val);
-      }
-      case final BigInteger bigInteger -> {
-        sink.writeByte((byte) 4);
-        serializeBigInteger(sink, bigInteger);
-      }
-      case final BigDecimal bigDecimal -> {
-        sink.writeByte((byte) 5);
-        final BigInteger bigInt = bigDecimal.unscaledValue();
-        final int scale = bigDecimal.scale();
-        serializeBigInteger(sink, bigInt);
-        sink.writeInt(scale);
-      }
-      case null, default -> throw new AssertionError("Type not known.");
-    }
-  }
-
-  private static void serializeBigInteger(final BytesOut<?> sink, final BigInteger bigInteger) {
-    final byte[] bytes = bigInteger.toByteArray();
-    sink.writeStopBit(bytes.length);
-    sink.write(bytes);
   }
 
   @Override
