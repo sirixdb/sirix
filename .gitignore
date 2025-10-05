@@ -49,3 +49,4 @@ bundles/sirix-rest-api/.idea/compiler.xml
 /bundles/sirix-rest-api/zgc-generational-insert.log
 /bundles/sirix-core/zgc-generational-insert.log
 /bundles/sirix-core/src/test/resources/json/cityofchicago.json
+/bundles/sirix-core/bin/
