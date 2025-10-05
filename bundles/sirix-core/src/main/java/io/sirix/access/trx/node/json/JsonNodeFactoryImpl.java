@@ -303,7 +303,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     data.writeLong(leftSibKey);
     
     // Write number value after siblings
-    NumberNode.serializeNumber(value, data);
+    NodeKind.serializeNumber(value, data);
     
     // Create NumberNode from MemorySegment
     MemorySegment segment = (MemorySegment) data.getDestination();
@@ -400,7 +400,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     data.writeInt(revisionNumber);
     
     // Write number value using the same format as NodeKind.serialize method
-    ObjectNumberNode.serializeNumber(value, data);
+    NodeKind.serializeNumber(value, data);
     
     // Create ObjectNumberNode from MemorySegment
     MemorySegment segment = (MemorySegment) data.getDestination();
