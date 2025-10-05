@@ -71,29 +71,62 @@ public class ObjectKeyNodeTest {
         .storeChildCount(false)
         .build();
     
-    // Create data in the correct serialization format (aligned)
-    // Format: NodeDelegate + pathNodeKey + rightSib + leftSib + firstChild + nameKey (aligned)
+    // Create data in the correct serialization format with size prefix and padding
+    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + pathNodeKey + siblings + firstChild + nameKey][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
-    data.writeLong(13); // parentKey (offset 0)
-    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision (offset 8)
-    data.writeInt(0); // lastModifiedRevision (offset 12)
-    data.writeLong(pathNodeKey); // pathNodeKey (offset 16) ✅ ALIGNED
-    data.writeLong(16L); // rightSibling (offset 24)
-    data.writeLong(15L); // leftSibling (offset 32)
-    data.writeLong(17L); // firstChild (offset 40)
-    data.writeInt(nameKey); // nameKey (offset 48) - moved to end for alignment
+    
+    data.writeByte(NodeKind.OBJECT_KEY.getId()); // NodeKind byte
+    long sizePos = data.writePosition();
+    data.writeInt(0); // Size placeholder
+    data.writeByte((byte) 0); // 3 bytes padding (total header = 8 bytes with NodeKind)
+    data.writeByte((byte) 0);
+    data.writeByte((byte) 0);
+    
+    long startPos = data.writePosition();
+    // NodeDelegate fields
+    data.writeLong(13); // parentKey
+    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
+    data.writeInt(0); // lastModifiedRevision
+    // Fixed fields - longs first for alignment
+    data.writeLong(pathNodeKey); // pathNodeKey
+    data.writeLong(16L); // rightSibling
+    data.writeLong(15L); // leftSibling
     data.writeLong(17L); // firstChild
+    data.writeInt(nameKey); // nameKey (4 bytes)
+    
+    // Write end padding to make size multiple of 8
+    long nodeDataSize = data.writePosition() - startPos;
+    int remainder = (int)(nodeDataSize % 8);
+    if (remainder != 0) {
+      int padding = 8 - remainder;
+      for (int i = 0; i < padding; i++) {
+        data.writeByte((byte) 0);
+      }
+    }
+    
+    // Update size prefix
+    long endPos = data.writePosition();
+    nodeDataSize = endPos - startPos;
+    long currentPos = data.writePosition();
+    data.writePosition(sizePos);
+    data.writeInt((int) nodeDataSize);
+    data.writePosition(currentPos);
     
     // Deserialize to create properly initialized node
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
     final ObjectKeyNode node = (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(
-        data.asBytesIn(), 14L, null, config);
+        bytesIn, 14L, null, config);
     check(node, nameKey);
 
     // Serialize and deserialize node.
     final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    data2.writeByte(NodeKind.OBJECT_KEY.getId()); // Write NodeKind to ensure proper alignment
     node.getKind().serialize(data2, node, config);
+    var bytesIn2 = data2.asBytesIn();
+    bytesIn2.readByte(); // Skip NodeKind byte
     final ObjectKeyNode node2 = (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(
-        data2.asBytesIn(), node.getNodeKey(), null, config);
+        bytesIn2, node.getNodeKey(), null, config);
     check(node2, nameKey);
   }
 
