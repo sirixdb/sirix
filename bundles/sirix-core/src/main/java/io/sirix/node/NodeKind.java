@@ -44,6 +44,7 @@ import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.delegates.ValueNodeDelegate;
+import io.sirix.node.json.JsonNodeSerializer;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.StructNode;
@@ -761,7 +762,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read size prefix to get exact node size
-      int nodeSize = readJsonNodeSizePrefix(source);
+      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
       var segment = getSegmentSlice(source, nodeSize);
       return new ObjectNode(segment, recordID, deweyID, resourceConfiguration);
     }
@@ -770,7 +771,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectNode node = (ObjectNode) record;
-      long sizePos = writeJsonNodeSizePrefix(sink);
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
       var config = resourceConfiguration;
       // New layout: NodeDelegate fields, then struct fields, then optional fields at end
@@ -791,8 +792,8 @@ public enum NodeKind implements DeweyIdSerializer {
         writeHash(sink, node.getHash());
         sink.writeLong(node.getDescendantCount());
       }
-      writeEndPadding(sink, startPos);
-    updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -815,7 +816,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read size prefix to get exact node size
-      int nodeSize = readJsonNodeSizePrefix(source);
+      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
       var segment = getSegmentSlice(source, nodeSize);
       return new ArrayNode(segment, recordID, deweyID, resourceConfiguration);
     }
@@ -824,7 +825,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ArrayNode node = (ArrayNode) record;
-      long sizePos = writeJsonNodeSizePrefix(sink);
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
       var config = resourceConfiguration;
       // Write NodeDelegate fields directly
@@ -846,8 +847,8 @@ public enum NodeKind implements DeweyIdSerializer {
         writeHash(sink, node.getHash());
         sink.writeLong(node.getDescendantCount());
       }
-      writeEndPadding(sink, startPos);
-    updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -870,7 +871,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read size prefix to get exact node size
-      int nodeSize = readJsonNodeSizePrefix(source);
+      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
       var segment = getSegmentSlice(source, nodeSize);
       
       return new ObjectKeyNode(segment, recordID, deweyID, resourceConfiguration);
@@ -880,7 +881,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectKeyNode node = (ObjectKeyNode) record;
-      long sizePos = writeJsonNodeSizePrefix(sink);
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
       var config = resourceConfiguration;
       
@@ -901,8 +902,8 @@ public enum NodeKind implements DeweyIdSerializer {
         writeHash(sink, node.getHash());
         sink.writeLong(node.getDescendantCount());
       }
-      writeEndPadding(sink, startPos);
-      updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -925,7 +926,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read size prefix to get exact node size
-      int nodeSize = readJsonNodeSizePrefix(source);
+      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
       var segment = getSegmentSlice(source, nodeSize);
       return new ObjectStringNode(segment, recordID, deweyID, resourceConfiguration);
     }
@@ -934,7 +935,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectStringNode node = (ObjectStringNode) record;
-      long sizePos = writeJsonNodeSizePrefix(sink);
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
       // Write NodeDelegate fields only (object properties have no siblings)
       sink.writeLong(node.getParentKey());
@@ -944,8 +945,8 @@ public enum NodeKind implements DeweyIdSerializer {
       final byte[] value = node.getRawValue();
       sink.writeStopBit(value.length);
       sink.write(value);
-      writeEndPadding(sink, startPos);
-    updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -968,7 +969,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read size prefix to get exact node size
-      int nodeSize = readJsonNodeSizePrefix(source);
+      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
       var segment = getSegmentSlice(source, nodeSize);
       return new ObjectBooleanNode(segment, recordID, deweyID, resourceConfiguration);
     }
@@ -977,7 +978,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectBooleanNode node = (ObjectBooleanNode) record;
-      long sizePos = writeJsonNodeSizePrefix(sink);
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
       // Write NodeDelegate fields only (object properties have no siblings)
       sink.writeLong(node.getParentKey());
@@ -985,8 +986,8 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.writeInt(node.getLastModifiedRevisionNumber());
       // Write value
       sink.writeBoolean(node.getValue());
-      writeEndPadding(sink, startPos);
-    updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1009,7 +1010,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read size prefix to get exact node size
-      int nodeSize = readJsonNodeSizePrefix(source);
+      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
       var segment = getSegmentSlice(source, nodeSize);
       return new ObjectNumberNode(segment, recordID, deweyID, resourceConfiguration);
     }
@@ -1018,7 +1019,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectNumberNode node = (ObjectNumberNode) record;
-      long sizePos = writeJsonNodeSizePrefix(sink);
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
       
       // Write NodeDelegate fields only (object properties have no siblings)
@@ -1058,8 +1059,8 @@ public enum NodeKind implements DeweyIdSerializer {
         }
         case null, default -> throw new AssertionError("Type not known.");
       }
-      writeEndPadding(sink, startPos);
-      updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1081,7 +1082,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read size prefix to get exact node size
-      int nodeSize = readJsonNodeSizePrefix(source);
+      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
       var segment = getSegmentSlice(source, nodeSize);
       return new ObjectNullNode(segment, recordID, deweyID, resourceConfiguration);
     }
@@ -1090,14 +1091,14 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectNullNode node = (ObjectNullNode) record;
-      long sizePos = writeJsonNodeSizePrefix(sink);
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
       // Write NodeDelegate fields only (object properties have no siblings)
       sink.writeLong(node.getParentKey());
       sink.writeInt(node.getPreviousRevisionNumber());
       sink.writeInt(node.getLastModifiedRevisionNumber());
-      writeEndPadding(sink, startPos);
-    updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1120,7 +1121,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read size prefix to get exact node size
-      int nodeSize = readJsonNodeSizePrefix(source);
+      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
       var segment = getSegmentSlice(source, nodeSize);
       return new StringNode(segment, recordID, deweyID, resourceConfiguration);
     }
@@ -1129,7 +1130,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final StringNode node = (StringNode) record;
-      long sizePos = writeJsonNodeSizePrefix(sink);
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
       // Write NodeDelegate fields directly (no delegate object needed)
       sink.writeLong(node.getParentKey());
@@ -1141,8 +1142,8 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.write(value);
       // Write StructNode sibling fields
       serializeStructNodeJsonValueNode(sink, node);
-      writeEndPadding(sink, startPos);
-    updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1165,7 +1166,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read size prefix to get exact node size
-      int nodeSize = readJsonNodeSizePrefix(source);
+      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
       var segment = getSegmentSlice(source, nodeSize);
       return new BooleanNode(segment, recordID, deweyID, resourceConfiguration);
     }
@@ -1174,7 +1175,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final BooleanNode node = (BooleanNode) record;
-      long sizePos = writeJsonNodeSizePrefix(sink);
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
       // Write NodeDelegate fields directly (no delegate object needed)
       sink.writeLong(node.getParentKey());
@@ -1184,8 +1185,8 @@ public enum NodeKind implements DeweyIdSerializer {
       serializeStructNodeJsonValueNode(sink, node);
       // Write value
       sink.writeBoolean(node.getValue());
-      writeEndPadding(sink, startPos);
-    updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1208,7 +1209,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read size prefix to get exact node size
-      int nodeSize = readJsonNodeSizePrefix(source);
+      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
       var segment = getSegmentSlice(source, nodeSize);
       return new NumberNode(segment, recordID, deweyID, resourceConfiguration);
     }
@@ -1217,7 +1218,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final NumberNode node = (NumberNode) record;
-      long sizePos = writeJsonNodeSizePrefix(sink);
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
 
       // Write NodeDelegate fields directly (no delegate object needed)
@@ -1259,8 +1260,8 @@ public enum NodeKind implements DeweyIdSerializer {
         }
         case null, default -> throw new AssertionError("Type not known.");
       }
-      writeEndPadding(sink, startPos);
-    updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1282,7 +1283,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read size prefix to get exact node size
-      int nodeSize = readJsonNodeSizePrefix(source);
+      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
       var segment = getSegmentSlice(source, nodeSize);
       return new NullNode(segment, recordID, deweyID, resourceConfiguration);
     }
@@ -1291,7 +1292,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final NullNode node = (NullNode) record;
-      long sizePos = writeJsonNodeSizePrefix(sink);
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
       // Write NodeDelegate fields directly (no delegate object needed)
       sink.writeLong(node.getParentKey());
@@ -1299,8 +1300,8 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.writeInt(node.getLastModifiedRevisionNumber());
       // Write StructNode sibling fields
       serializeStructNodeJsonValueNode(sink, node);
-      writeEndPadding(sink, startPos);
-    updateSizePrefix(sink, sizePos, startPos);
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+    JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1648,75 +1649,6 @@ public enum NodeKind implements DeweyIdSerializer {
     sink.writeInt(nodeDel.getLastModifiedRevisionNumber());
   }
 
-  /**
-   * Write a placeholder for the node size (4 bytes) after the node kind, plus 3 bytes padding.
-   * This makes the total header 8 bytes (1 NodeKind + 4 size + 3 padding), ensuring node data
-   * starts at an 8-byte aligned offset.
-   * Returns the position where size was written so it can be updated later.
-   */
-  private static long writeJsonNodeSizePrefix(final BytesOut<?> sink) {
-    long sizePos = sink.writePosition();
-    sink.writeInt(0); // Size placeholder (will be updated later)
-    // Write 3 bytes padding to make total header = 8 bytes
-    sink.writeByte((byte) 0);
-    sink.writeByte((byte) 0);
-    sink.writeByte((byte) 0);
-    return sizePos;
-  }
-
-  /**
-   * Update the size prefix that was written earlier.
-   * @param sink the output sink
-   * @param sizePos the position where the size prefix was written
-   * @param startPos the position after the size prefix where node data started
-   */
-  private static void updateSizePrefix(final BytesOut<?> sink, final long sizePos, final long startPos) {
-    long endPos = sink.writePosition();
-    long nodeDataSize = endPos - startPos;
-    long currentPos = sink.writePosition();
-    sink.writePosition(sizePos);
-    sink.writeInt((int) nodeDataSize);
-    sink.writePosition(currentPos);
-  }
-
-  /**
-   * Read the node size prefix (4 bytes after node kind) and skip 3 bytes padding.
-   * @return the size of the node data (not including size prefix or padding)
-   */
-  private static int readJsonNodeSizePrefix(final BytesIn<?> source) {
-    int size = source.readInt(); // Read 4-byte size
-    source.position(source.position() + 3); // Skip 3-byte padding
-    return size;
-  }
-
-
-  /**
-   * Write padding bytes at the end to make total node size a multiple of 8.
-   * This ensures the NEXT node will also be 8-byte aligned.
-   * @param sink the output sink
-   * @param startPos the position after writing the size prefix where node data started
-   */
-  private static void writeEndPadding(final BytesOut<?> sink, final long startPos) {
-    long currentPos = sink.writePosition();
-    long nodeDataSize = currentPos - startPos;
-    int remainder = (int)(nodeDataSize % 8);
-    if (remainder != 0) {
-      int padding = 8 - remainder;
-      for (int i = 0; i < padding; i++) {
-        sink.writeByte((byte) 0);
-      }
-    }
-  }
-
-  /**
-   * Calculate padding bytes needed at the end to make size a multiple of 8.
-   * @param size the current size
-   * @return number of padding bytes needed (0-7)
-   */
-  private static int calculateEndPadding(final long size) {
-    int remainder = (int)(size % 8);
-    return remainder == 0 ? 0 : 8 - remainder;
-  }
   /**
    * Get a properly-sized MemorySegment slice for a node from the current position.
    * Uses UNALIGNED value layouts, so no alignment requirements.

@@ -32,60 +32,27 @@ import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 
 /**
- * Helper class for JSON node tests to handle serialization format with size prefix and padding.
+ * Helper class for JSON node tests. Provides convenience methods for writing test data
+ * in the correct serialization format.
  */
-public class JsonNodeTestHelper {
+public final class JsonNodeTestHelper {
+
+  private JsonNodeTestHelper() {
+    // Utility class
+  }
 
   /**
-   * Write the serialization header: NodeKind byte, size placeholder (4 bytes), and 3 bytes padding.
-   * This makes the total header 8 bytes (1 NodeKind + 4 size + 3 padding) for 8-byte alignment.
+   * Write the full serialization header for test data: NodeKind byte, size placeholder (4 bytes),
+   * and 3 bytes padding. This makes the total header 8 bytes (1 NodeKind + 4 size + 3 padding)
+   * for 8-byte alignment.
    * 
    * @param data the output buffer
    * @param nodeKind the NodeKind enum value
-   * @return the position where the size prefix was written (needed for updateSizePrefix)
+   * @return the position where the size prefix was written (needed for finalizeSerialization)
    */
   public static long writeHeader(BytesOut<?> data, NodeKind nodeKind) {
     data.writeByte(nodeKind.getId()); // NodeKind byte
-    long sizePos = data.writePosition();
-    data.writeInt(0); // Size placeholder
-    data.writeByte((byte) 0); // 3 bytes padding (total header = 8 bytes with NodeKind)
-    data.writeByte((byte) 0);
-    data.writeByte((byte) 0);
-    return sizePos;
-  }
-
-  /**
-   * Write end padding to make the total node size a multiple of 8 bytes.
-   * This ensures the next node will also be 8-byte aligned.
-   * 
-   * @param data the output buffer
-   * @param startPos the position after writing the header where node data started
-   */
-  public static void writeEndPadding(BytesOut<?> data, long startPos) {
-    long nodeDataSize = data.writePosition() - startPos;
-    int remainder = (int)(nodeDataSize % 8);
-    if (remainder != 0) {
-      int padding = 8 - remainder;
-      for (int i = 0; i < padding; i++) {
-        data.writeByte((byte) 0);
-      }
-    }
-  }
-
-  /**
-   * Update the size prefix that was written earlier in the header.
-   * 
-   * @param data the output buffer
-   * @param sizePos the position where the size prefix was written (returned by writeHeader)
-   * @param startPos the position after the header where node data started
-   */
-  public static void updateSizePrefix(BytesOut<?> data, long sizePos, long startPos) {
-    long endPos = data.writePosition();
-    long nodeDataSize = endPos - startPos;
-    long currentPos = data.writePosition();
-    data.writePosition(sizePos);
-    data.writeInt((int) nodeDataSize);
-    data.writePosition(currentPos);
+    return JsonNodeSerializer.writeSizePrefix(data);
   }
 
   /**
@@ -96,7 +63,7 @@ public class JsonNodeTestHelper {
    * @param startPos the position after the header where node data started
    */
   public static void finalizeSerialization(BytesOut<?> data, long sizePos, long startPos) {
-    writeEndPadding(data, startPos);
-    updateSizePrefix(data, sizePos, startPos);
+    JsonNodeSerializer.writeEndPadding(data, startPos);
+    JsonNodeSerializer.updateSizePrefix(data, sizePos, startPos);
   }
 }
