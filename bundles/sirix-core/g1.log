@@ -1,0 +1,608 @@
+[0.004s][debug][gc,heap] Minimum heap 5368709120  Initial heap 5368709120  Maximum heap 12884901888
+[0.004s][info ][gc,init] Initializing The Z Garbage Collector
+[0.004s][info ][gc,init] Version: 22.0.2+9 (release)
+[0.004s][info ][gc,init] Using legacy single-generation mode
+[0.004s][info ][gc,init] NUMA Support: Disabled
+[0.004s][info ][gc,init] CPUs: 20 total, 20 available
+[0.004s][info ][gc,init] Memory: 31764M
+[0.004s][info ][gc,init] Large Page Support: Disabled
+[0.004s][info ][gc,init] GC Workers: 5 (dynamic)
+[0.004s][info ][gc,init] Address Space Type: Contiguous/Unrestricted/Complete
+[0.004s][info ][gc,init] Address Space Size: 196608M x 3 = 589824M
+[0.004s][info ][gc,init] Heap Backing File: /memfd:java_heap
+[0.004s][info ][gc,init] Heap Backing Filesystem: tmpfs (0x1021994)
+[0.004s][info ][gc,init] Min Capacity: 5120M
+[0.004s][info ][gc,init] Initial Capacity: 5120M
+[0.005s][info ][gc,init] Max Capacity: 12288M
+[0.005s][info ][gc,init] Medium Page Size: 32M
+[0.005s][info ][gc,init] Pre-touch: Enabled
+[0.005s][info ][gc,init] Available space on backing filesystem: N/A
+[0.005s][info ][gc,init] Uncommit: Enabled
+[0.005s][info ][gc,init] Uncommit Delay: 300s
+[0.768s][debug][gc,task] Executing Task: XPreTouchTask, Active Workers: 5
+[1.349s][debug][gc,marking] Expanding mark stack space: 0M->32M
+[1.349s][info ][gc,init   ] Runtime Workers: 12
+[1.350s][info ][gc        ] Using The Z Garbage Collector
+[1.387s][info ][gc,metaspace] CDS archive(s) mapped at: [0x00007ed6da000000-0x00007ed6dac75000-0x00007ed6dac75000), size 13062144, SharedBaseAddress: 0x00007ed6da000000, ArchiveRelocationMode: 1.
+[1.387s][info ][gc,metaspace] Compressed class space mapped at: 0x00007ed6db000000-0x00007ed71b000000, reserved size: 1073741824
+[1.387s][info ][gc,metaspace] Narrow klass base: 0x00007ed6da000000, Narrow klass shift: 0, Narrow klass range: 0x100000000
+[1,391s][debug][gc,heap     ] Uncommit Timeout: 300s
+[1,392s][debug][gc,nmethod  ] Rebuilding NMethod Table: 0->1024 entries, 0(0%->0%) registered, 0(0%->0%) unregistered
+[1,491s][debug][gc,alloc    ] Allocation Rate: 46,0MB/s, Predicted: 46,0MB/s, Avg: 46,0(+/-0,0)MB/s
+[1,491s][debug][gc,director ] Rule: Warmup 10%, Used: 50MB, UsedThreshold: 1228MB
+[1,491s][debug][gc,director ] Rule: High Usage, Free: 12196MB(99,3%)
+[1,522s][debug][gc,nmethod  ] Rebuilding NMethod Table: 1024->2048 entries, 717(70%->35%) registered, 0(0%->0%) unregistered
+[1,590s][debug][gc,alloc    ] Allocation Rate: 54,0MB/s, Predicted: 62,0MB/s, Avg: 50,0(+/-4,0)MB/s
+[1,590s][debug][gc,director ] Rule: Warmup 10%, Used: 58MB, UsedThreshold: 1228MB
+[1,590s][debug][gc,director ] Rule: High Usage, Free: 12188MB(99,2%)
+[1,691s][debug][gc,alloc    ] Allocation Rate: 62,0MB/s, Predicted: 70,0MB/s, Avg: 54,0(+/-6,5)MB/s
+[1,691s][debug][gc,director ] Rule: Warmup 10%, Used: 66MB, UsedThreshold: 1228MB
+[1,691s][debug][gc,director ] Rule: High Usage, Free: 12180MB(99,1%)
+[1,714s][debug][gc,nmethod  ] Rebuilding NMethod Table: 2048->4096 entries, 1434(70%->35%) registered, 0(0%->0%) unregistered
+[1,791s][debug][gc,alloc    ] Allocation Rate: 72,0MB/s, Predicted: 80,0MB/s, Avg: 58,5(+/-9,6)MB/s
+[1,791s][debug][gc,director ] Rule: Warmup 10%, Used: 76MB, UsedThreshold: 1228MB
+[1,791s][debug][gc,director ] Rule: High Usage, Free: 12170MB(99,0%)
+[1,891s][debug][gc,alloc    ] Allocation Rate: 78,0MB/s, Predicted: 87,0MB/s, Avg: 62,4(+/-11,6)MB/s
+[1,891s][debug][gc,director ] Rule: Warmup 10%, Used: 82MB, UsedThreshold: 1228MB
+[1,891s][debug][gc,director ] Rule: High Usage, Free: 12164MB(99,0%)
+[1,991s][debug][gc,alloc    ] Allocation Rate: 132,0MB/s, Predicted: 125,2MB/s, Avg: 74,0(+/-28,0)MB/s
+[1,991s][debug][gc,director ] Rule: Warmup 10%, Used: 136MB, UsedThreshold: 1228MB
+[1,991s][debug][gc,director ] Rule: High Usage, Free: 12110MB(98,6%)
+[2,090s][debug][gc,alloc    ] Allocation Rate: 188,0MB/s, Predicted: 175,7MB/s, Avg: 90,3(+/-47,6)MB/s
+[2,090s][debug][gc,director ] Rule: Warmup 10%, Used: 192MB, UsedThreshold: 1228MB
+[2,090s][debug][gc,director ] Rule: High Usage, Free: 12054MB(98,1%)
+[2,190s][debug][gc,alloc    ] Allocation Rate: 200,0MB/s, Predicted: 209,2MB/s, Avg: 104,0(+/-57,4)MB/s
+[2,190s][debug][gc,director ] Rule: Warmup 10%, Used: 204MB, UsedThreshold: 1228MB
+[2,190s][debug][gc,director ] Rule: High Usage, Free: 12042MB(98,0%)
+[2,290s][debug][gc,alloc    ] Allocation Rate: 210,0MB/s, Predicted: 232,9MB/s, Avg: 115,8(+/-63,6)MB/s
+[2,290s][debug][gc,director ] Rule: Warmup 10%, Used: 214MB, UsedThreshold: 1228MB
+[2,290s][debug][gc,director ] Rule: High Usage, Free: 12032MB(97,9%)
+[2,337s][debug][gc,nmethod  ] Rebuilding NMethod Table: 4096->8192 entries, 2868(70%->35%) registered, 0(0%->0%) unregistered
+[2,391s][debug][gc,alloc    ] Allocation Rate: 266,0MB/s, Predicted: 269,6MB/s, Avg: 130,8(+/-75,3)MB/s
+[2,391s][debug][gc,director ] Rule: Warmup 10%, Used: 270MB, UsedThreshold: 1228MB
+[2,391s][debug][gc,director ] Rule: High Usage, Free: 11976MB(97,5%)
+[2,491s][debug][gc,alloc    ] Allocation Rate: 328,0MB/s, Predicted: 325,9MB/s, Avg: 159,0(+/-89,7)MB/s
+[2,491s][debug][gc,director ] Rule: Warmup 10%, Used: 378MB, UsedThreshold: 1228MB
+[2,491s][debug][gc,director ] Rule: High Usage, Free: 11868MB(96,6%)
+[2,591s][debug][gc,alloc    ] Allocation Rate: 382,0MB/s, Predicted: 387,1MB/s, Avg: 191,8(+/-104,1)MB/s
+[2,591s][debug][gc,director ] Rule: Warmup 10%, Used: 440MB, UsedThreshold: 1228MB
+[2,591s][debug][gc,director ] Rule: High Usage, Free: 11806MB(96,1%)
+[2,691s][debug][gc,alloc    ] Allocation Rate: 482,0MB/s, Predicted: 468,5MB/s, Avg: 233,8(+/-125,7)MB/s
+[2,691s][debug][gc,director ] Rule: Warmup 10%, Used: 548MB, UsedThreshold: 1228MB
+[2,691s][debug][gc,director ] Rule: High Usage, Free: 11698MB(95,2%)
+[2,790s][debug][gc,alloc    ] Allocation Rate: 576,0MB/s, Predicted: 562,3MB/s, Avg: 284,2(+/-149,5)MB/s
+[2,790s][debug][gc,director ] Rule: Warmup 10%, Used: 652MB, UsedThreshold: 1228MB
+[2,790s][debug][gc,director ] Rule: High Usage, Free: 11594MB(94,4%)
+[2,890s][debug][gc,alloc    ] Allocation Rate: 676,0MB/s, Predicted: 664,0MB/s, Avg: 344,0(+/-172,9)MB/s
+[2,890s][debug][gc,director ] Rule: Warmup 10%, Used: 758MB, UsedThreshold: 1228MB
+[2,890s][debug][gc,director ] Rule: High Usage, Free: 11488MB(93,5%)
+[2,991s][debug][gc,alloc    ] Allocation Rate: 690,0MB/s, Predicted: 745,9MB/s, Avg: 399,8(+/-185,1)MB/s
+[2,991s][debug][gc,director ] Rule: Warmup 10%, Used: 826MB, UsedThreshold: 1228MB
+[2,991s][debug][gc,director ] Rule: High Usage, Free: 11420MB(92,9%)
+[3,091s][debug][gc,alloc    ] Allocation Rate: 746,0MB/s, Predicted: 827,9MB/s, Avg: 455,6(+/-196,6)MB/s
+[3,091s][debug][gc,director ] Rule: Warmup 10%, Used: 938MB, UsedThreshold: 1228MB
+[3,091s][debug][gc,director ] Rule: High Usage, Free: 11308MB(92,0%)
+[3,191s][debug][gc,alloc    ] Allocation Rate: 796,0MB/s, Predicted: 895,9MB/s, Avg: 515,2(+/-200,3)MB/s
+[3,191s][debug][gc,director ] Rule: Warmup 10%, Used: 1000MB, UsedThreshold: 1228MB
+[3,191s][debug][gc,director ] Rule: High Usage, Free: 11246MB(91,5%)
+[3,288s][debug][gc,heap     ] GC(0) Heap before GC invocations=0 (full 0):
+[3,288s][debug][gc,heap     ] GC(0)  ZHeap           used 1108M, capacity 5120M, max capacity 12288M
+[3,288s][debug][gc,heap     ] GC(0)  Metaspace       used 20972K, committed 21568K, reserved 1114112K
+[3,288s][debug][gc,heap     ] GC(0)   class space    used 2704K, committed 2944K, reserved 1048576K
+[3,288s][info ][gc,start    ] GC(0) Garbage Collection (Metadata GC Threshold)
+[3,288s][info ][gc,task     ] GC(0) Using 5 workers
+[3,289s][debug][gc,phases,start] GC(0) Pause Mark Start
+[3,289s][debug][gc,marking     ] GC(0) Using 4 mark stripes
+[3,289s][debug][gc,marking     ] GC(0) Mark Worker/Stripe Distribution
+[3,289s][debug][gc,marking     ] GC(0)   Worker 0(5) -> Stripe 0(4)
+[3,289s][debug][gc,marking     ] GC(0)   Worker 1(5) -> Stripe 1(4)
+[3,289s][debug][gc,marking     ] GC(0)   Worker 2(5) -> Stripe 2(4)
+[3,289s][debug][gc,marking     ] GC(0)   Worker 3(5) -> Stripe 3(4)
+[3,289s][debug][gc,marking     ] GC(0)   Worker 4(5) -> Stripe 0(4)
+[3,289s][info ][gc,phases      ] GC(0) Pause Mark Start 0,057ms
+[3,289s][debug][gc,phases,start] GC(0) Concurrent Mark
+[3,289s][debug][gc,task        ] GC(0) Executing Task: XMarkRootsTask, Active Workers: 5
+[3,289s][debug][gc,tlab        ] GC(0) TLAB totals: thrds: 25  refills: 4115 max: 4074 slow allocs: 489 max 389 waste:  1,2% gc: 4099704B max: 262088B slow: 8855768B max: 8524640B
+[3,289s][debug][gc,task        ] GC(0) Executing Task: XMarkTask, Active Workers: 5
+[3,291s][debug][gc,alloc       ] Allocation Rate: 904,0MB/s, Predicted: 970,0MB/s, Avg: 584,6(+/-202,8)MB/s
+[3,311s][info ][gc,phases      ] GC(0) Concurrent Mark 21,737ms
+[3,311s][debug][gc,phases,start] GC(0) Pause Mark End
+[3,311s][info ][gc,phases      ] GC(0) Pause Mark End 0,031ms
+[3,311s][debug][gc,phases,start] GC(0) Concurrent Mark Free
+[3,311s][info ][gc,phases      ] GC(0) Concurrent Mark Free 0,024ms
+[3,311s][debug][gc,phases,start] GC(0) Concurrent Process Non-Strong References
+[3,311s][debug][gc,phases,start] GC(0) Concurrent References Process
+[3,311s][debug][gc,task        ] GC(0) Executing Task: XReferenceProcessorTask, Active Workers: 5
+[3,311s][debug][gc,phases      ] GC(0) Concurrent References Process 0,287ms
+[3,311s][debug][gc,task        ] GC(0) Executing Task: XProcessWeakRootsTask, Active Workers: 5
+[3,311s][debug][gc,phases,start] GC(0) Concurrent Classes Unlink
+[3,311s][debug][gc,phases,start] GC(0) ClassLoaderData
+[3,311s][debug][gc,phases      ] GC(0) ClassLoaderData 0,037ms
+[3,311s][debug][gc,phases,start] GC(0) Trigger cleanups
+[3,311s][debug][gc,phases      ] GC(0) Trigger cleanups 0,005ms
+[3,311s][debug][gc,task        ] GC(0) Executing Task: XNMethodUnlinkTask, Active Workers: 5
+[3,312s][debug][gc,phases      ] GC(0) Concurrent Classes Unlink 1,012ms
+[3,313s][debug][gc,phases,start] GC(0) Concurrent Classes Purge
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.HashMap.get (0x00007ed97905f110)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.fill (0x00007ed9794c0f90)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.DirectMethodHandle.allocateInstance (0x00007ed979201f10)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.ReentrantLock.unlock (0x00007ed979032810)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.substring (0x00007ed979035210)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.AbstractQueuedSynchronizer.signalNext (0x00007ed979030e90)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.page.KeyValueLeafPage.alignOffset (0x00007ed9795aa890)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringConcatHelper.newString (0x00007ed97909b210)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.putIntRelease (0x00007ed979710f10)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.HashMap.getNode (0x00007ed9987ec090)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.InternalLock.unlock (0x00007ed979030610)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.AbstractQueuedSynchronizer.signalNext (0x00007ed9987ab390)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: sun.security.util.KnownOIDs.register (0x00007ed9790e4d90)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.page.KeyValueLeafPage.getNumberOfNonNullEntries (0x00007ed9796f4a90)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.startsWith (0x00007ed97900ae10)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.stream.Sink.end (0x00007ed979399d90)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Collections.addAll (0x00007ed9794c2d90)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MethodType.<init> (0x00007ed979041510)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.setMemory (0x00007ed9794b6c90)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: org.gradle.internal.io.LineBufferingOutputStream.write (0x00007ed979497510)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.ref.Cleaner$1.apply (0x00007ed979062590)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile.ensureOpen (0x00007ed979065310)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.set (0x00007ed9794fcc10)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.ImmutableCollections$ListN.get (0x00007ed979230b10)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarForm.getMemberName (0x00007ed9790ee490)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.io.BufferedInputStream.getBufIfOpen (0x00007ed9987ab690)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.util.ArraysSupport.vectorizedHashCode (0x00007ed9987c1990)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: sun.reflect.generics.parser.SignatureParser.current (0x00007ed979146810)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath$JarLoader.findResource (0x00007ed97920ce10)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.Resource.getBytes (0x00007ed979224290)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.indexOf (0x00007ed97912e190)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.regex.Pattern$$Lambda/0x00007ed6db0cbcc0.is (0x00007ed979393c90)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.JarFile.checkForSpecialAttributes (0x00007ed97906c190)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.checkNativeAddress (0x00007ed9794c0c10)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringBuilder.append (0x00007ed979025510)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Objects.requireNonNull (0x00007ed979029090)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.CharacterDataLatin1.equalsIgnoreCase (0x00007ed97907e710)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile$Source.isMetaName (0x00007ed9790bd710)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.JavaUtilJarAccessImpl.entryFor (0x00007ed979127b10)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.CharacterDataLatin1.getProperties (0x00007ed9790dca90)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.JarFile.getManifestFromReference (0x00007ed979169190)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath$JarLoader.getResource (0x00007ed979072410)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.net.URLStreamHandler.parseURL (0x00007ed979273590)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipCoder$UTF8ZipCoder.checkedHash (0x00007ed979057390)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MethodType.parameterType (0x00007ed97903dc10)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile$Source.checkAndAddEntry (0x00007ed97905a310)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.startsWith (0x00007ed998809b10)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.hashCode (0x00007ed9793be610)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.page.PageKind$1.serializePage (0x00007ed979777190)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.<init> (0x00007ed97949c810)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.AbstractQueuedSynchronizer.release (0x00007ed97902d890)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringLatin1.lastIndexOf (0x00007ed979024c90)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: sun.net.www.protocol.file.Handler.parseURL (0x00007ed97925c090)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.ReentrantLock$Sync.tryRelease (0x00007ed9987aae90)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile.getEntry (0x00007ed979070190)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Blocker.begin (0x00007ed97952e210)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.SymbolTable$Entry.<init> (0x00007ed97903e910)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentHashMap.spread (0x00007ed979014c10)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.atomic.AtomicLong.addAndGet (0x00007ed9795da690)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.updateHead (0x00007ed9794c9f90)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Arrays.fill (0x00007ed9790cb910)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.node.MemorySegmentBytesIn.read (0x00007ed9795d6b10)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.startsWith (0x00007ed97900e490)
+[3,313s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringBuilder.length (0x00007ed979024110)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Blocker.begin (0x00007ed979049d90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.cache.LinuxMemorySegmentAllocator.preAllocateAndTouchMemory (0x00007ed9794b1a10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.updateTail (0x00007ed9794c9410)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.<init> (0x00007ed979209a90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.Symbol.<init> (0x00007ed97903c410)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.allocateUninitializedArray0 (0x00007ed979044a90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Arrays.rangeCheck (0x00007ed979087a10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile$Source.nextEntryPos (0x00007ed979056c10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.LambdaForm$BasicType.basicType (0x00007ed979102890)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath$JarLoader.ensureOpen (0x00007ed97906df90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: worker.org.gradle.internal.stream.EncodedStream$EncodedInput.hexToByte (0x00007ed979031c10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.AbstractQueuedSynchronizer.signalNext (0x00007ed979250390)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.AbstractStringBuilder.<init> (0x00007ed97903fd10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.toString (0x00007ed979076990)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Arrays.fill (0x00007ed9988ffe10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.AbstractQueuedSynchronizer.compareAndSetState (0x00007ed9987a9f90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleReferences$FieldInstanceReadWrite.set (0x00007ed97949a710)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.add (0x00007ed9794a0810)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MethodType.methodType (0x00007ed998877090)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.hashCode (0x00007ed979000390)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile$Source.zipCoderForPos (0x00007ed979055d10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Objects.checkFromIndexSize (0x00007ed979064990)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.ReentrantLock.lock (0x00007ed97902c290)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.util.ReferencedKeyMap.removeStaleReferences (0x00007ed97901e710)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MemberName.initResolved (0x00007ed97908f010)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Class.getPackageName (0x00007ed97908f410)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.atomic.AtomicLong.incrementAndGet (0x00007ed97965b710)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleGuards.guard_LI_I (0x00007ed9790f1290)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile$CleanableResource.getInflater (0x00007ed979115390)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.layout.ValueLayouts$AbstractValueLayout.varHandle (0x00007ed9794f2390)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile$Source.isMetaName (0x00007ed9987c5190)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.NativeMemorySegmentImpl.dup (0x00007ed97949fc10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath$JarLoader$2.getCodeSourceURL (0x00007ed979180510)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.settings.VersioningType$4.combineRecordPages (0x00007ed9797d9e90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentHashMap.putVal (0x00007ed97928ff90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.indexOf (0x00007ed97900c610)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleGuards.guard_LL_V (0x00007ed9794a4c90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.indexOf (0x00007ed9790b0e90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: net.jpountz.util.SafeUtils.readIntLE (0x00007ed97960b090)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.atomic.AtomicLong.compareAndSet (0x00007ed979662890)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath$JarLoader$2.getManifest (0x00007ed979182990)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.io.UnixFileSystem.hasBooleanAttributes (0x00007ed97924d490)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MethodType.parameterCount (0x00007ed97903ed10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.endsWith (0x00007ed97905f610)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.JarFile.getJarEntry (0x00007ed979071b10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.LinkedHashMap.get (0x00007ed97908c090)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentHashMap.putVal (0x00007ed9987e5f90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.page.KeyValueLeafPage.getSlotAsByteArray (0x00007ed979514810)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.ArrayList.get (0x00007ed979066890)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.io.BufferedReader.implRead (0x00007ed9793c5990)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.cache.KeyValueLeafPagePool.createPage (0x00007ed9794c5e10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.JavaUtilJarAccessImpl.ensureInitialization (0x00007ed979182590)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Class.getName (0x00007ed97903c890)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleGuards.guard_LJI_V (0x00007ed9794f8390)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath$JarLoader.getResource (0x00007ed9987f3790)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.fill (0x00007ed979543190)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentHashMap.tabAt (0x00007ed979013790)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.indexOf (0x00007ed97900f390)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.net.URL.<init> (0x00007ed979161f90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.io.BufferedInputStream.implRead (0x00007ed97902ff10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.access.trx.page.NodePageReadOnlyTrx.assertNotClosed (0x00007ed97956f010)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MethodType.equals (0x00007ed9790d7e90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipCoder.hash (0x00007ed979070c90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.cache.LinuxMemorySegmentAllocator.preAllocateAndTouchMemory (0x00007ed998885e10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile.getZipEntry (0x00007ed979151910)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.ByteVector.put122 (0x00007ed979106790)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.checkSize (0x00007ed9794b6210)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.ref.CleanerFactory.cleaner (0x00007ed97908db90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.nio.HeapByteBuffer.byteOffset (0x00007ed9792cd610)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.ReentrantLock$NonfairSync.initialTryLock (0x00007ed9791a1310)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath.getResource (0x00007ed979150190)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.LinkedHashMap.newNode (0x00007ed97913af90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Long.sum (0x00007ed979589910)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.ReentrantLock$Sync.tryRelease (0x00007ed9791a0b90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentHashMap.putVal (0x00007ed9988a8410)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.SymbolTable.addConstantUtf8 (0x00007ed979040610)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.io.BufferedInputStream.read (0x00007ed9987ad510)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.nio.DirectLongBufferU.ix (0x00007ed979073d90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.CharacterData.of (0x00007ed979134c90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.InternalLock.lock (0x00007ed9987de310)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.putReferenceRelease (0x00007ed979045910)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: sun.net.util.IPAddressUtil.scan (0x00007ed979094610)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.hashCode (0x00007ed9987b1190)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.io.StreamTokenizer.read (0x00007ed9793c4490)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.ByteVector.putShort (0x00007ed97903a690)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.Frame.execute (0x00007ed998859e90)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.linkLast (0x00007ed9794aa410)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.HashSet.add (0x00007ed97901cb10)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.api.PageReadOnlyTrx.recordPageOffset (0x00007ed97959c110)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.page.KeyValueLeafPage.<init> (0x00007ed9794cd690)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.getBytes (0x00007ed979025910)
+[3,314s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Integer.rotateRight (0x00007ed97951d210)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.asSlice (0x00007ed97949e790)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.isEmpty (0x00007ed97900f790)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: sun.net.www.ParseUtil.firstEncodeIndex (0x00007ed97940bd10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: sun.reflect.generics.parser.SignatureParser.advance (0x00007ed979146190)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.JarFile.isMultiRelease (0x00007ed97906e810)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.ReentrantLock$Sync.tryRelease (0x00007ed97902d110)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.ImmutableCollections$ListN.size (0x00007ed9792fb090)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipUtils.CENLEN (0x00007ed97904fa10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.HashMap.afterNodeInsertion (0x00007ed97901b810)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Objects.requireNonNull (0x00007ed979005c90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Arrays.copyOfRange (0x00007ed979021c90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: sun.util.locale.LocaleUtils.toLowerString (0x00007ed9791bf990)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.cache.LinuxMemorySegmentAllocator.allocate (0x00007ed9794b8d90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.first (0x00007ed9794ba010)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.nio.ByteBuffer.position (0x00007ed9794d1110)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.HashMap.getNode (0x00007ed979017c90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringLatin1.replace (0x00007ed979046110)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.nio.HeapByteBuffer.ix (0x00007ed979434210)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.ArrayList$Itr.hasNext (0x00007ed9790e4910)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.MethodWriter.visitVarInsn (0x00007ed97913d290)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleGuards.guard_LLL_Z (0x00007ed99888f090)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.asSlice (0x00007ed99888a490)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.cache.SegmentAllocators.getIndexForSize (0x00007ed9794baa10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.ScopedMemoryAccess.getByte (0x00007ed979078490)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MemberName.getReferenceKind (0x00007ed9790a0a90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleGuards.guard_LLL_Z (0x00007ed9794a0c90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Object.<init> (0x00007ed979000010)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Object.<init> (0x00007ed9987a0610)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.getIntUnaligned (0x00007ed9790f0510)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MethodType.checkPtypes (0x00007ed9790d9310)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Objects.equals (0x00007ed979006590)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipUtils.SH (0x00007ed979024890)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.get (0x00007ed979567710)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.ref.Reference.<init> (0x00007ed979041910)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath.getLoader (0x00007ed979074510)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.AbstractStringBuilder.ensureCapacityInternal (0x00007ed97901dd90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile$Source.getEntryPos (0x00007ed97906ed90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Blocker.begin (0x00007ed998903790)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringLatin1.indexOf (0x00007ed97900e890)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringLatin1.lastIndexOf (0x00007ed9987bab10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.regex.Pattern$BmpCharPropertyGreedy.match (0x00007ed9987e1990)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.weakCompareAndSetReference (0x00007ed9794a4910)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.MemorySessionImpl.checkValidStateRaw (0x00007ed9794b4e10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleGuards.guard_LJ_I (0x00007ed97951a510)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.util.ReferencedKeySet.get (0x00007ed979043790)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringLatin1.indexOf (0x00007ed979037c10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath$JarLoader.checkResource (0x00007ed97919f690)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.<init> (0x00007ed979041d90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.settings.VersioningType$4.combineRecordPages (0x00007ed979806210)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MethodType.methodType (0x00007ed979065a10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentHashMap.casTabAt (0x00007ed979015710)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.ReentrantLock$NonfairSync.initialTryLock (0x00007ed9987aab10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.HashMap.putVal (0x00007ed97904bb90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.access.ResourceConfiguration$Builder.<init> (0x00007ed9794c4a90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.AbstractStringBuilder.append (0x00007ed979042910)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringCoding.countPositives (0x00007ed9790c3290)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: sun.nio.fs.UnixPath.checkNotNul (0x00007ed97904da90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.HashMap.putVal (0x00007ed998835590)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.Resource.cachedInputStream (0x00007ed979116e90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.MethodWriter.visitEnd (0x00007ed979297e90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringBuilder.<init> (0x00007ed979059f90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.ByteVector.put12 (0x00007ed979090a10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.AbstractQueuedSynchronizer.compareAndSetState (0x00007ed97902b190)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.Frame.execute (0x00007ed9790a2f10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.AbstractStringBuilder.append (0x00007ed979026d90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: worker.org.gradle.internal.stream.EncodedStream$EncodedInput.read (0x00007ed9987be190)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.jimage.ImageStringsReader.unmaskedHashCode (0x00007ed9790aea10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.NativeMemorySegmentImpl.<init> (0x00007ed97949c190)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath$JarLoader.ensureOpen (0x00007ed9790b4010)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile$CleanableResource.releaseInflater (0x00007ed979170390)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.LambdaForm.uncustomize (0x00007ed97910a910)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.ArrayList$Itr.next (0x00007ed979148b90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.MethodWriter.visitCode (0x00007ed9792b7210)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.regex.Pattern$$Lambda/0x80000002a.is (0x00007ed9791b6810)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.startsWith (0x00007ed9793d4d10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.NativeMemorySegmentImpl.dup (0x00007ed99888b090)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Blocker.end (0x00007ed97904ad10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.getIntUnaligned (0x00007ed998923110)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringBuilder.append (0x00007ed979040210)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.asSlice (0x00007ed97949cf90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.util.Preconditions.checkFromIndexSize (0x00007ed979037790)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.page.KeyValueLeafPage.isSlotSet (0x00007ed9794f5d90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MethodType.makeImpl (0x00007ed979047a90)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.checkAccess (0x00007ed9794b5390)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.util.ArraysSupport.vectorizedHashCode (0x00007ed979001110)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.Invokers$Holder.linkToTargetMethod (0x00007ed979218790)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleGuards.guard_LI_I (0x00007ed9795b6990)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringCoding.countPositives (0x00007ed97904b610)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.getIntUnaligned (0x00007ed998922790)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.util.ArraysSupport.signedHashCode (0x00007ed979000c10)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Character.charCount (0x00007ed979251010)
+[3,315s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.poll (0x00007ed9794b9c10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentHashMap$Traverser.advance (0x00007ed97920d390)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.io.BufferedInputStream.getBufIfOpen (0x00007ed979032f10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.JarFile.getManifest (0x00007ed979168e10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.HashMap.get (0x00007ed97901bf90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.WeakHashMap.remove (0x00007ed97908a090)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringLatin1.indexOf (0x00007ed97900d090)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandle.checkAccessModeThenIsDirect (0x00007ed9790ef590)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Math.max (0x00007ed97912de10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.equals (0x00007ed979004690)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipUtils.CENHOW (0x00007ed979050090)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.BitSet.wordIndex (0x00007ed979465390)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath.getLoader (0x00007ed9987ffb90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.JarFile$JarFileEntry.getCodeSigners (0x00007ed97922bd10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.allocateUninitializedArray (0x00007ed998823890)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentHashMap.putVal (0x00007ed97900fc10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.BitSet.checkInvariants (0x00007ed979465690)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.SymbolTable.put (0x00007ed97903cd10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Arrays.fill (0x00007ed998909110)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.classfile.impl.BufWriterImpl.writeIntBytes (0x00007ed979429c10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.util.ArraysSupport.mismatch (0x00007ed998805210)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.charAt (0x00007ed979008f10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.ref.Reference.reachabilityFence (0x00007ed979059410)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.nio.Buffer.limit (0x00007ed9794d5990)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Arrays.copyOf (0x00007ed97905e810)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.classfile.impl.BufWriterImpl.reserveSpace (0x00007ed979429610)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.JarFile.ensureInitialization (0x00007ed97922a910)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.SymbolTable.addConstantUtf8Reference (0x00007ed9790d1790)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MethodTypeForm.canonicalize (0x00007ed979023510)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipUtils.LG (0x00007ed979037190)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.asSliceNoCheck (0x00007ed97949f010)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.ArrayList.add (0x00007ed979063990)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.nio.DirectByteBuffer.get (0x00007ed979078d10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.nio.Buffer.session (0x00007ed979073790)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentHashMap.addCount (0x00007ed979016910)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.page.KeyValueLeafPage.processEntries (0x00007ed97986ed10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.skipDeletedPredecessors (0x00007ed9794cab10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.HashMap.put (0x00007ed979060790)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Arrays.fill (0x00007ed979531f90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.JarFile.getInputStream (0x00007ed979229910)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.replace (0x00007ed97904df10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile$Source.isMetaName (0x00007ed9987c2090)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.asSlice (0x00007ed998889d90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.ref.NativeReferenceQueue.poll (0x00007ed97901ee90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleSegmentAsBytes.offsetPlain (0x00007ed9794f2a10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleGuards.guard_LL_V (0x00007ed998890090)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.isLatin1 (0x00007ed9987a1110)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Object.equals (0x00007ed97911f010)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.io.BufferedReader.read (0x00007ed9793c6510)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.clear (0x00007ed9794d1a90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.net.URLStreamHandler.setURL (0x00007ed97915ff10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Collections.emptyList (0x00007ed9791bd710)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentHashMap.setTabAt (0x00007ed979045c90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.page.KeyValueLeafPage.getDeweyId (0x00007ed97955ed10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.coder (0x00007ed979008690)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.skipDeletedSuccessors (0x00007ed9794c7610)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.isLatin1 (0x00007ed979007390)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.JarFile.getEntry (0x00007ed979072e10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.Frame.push (0x00007ed979139290)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.get (0x00007ed979517990)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.Checksum.update (0x00007ed9791b2e90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Integer.rotateLeft (0x00007ed9790edd90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.LinkedHashMap.afterNodeInsertion (0x00007ed97913bb90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.regionMatches (0x00007ed97907fa10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.checkBoundsBeginEnd (0x00007ed979034610)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.ArrayList$Itr.next (0x00007ed979402610)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.ByteVector.putByte (0x00007ed97903f110)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.ScopedMemoryAccess.getByte (0x00007ed998845490)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.nio.DirectByteBuffer.ix (0x00007ed979077110)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringConcatHelper.checkOverflow (0x00007ed97907c410)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath.getResource (0x00007ed998838610)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringLatin1.equals (0x00007ed979003610)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.System.getSecurityManager (0x00007ed979036290)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.util.StrongReferenceKey.hashCode (0x00007ed979028310)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MethodType.makeImpl (0x00007ed998869290)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.<init> (0x00007ed9790c4610)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MethodType.hashCode (0x00007ed979028810)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile$Source.isMetaName (0x00007ed979057d10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.convEndian (0x00007ed9790eed90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.nio.Buffer.session (0x00007ed998843b90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.WeakHashMap.getTable (0x00007ed97907a290)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.clear (0x00007ed99889bd90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.Resource.getBytes (0x00007ed9792bb710)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipFile$Source.isMetaName (0x00007ed9790b8810)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.MemberName.getMethodType (0x00007ed9790a0e10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.org.objectweb.asm.ByteVector.putUTF8 (0x00007ed97903ad10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Calendar.internalSet (0x00007ed9794d0d10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.Resource.getByteBuffer (0x00007ed979257b90)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.HashMap.putVal (0x00007ed979019190)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.weakCompareAndSetInt (0x00007ed979694f10)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Blocker.begin (0x00007ed99880c090)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.page.KeyValueLeafPage.getNumberOfNonNullEntries (0x00007ed9796f8990)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Arrays.equals (0x00007ed979112910)
+[3,316s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.ArrayList$Itr.<init> (0x00007ed97918a410)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.JarFile.maybeInstantiateVerifier (0x00007ed97908b510)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: sun.security.provider.SHA2.implCompress0 (0x00007ed97966aa10)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleReferences$FieldInstanceReadWrite.compareAndSet (0x00007ed97949d410)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentHashMap.get (0x00007ed979020810)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.ClassLoader.checkName (0x00007ed979068910)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Math.max (0x00007ed97900c290)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: worker.org.gradle.internal.stream.EncodedStream$EncodedInput.read (0x00007ed979033710)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringBuilder.toString (0x00007ed97903f710)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringCoding.countPositives (0x00007ed9987b3990)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.WeakHashMap.hash (0x00007ed97907a990)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.copyMemory (0x00007ed979533f90)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: sun.net.www.ParseUtil.firstEncodeIndex (0x00007ed998804890)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: sun.net.util.IPAddressUtil.checkHostString (0x00007ed979091b90)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.access.ResourceConfiguration.<init> (0x00007ed9794ccd90)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.io.File.isInvalid (0x00007ed9790b0090)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Integer.numberOfLeadingZeros (0x00007ed9790dd490)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.getLongUnaligned (0x00007ed97957c610)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.clear (0x00007ed9794d1510)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Math.clamp (0x00007ed97912f490)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.locks.ReentrantLock$NonfairSync.initialTryLock (0x00007ed97902ba90)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.util.ArraysSupport.mismatch (0x00007ed97900db10)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Long.bitCount (0x00007ed9795ec310)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.ref.ReferenceQueue.poll (0x00007ed97906a390)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.ref.SoftReference.get (0x00007ed979101210)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringUTF16.getChar (0x00007ed979204510)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringLatin1.indexOf (0x00007ed9987c8890)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringUTF16.compress (0x00007ed97904e690)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.InternalLock.lock (0x00007ed97902c910)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.page.KeyValueLeafPage.getSlot (0x00007ed97951d510)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.regex.Pattern$BmpCharPropertyGreedy.match (0x00007ed9791b7090)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.nio.Buffer.position (0x00007ed979423110)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.Arrays.fill (0x00007ed9988f2110)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleSegmentAsBytes.set (0x00007ed9794f6210)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringLatin1.indexOfChar (0x00007ed97900a510)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.AbstractCollection.<init> (0x00007ed979006190)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: sun.net.www.ParseUtil.firstEncodeIndex (0x00007ed979060e10)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleSegmentAsBytes.get (0x00007ed979515790)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.getReferenceAcquire (0x00007ed979014890)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.loader.URLClassPath$JarLoader.getResource (0x00007ed9987fd490)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.cache.LinuxMemorySegmentAllocator.preAllocateAndTouchMemory (0x00007ed9794ae310)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.foreign.AbstractMemorySegmentImpl.asSliceNoCheck (0x00007ed99888ab90)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: net.jpountz.lz4.LZ4BlockOutputStream.writeIntLE (0x00007ed9796adf90)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.HashMap.hash (0x00007ed979015a90)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringConcatHelper.prepend (0x00007ed97907c910)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.io.BufferedInputStream.getBufIfOpen (0x00007ed979031810)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.io.BufferedInputStream.read (0x00007ed97902e510)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.VarHandleGuards.guard_LII_V (0x00007ed979539390)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.HashMap.put (0x00007ed97901c490)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Blocker.end (0x00007ed998819710)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.putIntUnaligned (0x00007ed979538710)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.offer (0x00007ed9794cc910)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Thread.interrupted (0x00007ed97917be10)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Character.codePointAt (0x00007ed979363c90)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.net.URLClassLoader$1.run (0x00007ed979195290)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.Inflater.ensureOpen (0x00007ed97907ed10)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.net.URLClassLoader.defineClass (0x00007ed979197c10)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.page.PageKind$1.serializePage (0x00007ed97975a310)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.zip.ZipUtils.CENCOM (0x00007ed97904f110)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.StringLatin1.inflate (0x00007ed979412a90)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.jar.Manifest$FastInputStream.readLine (0x00007ed9790b5610)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.stream.AbstractPipeline.isParallel (0x00007ed979317910)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentHashMap.putIfAbsent (0x00007ed979015310)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.unlink (0x00007ed9794bd210)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Long.hashCode (0x00007ed979250d10)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.concurrent.ConcurrentLinkedDeque.pollFirst (0x00007ed9794bb610)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.invoke.DirectMethodHandle.internalMemberName (0x00007ed97922b890)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Class.cast (0x00007ed979192210)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: jdk.internal.misc.Unsafe.allocateUninitializedArray (0x00007ed979067c10)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Math.min (0x00007ed97900aa90)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.Thread.onSpinWait (0x00007ed9794ecf10)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.cache.LinuxMemorySegmentAllocator.preAllocateAndTouchMemory (0x00007ed99889e610)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.util.ArrayList.grow (0x00007ed979239f10)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.nio.ByteOrder.nativeOrder (0x00007ed979538410)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.String.length (0x00007ed979008a10)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: java.lang.CharacterDataLatin1.isWhitespace (0x00007ed979147b90)
+[3,317s][debug][gc,nmethod     ] GC(0) Unregister NMethod: io.sirix.page.PageKind$1.serializePage (0x00007ed9797a4110)
+[3,318s][debug][gc,phases      ] GC(0) Concurrent Classes Purge 4,853ms
+[3,318s][debug][gc,phases,start] GC(0) Concurrent References Enqueue
+[3,318s][debug][gc,phases      ] GC(0) Concurrent References Enqueue 0,016ms
+[3,318s][info ][gc,phases      ] GC(0) Concurrent Process Non-Strong References 6,958ms
+[3,318s][debug][gc,phases,start] GC(0) Concurrent Reset Relocation Set
+[3,318s][info ][gc,phases      ] GC(0) Concurrent Reset Relocation Set 0,010ms
+[3,318s][debug][gc,phases,start] GC(0) Concurrent Select Relocation Set
+[3,322s][debug][gc,task        ] GC(0) Executing Task: XRelocationSetInstallTask, Active Workers: 5
+[3,323s][info ][gc,phases      ] GC(0) Concurrent Select Relocation Set 4,861ms
+[3,323s][debug][gc,phases,start] GC(0) Pause Relocate Start
+[3,323s][info ][gc,phases      ] GC(0) Pause Relocate Start 0,031ms
+[3,323s][debug][gc,phases,start] GC(0) Concurrent Relocate
+[3,323s][debug][gc,task        ] GC(0) Executing Task: XRelocateTask, Active Workers: 5
+[3,324s][info ][gc,phases      ] GC(0) Concurrent Relocate 1,366ms
+[3,324s][debug][gc,heap        ] GC(0) Heap after GC invocations=1 (full 1):
+[3,324s][debug][gc,heap        ] GC(0)  ZHeap           used 126M, capacity 5120M, max capacity 12288M
+[3,324s][debug][gc,heap        ] GC(0)  Metaspace       used 20996K, committed 21568K, reserved 1114112K
+[3,324s][debug][gc,heap        ] GC(0)   class space    used 2704K, committed 2944K, reserved 1048576K
+[3,324s][info ][gc,load        ] GC(0) Load: 3,01/3,27/1,70
+[3,324s][info ][gc,mmu         ] GC(0) MMU: 2ms/97,1%, 5ms/98,9%, 10ms/99,4%, 20ms/99,7%, 50ms/99,8%, 100ms/99,9%
+[3,324s][info ][gc,marking     ] GC(0) Mark: 4 stripe(s), 10 proactive flush(es), 2 terminate flush(es), 0 completion(s), 0 continuation(s) 
+[3,324s][info ][gc,marking     ] GC(0) Mark Stack Usage: 32M
+[3,324s][info ][gc,nmethod     ] GC(0) NMethods: 3533 registered, 417 unregistered
+[3,324s][info ][gc,metaspace   ] GC(0) Metaspace: 20M used, 21M committed, 1088M reserved
+[3,324s][info ][gc,ref         ] GC(0) Soft: 4140 encountered, 0 discovered, 0 enqueued
+[3,324s][info ][gc,ref         ] GC(0) Weak: 3330 encountered, 1194 discovered, 921 enqueued
+[3,324s][info ][gc,ref         ] GC(0) Final: 945 encountered, 945 discovered, 945 enqueued
+[3,324s][info ][gc,ref         ] GC(0) Phantom: 2812 encountered, 2683 discovered, 2421 enqueued
+[3,324s][info ][gc,reloc       ] GC(0) Small Pages: 538 / 1076M, Empty: 832M, Relocated: 6M, In-Place: 0
+[3,324s][info ][gc,reloc       ] GC(0) Medium Pages: 1 / 32M, Empty: 0M, Relocated: 0M, In-Place: 0
+[3,324s][info ][gc,reloc       ] GC(0) Large Pages: 0 / 0M, Empty: 0M, Relocated: 0M, In-Place: 0
+[3,324s][info ][gc,reloc       ] GC(0) Forwarding Usage: 2M
+[3,324s][info ][gc,heap        ] GC(0) Min Capacity: 5120M(42%)
+[3,324s][info ][gc,heap        ] GC(0) Max Capacity: 12288M(100%)
+[3,324s][info ][gc,heap        ] GC(0) Soft Max Capacity: 12288M(100%)
+[3,324s][info ][gc,heap        ] GC(0)                Mark Start          Mark End        Relocate Start      Relocate End           High               Low         
+[3,325s][info ][gc,heap        ] GC(0)  Capacity:     5120M (42%)        5120M (42%)        5120M (42%)        5120M (42%)        5120M (42%)        5120M (42%)    
+[3,325s][info ][gc,heap        ] GC(0)      Free:    11180M (91%)       11162M (91%)       11988M (98%)       12162M (99%)       12162M (99%)       11158M (91%)    
+[3,325s][info ][gc,heap        ] GC(0)      Used:     1108M (9%)         1126M (9%)          300M (2%)          126M (1%)         1130M (9%)          126M (1%)     
+[3,325s][info ][gc,heap        ] GC(0)      Live:         -                64M (1%)           64M (1%)           64M (1%)             -                  -          
+[3,325s][info ][gc,heap        ] GC(0) Allocated:         -                18M (0%)           24M (0%)           25M (0%)             -                  -          
+[3,325s][info ][gc,heap        ] GC(0)   Garbage:         -              1043M (8%)          211M (2%)           35M (0%)             -                  -          
+[3,325s][info ][gc,heap        ] GC(0) Reclaimed:         -                  -               832M (7%)         1007M (8%)             -                  -          
+[3,325s][info ][gc             ] GC(0) Garbage Collection (Metadata GC Threshold) 1108M(9%)->126M(1%)
+[3,390s][debug][gc,alloc       ] Allocation Rate: 960,0MB/s, Predicted: 1035,2MB/s, Avg: 654,0(+/-200,6)MB/s
+[3,390s][debug][gc,director    ] Rule: Warmup 10%, Used: 222MB, UsedThreshold: 1228MB
+[3,390s][debug][gc,director    ] Rule: High Usage, Free: 12024MB(97,9%)
+[3,490s][debug][gc,alloc       ] Allocation Rate: 952,0MB/s, Predicted: 1067,5MB/s, Avg: 716,4(+/-186,0)MB/s
+[3,490s][debug][gc,director    ] Rule: Warmup 10%, Used: 322MB, UsedThreshold: 1228MB
+[3,490s][debug][gc,director    ] Rule: High Usage, Free: 11924MB(97,0%)
+[3,591s][debug][gc,alloc       ] Allocation Rate: 1000,0MB/s, Predicted: 1091,7MB/s, Avg: 778,2(+/-166,3)MB/s
+[3,591s][debug][gc,director    ] Rule: Warmup 10%, Used: 432MB, UsedThreshold: 1228MB
+[3,591s][debug][gc,director    ] Rule: High Usage, Free: 11814MB(96,1%)
+[3,691s][debug][gc,alloc       ] Allocation Rate: 1000,0MB/s, Predicted: 1101,5MB/s, Avg: 830,0(+/-145,3)MB/s
+[3,691s][debug][gc,director    ] Rule: Warmup 10%, Used: 540MB, UsedThreshold: 1228MB
+[3,691s][debug][gc,director    ] Rule: High Usage, Free: 11706MB(95,3%)
+[3,791s][debug][gc,alloc       ] Allocation Rate: 1000,0MB/s, Predicted: 1101,7MB/s, Avg: 872,4(+/-125,5)MB/s
+[3,791s][debug][gc,director    ] Rule: Warmup 10%, Used: 644MB, UsedThreshold: 1228MB
+[3,791s][debug][gc,director    ] Rule: High Usage, Free: 11602MB(94,4%)
+[3,890s][debug][gc,alloc       ] Allocation Rate: 960,0MB/s, Predicted: 1084,4MB/s, Avg: 900,8(+/-108,9)MB/s
+[3,890s][debug][gc,director    ] Rule: Warmup 10%, Used: 710MB, UsedThreshold: 1228MB
+[3,890s][debug][gc,director    ] Rule: High Usage, Free: 11536MB(93,9%)
+[3,976s][info ][gc,heap,exit   ] Heap
+[3,976s][info ][gc,heap,exit   ]  ZHeap           used 768M, capacity 5120M, max capacity 12288M
+[3,976s][info ][gc,heap,exit   ]  Metaspace       used 21350K, committed 21888K, reserved 1114112K
+[3,976s][info ][gc,heap,exit   ]   class space    used 2753K, committed 3008K, reserved 1048576K

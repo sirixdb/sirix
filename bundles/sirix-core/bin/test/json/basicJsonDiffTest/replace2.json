@@ -1,0 +1,1 @@
+{"database":"json-path1","resource":"shredded","old-revision":2,"new-revision":4,"diffs":[{"replace":{"oldNodeKey":2,"newNodeKey":5,"deweyID":"1.17.9","depth":2,"type":"jsonFragment","data":"{\"data\":\"data\"}"}}]}
