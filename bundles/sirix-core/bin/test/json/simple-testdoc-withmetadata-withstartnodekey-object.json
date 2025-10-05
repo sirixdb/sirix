@@ -1,0 +1,64 @@
+{
+  "metadata": {
+    "nodeKey": 4,
+    "hash": "0000000000000000",
+    "type": "OBJECT",
+    "descendantCount": 6,
+    "childCount": 2
+  },
+  "value": [
+    {
+      "key": "test",
+      "metadata": {
+        "nodeKey": 5,
+        "hash": "0000000000000000",
+        "type": "OBJECT_KEY",
+        "descendantCount": 3
+      },
+      "value": {
+        "metadata": {
+          "nodeKey": 6,
+          "hash": "0000000000000000",
+          "type": "ARRAY",
+          "descendantCount": 2,
+          "childCount": 2
+        },
+        "value": [
+          {
+            "metadata": {
+              "nodeKey": 7,
+              "hash": "0000000000000000",
+              "type": "STRING_VALUE"
+            },
+            "value": "it works, again"
+          },
+          {
+            "metadata": {
+              "nodeKey": 8,
+              "hash": "0000000000000000",
+              "type": "BOOLEAN_VALUE"
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "key": "superb",
+      "metadata": {
+        "nodeKey": 9,
+        "hash": "0000000000000000",
+        "type": "OBJECT_KEY",
+        "descendantCount": 1
+      },
+      "value": {
+        "metadata": {
+          "nodeKey": 10,
+          "hash": "0000000000000000",
+          "type": "OBJECT_NUMBER_VALUE"
+        },
+        "value": 100
+      }
+    }
+  ]
+}

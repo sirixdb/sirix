@@ -1,0 +1,91 @@
+[0.009s][debug][gc,heap] Minimum heap 5368709120  Initial heap 5368709120  Maximum heap 12884901888
+[0.009s][info ][gc,init] Initializing The Z Garbage Collector
+[0.009s][info ][gc,init] Version: 22.0.2+9 (release)
+[0.009s][info ][gc,init] Using legacy single-generation mode
+[0.009s][info ][gc,init] NUMA Support: Disabled
+[0.009s][info ][gc,init] CPUs: 20 total, 20 available
+[0.009s][info ][gc,init] Memory: 31764M
+[0.009s][info ][gc,init] Large Page Support: Disabled
+[0.009s][info ][gc,init] GC Workers: 5 (dynamic)
+[0.010s][info ][gc,init] Address Space Type: Contiguous/Unrestricted/Complete
+[0.010s][info ][gc,init] Address Space Size: 196608M x 3 = 589824M
+[0.010s][info ][gc,init] Heap Backing File: /memfd:java_heap
+[0.010s][info ][gc,init] Heap Backing Filesystem: tmpfs (0x1021994)
+[0.010s][info ][gc,init] Min Capacity: 5120M
+[0.010s][info ][gc,init] Initial Capacity: 5120M
+[0.010s][info ][gc,init] Max Capacity: 12288M
+[0.010s][info ][gc,init] Medium Page Size: 32M
+[0.010s][info ][gc,init] Pre-touch: Enabled
+[0.010s][info ][gc,init] Available space on backing filesystem: N/A
+[0.011s][info ][gc,init] Uncommit: Enabled
+[0.011s][info ][gc,init] Uncommit Delay: 300s
+[1.200s][debug][gc,task] Executing Task: XPreTouchTask, Active Workers: 5
+[2.238s][debug][gc,marking] Expanding mark stack space: 0M->32M
+[2.239s][info ][gc,init   ] Runtime Workers: 12
+[2.240s][info ][gc        ] Using The Z Garbage Collector
+[2.249s][info ][gc,metaspace] CDS archive(s) mapped at: [0x000074897a000000-0x000074897ac75000-0x000074897ac75000), size 13062144, SharedBaseAddress: 0x000074897a000000, ArchiveRelocationMode: 1.
+[2.249s][info ][gc,metaspace] Compressed class space mapped at: 0x000074897b000000-0x00007489bb000000, reserved size: 1073741824
+[2.249s][info ][gc,metaspace] Narrow klass base: 0x000074897a000000, Narrow klass shift: 0, Narrow klass range: 0x100000000
+[2,257s][debug][gc,heap     ] Uncommit Timeout: 299s
+[2,259s][debug][gc,nmethod  ] Rebuilding NMethod Table: 0->1024 entries, 0(0%->0%) registered, 0(0%->0%) unregistered
+[2,357s][debug][gc,alloc    ] Allocation Rate: 6,0MB/s, Predicted: 6,0MB/s, Avg: 6,0(+/-0,0)MB/s
+[2,357s][debug][gc,director ] Rule: Warmup 10%, Used: 10MB, UsedThreshold: 1228MB
+[2,357s][debug][gc,director ] Rule: High Usage, Free: 12236MB(99,6%)
+[2,457s][debug][gc,alloc    ] Allocation Rate: 42,0MB/s, Predicted: 78,0MB/s, Avg: 24,0(+/-18,0)MB/s
+[2,457s][debug][gc,director ] Rule: Warmup 10%, Used: 46MB, UsedThreshold: 1228MB
+[2,457s][debug][gc,director ] Rule: High Usage, Free: 12200MB(99,3%)
+[2,501s][debug][gc,nmethod  ] Rebuilding NMethod Table: 1024->2048 entries, 717(70%->35%) registered, 0(0%->0%) unregistered
+[2,557s][debug][gc,alloc    ] Allocation Rate: 48,0MB/s, Predicted: 74,0MB/s, Avg: 32,0(+/-18,5)MB/s
+[2,557s][debug][gc,director ] Rule: Warmup 10%, Used: 52MB, UsedThreshold: 1228MB
+[2,557s][debug][gc,director ] Rule: High Usage, Free: 12194MB(99,2%)
+[2,658s][debug][gc,alloc    ] Allocation Rate: 56,0MB/s, Predicted: 77,0MB/s, Avg: 38,0(+/-19,1)MB/s
+[2,658s][debug][gc,director ] Rule: Warmup 10%, Used: 60MB, UsedThreshold: 1228MB
+[2,658s][debug][gc,director ] Rule: High Usage, Free: 12186MB(99,2%)
+[2,758s][debug][gc,alloc    ] Allocation Rate: 62,0MB/s, Predicted: 80,6MB/s, Avg: 42,8(+/-19,6)MB/s
+[2,758s][debug][gc,director ] Rule: Warmup 10%, Used: 66MB, UsedThreshold: 1228MB
+[2,758s][debug][gc,director ] Rule: High Usage, Free: 12180MB(99,1%)
+[2,828s][debug][gc,nmethod  ] Rebuilding NMethod Table: 2048->4096 entries, 1434(70%->35%) registered, 0(0%->0%) unregistered
+[2,858s][debug][gc,alloc    ] Allocation Rate: 66,0MB/s, Predicted: 83,5MB/s, Avg: 46,7(+/-19,9)MB/s
+[2,858s][debug][gc,director ] Rule: Warmup 10%, Used: 70MB, UsedThreshold: 1228MB
+[2,858s][debug][gc,director ] Rule: High Usage, Free: 12176MB(99,1%)
+[2,957s][debug][gc,alloc    ] Allocation Rate: 70,0MB/s, Predicted: 86,3MB/s, Avg: 50,0(+/-20,1)MB/s
+[2,957s][debug][gc,director ] Rule: Warmup 10%, Used: 74MB, UsedThreshold: 1228MB
+[2,957s][debug][gc,director ] Rule: High Usage, Free: 12172MB(99,1%)
+[3,057s][debug][gc,alloc    ] Allocation Rate: 72,0MB/s, Predicted: 88,2MB/s, Avg: 52,8(+/-20,2)MB/s
+[3,057s][debug][gc,director ] Rule: Warmup 10%, Used: 76MB, UsedThreshold: 1228MB
+[3,057s][debug][gc,director ] Rule: High Usage, Free: 12170MB(99,0%)
+[3,158s][debug][gc,alloc    ] Allocation Rate: 76,0MB/s, Predicted: 90,7MB/s, Avg: 55,3(+/-20,4)MB/s
+[3,158s][debug][gc,director ] Rule: Warmup 10%, Used: 80MB, UsedThreshold: 1228MB
+[3,158s][debug][gc,director ] Rule: High Usage, Free: 12166MB(99,0%)
+[3,258s][debug][gc,alloc    ] Allocation Rate: 102,0MB/s, Predicted: 102,3MB/s, Avg: 60,0(+/-23,9)MB/s
+[3,258s][debug][gc,director ] Rule: Warmup 10%, Used: 106MB, UsedThreshold: 1228MB
+[3,258s][debug][gc,director ] Rule: High Usage, Free: 12140MB(98,8%)
+[3,358s][debug][gc,alloc    ] Allocation Rate: 126,0MB/s, Predicted: 114,3MB/s, Avg: 72,0(+/-23,9)MB/s
+[3,358s][debug][gc,director ] Rule: Warmup 10%, Used: 136MB, UsedThreshold: 1228MB
+[3,358s][debug][gc,director ] Rule: High Usage, Free: 12110MB(98,6%)
+[3,457s][debug][gc,alloc    ] Allocation Rate: 142,0MB/s, Predicted: 134,3MB/s, Avg: 82,0(+/-29,5)MB/s
+[3,457s][debug][gc,director ] Rule: Warmup 10%, Used: 188MB, UsedThreshold: 1228MB
+[3,457s][debug][gc,director ] Rule: High Usage, Free: 12058MB(98,1%)
+[3,558s][debug][gc,alloc    ] Allocation Rate: 142,0MB/s, Predicted: 149,2MB/s, Avg: 91,4(+/-32,0)MB/s
+[3,558s][debug][gc,director ] Rule: Warmup 10%, Used: 194MB, UsedThreshold: 1228MB
+[3,558s][debug][gc,director ] Rule: High Usage, Free: 12052MB(98,1%)
+[3,658s][debug][gc,alloc    ] Allocation Rate: 148,0MB/s, Predicted: 162,4MB/s, Avg: 100,6(+/-33,7)MB/s
+[3,658s][debug][gc,director ] Rule: Warmup 10%, Used: 208MB, UsedThreshold: 1228MB
+[3,658s][debug][gc,director ] Rule: High Usage, Free: 12038MB(98,0%)
+[3,758s][debug][gc,alloc    ] Allocation Rate: 148,0MB/s, Predicted: 171,1MB/s, Avg: 109,2(+/-33,7)MB/s
+[3,758s][debug][gc,director ] Rule: Warmup 10%, Used: 214MB, UsedThreshold: 1228MB
+[3,758s][debug][gc,director ] Rule: High Usage, Free: 12032MB(97,9%)
+[3,857s][debug][gc,alloc    ] Allocation Rate: 196,0MB/s, Predicted: 194,3MB/s, Avg: 122,2(+/-39,2)MB/s
+[3,857s][debug][gc,director ] Rule: Warmup 10%, Used: 266MB, UsedThreshold: 1228MB
+[3,857s][debug][gc,director ] Rule: High Usage, Free: 11980MB(97,5%)
+[3,958s][debug][gc,alloc    ] Allocation Rate: 244,0MB/s, Predicted: 229,1MB/s, Avg: 139,6(+/-49,4)MB/s
+[3,958s][debug][gc,director ] Rule: Warmup 10%, Used: 318MB, UsedThreshold: 1228MB
+[3,958s][debug][gc,director ] Rule: High Usage, Free: 11928MB(97,1%)
+[3,996s][debug][gc,nmethod  ] Rebuilding NMethod Table: 4096->8192 entries, 2868(70%->35%) registered, 0(0%->0%) unregistered
+[4,058s][debug][gc,alloc    ] Allocation Rate: 252,0MB/s, Predicted: 256,0MB/s, Avg: 157,6(+/-54,1)MB/s
+[4,058s][debug][gc,director ] Rule: Warmup 10%, Used: 328MB, UsedThreshold: 1228MB
+[4,058s][debug][gc,director ] Rule: High Usage, Free: 11918MB(97,0%)
+[4,071s][info ][gc,heap,exit] Heap
+[4,071s][info ][gc,heap,exit]  ZHeap           used 328M, capacity 5120M, max capacity 12288M
+[4,071s][info ][gc,heap,exit]  Metaspace       used 20322K, committed 20864K, reserved 1114112K
+[4,071s][info ][gc,heap,exit]   class space    used 2714K, committed 2944K, reserved 1048576K

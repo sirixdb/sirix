@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "nodeKey": 6,
+    "hash": "0000000000000000",
+    "type": "ARRAY",
+    "descendantCount": 2,
+    "childCount": 2
+  },
+  "value": [
+    {
+      "metadata": {
+        "nodeKey": 7,
+        "hash": "0000000000000000",
+        "type": "STRING_VALUE"
+      },
+      "value": "it works, again"
+    },
+    {
+      "metadata": {
+        "nodeKey": 8,
+        "hash": "0000000000000000",
+        "type": "BOOLEAN_VALUE"
+      },
+      "value": true
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "key": "tada",
+  "metadata": {
+    "nodeKey": 15
+  },
+  "value": {
+    "metadata": {
+      "nodeKey": 16,
+      "childCount": 5
+    },
+    "value": [
+      {
+        "metadata": {
+          "nodeKey": 17,
+          "childCount": 1
+        },
+        "value": [
+          {
+            "key": "foo",
+            "metadata": {
+              "nodeKey": 18
+            },
+            "value": {
+              "metadata": {
+                "nodeKey": 19
+              },
+              "value": "bar"
+            }
+          }
+        ]
+      },
+      {
+        "metadata": {
+          "nodeKey": 20,
+          "childCount": 1
+        },
+        "value": [
+          {
+            "key": "baz",
+            "metadata": {
+              "nodeKey": 21
+            },
+            "value": {
+              "metadata": {
+                "nodeKey": 22
+              },
+              "value": false
+            }
+          }
+        ]
+      },
+      {
+        "metadata": {
+          "nodeKey": 23
+        },
+        "value": "boo"
+      },
+      {
+        "metadata": {
+          "nodeKey": 24,
+          "childCount": 0
+        },
+        "value": {}
+      },
+      {
+        "metadata": {
+          "nodeKey": 25,
+          "childCount": 0
+        },
+        "value": []
+      }
+    ]
+  }
+}
