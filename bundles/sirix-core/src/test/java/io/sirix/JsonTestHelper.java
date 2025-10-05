@@ -114,7 +114,9 @@ public final class JsonTestHelper {
         Databases.createJsonDatabase(config);
       }
       final var database = Databases.openJsonDatabase(file);
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      if (!database.existsResource(RESOURCE)) {
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      }
       INSTANCES.put(file, database);
       return database;
     }
@@ -144,7 +146,9 @@ public final class JsonTestHelper {
         Databases.createJsonDatabase(config);
       }
       final var database = Databases.openJsonDatabase(file);
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).build());
+      if (!database.existsResource(RESOURCE)) {
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).build());
+      }
       INSTANCES.put(file, database);
       return database;
     }
@@ -167,7 +171,9 @@ public final class JsonTestHelper {
         Databases.createJsonDatabase(config);
       }
       final var database = Databases.openJsonDatabase(file);
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).hashKind(HashType.ROLLING).build());
+      if (!database.existsResource(RESOURCE)) {
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).hashKind(HashType.ROLLING).build());
+      }
       INSTANCES.put(file, database);
       return database;
     }

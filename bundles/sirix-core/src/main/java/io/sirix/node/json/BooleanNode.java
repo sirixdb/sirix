@@ -35,6 +35,7 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
@@ -140,6 +141,9 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode {
   // DeweyID support (stored separately, not in MemorySegment)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
+  
+  // Cached hash value (computed on-demand, not stored in MemorySegment)
+  private long cachedHash = 0;
 
   /**
    * Constructor for MemorySegment-based BooleanNode
@@ -215,13 +219,18 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public long getHash() {
-    // Value nodes are leaf nodes - hash is computed on-demand, not stored
-    return 0;
+    // Value nodes don't store hash in MemorySegment, but cache it in memory
+    // If hash is 0 and hashing is enabled, compute it on-demand
+    if (cachedHash == 0 && resourceConfig.hashType != HashType.NONE) {
+      cachedHash = computeHash(Bytes.elasticHeapByteBuffer());
+    }
+    return cachedHash;
   }
 
   @Override
   public void setHash(final long hash) {
-    // Value nodes don't store hash in MemorySegment - no-op
+    // Value nodes don't store hash in MemorySegment, but cache it in memory
+    this.cachedHash = hash;
   }
 
   @Override
