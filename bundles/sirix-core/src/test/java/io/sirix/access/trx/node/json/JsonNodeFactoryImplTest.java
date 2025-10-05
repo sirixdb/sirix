@@ -216,13 +216,16 @@ public class JsonNodeFactoryImplTest {
     final ObjectNullNode node1 = factory.createJsonObjectNullNode(100L, null);
     final long nodeKey = node1.getNodeKey();
     
-    // Serialize
+    // Serialize with NodeKind byte for proper alignment
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    data.writeByte(NodeKind.OBJECT_NULL_VALUE.getId());
     node1.getKind().serialize(data, node1, resourceConfig);
     
-    // Deserialize
+    // Deserialize (skip NodeKind byte first)
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
     final ObjectNullNode node2 = (ObjectNullNode) NodeKind.OBJECT_NULL_VALUE.deserialize(
-        data.asBytesIn(), 
+        bytesIn, 
         nodeKey, 
         null, 
         resourceConfig
@@ -243,13 +246,16 @@ public class JsonNodeFactoryImplTest {
     final ObjectStringNode node1 = factory.createJsonObjectStringNode(200L, value, false, null);
     final long nodeKey = node1.getNodeKey();
     
-    // Serialize
+    // Serialize with NodeKind byte for proper alignment
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    data.writeByte(NodeKind.OBJECT_STRING_VALUE.getId());
     node1.getKind().serialize(data, node1, resourceConfig);
     
-    // Deserialize
+    // Deserialize (skip NodeKind byte first)
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
     final ObjectStringNode node2 = (ObjectStringNode) NodeKind.OBJECT_STRING_VALUE.deserialize(
-        data.asBytesIn(), 
+        bytesIn, 
         nodeKey, 
         null, 
         resourceConfig
@@ -269,13 +275,16 @@ public class JsonNodeFactoryImplTest {
     final ObjectBooleanNode node1 = factory.createJsonObjectBooleanNode(300L, true, null);
     final long nodeKey = node1.getNodeKey();
     
-    // Serialize
+    // Serialize with NodeKind byte for proper alignment
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    data.writeByte(NodeKind.OBJECT_BOOLEAN_VALUE.getId());
     node1.getKind().serialize(data, node1, resourceConfig);
     
-    // Deserialize
+    // Deserialize (skip NodeKind byte first)
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
     final ObjectBooleanNode node2 = (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(
-        data.asBytesIn(), 
+        bytesIn, 
         nodeKey, 
         null, 
         resourceConfig
@@ -297,13 +306,16 @@ public class JsonNodeFactoryImplTest {
     final ObjectNumberNode node1 = factory.createJsonObjectNumberNode(400L, value, null);
     final long nodeKey = node1.getNodeKey();
     
-    // Serialize
+    // Serialize with NodeKind byte for proper alignment
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    data.writeByte(NodeKind.OBJECT_NUMBER_VALUE.getId());
     node1.getKind().serialize(data, node1, resourceConfig);
     
-    // Deserialize
+    // Deserialize (skip NodeKind byte first)
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
     final ObjectNumberNode node2 = (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(
-        data.asBytesIn(), 
+        bytesIn, 
         nodeKey, 
         null, 
         resourceConfig
