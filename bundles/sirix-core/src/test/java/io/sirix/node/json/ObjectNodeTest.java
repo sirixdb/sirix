@@ -75,13 +75,7 @@ public class ObjectNodeTest {
     // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + struct fields][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     
-    data.writeByte(NodeKind.OBJECT.getId()); // NodeKind byte
-    long sizePos = data.writePosition();
-    data.writeInt(0); // Size placeholder
-    data.writeByte((byte) 0); // 3 bytes padding (total header = 8 bytes with NodeKind)
-    data.writeByte((byte) 0);
-    data.writeByte((byte) 0);
-    
+    long sizePos = JsonNodeTestHelper.writeHeader(data, NodeKind.OBJECT);
     long startPos = data.writePosition();
     // NodeDelegate fields
     data.writeLong(14); // parentKey
@@ -93,23 +87,7 @@ public class ObjectNodeTest {
     data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // firstChild
     data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // lastChild
     
-    // Write end padding to make size multiple of 8
-    long nodeDataSize = data.writePosition() - startPos;
-    int remainder = (int)(nodeDataSize % 8);
-    if (remainder != 0) {
-      int padding = 8 - remainder;
-      for (int i = 0; i < padding; i++) {
-        data.writeByte((byte) 0);
-      }
-    }
-    
-    // Update size prefix
-    long endPos = data.writePosition();
-    nodeDataSize = endPos - startPos;
-    long currentPos = data.writePosition();
-    data.writePosition(sizePos);
-    data.writeInt((int) nodeDataSize);
-    data.writePosition(currentPos);
+    JsonNodeTestHelper.finalizeSerialization(data, sizePos, startPos);
     
     // Deserialize to create properly initialized node
     var bytesIn = data.asBytesIn();
