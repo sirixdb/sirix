@@ -28,6 +28,8 @@
 
 package io.sirix.node.json;
 
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
@@ -44,7 +46,7 @@ import java.io.IOException;
 import static org.junit.Assert.*;
 
 /**
- * Strjng node test.
+ * String node test.
  */
 public class StringNodeTest {
 
@@ -61,27 +63,64 @@ public class StringNodeTest {
   public void test() throws IOException {
     final byte[] value = { (byte) 17, (byte) 18 };
     
-    // Create data in the correct serialization format
-    // Format: NodeDelegate + stopBit length + string bytes + siblings
+    final var config = ResourceConfiguration.newBuilder("test")
+        .hashKind(HashType.NONE)
+        .storeChildCount(false)
+        .build();
+    
+    // Create data in the correct serialization format with size prefix and padding
+    // Format: [4-byte size][3-byte padding][NodeDelegate + value + siblings][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    
+    long sizePos = data.writePosition();
+    data.writeInt(0); // Size placeholder
+    data.writeByte(NodeKind.String.getId()); // NodeKind byte
+    long sizePos = data.writePosition();
+    data.writeInt(0); // Size placeholder
+    data.writeByte((byte) 0); // 3 bytes padding (total header = 8 bytes with NodeKind)
+    data.writeByte((byte) 0);
+    data.writeByte((byte) 0);
+    
+    long startPos = data.writePosition();
+    // NodeDelegate fields
     data.writeLong(14); // parentKey
     data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
     data.writeInt(0); // lastModifiedRevision
-    data.writeStopBit(value.length); // string length (stop-bit encoded)
-    data.write(value); // string value
+    // Value (stopBit length + bytes)
+    data.writeStopBit(value.length);
+    data.write(value);
+    // Siblings
     data.writeLong(16L); // rightSibling
     data.writeLong(15L); // leftSibling
     
+    // Write end padding to make size multiple of 8
+    long nodeDataSize = data.writePosition() - startPos;
+    int remainder = (int)(nodeDataSize % 8);
+    if (remainder != 0) {
+      int padding = 8 - remainder;
+      for (int i = 0; i < padding; i++) {
+        data.writeByte((byte) 0);
+      }
+    }
+    
+    // Update size prefix
+    long endPos = data.writePosition();
+    nodeDataSize = endPos - startPos;
+    long currentPos = data.writePosition();
+    data.writePosition(sizePos);
+    data.writeInt((int) nodeDataSize);
+    data.writePosition(currentPos);
+    
     // Deserialize to create properly initialized node
     final StringNode node = (StringNode) NodeKind.STRING_VALUE.deserialize(
-        data.asBytesIn(), 13L, null, pageTrx.getResourceSession().getResourceConfig());
+        data.asBytesIn(), 13L, null, config);
     check(node);
 
     // Serialize and deserialize node.
     final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data2, node, pageTrx.getResourceSession().getResourceConfig());
+    node.getKind().serialize(data2, node, config);
     final StringNode node2 = (StringNode) NodeKind.STRING_VALUE.deserialize(
-        data2.asBytesIn(), node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
+        data2.asBytesIn(), node.getNodeKey(), null, config);
     check(node2);
   }
 

@@ -1,0 +1,13 @@
+{
+    "primaryKeyId": 280029170,
+    "key": [{
+        "keyData": {
+            "typeUrl": "type.googleapis.com/google.crypto.tink.AesCtrHmacStreamingKey",
+            "keyMaterialType": "SYMMETRIC",
+            "value": "Eg0IgCAQIBgDIgQIAxAgGiAnHLii3HVdkcK+LHFlpryHETmPd5o2qjZByb2+PemT5Q=="
+        },
+        "outputPrefixType": "RAW",
+        "keyId": 280029170,
+        "status": "ENABLED"
+    }]
+}
