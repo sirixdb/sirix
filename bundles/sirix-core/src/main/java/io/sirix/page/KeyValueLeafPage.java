@@ -19,7 +19,7 @@ import io.sirix.settings.Constants;
 import io.sirix.utils.ArrayIterator;
 import io.sirix.utils.OS;
 import io.sirix.node.BytesOut;
-import io.sirix.node.Bytes;
+import io.sirix.node.MemorySegmentBytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -1074,25 +1074,36 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   private void processEntries(final ResourceConfiguration resourceConfiguration, final DataRecord[] records) {
-    for (final DataRecord record : records) {
-      if (record == null) {
-        continue;
-      }
-      final var recordID = record.getNodeKey();
-      final var offset = PageReadOnlyTrx.recordPageOffset(recordID);
+    // Use a confined arena for temporary serialization buffers.
+    // This allows immediate cleanup of memory for normal records (which are copied to slotMemory).
+    // For overflow records, we copy to a persistent arena since they need to outlive this method.
+    try (var tempArena = java.lang.foreign.Arena.ofConfined()) {
+      for (final DataRecord record : records) {
+        if (record == null) {
+          continue;
+        }
+        final var recordID = record.getNodeKey();
+        final var offset = PageReadOnlyTrx.recordPageOffset(recordID);
 
-      // Must be either a normal record or one which requires an overflow page.
-      // Create a new BytesOut for each record to avoid corruption of previous segments
-      var out = Bytes.elasticHeapByteBuffer(30);
-      recordPersister.serialize(out, record, resourceConfiguration);
-      final var buffer = out.getDestination();
-      if (buffer.byteSize() > PageConstants.MAX_RECORD_SIZE) {
-        final var reference = new PageReference();
-        reference.setPage(new OverflowPage(buffer));
-        references.put(recordID, reference);
-      } else {
-        setSlot(buffer, offset);
+        // Must be either a normal record or one which requires an overflow page.
+        // Use confined arena for temporary serialization
+        var out = new MemorySegmentBytesOut(tempArena, 30);
+        recordPersister.serialize(out, record, resourceConfiguration);
+        final var buffer = out.getDestination();
+        
+        if (buffer.byteSize() > PageConstants.MAX_RECORD_SIZE) {
+          // Overflow page: copy buffer to persistent arena since OverflowPage stores the reference
+          var persistentBuffer = java.lang.foreign.Arena.global().allocate(buffer.byteSize(), 8);
+          java.lang.foreign.MemorySegment.copy(buffer, 0, persistentBuffer, 0, buffer.byteSize());
+          
+          final var reference = new PageReference();
+          reference.setPage(new OverflowPage(persistentBuffer));
+          references.put(recordID, reference);
+        } else {
+          // Normal record: setSlot copies data to slotMemory, so temp buffer is fine
+          setSlot(buffer, offset);
+        }
       }
-    }
+    } // Confined arena automatically closes here, freeing all temporary buffers
   }
 }
