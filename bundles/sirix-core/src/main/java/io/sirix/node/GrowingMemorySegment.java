@@ -31,13 +31,24 @@ public class GrowingMemorySegment {
      * Create a new GrowingMemorySegment with specified initial capacity.
      * Uses off-heap memory with 8-byte alignment.
      * 
-     * Uses Arena.ofAuto() for memory management which automatically releases
-     * memory when the arena is no longer reachable and the memory is not accessible.
+     * Uses Arena.ofAuto() for automatic memory management. The arena will be
+     * cleaned up automatically by the garbage collector when no longer reachable.
      * 
      * @param initialCapacity the initial capacity in bytes
      */
     public GrowingMemorySegment(int initialCapacity) {
-        this.arena = Arena.ofAuto();
+        this(Arena.ofAuto(), initialCapacity);
+    }
+    
+    /**
+     * Create a new GrowingMemorySegment with specified Arena and initial capacity.
+     * Uses off-heap memory with 8-byte alignment.
+     * 
+     * @param arena the arena to use for memory allocation
+     * @param initialCapacity the initial capacity in bytes
+     */
+    public GrowingMemorySegment(Arena arena, int initialCapacity) {
+        this.arena = arena;
         this.capacity = initialCapacity;
         // Allocate with explicit 8-byte alignment for optimal performance
         this.segment = arena.allocate(initialCapacity, ALIGNMENT);
@@ -48,8 +59,8 @@ public class GrowingMemorySegment {
      * Create a new GrowingMemorySegment from an existing MemorySegment.
      * Copies data from the existing segment to new off-heap aligned memory.
      * 
-     * Uses Arena.ofAuto() for memory management which automatically releases
-     * memory when the arena is no longer reachable and the memory is not accessible.
+     * Uses Arena.ofAuto() for automatic memory management. The arena will be
+     * cleaned up automatically by the garbage collector when no longer reachable.
      * 
      * @param existingSegment the existing segment to copy data from
      */
@@ -280,23 +291,22 @@ public class GrowingMemorySegment {
     }
     
     /**
-     * Close this GrowingMemorySegment.
-     * 
-     * This is a no-op since Arena.global() cannot be closed.
-     * The off-heap memory allocated from the global arena persists for the
-     * lifetime of the application.
-     * This method exists to maintain AutoCloseable contract from BytesOut.
+     * No-op close method for compatibility.
+     * Since this uses Arena.ofAuto(), memory is automatically released
+     * by the garbage collector when the GrowingMemorySegment is no longer reachable.
+     * Explicit closing is not possible with automatic arenas.
      */
     public void close() {
-        // No-op: Arena.global() cannot be closed
+        // No-op: Arena.ofAuto() is managed by GC
     }
     
     /**
      * Check if this segment is still alive.
+     * With Arena.ofAuto(), the segment remains alive as long as it's reachable.
      * 
-     * @return true (always true for Arena.global() which is always alive)
+     * @return true, since auto arenas remain alive while reachable
      */
     public boolean isAlive() {
-        return true; // Arena.global() is always alive
+        return arena.scope().isAlive();
     }
 }
