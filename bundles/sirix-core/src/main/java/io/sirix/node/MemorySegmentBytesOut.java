@@ -26,6 +26,26 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
     public MemorySegmentBytesOut() {
         this.growingSegment = new GrowingMemorySegment();
     }
+    
+    /**
+     * Create a MemorySegmentBytesOut with a custom Arena.
+     * This allows using confined arenas for temporary buffers that can be explicitly freed.
+     * 
+     * @param arena the arena to use for memory allocation
+     * @param initialCapacity the initial capacity in bytes
+     */
+    public MemorySegmentBytesOut(java.lang.foreign.Arena arena, int initialCapacity) {
+        this.growingSegment = new GrowingMemorySegment(arena, initialCapacity);
+    }
+    
+    /**
+     * Create a MemorySegmentBytesOut with a custom Arena and default initial capacity.
+     * 
+     * @param arena the arena to use for memory allocation
+     */
+    public MemorySegmentBytesOut(java.lang.foreign.Arena arena) {
+        this.growingSegment = new GrowingMemorySegment(arena, 1024);
+    }
 
     @Override
     public BytesOut<MemorySegment> writeInt(int value) {
