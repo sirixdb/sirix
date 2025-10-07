@@ -139,19 +139,29 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   @Override
   public TextNode createTextNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
       final @NonNegative long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction,
-                         Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    // Compress value if needed
     final boolean compression = isCompressed && value.length > 10;
     final byte[] compressedValue = compression ? Compression.compress(value, Deflater.HUFFMAN_ONLY) : value;
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return pageTrx.createRecord(new TextNode(valDel, structDel), IndexType.DOCUMENT, -1);
+    
+    // Allocate MemorySegment and write all fields matching TextNode.CORE_LAYOUT order
+    final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+    
+    // Write NodeDelegate fields (16 bytes)
+    data.writeLong(parentKey);                      // offset 0
+    data.writeInt(Constants.NULL_REVISION_NUMBER);  // offset 8
+    data.writeInt(revisionNumber);                  // offset 12
+    
+    // Write sibling keys (16 bytes)
+    data.writeLong(rightSibKey);                    // offset 16
+    data.writeLong(leftSibKey);                     // offset 24
+    
+    // Create TextNode from MemorySegment
+    var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
+    var node = new TextNode(segment, nodeKey, id, hashFunction, compressedValue, compression);
+
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
