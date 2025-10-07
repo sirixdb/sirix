@@ -26,6 +26,7 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
+import io.sirix.node.NodeTestHelper;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -69,7 +70,7 @@ public class ArrayNodeTest {
     // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + pathNodeKey + struct fields][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     
-    long sizePos = JsonNodeTestHelper.writeHeader(data, NodeKind.ARRAY);
+    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.ARRAY);
     long startPos = data.writePosition();
     // NodeDelegate fields
     data.writeLong(14); // parentKey
@@ -83,7 +84,7 @@ public class ArrayNodeTest {
     data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // firstChild
     data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // lastChild
     
-    JsonNodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
     
     // Deserialize to create properly initialized node
     var bytesIn = data.asBytesIn();

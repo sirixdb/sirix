@@ -24,6 +24,7 @@ package io.sirix.node.json;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
+import io.sirix.node.NodeTestHelper;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
@@ -56,7 +57,7 @@ public class ObjectNullNodeTest {
     // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     
-    long sizePos = JsonNodeTestHelper.writeHeader(data, NodeKind.OBJECT_NULL_VALUE);
+    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.OBJECT_NULL_VALUE);
     long startPos = data.writePosition();
     // NodeDelegate fields
     data.writeLong(14); // parentKey
@@ -64,7 +65,7 @@ public class ObjectNullNodeTest {
     data.writeInt(0); // lastModifiedRevision
     // ObjectNullNode has no additional value data (just the type)
     
-    JsonNodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
     
     // Deserialize to create properly initialized node
     var bytesIn = data.asBytesIn();
