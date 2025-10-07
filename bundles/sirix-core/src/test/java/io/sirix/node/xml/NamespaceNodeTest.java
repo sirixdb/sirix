@@ -25,8 +25,6 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
-import net.openhft.hashing.LongHashFunction;
-import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -34,11 +32,7 @@ import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixException;
-import io.sirix.node.delegates.NameNodeDelegate;
-import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.settings.Constants;
-
-import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -74,23 +68,50 @@ public class NamespaceNodeTest {
 
   @Test
   public void testNamespaceNode() {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(99, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15, 1);
-
-    // Create empty node.
-    final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
+    // Create data in the correct serialization format with size prefix and padding
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    
+    long sizePos = io.sirix.node.json.JsonNodeTestHelper.writeHeader(data, NodeKind.NAMESPACE);
+    long startPos = data.writePosition();
+    
+    // Write NodeDelegate fields (16 bytes)
+    data.writeLong(13);                              // parentKey - offset 0
+    data.writeInt(Constants.NULL_REVISION_NUMBER);   // previousRevision - offset 8
+    data.writeInt(0);                                // lastModifiedRevision - offset 12
+    
+    // Write NameNode fields (20 bytes)
+    data.writeLong(1L);                              // pathNodeKey - offset 16
+    data.writeInt(14);                               // prefixKey - offset 24
+    data.writeInt(15);                               // localNameKey - offset 28
+    data.writeInt(13);                               // uriKey - offset 32
+    
+    // Finalize
+    io.sirix.node.json.JsonNodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    
+    // Deserialize to create properly initialized node
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
+    final NamespaceNode node = (NamespaceNode) NodeKind.NAMESPACE.deserialize(
+        bytesIn, 99L, SirixDeweyID.newRootID().toBytes(), 
+        pageReadTrx.getResourceSession().getResourceConfig());
+    
+    // Compute and set hash
     var hashBytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
+    
+    check(node);
 
-    // Serialize and deserialize node.
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(data.asBytesIn(),
-                                                                               node.getNodeKey(),
-                                                                               node.getDeweyID().toBytes(),
-                                                                               pageReadTrx.getResourceSession()
-                                                                                          .getResourceConfig());
+    // Serialize and deserialize node again
+    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    data2.writeByte(NodeKind.NAMESPACE.getId()); // Write NodeKind to ensure proper alignment
+    node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
+    var bytesIn2 = data2.asBytesIn();
+    bytesIn2.readByte(); // Skip NodeKind byte
+    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(bytesIn2,
+                                                                           node.getNodeKey(),
+                                                                           node.getDeweyID().toBytes(),
+                                                                           pageReadTrx.getResourceSession()
+                                                                                      .getResourceConfig());
     check(node2);
   }
 

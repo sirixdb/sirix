@@ -30,70 +30,134 @@ package io.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.brackit.query.atomic.QNm;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
-import io.sirix.node.AbstractForwardingNode;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.NameNodeDelegate;
-import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.immutable.xml.ImmutableNamespace;
 import io.sirix.node.interfaces.NameNode;
+import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import io.sirix.node.BytesOut;
-import io.brackit.query.atomic.QNm;
+import io.sirix.settings.Fixed;
+import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.nio.ByteBuffer;
+import java.lang.foreign.MemoryLayout;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.lang.invoke.VarHandle;
 
 /**
- * Node representing a namespace.
+ * <p>
+ * Node representing an XML namespace.
+ * </p>
+ *
+ * <p><strong>All instances are backed by MemorySegment for consistent memory layout.</strong></p>
+ * <p><strong>Uses MemoryLayout and VarHandles for type-safe field access.</strong></p>
+ * <p><strong>This class is not part of the public API and might change.</strong></p>
  */
-public final class NamespaceNode extends AbstractForwardingNode implements NameNode, ImmutableXmlNode {
+public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node {
 
-  /** Delegate for name node information. */
-  private final NameNodeDelegate nameNodeDelegate;
-
-  /** {@link NodeDelegate} reference. */
-  private final NodeDelegate nodeDelegate;
-
-  /** The qualified name. */
-  private final QNm qNm;
-
-  private long hash;
+  // MemorySegment layout with FIXED offsets:
+  // NodeDelegate data (16 bytes):
+  //   - parentKey (8 bytes)            - offset 0
+  //   - previousRevision (4 bytes)     - offset 8
+  //   - lastModifiedRevision (4 bytes) - offset 12
+  // NameNode fields (20 bytes):
+  //   - pathNodeKey (8 bytes)          - offset 16
+  //   - prefixKey (4 bytes)            - offset 24
+  //   - localNameKey (4 bytes)         - offset 28
+  //   - uriKey (4 bytes)               - offset 32
+  // Total: 36 bytes
 
   /**
-   * Constructor.
-   *
-   * @param nodeDel {@link NodeDelegate} reference
-   * @param nameNodeDelegate {@link NameNodeDelegate} reference
-   * @param qNm The qualified name.
+   * Core layout (always present) - 36 bytes total
    */
-  public NamespaceNode(final NodeDelegate nodeDel, final NameNodeDelegate nameNodeDelegate, final QNm qNm) {
-    assert nodeDel != null;
-    assert nameNodeDelegate != null;
-    this.nodeDelegate = nodeDel;
-    this.nameNodeDelegate = nameNodeDelegate;
-    this.qNm = qNm;
+  public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
+      // NodeDelegate fields
+      ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
+      ValueLayout.JAVA_INT.withName("previousRevision"),              // offset 8
+      ValueLayout.JAVA_INT.withName("lastModifiedRevision"),          // offset 12
+      // NameNode fields
+      ValueLayout.JAVA_LONG_UNALIGNED.withName("pathNodeKey"),                  // offset 16
+      ValueLayout.JAVA_INT.withName("prefixKey"),                     // offset 24
+      ValueLayout.JAVA_INT.withName("localNameKey"),                  // offset 28
+      ValueLayout.JAVA_INT.withName("uriKey")                         // offset 32
+  );
+
+  // VarHandles for type-safe field access
+  private static final VarHandle PARENT_KEY_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("parentKey"));
+  private static final VarHandle PREVIOUS_REVISION_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("previousRevision"));
+  private static final VarHandle LAST_MODIFIED_REVISION_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("lastModifiedRevision"));
+  private static final VarHandle PATH_NODE_KEY_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("pathNodeKey"));
+  private static final VarHandle PREFIX_KEY_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("prefixKey"));
+  private static final VarHandle LOCAL_NAME_KEY_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("localNameKey"));
+  private static final VarHandle URI_KEY_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("uriKey"));
+
+  /** MemorySegment containing all node data */
+  private final MemorySegment segment;
+
+  /** Unique node key */
+  private final long nodeKey;
+
+  /** Optional Dewey ID */
+  private SirixDeweyID sirixDeweyID;
+  
+  /** Cached Dewey ID bytes */
+  private byte[] deweyIDBytes;
+
+  /** The qualified name */
+  private QNm qNm;
+
+  /** Hash value */
+  private long hash;
+
+  /** Hash function for this node */
+  private final LongHashFunction hashFunction;
+
+  /**
+   * Constructor for MemorySegment-based NamespaceNode
+   *
+   * @param segment        the MemorySegment containing all node data
+   * @param nodeKey        the node key (record ID)
+   * @param deweyID        optional DeweyID bytes
+   * @param hashFunction   hash function for computing node hash
+   * @param qNm            the qualified name
+   */
+  public NamespaceNode(final MemorySegment segment, final long nodeKey, final byte[] deweyID,
+      final LongHashFunction hashFunction, final QNm qNm) {
+    this(segment, nodeKey, deweyID != null ? new SirixDeweyID(deweyID) : null, hashFunction, qNm);
+    this.deweyIDBytes = deweyID;
   }
 
   /**
-   * Constructor.
+   * Constructor for MemorySegment-based NamespaceNode
    *
-   * @param hashCode hash code
-   * @param nodeDel {@link NodeDelegate} reference
-   * @param nameNodeDelegate {@link NameNodeDelegate} reference
-   * @param qNm The qualified name.
+   * @param segment        the MemorySegment containing all node data
+   * @param nodeKey        the node key (record ID)
+   * @param id             optional DeweyID
+   * @param hashFunction   hash function for computing node hash
+   * @param qNm            the qualified name
    */
-  public NamespaceNode(final long hashCode, final NodeDelegate nodeDel, final NameNodeDelegate nameNodeDelegate,
-      final QNm qNm) {
-    assert nodeDel != null;
-    assert nameNodeDelegate != null;
-    hash = hashCode;
-    this.nodeDelegate = nodeDel;
-    this.nameNodeDelegate = nameNodeDelegate;
+  public NamespaceNode(final MemorySegment segment, final long nodeKey, final SirixDeweyID id,
+      final LongHashFunction hashFunction, final QNm qNm) {
+    assert segment != null;
+    this.segment = segment;
+    this.nodeKey = nodeKey;
+    this.sirixDeweyID = id;
+    assert hashFunction != null;
+    this.hashFunction = hashFunction;
     this.qNm = qNm;
   }
 
@@ -105,18 +169,18 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
   @Override
   public long computeHash(BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+    bytes.writeLong(nodeKey)
+         .writeLong(getParentKey())
+         .writeByte(getKind().getId());
 
-    bytes.writeLong(nameNodeDelegate.getPrefixKey())
-         .writeLong(nameNodeDelegate.getLocalNameKey())
-         .writeLong(nameNodeDelegate.getURIKey());
+    bytes.writeLong(getPrefixKey())
+         .writeLong(getLocalNameKey())
+         .writeLong(getURIKey());
 
     final var buffer = ((java.nio.ByteBuffer) bytes.underlyingObject()).rewind();
     buffer.limit((int) bytes.readLimit());
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
+    return hashFunction.hashBytes(buffer);
   }
 
   @Override
@@ -131,35 +195,35 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
 
   @Override
   public int getPrefixKey() {
-    return nameNodeDelegate.getPrefixKey();
+    return (int) PREFIX_KEY_HANDLE.get(segment, 0L);
   }
 
   @Override
   public int getLocalNameKey() {
-    return nameNodeDelegate.getLocalNameKey();
+    return (int) LOCAL_NAME_KEY_HANDLE.get(segment, 0L);
   }
 
   @Override
   public int getURIKey() {
-    return nameNodeDelegate.getURIKey();
+    return (int) URI_KEY_HANDLE.get(segment, 0L);
   }
 
   @Override
   public void setPrefixKey(final int prefixKey) {
     hash = 0L;
-    nameNodeDelegate.setPrefixKey(prefixKey);
+    PREFIX_KEY_HANDLE.set(segment, 0L, prefixKey);
   }
 
   @Override
   public void setLocalNameKey(final int localNameKey) {
     hash = 0L;
-    nameNodeDelegate.setLocalNameKey(localNameKey);
+    LOCAL_NAME_KEY_HANDLE.set(segment, 0L, localNameKey);
   }
 
   @Override
   public void setURIKey(final int uriKey) {
     hash = 0L;
-    nameNodeDelegate.setURIKey(uriKey);
+    URI_KEY_HANDLE.set(segment, 0L, uriKey);
   }
 
   @Override
@@ -169,44 +233,48 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeDelegate, nameNodeDelegate);
+    return Objects.hashCode(nodeKey, getParentKey(), getPreviousRevisionNumber(), 
+        getLastModifiedRevisionNumber(), getPathNodeKey(), getPrefixKey(), 
+        getLocalNameKey(), getURIKey());
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof final NamespaceNode other) {
-      return Objects.equal(nodeDelegate, other.nodeDelegate) && Objects.equal(nameNodeDelegate, other.nameNodeDelegate);
+      return nodeKey == other.nodeKey
+          && getParentKey() == other.getParentKey()
+          && getPreviousRevisionNumber() == other.getPreviousRevisionNumber()
+          && getLastModifiedRevisionNumber() == other.getLastModifiedRevisionNumber()
+          && getPathNodeKey() == other.getPathNodeKey()
+          && getPrefixKey() == other.getPrefixKey()
+          && getLocalNameKey() == other.getLocalNameKey()
+          && getURIKey() == other.getURIKey();
     }
     return false;
   }
 
   @Override
   public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this).add("nodeDel", nodeDelegate).add("nameDel", nameNodeDelegate).toString();
+    return MoreObjects.toStringHelper(this)
+        .add("nodeKey", nodeKey)
+        .add("parentKey", getParentKey())
+        .add("prevRevision", getPreviousRevisionNumber())
+        .add("lastModRevision", getLastModifiedRevisionNumber())
+        .add("pathNodeKey", getPathNodeKey())
+        .add("prefixKey", getPrefixKey())
+        .add("localNameKey", getLocalNameKey())
+        .add("uriKey", getURIKey())
+        .toString();
   }
 
   @Override
   public void setPathNodeKey(final @NonNegative long pathNodeKey) {
-    nameNodeDelegate.setPathNodeKey(pathNodeKey);
+    PATH_NODE_KEY_HANDLE.set(segment, 0L, pathNodeKey);
   }
 
   @Override
   public long getPathNodeKey() {
-    return nameNodeDelegate.getPathNodeKey();
-  }
-
-  /**
-   * Getting the inlying {@link NameNodeDelegate}.
-   *
-   * @return {@link NameNodeDelegate} instance
-   */
-  public NameNodeDelegate getNameNodeDelegate() {
-    return nameNodeDelegate;
-  }
-
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return nodeDelegate;
+    return (long) PATH_NODE_KEY_HANDLE.get(segment, 0L);
   }
 
   @Override
@@ -214,18 +282,86 @@ public final class NamespaceNode extends AbstractForwardingNode implements NameN
     return qNm;
   }
 
-  @Override
-  public SirixDeweyID getDeweyID() {
-    return nodeDelegate.getDeweyID();
+  public void setName(final QNm name) {
+    this.qNm = name;
   }
 
   @Override
-  public int getTypeKey() {
-    return nodeDelegate.getTypeKey();
+  public SirixDeweyID getDeweyID() {
+    return sirixDeweyID;
+  }
+
+  @Override
+  public void setDeweyID(final SirixDeweyID id) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = null; // Clear cached bytes
   }
 
   @Override
   public byte[] getDeweyIDAsBytes() {
-    return nodeDelegate.getDeweyIDAsBytes();
+    if (deweyIDBytes == null && sirixDeweyID != null) {
+      deweyIDBytes = sirixDeweyID.toBytes();
+    }
+    return deweyIDBytes;
+  }
+
+  @Override
+  public int getTypeKey() {
+    // Namespace nodes don't have type information
+    return -1;
+  }
+
+  @Override
+  public void setTypeKey(final int typeKey) {
+    // Namespace nodes don't have type information, so this is a no-op
+  }
+
+  @Override
+  public long getNodeKey() {
+    return nodeKey;
+  }
+
+  @Override
+  public long getParentKey() {
+    return (long) PARENT_KEY_HANDLE.get(segment, 0L);
+  }
+
+  @Override
+  public void setParentKey(final long parentKey) {
+    PARENT_KEY_HANDLE.set(segment, 0L, parentKey);
+  }
+
+  @Override
+  public boolean hasParent() {
+    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  public LongHashFunction getHashFunction() {
+    return hashFunction;
+  }
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    return (int) PREVIOUS_REVISION_HANDLE.get(segment, 0L);
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    return (int) LAST_MODIFIED_REVISION_HANDLE.get(segment, 0L);
+  }
+
+  @Override
+  public void setLastModifiedRevision(final int revision) {
+    LAST_MODIFIED_REVISION_HANDLE.set(segment, 0L, revision);
+  }
+
+  @Override
+  public void setPreviousRevision(final int revision) {
+    PREVIOUS_REVISION_HANDLE.set(segment, 0L, revision);
+  }
+
+  @Override
+  public boolean isSameItem(@Nullable Node other) {
+    return other != null && other.getNodeKey() == nodeKey;
   }
 }
