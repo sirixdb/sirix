@@ -112,8 +112,11 @@ public class GrowingMemorySegment {
         // Allocate new larger segment with proper alignment
         MemorySegment newSegment = arena.allocate(newCapacity, ALIGNMENT);
         
-        // Copy existing data to new segment
-        MemorySegment.copy(segment, 0, newSegment, 0, position);
+        // Copy existing data to new segment (copy up to current capacity, not position)
+        long bytesToCopy = Math.min(position, capacity);
+        if (bytesToCopy > 0) {
+            MemorySegment.copy(segment, 0, newSegment, 0, bytesToCopy);
+        }
         
         // Update references
         this.segment = newSegment;

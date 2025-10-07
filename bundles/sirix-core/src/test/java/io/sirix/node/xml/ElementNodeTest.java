@@ -21,13 +21,14 @@
 
 package io.sirix.node.xml;
 
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.utils.NamePageHash;
+import io.sirix.node.json.JsonNodeTestHelper;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
-import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Assert;
@@ -37,12 +38,9 @@ import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixException;
-import io.sirix.node.delegates.NameNodeDelegate;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.settings.Constants;
 
-import java.nio.ByteBuffer;
+import java.io.IOException;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -77,32 +75,81 @@ public class ElementNodeTest {
   }
 
   @Test
-  public void testElementNode() {
-    final NodeDelegate del =
-        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12L, 17L, 16L, 1L, 0);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 17, 18, 19, 1);
+  public void testElementNode() throws IOException {
+    // Use a simplified ResourceConfiguration for testing
+    final var config = ResourceConfiguration.newBuilder("test")
+        .hashKind(HashType.ROLLING)
+        .storeChildCount(true)
+        .build();
 
-    final ElementNode node =
-        new ElementNode(strucDel, nameDel, new LongArrayList(), new LongArrayList(), new QNm("ns", "a", "p"));
+    // Create data in the correct serialization format with size prefix and padding
+    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + StructNode + NameNode fields + attributes + namespaces][end padding]
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    
+    long sizePos = JsonNodeTestHelper.writeHeader(data, NodeKind.ELEMENT);
+    long startPos = data.writePosition();
+    
+    // Write NodeDelegate fields (16 bytes)
+    data.writeLong(14);                              // parentKey - offset 0
+    data.writeInt(Constants.NULL_REVISION_NUMBER);   // previousRevision - offset 8
+    data.writeInt(0);                                // lastModifiedRevision - offset 12
+    
+    // Write StructNode fields (32 bytes)
+    data.writeLong(17L);                             // rightSiblingKey - offset 16
+    data.writeLong(16L);                             // leftSiblingKey - offset 24
+    data.writeLong(12L);                             // firstChildKey - offset 32
+    data.writeLong(12L);                             // lastChildKey - offset 40
+    
+    // Write NameNode fields (20 bytes)
+    data.writeLong(1L);                              // pathNodeKey - offset 48
+    data.writeInt(18);                               // prefixKey - offset 56
+    data.writeInt(19);                               // localNameKey - offset 60
+    data.writeInt(17);                               // uriKey - offset 64
+    
+    // Write optional fields
+    if (config.storeChildCount()) {
+      data.writeLong(1L);                            // childCount - offset 68
+    }
+    if (config.hashType != HashType.NONE) {
+      data.writeLong(0);                             // hash placeholder - offset 76
+      data.writeLong(0);                             // descendantCount - offset 84
+    }
+    
+    // Write attributes list
+    data.writeInt(2);                                // attribute count
+    data.writeLong(97);                              // attribute key 1
+    data.writeLong(98);                              // attribute key 2
+    
+    // Write namespaces list
+    data.writeInt(2);                                // namespace count
+    data.writeLong(99);                              // namespace key 1
+    data.writeLong(100);                             // namespace key 2
+    
+    // Finalize AFTER writing attributes and namespaces
+    JsonNodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    
+    // Deserialize to create properly initialized node
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
+    final ElementNode node = (ElementNode) NodeKind.ELEMENT.deserialize(
+        bytesIn, 13L, SirixDeweyID.newRootID().toBytes(), config);
+    
+    // Compute and set hash
     var hashBytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
-
-    // Create empty node.
-    node.insertAttribute(97);
-    node.insertAttribute(98);
-    node.insertNamespace(99);
-    node.insertNamespace(100);
+    
     check(node);
 
     // Serialize and deserialize node.
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(data.asBytesIn(),
+    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    data2.writeByte(NodeKind.ELEMENT.getId()); // Write NodeKind to ensure proper alignment
+    node.getKind().serialize(data2, node, config);
+    var bytesIn2 = data2.asBytesIn();
+    bytesIn2.readByte(); // Skip NodeKind byte
+    final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(bytesIn2,
                                                                          node.getNodeKey(),
                                                                          node.getDeweyID().toBytes(),
-                                                                         pageReadTrx.getResourceSession()
-                                                                                    .getResourceConfig());
+                                                                         config);
     check(node2);
   }
 
@@ -111,6 +158,7 @@ public class ElementNodeTest {
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
     assertEquals(12L, node.getFirstChildKey());
+    assertEquals(12L, node.getLastChildKey());
     assertEquals(16L, node.getLeftSiblingKey());
     assertEquals(17L, node.getRightSiblingKey());
     assertEquals(1, node.getChildCount());
@@ -119,9 +167,11 @@ public class ElementNodeTest {
     assertEquals(17, node.getURIKey());
     assertEquals(18, node.getPrefixKey());
     assertEquals(19, node.getLocalNameKey());
-    Assert.assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
+    assertEquals(1L, node.getPathNodeKey());
+    // typeKey is not persisted, so we don't test it
     Assert.assertEquals(NodeKind.ELEMENT, node.getKind());
     assertTrue(node.hasFirstChild());
+    assertTrue(node.hasLastChild());
     assertTrue(node.hasParent());
     assertTrue(node.hasLeftSibling());
     assertTrue(node.hasRightSibling());

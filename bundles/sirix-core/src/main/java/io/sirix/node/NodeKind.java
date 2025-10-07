@@ -88,54 +88,114 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-
-      // Struct delegate.
-      final StructNodeDelegate structDel = deserializeStructDel(this, nodeDel, source, resourceConfiguration);
-
-      final long hashCode = getHash(source, resourceConfiguration);
-
-      // Name delegate.
-      final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
-
-      // Attributes.
+      // Read size prefix and skip padding  
+      long startReadPos = source.position();
+      int totalSize = JsonNodeSerializer.readSizePrefix(source);
+      
+      // Read all core fields directly into a buffer
+      final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+      var config = resourceConfiguration;
+      
+      // Read NodeDelegate fields (16 bytes)
+      data.writeLong(source.readLong());  // parentKey
+      data.writeInt(source.readInt());    // previousRevision
+      data.writeInt(source.readInt());    // lastModifiedRevision
+      
+      // Read StructNode fields (32 bytes)
+      data.writeLong(source.readLong());  // rightSiblingKey
+      data.writeLong(source.readLong());  // leftSiblingKey
+      data.writeLong(source.readLong());  // firstChildKey
+      data.writeLong(source.readLong());  // lastChildKey
+      
+      // Read NameNode fields (20 bytes)
+      data.writeLong(source.readLong());  // pathNodeKey
+      data.writeInt(source.readInt());    // prefixKey
+      data.writeInt(source.readInt());    // localNameKey
+      data.writeInt(source.readInt());    // uriKey
+      
+      // Read optional fields
+      if (config.storeChildCount()) {
+        data.writeLong(source.readLong());  // childCount
+      }
+      if (config.hashType != HashType.NONE) {
+        data.writeLong(source.readLong());  // hash
+        data.writeLong(source.readLong());  // descendantCount
+      }
+      
+      // Read attributes list
       final int attrCount = source.readInt();
       final LongList attrKeys = new LongArrayList(attrCount);
       for (int i = 0; i < attrCount; i++) {
-        final long nodeKey = source.readLong();
-        attrKeys.add(nodeKey);
+        attrKeys.add(source.readLong());
       }
 
-      // Namespaces.
+      // Read namespaces list
       final int nsCount = source.readInt();
       final LongList namespaceKeys = new LongArrayList(nsCount);
       for (int i = 0; i < nsCount; i++) {
         namespaceKeys.add(source.readLong());
       }
-
-      return new ElementNode(hashCode, structDel, nameDel, attrKeys, namespaceKeys, new QNm(""));
+      
+      // Skip end padding to position at next node (size includes padding)
+      long bytesRead = source.position() - startReadPos - 7; // -7 for size prefix (4 bytes) + padding (3 bytes)
+      long paddingBytes = totalSize - bytesRead;
+      if (paddingBytes > 0) {
+        source.position(source.position() + paddingBytes);
+      }
+      
+      var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
+      return new ElementNode(segment, recordID, deweyID, resourceConfiguration, attrKeys, namespaceKeys, new QNm(""));
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ElementNode node = (ElementNode) record;
-      serializeDelegate(node.getNodeDelegate(), sink);
-      serializeStructDelegate(this, node.getStructNodeDelegate(), sink, resourceConfiguration);
-      if (resourceConfiguration.hashType != HashType.NONE) {
-        writeHash(sink, node.getHash());
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
+      long startPos = sink.writePosition();
+      var config = resourceConfiguration;
+      
+      // Write NodeDelegate fields (16 bytes)
+      sink.writeLong(node.getParentKey());
+      sink.writeInt(node.getPreviousRevisionNumber());
+      sink.writeInt(node.getLastModifiedRevisionNumber());
+      
+      // Write StructNode fields (32 bytes)
+      sink.writeLong(node.getRightSiblingKey());
+      sink.writeLong(node.getLeftSiblingKey());
+      sink.writeLong(node.getFirstChildKey());
+      sink.writeLong(node.getLastChildKey());
+      
+      // Write NameNode fields (20 bytes)
+      sink.writeLong(node.getPathNodeKey());
+      sink.writeInt(node.getPrefixKey());
+      sink.writeInt(node.getLocalNameKey());
+      sink.writeInt(node.getURIKey());
+      
+      // Write optional fields
+      if (config.storeChildCount()) {
+        sink.writeLong(node.getChildCount());
       }
-      serializeNameDelegate(node.getNameNodeDelegate(), sink);
+      if (config.hashType != HashType.NONE) {
+        writeHash(sink, node.getHash());
+        sink.writeLong(node.getDescendantCount());
+      }
+      
+      // Write attributes list
       sink.writeInt(node.getAttributeCount());
       for (int i = 0, attCount = node.getAttributeCount(); i < attCount; i++) {
-        final long key = node.getAttributeKey(i);
-        sink.writeLong(key);
+        sink.writeLong(node.getAttributeKey(i));
       }
+      
+      // Write namespaces list
       sink.writeInt(node.getNamespaceCount());
       for (int i = 0, nspCount = node.getNamespaceCount(); i < nspCount; i++) {
         sink.writeLong(node.getNamespaceKey(i));
       }
+      
+      // Write padding and update size prefix AFTER everything (including attributes/namespaces)
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
   },
 
