@@ -110,17 +110,20 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
 
-  /** The text value (lazily loaded). */
+  /** The text value (lazily decompressed). */
   private byte[] value;
 
   /** Whether the value is compressed. */
-  private final boolean isCompressed;
+  private boolean isCompressed;
 
   /** Computed hash (lazily computed). */
   private long hash;
 
+  /** Compressed/serialized value bytes for lazy decompression. */
+  private byte[] compressedValue;
+
   /**
-   * Constructor for MemorySegment-based TextNode
+   * Constructor for MemorySegment-based TextNode (eager value loading)
    *
    * @param segment        the MemorySegment containing all node data
    * @param nodeKey        the node key (record ID)
@@ -143,7 +146,7 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
    * @param nodeKey        the node key (record ID)
    * @param id             optional DeweyID
    * @param hashFunction   hash function for computing node hashes
-   * @param value          the text value
+   * @param value          the value bytes (compressed or uncompressed)
    * @param isCompressed   whether the value is compressed
    */
   public TextNode(final MemorySegment segment, final long nodeKey, final SirixDeweyID id,
@@ -155,8 +158,16 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
     assert hashFunction != null;
     this.hashFunction = hashFunction;
     assert value != null;
-    this.value = value;
     this.isCompressed = isCompressed;
+    if (isCompressed) {
+      // Store compressed bytes, decompress lazily
+      this.compressedValue = value;
+      this.value = null;
+    } else {
+      // Store uncompressed bytes directly
+      this.value = value;
+      this.compressedValue = null;
+    }
   }
 
   @Override
@@ -197,9 +208,11 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
 
   @Override
   public byte[] getRawValue() {
-    if (value == null && isCompressed) {
-      // Decompress if needed
-      value = Compression.decompress(value);
+    if (value == null && compressedValue != null) {
+      // Lazy decompress the value
+      value = Compression.decompress(compressedValue);
+      // Clear compressed data to save memory
+      compressedValue = null;
     }
     return value;
   }
@@ -207,6 +220,8 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
   @Override
   public void setRawValue(final byte[] value) {
     this.value = value;
+    this.compressedValue = null;
+    this.isCompressed = false;
     this.hash = 0L; // Invalidate hash
   }
 
