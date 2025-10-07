@@ -36,6 +36,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
+import io.sirix.node.NodeTestHelper;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import org.junit.Before;
@@ -72,7 +73,7 @@ public class BooleanNodeTest {
     // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + value + siblings][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     
-    long sizePos = JsonNodeTestHelper.writeHeader(data, NodeKind.BOOLEAN_VALUE);
+    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.BOOLEAN_VALUE);
     long startPos = data.writePosition();
     // NodeDelegate fields
     data.writeLong(14); // parentKey
@@ -84,7 +85,7 @@ public class BooleanNodeTest {
     // Value
     data.writeBoolean(value);
     
-    JsonNodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
     
     // Deserialize to create properly initialized node
     var bytesIn = data.asBytesIn();

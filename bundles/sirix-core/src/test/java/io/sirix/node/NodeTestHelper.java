@@ -26,18 +26,17 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package io.sirix.node.json;
+package io.sirix.node;
 
-import io.sirix.node.BytesOut;
-import io.sirix.node.NodeKind;
+import io.sirix.node.json.JsonNodeSerializer;
 
 /**
- * Helper class for JSON node tests. Provides convenience methods for writing test data
- * in the correct serialization format.
+ * Helper class for node tests. Provides convenience methods for writing test data
+ * in the correct serialization format for both JSON and XML nodes.
  */
-public final class JsonNodeTestHelper {
+public final class NodeTestHelper {
 
-  private JsonNodeTestHelper() {
+  private NodeTestHelper() {
     // Utility class
   }
 
@@ -67,3 +66,4 @@ public final class JsonNodeTestHelper {
     JsonNodeSerializer.updateSizePrefix(data, sizePos, startPos);
   }
 }
+

@@ -22,6 +22,7 @@
 package io.sirix.node.xml;
 
 import io.sirix.node.NodeKind;
+import io.sirix.node.NodeTestHelper;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
@@ -71,7 +72,7 @@ public class NamespaceNodeTest {
     // Create data in the correct serialization format with size prefix and padding
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     
-    long sizePos = io.sirix.node.json.JsonNodeTestHelper.writeHeader(data, NodeKind.NAMESPACE);
+    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.NAMESPACE);
     long startPos = data.writePosition();
     
     // Write NodeDelegate fields (16 bytes)
@@ -86,7 +87,7 @@ public class NamespaceNodeTest {
     data.writeInt(13);                               // uriKey - offset 32
     
     // Finalize
-    io.sirix.node.json.JsonNodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
     
     // Deserialize to create properly initialized node
     var bytesIn = data.asBytesIn();

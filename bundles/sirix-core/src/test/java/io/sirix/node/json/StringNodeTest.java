@@ -33,6 +33,7 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
+import io.sirix.node.NodeTestHelper;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
@@ -72,7 +73,7 @@ public class StringNodeTest {
     // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + value + siblings][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     
-    long sizePos = JsonNodeTestHelper.writeHeader(data, NodeKind.STRING_VALUE);
+    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.STRING_VALUE);
     long startPos = data.writePosition();
     // NodeDelegate fields
     data.writeLong(14); // parentKey
@@ -85,7 +86,7 @@ public class StringNodeTest {
     data.writeLong(16L); // rightSibling
     data.writeLong(15L); // leftSibling
     
-    JsonNodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
     
     // Deserialize to create properly initialized node
     var bytesIn = data.asBytesIn();

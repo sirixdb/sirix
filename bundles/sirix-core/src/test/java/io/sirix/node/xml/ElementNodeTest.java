@@ -25,7 +25,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.json.JsonNodeTestHelper;
+import io.sirix.node.NodeTestHelper;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
@@ -86,7 +86,7 @@ public class ElementNodeTest {
     // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + StructNode + NameNode fields + attributes + namespaces][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     
-    long sizePos = JsonNodeTestHelper.writeHeader(data, NodeKind.ELEMENT);
+    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.ELEMENT);
     long startPos = data.writePosition();
     
     // Write NodeDelegate fields (16 bytes)
@@ -126,7 +126,7 @@ public class ElementNodeTest {
     data.writeLong(100);                             // namespace key 2
     
     // Finalize AFTER writing attributes and namespaces
-    JsonNodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
     
     // Deserialize to create properly initialized node
     var bytesIn = data.asBytesIn();
