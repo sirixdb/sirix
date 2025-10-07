@@ -417,38 +417,48 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-
-      // Val delegate.
+      // Read all core fields directly into a buffer
+      final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+      
+      // Read NodeDelegate fields (16 bytes)
+      data.writeLong(source.readLong());  // parentKey
+      data.writeInt(source.readInt());    // previousRevision
+      data.writeInt(source.readInt());    // lastModifiedRevision
+      
+      // Read value
       final boolean isCompressed = source.readByte() == (byte) 1;
       final byte[] vals = new byte[source.readInt()];
       source.read(vals, 0, vals.length);
-      final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, vals, isCompressed);
-
-      // Struct delegate.
-      final long nodeKey = nodeDel.getNodeKey();
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  nodeKey - getVarLong(source),
-                                                                  nodeKey - getVarLong(source),
-                                                                  0L,
-                                                                  0L);
-
-      // Returning an instance.
-      return new CommentNode(valDel, structDel);
+      
+      // Read sibling keys
+      final long nodeKey = recordID;
+      data.writeLong(nodeKey - getVarLong(source));  // rightSiblingKey
+      data.writeLong(nodeKey - getVarLong(source));  // leftSiblingKey
+      
+      var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
+      return new CommentNode(segment, recordID, deweyID, resourceConfiguration.nodeHashFunction, vals, isCompressed);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final CommentNode node = (CommentNode) record;
-      serializeDelegate(node.getNodeDelegate(), sink);
-      serializeValDelegate(node.getValNodeDelegate(), sink);
-      final StructNodeDelegate del = node.getStructNodeDelegate();
+      
+      // Write NodeDelegate fields (16 bytes)
+      sink.writeLong(node.getParentKey());
+      sink.writeInt(node.getPreviousRevisionNumber());
+      sink.writeInt(node.getLastModifiedRevisionNumber());
+      
+      // Write value
+      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      final byte[] value = node.getRawValue();
+      sink.writeInt(value.length);
+      sink.write(value);
+      
+      // Write sibling keys as offsets
       final long nodeKey = node.getNodeKey();
-      putVarLong(sink, nodeKey - del.getRightSiblingKey());
-      putVarLong(sink, nodeKey - del.getLeftSiblingKey());
+      putVarLong(sink, nodeKey - node.getRightSiblingKey());
+      putVarLong(sink, nodeKey - node.getLeftSiblingKey());
     }
   },
 
