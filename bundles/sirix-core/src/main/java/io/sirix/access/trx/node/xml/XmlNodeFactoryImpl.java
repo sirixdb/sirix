@@ -188,22 +188,32 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   @Override
   public NamespaceNode createNamespaceNode(final @NonNegative long parentKey, final QNm name,
       final @NonNegative long pathNodeKey, final SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction,
-                         Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-
     final int uriKey = pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
     final int prefixKey =
         name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
                                                                                         NodeKind.NAMESPACE) : -1;
 
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, -1, pathNodeKey);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
 
-    return pageTrx.createRecord(new NamespaceNode(nodeDel, nameDel, name), IndexType.DOCUMENT, -1);
+    // Allocate MemorySegment and write all fields matching NamespaceNode.CORE_LAYOUT order
+    final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+    
+    // Write NodeDelegate fields (16 bytes)
+    data.writeLong(parentKey);                      // offset 0
+    data.writeInt(Constants.NULL_REVISION_NUMBER);  // offset 8
+    data.writeInt(revisionNumber);                  // offset 12
+    
+    // Write NameNode fields (20 bytes)
+    data.writeLong(pathNodeKey);                    // offset 16
+    data.writeInt(prefixKey);                       // offset 24
+    data.writeInt(-1);                              // offset 28 (localNameKey - not used for namespaces)
+    data.writeInt(uriKey);                          // offset 32
+    
+    // Create NamespaceNode from MemorySegment
+    var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
+    var node = new NamespaceNode(segment, nodeKey, id, hashFunction, name);
+
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
