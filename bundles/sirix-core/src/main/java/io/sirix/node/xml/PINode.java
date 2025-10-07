@@ -29,11 +29,11 @@ package io.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
-import io.brackit.query.atomic.QNm;
 import io.sirix.node.interfaces.Node;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;

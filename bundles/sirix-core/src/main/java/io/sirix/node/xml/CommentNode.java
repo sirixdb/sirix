@@ -32,17 +32,17 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.xml.ImmutableComment;
+import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import io.sirix.node.interfaces.Node;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-import io.sirix.node.Bytes;
-import io.sirix.node.BytesOut;
 import io.sirix.utils.Compression;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -52,7 +52,6 @@ import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.VarHandle;
-import java.nio.ByteBuffer;
 
 /**
  * Comment node implementation backed by MemorySegment.
