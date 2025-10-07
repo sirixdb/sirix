@@ -227,19 +227,43 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
             : -1;
     final int localNameKey = pageTrx.createNameKey(target.getLocalName(), NodeKind.PROCESSING_INSTRUCTION);
     final int uriKey = pageTrx.createNameKey(target.getNamespaceURI(), NodeKind.NAMESPACE);
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction,
-                         Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, content, false);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
 
-    return pageTrx.createRecord(new PINode(structDel, nameDel, valDel), IndexType.DOCUMENT, -1);
+    // Allocate MemorySegment and write all fields matching PINode.CORE_LAYOUT order
+    final var config = pageTrx.getResourceSession().getResourceConfig();
+    final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+    
+    // Write NodeDelegate fields (16 bytes)
+    data.writeLong(parentKey);                      // offset 0
+    data.writeInt(Constants.NULL_REVISION_NUMBER);  // offset 8
+    data.writeInt(revisionNumber);                  // offset 12
+    
+    // Write StructNode fields (32 bytes)
+    data.writeLong(rightSibKey);                                         // offset 16
+    data.writeLong(leftSibKey);                                          // offset 24
+    data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty());           // offset 32 (firstChild)
+    data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty());           // offset 40 (lastChild)
+    
+    // Write NameNode fields (20 bytes)
+    data.writeLong(pathNodeKey);                    // offset 48
+    data.writeInt(prefixKey);                       // offset 56
+    data.writeInt(localNameKey);                    // offset 60
+    data.writeInt(uriKey);                          // offset 64
+    
+    // Write optional fields
+    if (config.storeChildCount()) {
+      data.writeLong(0); // childCount = 0
+    }
+    if (config.hashType != io.sirix.access.trx.node.HashType.NONE) {
+      data.writeLong(0); // hash placeholder
+      data.writeLong(0); // descendantCount = 0
+    }
+    
+    // Create PINode from MemorySegment
+    var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
+    var node = new PINode(segment, nodeKey, id, config, hashFunction, content, false);
+
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
