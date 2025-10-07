@@ -380,33 +380,83 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-
-      // Struct delegate.
-      final StructNodeDelegate structDel = deserializeStructDel(this, nodeDel, source, resourceConfiguration);
-
-      // Name delegate.
-      final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
-
-      // Val delegate.
+      // Read all core fields directly into a buffer
+      final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+      var config = resourceConfiguration;
+      
+      // Read NodeDelegate fields (16 bytes)
+      data.writeLong(source.readLong());  // parentKey
+      data.writeInt(source.readInt());    // previousRevision
+      data.writeInt(source.readInt());    // lastModifiedRevision
+      
+      // Read StructNode fields (32 bytes)
+      data.writeLong(source.readLong());  // rightSiblingKey
+      data.writeLong(source.readLong());  // leftSiblingKey
+      data.writeLong(source.readLong());  // firstChildKey
+      data.writeLong(source.readLong());  // lastChildKey
+      
+      // Read NameNode fields (20 bytes)
+      data.writeLong(source.readLong());  // pathNodeKey
+      data.writeInt(source.readInt());    // prefixKey
+      data.writeInt(source.readInt());    // localNameKey
+      data.writeInt(source.readInt());    // uriKey
+      
+      // Read optional fields
+      if (config.storeChildCount()) {
+        data.writeLong(source.readLong());  // childCount
+      }
+      if (config.hashType != HashType.NONE) {
+        data.writeLong(source.readLong());  // hash
+        data.writeLong(source.readLong());  // descendantCount
+      }
+      
+      // Read value
       final boolean isCompressed = source.readByte() == (byte) 1;
       final byte[] vals = new byte[source.readInt()];
       source.read(vals, 0, vals.length);
-      final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, vals, isCompressed);
-
-      // Returning an instance.
-      return new PINode(structDel, nameDel, valDel);
+      
+      var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
+      return new PINode(segment, recordID, deweyID, resourceConfiguration, 
+                       resourceConfiguration.nodeHashFunction, vals, isCompressed);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final PINode node = (PINode) record;
-      serializeDelegate(node.getNodeDelegate(), sink);
-      serializeStructDelegate(this, node.getStructNodeDelegate(), sink, resourceConfiguration);
-      serializeNameDelegate(node.getNameNodeDelegate(), sink);
-      serializeValDelegate(node.getValNodeDelegate(), sink);
+      var config = resourceConfiguration;
+      
+      // Write NodeDelegate fields (16 bytes)
+      sink.writeLong(node.getParentKey());
+      sink.writeInt(node.getPreviousRevisionNumber());
+      sink.writeInt(node.getLastModifiedRevisionNumber());
+      
+      // Write StructNode fields (32 bytes)
+      sink.writeLong(node.getRightSiblingKey());
+      sink.writeLong(node.getLeftSiblingKey());
+      sink.writeLong(node.getFirstChildKey());
+      sink.writeLong(node.getLastChildKey());
+      
+      // Write NameNode fields (20 bytes)
+      sink.writeLong(node.getPathNodeKey());
+      sink.writeInt(node.getPrefixKey());
+      sink.writeInt(node.getLocalNameKey());
+      sink.writeInt(node.getURIKey());
+      
+      // Write optional fields
+      if (config.storeChildCount()) {
+        sink.writeLong(node.getChildCount());
+      }
+      if (config.hashType != HashType.NONE) {
+        writeHash(sink, node.getHash());
+        sink.writeLong(node.getDescendantCount());
+      }
+      
+      // Write value
+      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      final byte[] value = node.getRawValue();
+      sink.writeInt(value.length);
+      sink.write(value);
     }
   },
 

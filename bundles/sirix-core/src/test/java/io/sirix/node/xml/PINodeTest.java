@@ -78,14 +78,40 @@ public class PINodeTest {
   @Test
   public void testProcessInstructionNode() {
     final byte[] value = { (byte) 17, (byte) 18 };
-
-    final NodeDelegate del =
-        new NodeDelegate(99, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate structDel = new StructNodeDelegate(del, 17, 16, 22, 1, 1);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
-
-    final PINode node = new PINode(structDel, nameDel, valDel);
+    final var config = pageReadTrx.getResourceSession().getResourceConfig();
+    
+    // Create node with MemorySegment
+    final var data = Bytes.elasticHeapByteBuffer();
+    
+    // Write NodeDelegate fields (16 bytes)
+    data.writeLong(13);                              // parentKey - offset 0
+    data.writeInt(Constants.NULL_REVISION_NUMBER);   // previousRevision - offset 8
+    data.writeInt(0);                                // lastModifiedRevision - offset 12
+    
+    // Write StructNode fields (32 bytes)
+    data.writeLong(16L);                             // rightSiblingKey - offset 16
+    data.writeLong(22L);                             // leftSiblingKey - offset 24
+    data.writeLong(17L);                             // firstChildKey - offset 32
+    data.writeLong(17L);                             // lastChildKey - offset 40 (use same as firstChild for consistency)
+    
+    // Write NameNode fields (20 bytes)
+    data.writeLong(1L);                              // pathNodeKey - offset 48
+    data.writeInt(14);                               // prefixKey - offset 56
+    data.writeInt(15);                               // localNameKey - offset 60
+    data.writeInt(13);                               // uriKey - offset 64
+    
+    // Write optional fields
+    if (config.storeChildCount()) {
+      data.writeLong(1L);                            // childCount - offset 68
+    }
+    if (config.hashType != io.sirix.access.trx.node.HashType.NONE) {
+      data.writeLong(0);                             // hash placeholder - offset 76
+      data.writeLong(1);                             // descendantCount - offset 84
+    }
+    
+    var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
+    final PINode node = new PINode(segment, 99L, SirixDeweyID.newRootID(), 
+                                   config, LongHashFunction.xx3(), value, false);
     var hashBytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
 
@@ -93,9 +119,9 @@ public class PINodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(data.asBytesIn(),
+    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
+    final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(data2.asBytesIn(),
                                                                               node.getNodeKey(),
                                                                               node.getDeweyID().toBytes(),
                                                                               pageReadTrx.getResourceSession()
