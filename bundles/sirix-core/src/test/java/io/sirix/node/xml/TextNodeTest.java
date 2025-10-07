@@ -77,20 +77,30 @@ public class TextNodeTest {
   public void testTextRootNode() {
     // Create empty node.
     final byte[] value = { (byte) 17, (byte) 18 };
-    final NodeDelegate del =
-        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
-    final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
-    final TextNode node = new TextNode(valDel, strucDel);
+    
+    // Create node with MemorySegment
+    final var data = Bytes.elasticHeapByteBuffer();
+    
+    // Write NodeDelegate fields (16 bytes)
+    data.writeLong(14);                              // parentKey - offset 0
+    data.writeInt(Constants.NULL_REVISION_NUMBER);   // previousRevision - offset 8
+    data.writeInt(0);                                // lastModifiedRevision - offset 12
+    
+    // Write sibling keys (16 bytes)
+    data.writeLong(16L);                             // rightSiblingKey - offset 16
+    data.writeLong(15L);                             // leftSiblingKey - offset 24
+    
+    var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
+    final TextNode node = new TextNode(segment, 13L, SirixDeweyID.newRootID(), 
+                                       LongHashFunction.xx3(), value, false);
     var hashBytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
     check(node);
 
     // Serialize and deserialize node.
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(data.asBytesIn(),
+    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
+    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(data2.asBytesIn(),
                                                                 node.getNodeKey(),
                                                                 node.getDeweyID().toBytes(),
                                                                 pageReadTrx.getResourceSession().getResourceConfig());
