@@ -77,12 +77,23 @@ public class AttributeNodeTest {
   public void testAttributeNode() {
     final byte[] value = { (byte) 17, (byte) 18 };
 
-    final NodeDelegate del =
-        new NodeDelegate(99, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
-
-    final AttributeNode node = new AttributeNode(del, nameDel, valDel, new QNm("ns", "a", "p"));
+    // Create MemorySegment with all fields in correct order matching AttributeNode.CORE_LAYOUT
+    final BytesOut<?> nodeData = Bytes.elasticHeapByteBuffer();
+    
+    // Write NodeDelegate fields (16 bytes)
+    nodeData.writeLong(13);                             // parentKey - offset 0
+    nodeData.writeInt(Constants.NULL_REVISION_NUMBER);  // previousRevision - offset 8
+    nodeData.writeInt(0);                               // lastModifiedRevision - offset 12
+    
+    // Write NameNode fields (20 bytes)
+    nodeData.writeLong(1);                              // pathNodeKey - offset 16
+    nodeData.writeInt(14);                              // prefixKey - offset 24
+    nodeData.writeInt(15);                              // localNameKey - offset 28
+    nodeData.writeInt(13);                              // uriKey - offset 32
+    
+    var segment = (java.lang.foreign.MemorySegment) nodeData.asBytesIn().getUnderlying();
+    final AttributeNode node = new AttributeNode(segment, 99L, SirixDeweyID.newRootID(), 
+                                                 value, false, new QNm("ns", "a", "p"));
     var hashBytes = Bytes.elasticHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
 
@@ -91,8 +102,11 @@ public class AttributeNodeTest {
 
     // Serialize and deserialize node.
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    data.writeByte(NodeKind.ATTRIBUTE.getId()); // Write NodeKind byte
     node.getKind().serialize(data, node, pageReadOnlyTrx.getResourceSession().getResourceConfig());
-    final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(data.asBytesIn(),
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
+    final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(bytesIn,
                                                                                node.getNodeKey(),
                                                                                node.getDeweyID().toBytes(),
                                                                                pageReadOnlyTrx.getResourceSession().getResourceConfig());

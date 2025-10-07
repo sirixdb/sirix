@@ -206,29 +206,67 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID, deweyID, resourceConfiguration);
-
-      // Name delegate.
-      final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
-
-      // Val delegate.
+      // Read size prefix and skip padding  
+      long startReadPos = source.position();
+      int totalSize = JsonNodeSerializer.readSizePrefix(source);
+      
+      // Read all core fields directly into a buffer
+      final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+      
+      // Read NodeDelegate fields (16 bytes)
+      data.writeLong(source.readLong());  // parentKey
+      data.writeInt(source.readInt());    // previousRevision
+      data.writeInt(source.readInt());    // lastModifiedRevision
+      
+      // Read NameNode fields (20 bytes)
+      data.writeLong(source.readLong());  // pathNodeKey
+      data.writeInt(source.readInt());    // prefixKey
+      data.writeInt(source.readInt());    // localNameKey
+      data.writeInt(source.readInt());    // uriKey
+      
+      // Read value delegate
       final boolean isCompressed = source.readByte() == (byte) 1;
       final byte[] vals = new byte[source.readInt()];
       source.read(vals, 0, vals.length);
-      final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, vals, isCompressed);
-
-      // Returning an instance.
-      return new AttributeNode(nodeDel, nameDel, valDel, new QNm(""));
+      
+      // Skip end padding to position at next node (size includes padding)
+      long bytesRead = source.position() - startReadPos - 7; // -7 for size prefix (4 bytes) + padding (3 bytes)
+      long paddingBytes = totalSize - bytesRead;
+      if (paddingBytes > 0) {
+        source.position(source.position() + paddingBytes);
+      }
+      
+      var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
+      return new AttributeNode(segment, recordID, deweyID, vals, isCompressed, new QNm(""));
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final AttributeNode node = (AttributeNode) record;
-      serializeDelegate(node.getNodeDelegate(), sink);
-      serializeNameDelegate(node.getNameNodeDelegate(), sink);
-      serializeValDelegate(node.getValNodeDelegate(), sink);
+      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
+      long startPos = sink.writePosition();
+      
+      // Write NodeDelegate fields (16 bytes)
+      sink.writeLong(node.getParentKey());
+      sink.writeInt(node.getPreviousRevisionNumber());
+      sink.writeInt(node.getLastModifiedRevisionNumber());
+      
+      // Write NameNode fields (20 bytes)
+      sink.writeLong(node.getPathNodeKey());
+      sink.writeInt(node.getPrefixKey());
+      sink.writeInt(node.getLocalNameKey());
+      sink.writeInt(node.getURIKey());
+      
+      // Write value delegate
+      final byte[] value = node.getRawValue();
+      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      sink.writeInt(value.length);
+      sink.write(value);
+      
+      // Write padding and update size prefix
+      JsonNodeSerializer.writeEndPadding(sink, startPos);
+      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
   },
 
