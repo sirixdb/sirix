@@ -162,18 +162,27 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
                                                                                         NodeKind.ATTRIBUTE) : -1;
     final int localNameKey = pageTrx.createNameKey(name.getLocalName(), NodeKind.ATTRIBUTE);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
 
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction,
-                         Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, value, false);
+    // Allocate MemorySegment and write all fields matching AttributeNode.CORE_LAYOUT order
+    final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+    
+    // Write NodeDelegate fields (16 bytes)
+    data.writeLong(parentKey);                      // offset 0
+    data.writeInt(Constants.NULL_REVISION_NUMBER);  // offset 8
+    data.writeInt(revisionNumber);                  // offset 12
+    
+    // Write NameNode fields (20 bytes)
+    data.writeLong(pathNodeKey);                    // offset 16
+    data.writeInt(prefixKey);                       // offset 24
+    data.writeInt(localNameKey);                    // offset 28
+    data.writeInt(uriKey);                          // offset 32
+    
+    // Create AttributeNode from MemorySegment
+    var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
+    var node = new AttributeNode(segment, nodeKey, id, value, false, name);
 
-    return pageTrx.createRecord(new AttributeNode(nodeDel, nameDel, valDel, name), IndexType.DOCUMENT, -1);
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
