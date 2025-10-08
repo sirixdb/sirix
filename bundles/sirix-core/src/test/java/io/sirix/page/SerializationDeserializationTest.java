@@ -9,7 +9,6 @@ import io.sirix.node.NodeSerializerImpl;
 import io.sirix.settings.Constants;
 import io.sirix.node.BytesOut;
 import io.sirix.node.BytesIn;
-import io.sirix.node.BytesOut;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;

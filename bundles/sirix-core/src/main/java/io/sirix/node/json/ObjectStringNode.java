@@ -66,48 +66,41 @@ import java.lang.invoke.VarHandle;
  */
 public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJsonNode {
 
-  // MemorySegment layout with FIXED offsets (hash moved to end):
+  // MemorySegment layout for ObjectStringNode (FIXED fields first, then VARIABLE content):
+  // Design principle: All fixed-length fields have predictable offsets; variable-length data at end
+  //
   // NodeDelegate data (16 bytes):
   //   - parentKey (8 bytes)            - offset 0
   //   - previousRevision (4 bytes)     - offset 8
   //   - lastModifiedRevision (4 bytes) - offset 12
-  // Fixed StructNode fields (32 bytes):
-  //   - rightSiblingKey (8 bytes)      - offset 16
-  //   - leftSiblingKey (8 bytes)       - offset 24
-  //   - firstChildKey (8 bytes)        - offset 32
-  //   - lastChildKey (8 bytes)         - offset 40
-  // Optional fields:
-  //   - childCount (8 bytes)           - offset 48 (if storeChildCount)
-  //   - hash (8 bytes)                 - offset 48/56 (if hashType != NONE)
-  //   - descendantCount (8 bytes)      - after hash (if hashType != NONE)
-  // Note: String value stored at offset 16 (after NodeDelegate) in the same MemorySegment
+  // Optional fields (fixed-length):
+  //   - hash (8 bytes)                 - offset 16 (if hashType != NONE, computed on-demand)
+  //   Note: childCount and descendantCount are skipped (always 0 for value nodes)
+  // Variable-length string value (at END after all fixed fields):
+  //   - stopBit-encoded length         - offset (16 + optional fields size)
+  //   - string bytes (N bytes)         - after length encoding
+  //
+  // Note: Object value nodes don't have siblings (they're properties of object keys)
 
   /**
    * Core layout (always present) - 16 bytes total
+   * All fields have FIXED offsets and can be accessed via VarHandles
    * Note: Object value nodes are object properties and only have a parent (no siblings, no children)
    */
   public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
-      // NodeDelegate fields only (object properties don't have siblings)
+      // NodeDelegate fields only (object properties don't have siblings/children)
       ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
       ValueLayout.JAVA_INT.withName("previousRevision"),              // offset 8
       ValueLayout.JAVA_INT.withName("lastModifiedRevision")           // offset 12
-      // String value data starts at offset 16
+      // String value data starts after optional fields (at end)
   );
 
   /**
-   * Optional child count layout (only when storeChildCount == true) - 8 bytes
-   * Note: Always 0 for value nodes, but kept for consistency
-   */
-  public static final MemoryLayout CHILD_COUNT_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("childCount")                    // offset 16
-  );
-
-  /**
-   * Optional hash layout (only when hashType != NONE) - 16 bytes
+   * Optional hash layout (only when hashType != NONE) - 8 bytes for value nodes
+   * Note: childCount and descendantCount are not stored for leaf nodes (always 0)
    */
   public static final MemoryLayout HASH_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash"),                         // variable offset
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("descendantCount")               // after hash
+      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash")                          // offset 16
   );
 
   // VarHandles for type-safe field access
@@ -117,14 +110,6 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
       CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("previousRevision"));
   private static final VarHandle LAST_MODIFIED_REVISION_HANDLE = 
       CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("lastModifiedRevision"));
-  
-  // VarHandles for optional fields
-  private static final VarHandle CHILD_COUNT_HANDLE = 
-      CHILD_COUNT_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("childCount"));
-  private static final VarHandle HASH_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("hash"));
-  private static final VarHandle DESCENDANT_COUNT_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("descendantCount"));
 
   // All nodes are MemorySegment-based
   private final MemorySegment segment;
@@ -141,11 +126,6 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   
   // Cached hash value (computed on-demand, not stored in MemorySegment)
   private long cachedHash = 0;
-  
-  // Cached offsets for maximum performance (computed once at construction)
-  private final long childCountOffset;
-  private final long hashOffset;
-  private final long descendantCountOffset;
 
   /**
    * Constructor for MemorySegment-based ObjectStringNode
@@ -168,25 +148,24 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.resourceConfig = resourceConfig;
     this.cachedValue = null; // Lazy initialization
     
-    // For ObjectStringNode, parse the stop-bit encoded length at offset 16
-    // Layout: NodeDelegate (16 bytes) + stopBit length + string bytes
-    final long valueStartOffset = 16;
-    final MemorySegmentUtils.VarLongResult lengthResult = MemorySegmentUtils.readVarLong(segment, valueStartOffset);
+    // Calculate where variable-length string data starts (after all fixed fields)
+    // Layout: NodeDelegate (16) + Optional fields (variable)
+    // Note: Value nodes skip childCount and descendantCount (always 0 for leaf nodes)
+    long valueStartOffset = CORE_LAYOUT.byteSize(); // 16 bytes
+    
+    // Add optional field sizes if present
+    if (resourceConfig.hashType != HashType.NONE) {
+      valueStartOffset += 8; // Hash only (skip descendantCount for value nodes)
+    }
+    
+    // Read stop-bit encoded length and extract string bytes
+    final MemorySegmentUtils.VarLongResult lengthResult = 
+        MemorySegmentUtils.readVarLong(segment, valueStartOffset);
     final long stringLength = lengthResult.value;
     final long stringDataOffset = valueStartOffset + lengthResult.bytesConsumed;
     
     // Create valueSegment as a slice containing only the string bytes
     this.valueSegment = segment.asSlice(stringDataOffset, stringLength);
-    
-    // Compute offsets once for maximum performance
-    this.childCountOffset = CORE_LAYOUT.byteSize();
-    
-    long hashBaseOffset = CORE_LAYOUT.byteSize();
-    if (resourceConfig.storeChildCount()) {
-      hashBaseOffset += CHILD_COUNT_LAYOUT.byteSize();
-    }
-    this.hashOffset = hashBaseOffset;
-    this.descendantCountOffset = hashBaseOffset; // VarHandle adds offset within HASH_LAYOUT
   }
 
   @Override
@@ -322,7 +301,8 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public long getDescendantCount() {
-    // Value nodes are leaf nodes - always 0 descendants
+    // Value nodes have no descendants - return 0
+    // The parent's formula (descendantCount + 1) accounts for the node itself
     return 0;
   }
   
@@ -363,30 +343,22 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public void incrementChildCount() {
-    if (resourceConfig.storeChildCount()) {
-      setChildCount(getChildCount() + 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have children
   }
 
   @Override
   public void decrementChildCount() {
-    if (resourceConfig.storeChildCount()) {
-      setChildCount(getChildCount() - 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have children
   }
 
   @Override
   public void incrementDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      setDescendantCount(getDescendantCount() + 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have descendants
   }
 
   @Override
   public void decrementDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      setDescendantCount(getDescendantCount() - 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have descendants
   }
 
   @Override

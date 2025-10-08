@@ -36,14 +36,11 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
-import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Fixed;
 import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-
-import java.nio.ByteBuffer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -51,7 +48,7 @@ import static java.util.Objects.requireNonNull;
  * Node representing the root of a document. This node is guaranteed to exist in revision 0 and can
  * not be removed.
  */
-public final class XmlDocumentRootNode extends AbstractStructForwardingNode implements StructNode, ImmutableXmlNode {
+public final class XmlDocumentRootNode extends AbstractStructForwardingNode implements ImmutableXmlNode {
 
   /**
    * {@link NodeDelegate} reference.

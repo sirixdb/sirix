@@ -45,7 +45,6 @@ import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.lang.foreign.MemoryLayout;
@@ -153,8 +152,17 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
    */
   public ObjectKeyNode(final MemorySegment segment, final long nodeKey, final byte[] deweyID,
       final ResourceConfiguration resourceConfig) {
-    this(segment, nodeKey, deweyID != null ? new SirixDeweyID(deweyID) : null, resourceConfig);
     this.deweyIDBytes = deweyID;
+    this.segment = segment;
+    this.nodeKey = nodeKey;
+    this.resourceConfig = resourceConfig;
+    this.cachedName = null;
+   
+    // Compute offsets once for maximum performance
+    // ObjectKeyNode does not store childCount, hash is after core layout + 4 bytes padding
+    this.hashOffset = CORE_LAYOUT.byteSize() + 4; // +4 for alignment padding
+    // descendantCount is accessed via HASH_LAYOUT VarHandle, which adds offset within struct
+    this.descendantCountOffset = CORE_LAYOUT.byteSize() + 4; // Same as hashOffset
   }
 
   public ObjectKeyNode(final MemorySegment segment, final long nodeKey, final SirixDeweyID id,
@@ -168,7 +176,8 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     // Compute offsets once for maximum performance
     // ObjectKeyNode does not store childCount, hash is after core layout + 4 bytes padding
     this.hashOffset = CORE_LAYOUT.byteSize() + 4; // +4 for alignment padding
-    this.descendantCountOffset = CORE_LAYOUT.byteSize() + 4; // VarHandle adds offset within HASH_LAYOUT
+    // descendantCount is accessed via HASH_LAYOUT VarHandle, which adds offset within struct
+    this.descendantCountOffset = CORE_LAYOUT.byteSize() + 4; // Same as hashOffset
   }
 
   @Override
@@ -346,7 +355,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public long getChildCount() {
     // ObjectKeyNode always has exactly 1 child (the value)
-    return hasFirstChild() ? 1 : 0;
+    return 1;
   }
 
   public void setChildCount(final long childCount) {
@@ -355,20 +364,20 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   @Override
   public void incrementChildCount() {
-    // Not supported for ObjectKeyNode - always has 0 or 1 child
+    // Not supported for ObjectKeyNode - always has 1 child
   }
 
   @Override
   public void decrementChildCount() {
-    // Not supported for ObjectKeyNode - always has 0 or 1 child
+    // Not supported for ObjectKeyNode - always has 1 child
   }
 
   @Override
   public long getDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      return (long) DESCENDANT_COUNT_HANDLE.get(segment, descendantCountOffset);
+    if (resourceConfig.hashType == HashType.NONE) {
+      return 0;
     }
-    return 0;
+    return (long) DESCENDANT_COUNT_HANDLE.get(segment, descendantCountOffset);
   }
 
   @Override
@@ -381,14 +390,16 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public void decrementDescendantCount() {
     if (resourceConfig.hashType != HashType.NONE) {
-      setDescendantCount(getDescendantCount() - 1);
+      final long descendantCount = getDescendantCount();
+      setDescendantCount(descendantCount - 1);
     }
   }
 
   @Override
   public void incrementDescendantCount() {
     if (resourceConfig.hashType != HashType.NONE) {
-      setDescendantCount(getDescendantCount() + 1);
+      final long descendantCount = getDescendantCount();
+      setDescendantCount(descendantCount + 1);
     }
   }
 
@@ -413,7 +424,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   @Override
   public boolean hasLastChild() {
-    return hasFirstChild(); // Same as first child for ObjectKeyNode
+    return getLastChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -428,6 +439,9 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   @Override
   public @Nullable SirixDeweyID getDeweyID() {
+    if (sirixDeweyID == null && deweyIDBytes != null) {
+      sirixDeweyID = new SirixDeweyID(deweyIDBytes);
+    }
     return sirixDeweyID;
   }
 

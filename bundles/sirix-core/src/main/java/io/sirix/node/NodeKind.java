@@ -1141,11 +1141,15 @@ public enum NodeKind implements DeweyIdSerializer {
       final ObjectStringNode node = (ObjectStringNode) record;
       long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
-      // Write NodeDelegate fields only (object properties have no siblings)
+      // Write NodeDelegate fields (16 bytes)
       sink.writeLong(node.getParentKey());
       sink.writeInt(node.getPreviousRevisionNumber());
       sink.writeInt(node.getLastModifiedRevisionNumber());
-      // Write value
+      // Write optional fields if present (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(0); // Hash (placeholder, computed on-demand)
+      }
+      // Write variable-length value at the end
       final byte[] value = node.getRawValue();
       sink.writeStopBit(value.length);
       sink.write(value);
@@ -1226,15 +1230,20 @@ public enum NodeKind implements DeweyIdSerializer {
       long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
 
-      // Write NodeDelegate fields only (object properties have no siblings)
+      // Write NodeDelegate fields (16 bytes)
       sink.writeLong(node.getParentKey());
       sink.writeInt(node.getPreviousRevisionNumber());
       sink.writeInt(node.getLastModifiedRevisionNumber());
+      
+      // Write optional fields if present (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(0); // Hash (placeholder, computed on-demand)
+      }
 
+      // Write variable-length number at the end
       final Number number = node.getValue();
-
-      // Use the shared serialization method to ensure consistency
       serializeNumber(number, sink);
+      
       JsonNodeSerializer.writeEndPadding(sink, startPos);
       JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
@@ -1308,16 +1317,20 @@ public enum NodeKind implements DeweyIdSerializer {
       final StringNode node = (StringNode) record;
       long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
-      // Write NodeDelegate fields directly (no delegate object needed)
+      // Write NodeDelegate fields (16 bytes)
       sink.writeLong(node.getParentKey());
       sink.writeInt(node.getPreviousRevisionNumber());
       sink.writeInt(node.getLastModifiedRevisionNumber());
-      // Write value
+      // Write StructNode sibling fields (16 bytes)
+      serializeStructNodeJsonValueNode(sink, node);
+      // Write optional fields if present (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(0); // Hash (placeholder, computed on-demand)
+      }
+      // Write variable-length value at the end
       final byte[] value = node.getRawValue();
       sink.writeStopBit(value.length);
       sink.write(value);
-      // Write StructNode sibling fields
-      serializeStructNodeJsonValueNode(sink, node);
       JsonNodeSerializer.writeEndPadding(sink, startPos);
       JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
@@ -1397,17 +1410,20 @@ public enum NodeKind implements DeweyIdSerializer {
       long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
       long startPos = sink.writePosition();
 
-      // Write NodeDelegate fields directly (no delegate object needed)
+      // Write NodeDelegate fields (16 bytes)
       sink.writeLong(node.getParentKey());
       sink.writeInt(node.getPreviousRevisionNumber());
       sink.writeInt(node.getLastModifiedRevisionNumber());
-      // Write StructNode sibling fields
+      // Write StructNode sibling fields (16 bytes)
       serializeStructNodeJsonValueNode(sink, node);
-
+      // Write optional fields if present (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(0); // Hash (placeholder, computed on-demand)
+      }
+      // Write variable-length number at the end
       final Number number = node.getValue();
-
-      // Use the shared serialization method to ensure consistency
       serializeNumber(number, sink);
+      
       JsonNodeSerializer.writeEndPadding(sink, startPos);
       JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }

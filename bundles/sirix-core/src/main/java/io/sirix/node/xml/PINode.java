@@ -56,7 +56,6 @@ import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.VarHandle;
-import java.nio.ByteBuffer;
 
 /**
  * Processing Instruction node implementation backed by MemorySegment.
@@ -146,16 +145,6 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   private static final VarHandle URI_KEY_HANDLE = 
       CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("uriKey"));
 
-  // VarHandles for optional child count field
-  private static final VarHandle CHILD_COUNT_HANDLE = 
-      CHILD_COUNT_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("childCount"));
-
-  // VarHandles for optional hash fields
-  private static final VarHandle HASH_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("hash"));
-  private static final VarHandle DESCENDANT_COUNT_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("descendantCount"));
-
   /** The underlying MemorySegment storing node data. */
   private final MemorySegment segment;
 
@@ -164,9 +153,6 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   /** The hash function for this node. */
   private final LongHashFunction hashFunction;
-
-  /** Resource configuration. */
-  private final ResourceConfiguration resourceConfig;
 
   /** Optional Dewey ID. */
   private SirixDeweyID sirixDeweyID;
@@ -220,8 +206,6 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     this.segment = segment;
     this.nodeKey = nodeKey;
     this.sirixDeweyID = id;
-    assert resourceConfig != null;
-    this.resourceConfig = resourceConfig;
     assert hashFunction != null;
     this.hashFunction = hashFunction;
     assert value != null;
