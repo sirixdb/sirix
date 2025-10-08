@@ -160,8 +160,20 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
    */
   public ArrayNode(final MemorySegment segment, final long nodeKey, final byte[] deweyID,
       final ResourceConfiguration resourceConfig) {
-    this(segment, nodeKey, deweyID != null ? new SirixDeweyID(deweyID) : null, resourceConfig);
     this.deweyIDBytes = deweyID;
+    this.segment = segment;
+    this.nodeKey = nodeKey;
+    this.resourceConfig = resourceConfig;
+    
+    // Compute offsets once for maximum performance
+    this.childCountOffset = CORE_LAYOUT.byteSize();
+    
+    long hashBaseOffset = CORE_LAYOUT.byteSize();
+    if (resourceConfig.storeChildCount()) {
+      hashBaseOffset += CHILD_COUNT_LAYOUT.byteSize();
+    }
+    this.hashOffset = hashBaseOffset;
+    this.descendantCountOffset = hashBaseOffset; // VarHandle adds offset within HASH_LAYOUT
   }
 
   public ArrayNode(final MemorySegment segment, final long nodeKey, final SirixDeweyID id,
@@ -406,6 +418,9 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public SirixDeweyID getDeweyID() {
+    if (deweyIDBytes != null && sirixDeweyID == null) {
+      sirixDeweyID = new SirixDeweyID(deweyIDBytes);
+    }
     return sirixDeweyID;
   }
 

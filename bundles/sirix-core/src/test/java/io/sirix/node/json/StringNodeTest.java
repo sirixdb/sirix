@@ -70,21 +70,25 @@ public class StringNodeTest {
         .build();
     
     // Create data in the correct serialization format with size prefix and padding
-    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + value + siblings][end padding]
+    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + siblings + optional fields + value][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     
     long sizePos = NodeTestHelper.writeHeader(data, NodeKind.STRING_VALUE);
     long startPos = data.writePosition();
-    // NodeDelegate fields
+    // NodeDelegate fields (16 bytes)
     data.writeLong(14); // parentKey
     data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
     data.writeInt(0); // lastModifiedRevision
-    // Value BEFORE siblings (STRING_VALUE unique order)
-    data.writeStopBit(value.length);
-    data.write(value);
-    // Siblings
+    // Sibling fields (16 bytes)
     data.writeLong(16L); // rightSibling
     data.writeLong(15L); // leftSibling
+    // Optional fields (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+    if (config.hashType != HashType.NONE) {
+      data.writeLong(0); // hash
+    }
+    // Variable-length value at the end
+    data.writeStopBit(value.length);
+    data.write(value);
     
     NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
     

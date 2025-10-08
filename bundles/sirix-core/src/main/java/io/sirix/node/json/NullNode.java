@@ -93,19 +93,11 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
   );
 
   /**
-   * Optional child count layout (only when storeChildCount == true) - 8 bytes
-   * Note: Always 0 for value nodes, but kept for consistency
-   */
-  public static final MemoryLayout CHILD_COUNT_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("childCount")                    // offset 32
-  );
-
-  /**
-   * Optional hash layout (only when hashType != NONE) - 16 bytes
+   * Optional hash layout (only when hashType != NONE) - 8 bytes for value nodes
+   * Note: childCount and descendantCount are not stored for leaf nodes (always 0)
    */
   public static final MemoryLayout HASH_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash"),                         // variable offset
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("descendantCount")               // after hash
+      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash")                          // offset 32
   );
 
   // VarHandles for type-safe field access
@@ -120,13 +112,9 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
   private static final VarHandle LEFT_SIBLING_KEY_HANDLE = 
       CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("leftSiblingKey"));
   
-  // VarHandles for optional fields
-  private static final VarHandle CHILD_COUNT_HANDLE = 
-      CHILD_COUNT_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("childCount"));
+  // VarHandles for optional fields (note: value nodes don't store childCount/descendantCount)
   private static final VarHandle HASH_HANDLE = 
       HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("hash"));
-  private static final VarHandle DESCENDANT_COUNT_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("descendantCount"));
 
   // All nodes are MemorySegment-based
   private final MemorySegment segment;
@@ -298,7 +286,8 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public long getDescendantCount() {
-    // Value nodes are leaf nodes - always 0 descendants
+    // Value nodes are leaf nodes: return 0 (no descendants)
+    // The parent's calculation logic handles this correctly
     return 0;
   }
   
@@ -318,30 +307,22 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public void incrementChildCount() {
-    if (resourceConfig.storeChildCount()) {
-      setChildCount(getChildCount() + 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have children
   }
 
   @Override
   public void decrementChildCount() {
-    if (resourceConfig.storeChildCount()) {
-      setChildCount(getChildCount() - 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have children
   }
 
   @Override
   public void incrementDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      setDescendantCount(getDescendantCount() + 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have descendants
   }
 
   @Override
   public void decrementDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      setDescendantCount(getDescendantCount() - 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have descendants
   }
 
   @Override

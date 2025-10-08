@@ -93,18 +93,11 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
   );
 
   /**
-   * Optional child count layout (only when storeChildCount == true) - 8 bytes
-   */
-  public static final MemoryLayout CHILD_COUNT_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("childCount")                    // offset 17
-  );
-
-  /**
-   * Optional hash layout (only when hashType != NONE) - 16 bytes
+   * Optional hash layout (only when hashType != NONE) - 8 bytes for value nodes
+   * Note: childCount and descendantCount are not stored for leaf nodes (always 0)
    */
   public static final MemoryLayout HASH_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash"),                         // variable offset
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("descendantCount")               // after hash
+      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash")                          // offset 17 (after boolean)
   );
 
   // VarHandles for type-safe field access
@@ -116,14 +109,6 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
       CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("lastModifiedRevision"));
   private static final VarHandle BOOL_VALUE_HANDLE = 
       CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("boolValue"));
-  
-  // VarHandles for optional fields
-  private static final VarHandle CHILD_COUNT_HANDLE = 
-      CHILD_COUNT_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("childCount"));
-  private static final VarHandle HASH_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("hash"));
-  private static final VarHandle DESCENDANT_COUNT_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("descendantCount"));
 
   // All nodes are MemorySegment-based
   private final MemorySegment segment;
@@ -136,11 +121,6 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
   
   // Cached hash value (computed on-demand, not stored in MemorySegment)
   private long cachedHash = 0;
-  
-  // Cached offsets for maximum performance (computed once at construction)
-  private final long childCountOffset;
-  private final long hashOffset;
-  private final long descendantCountOffset;
 
   /**
    * Constructor for MemorySegment-based ObjectBooleanNode
@@ -161,16 +141,6 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
     this.nodeKey = nodeKey;
     this.sirixDeweyID = id;
     this.resourceConfig = resourceConfig;
-    
-    // Compute offsets once for maximum performance
-    this.childCountOffset = CORE_LAYOUT.byteSize();
-    
-    long hashBaseOffset = CORE_LAYOUT.byteSize();
-    if (resourceConfig.storeChildCount()) {
-      hashBaseOffset += CHILD_COUNT_LAYOUT.byteSize();
-    }
-    this.hashOffset = hashBaseOffset;
-    this.descendantCountOffset = hashBaseOffset; // VarHandle adds offset within HASH_LAYOUT
   }
 
   @Override
@@ -307,13 +277,14 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
     return 0;
   }
   
-  public void setChildCount(final long childCount) {
+  public void setChildCount(final long ignoredChildCount) {
     // Value nodes are leaf nodes - no-op
   }
 
   @Override
   public long getDescendantCount() {
-    // Value nodes are leaf nodes - always 0 descendants
+    // Value nodes have no descendants - return 0
+    // The parent's formula (descendantCount + 1) accounts for the node itself
     return 0;
   }
   
@@ -341,30 +312,22 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public void incrementChildCount() {
-    if (resourceConfig.storeChildCount()) {
-      setChildCount(getChildCount() + 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have children
   }
 
   @Override
   public void decrementChildCount() {
-    if (resourceConfig.storeChildCount()) {
-      setChildCount(getChildCount() - 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have children
   }
 
   @Override
   public void incrementDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      setDescendantCount(getDescendantCount() + 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have descendants
   }
 
   @Override
   public void decrementDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      setDescendantCount(getDescendantCount() - 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have descendants
   }
 
   @Override

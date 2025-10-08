@@ -1,5 +1,6 @@
 package io.sirix.access.trx.node.json;
 
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.PageTrx;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
@@ -239,15 +240,18 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     data.writeInt(Constants.NULL_REVISION_NUMBER);
     data.writeInt(revisionNumber);
     
-    // Write value data immediately after NodeDelegate
-    // Format must match NodeKind.STRING_VALUE.serialize():
-    // NodeDelegate + stopBit length + string bytes + siblings
-    data.writeStopBit(value.length);
-    data.write(value);
-    
-    // Write StructNode sibling fields (value nodes don't have children)
+    // Write StructNode sibling fields (16 bytes)
     data.writeLong(rightSibKey);
     data.writeLong(leftSibKey);
+    
+    // Write optional fields (fixed-length) if present (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+    if (config.hashType != HashType.NONE) {
+      data.writeLong(0); // Hash (placeholder, computed on-demand)
+    }
+    
+    // Write variable-length value at the end
+    data.writeStopBit(value.length);
+    data.write(value);
     
     // Create StringNode from MemorySegment
     var segment = (MemorySegment) data.asBytesIn().getUnderlying();
@@ -298,11 +302,16 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     data.writeInt(Constants.NULL_REVISION_NUMBER);
     data.writeInt(revisionNumber);
     
-    // Write StructNode sibling fields (value nodes don't have children)
+    // Write StructNode sibling fields (16 bytes)
     data.writeLong(rightSibKey);
     data.writeLong(leftSibKey);
     
-    // Write number value after siblings
+    // Write optional fields (fixed-length) if present (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+    if (config.hashType != HashType.NONE) {
+      data.writeLong(0); // Hash (placeholder, computed on-demand)
+    }
+    
+    // Write variable-length number at the end
     NodeKind.serializeNumber(value, data);
     
     // Create NumberNode from MemorySegment
@@ -344,13 +353,17 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     // Allocate MemorySegment and write fields
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     
-    // Write NodeDelegate fields only (16 bytes)
-    // Object* value nodes are leaf nodes - no siblings, children, childCount, or hash
+    // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);
     data.writeInt(Constants.NULL_REVISION_NUMBER);
     data.writeInt(revisionNumber);
     
-    // Write value using stopBit encoding (matches NodeKind.serialize method)
+    // Write optional fields (fixed-length) if present (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+    if (config.hashType != HashType.NONE) {
+      data.writeLong(0); // Hash (placeholder, computed on-demand)
+    }
+    
+    // Write variable-length value at the end
     data.writeStopBit(value.length);
     data.write(value);
     
@@ -393,13 +406,17 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     // Allocate MemorySegment and write fields
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     
-    // Write NodeDelegate fields only (16 bytes)
-    // Object* value nodes are leaf nodes - no siblings, children, childCount, or hash
+    // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);
     data.writeInt(Constants.NULL_REVISION_NUMBER);
     data.writeInt(revisionNumber);
     
-    // Write number value using the same format as NodeKind.serialize method
+    // Write optional fields (fixed-length) if present (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+    if (config.hashType != HashType.NONE) {
+      data.writeLong(0); // Hash (placeholder, computed on-demand)
+    }
+    
+    // Write variable-length number at the end
     NodeKind.serializeNumber(value, data);
     
     // Create ObjectNumberNode from MemorySegment

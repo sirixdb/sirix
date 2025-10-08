@@ -66,25 +66,25 @@ import java.math.BigInteger;
  */
 public final class NumberNode implements StructNode, ImmutableJsonNode {
 
-  // MemorySegment layout with FIXED offsets (hash moved to end):
+  // MemorySegment layout for NumberNode (FIXED fields first, then VARIABLE content):
+  // Design principle: All fixed-length fields have predictable offsets; variable-length data at end
+  //
   // NodeDelegate data (16 bytes):
   //   - parentKey (8 bytes)            - offset 0
   //   - previousRevision (4 bytes)     - offset 8
   //   - lastModifiedRevision (4 bytes) - offset 12
-  // Fixed StructNode fields (32 bytes):
+  // Sibling keys (16 bytes):
   //   - rightSiblingKey (8 bytes)      - offset 16
   //   - leftSiblingKey (8 bytes)       - offset 24
-  //   - firstChildKey (8 bytes)        - offset 32
-  //   - lastChildKey (8 bytes)         - offset 40
-  // Optional fields:
-  //   - childCount (8 bytes)           - offset 48 (if storeChildCount)
-  //   - hash (8 bytes)                 - offset 48/56 (if hashType != NONE)
-  //   - descendantCount (8 bytes)      - after hash (if hashType != NONE)
-  // Note: Number value stored at offset 32 (after NodeDelegate + StructNodeDelegate) in the same MemorySegment
+  // Optional fields (fixed-length):
+  //   - hash (8 bytes)                 - offset 32 (if hashType != NONE, computed on-demand)
+  //   Note: childCount and descendantCount are skipped (always 0 for value nodes)
+  // Variable-length number value (at END after all fixed fields):
+  //   - number bytes (N bytes)         - offset (32 + optional fields size)
 
   /**
    * Core layout (always present) - 32 bytes total
-   * Note: Value nodes are leaf nodes and cannot have children, so no firstChild/lastChild fields
+   * All fields have FIXED offsets and can be accessed via VarHandles
    */
   public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
       // NodeDelegate fields
@@ -94,26 +94,18 @@ public final class NumberNode implements StructNode, ImmutableJsonNode {
       // StructNode fields (siblings only, no children for value nodes)
       ValueLayout.JAVA_LONG_UNALIGNED.withName("rightSiblingKey"),              // offset 16
       ValueLayout.JAVA_LONG_UNALIGNED.withName("leftSiblingKey")                // offset 24
-      // Number value data starts at offset 32
+      // Number value data starts after optional fields (at end)
   );
 
   /**
-   * Optional child count layout (only when storeChildCount == true) - 8 bytes
-   * Note: Always 0 for value nodes, but kept for consistency
-   */
-  public static final MemoryLayout CHILD_COUNT_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("childCount")                    // offset 32
-  );
-
-  /**
-   * Optional hash layout (only when hashType != NONE) - 16 bytes
+   * Optional hash layout (only when hashType != NONE) - 8 bytes for value nodes
+   * Note: childCount and descendantCount are not stored for leaf nodes (always 0)
    */
   public static final MemoryLayout HASH_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash"),                         // variable offset
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("descendantCount")               // after hash
+      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash")                          // offset 32
   );
 
-  // VarHandles for type-safe field access
+  // VarHandles for type-safe field access (all at fixed offsets)
   private static final VarHandle PARENT_KEY_HANDLE = 
       CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("parentKey"));
   private static final VarHandle PREVIOUS_REVISION_HANDLE = 
@@ -125,13 +117,8 @@ public final class NumberNode implements StructNode, ImmutableJsonNode {
   private static final VarHandle LEFT_SIBLING_KEY_HANDLE = 
       CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("leftSiblingKey"));
   
-  // VarHandles for optional fields
-  private static final VarHandle CHILD_COUNT_HANDLE = 
-      CHILD_COUNT_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("childCount"));
-  private static final VarHandle HASH_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("hash"));
-  private static final VarHandle DESCENDANT_COUNT_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("descendantCount"));
+  // Note: Hash/descendant/child count fields are not stored in MemorySegment for value nodes
+  // (they are computed on-demand or always 0)
 
   // All nodes are MemorySegment-based
   private final MemorySegment segment;
@@ -170,10 +157,18 @@ public final class NumberNode implements StructNode, ImmutableJsonNode {
     this.resourceConfig = resourceConfig;
     this.cachedNumber = null; // Lazy initialization
     
-    // For NumberNode, the value is stored after NodeDelegate (16 bytes) + StructNodeDelegate (16 bytes)
-    // Layout: NodeDelegate (16 bytes) + StructNodeDelegate (16 bytes) + number bytes (variable length)
-    this.valueSegment = segment.asSlice(32);
-    // NumberNode is a leaf node - no children, descendants, or hash stored
+    // Calculate where variable-length number data starts (after all fixed fields)
+    // Layout: NodeDelegate (16) + Siblings (16) + Optional fields (variable)
+    // Note: Value nodes skip childCount and descendantCount (always 0 for leaf nodes)
+    long valueStartOffset = CORE_LAYOUT.byteSize(); // 32 bytes
+    
+    // Add optional field sizes if present
+    if (resourceConfig.hashType != HashType.NONE) {
+      valueStartOffset += 8; // Hash only (skip descendantCount for value nodes)
+    }
+    
+    // Number value starts at calculated offset
+    this.valueSegment = segment.asSlice(valueStartOffset);
   }
 
   @Override
@@ -323,7 +318,8 @@ public final class NumberNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public long getDescendantCount() {
-    // Value nodes are leaf nodes - always 0 descendants
+    // Value nodes are leaf nodes: return 0 (no descendants)
+    // The parent's calculation logic handles this correctly
     return 0;
   }
   
@@ -357,30 +353,22 @@ public final class NumberNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public void incrementChildCount() {
-    if (resourceConfig.storeChildCount()) {
-      setChildCount(getChildCount() + 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have children
   }
 
   @Override
   public void decrementChildCount() {
-    if (resourceConfig.storeChildCount()) {
-      setChildCount(getChildCount() - 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have children
   }
 
   @Override
   public void incrementDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      setDescendantCount(getDescendantCount() + 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have descendants
   }
 
   @Override
   public void decrementDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      setDescendantCount(getDescendantCount() - 1);
-    }
+    // No-op: value nodes are leaf nodes and cannot have descendants
   }
 
   @Override

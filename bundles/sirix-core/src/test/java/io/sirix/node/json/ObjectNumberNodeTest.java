@@ -61,16 +61,21 @@ public class ObjectNumberNodeTest {
     final double value = 10.87463D;
     
     // Create data in the correct serialization format with size prefix and padding
-    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + value][end padding]
+    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + optional fields + value][end padding]
     final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final var config = pageTrx.getResourceSession().getResourceConfig();
     
     long sizePos = NodeTestHelper.writeHeader(data, NodeKind.OBJECT_NUMBER_VALUE);
     long startPos = data.writePosition();
-    // NodeDelegate fields
+    // NodeDelegate fields (16 bytes)
     data.writeLong(14); // parentKey
     data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
     data.writeInt(0); // lastModifiedRevision
-    // Value (type indicator + value)
+    // Optional fields (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+    if (config.hashType != io.sirix.access.trx.node.HashType.NONE) {
+      data.writeLong(0); // hash
+    }
+    // Variable-length value at the end
     data.writeByte((byte) 0); // Type indicator for Double
     data.writeDouble(value);
     
