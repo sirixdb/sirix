@@ -27,7 +27,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
-import net.openhft.chronicle.bytes.BytesIn;
+import io.sirix.node.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -152,8 +152,8 @@ public final class FullReferencesPage implements Page {
   }
 
   @Override
-  public Page clearPage() {
+  public Page clear() {
     Arrays.fill(references, null);
-    return Page.super.clearPage();
+    return Page.super.clear();
   }
 }

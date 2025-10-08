@@ -20,10 +20,10 @@ public final class BufferManagerImpl implements BufferManager {
 
   private final PathSummaryCache pathSummaryCache;
 
-  public BufferManagerImpl(int maxPageCacheSize, int maxRecordPageCacheSize,
+  public BufferManagerImpl(int maxPageCachWeight, int maxRecordPageCacheWeight,
       int maxRevisionRootPageCache, int maxRBTreeNodeCache, int maxNamesCacheSize, int maxPathSummaryCacheSize) {
-    pageCache = new PageCache(maxPageCacheSize);
-    recordPageCache = new RecordPageCache(maxRecordPageCacheSize);
+    pageCache = new PageCache(maxPageCachWeight);
+    recordPageCache = new RecordPageCache(maxRecordPageCacheWeight);
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
     namesCache = new NamesCache(maxNamesCacheSize);

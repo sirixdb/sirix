@@ -1,7 +1,8 @@
 package io.sirix.page;
 
+import io.sirix.node.Bytes;
 import io.sirix.node.HashCountEntryNode;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.api.PageReadOnlyTrx;
@@ -20,8 +21,10 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import java.lang.foreign.Arena;
 import java.nio.ByteBuffer;
 
+import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -51,20 +54,21 @@ public class PageTest {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
-    holder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = holder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceSession();
+    pageReadTrx = holder.getResourceSession().beginPageReadOnlyTrx();
   }
 
   @AfterClass
   public void tearDown() throws SirixException {
     pageReadTrx.close();
     holder.close();
+    arena.close();
   }
 
   @Test(dataProvider = "instantiatePages")
   public void testByteRepresentation(final Page[] handlers) {
     for (final Page handler : handlers) {
-      final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+      final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
       PageKind.getKind(handler.getClass())
               .serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
                              data,
@@ -81,6 +85,8 @@ public class PageTest {
       assertArrayEquals("Check for " + handler.getClass() + " failed.", pageBytes, serializedPageBytes);
     }
   }
+
+  private Arena arena = Arena.ofConfined();
 
   /**
    * Providing different implementations of the {@link Page} as Dataprovider to the test class.
@@ -99,7 +105,9 @@ public class PageTest {
     final KeyValueLeafPage nodePage = new KeyValueLeafPage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE),
                                                            IndexType.DOCUMENT,
                                                            pageReadTrx.getResourceSession().getResourceConfig(),
-                                                           pageReadTrx.getRevisionNumber());
+                                                           pageReadTrx.getRevisionNumber(),
+                                                           arena.allocate(SIXTYFOUR_KB),
+                                                           null);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();
       nodePage.setRecord(record);

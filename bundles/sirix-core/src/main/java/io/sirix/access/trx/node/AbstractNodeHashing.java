@@ -6,15 +6,14 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.PageTrx;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.xml.ElementNode;
-import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
-
-import java.nio.ByteBuffer;
 
 public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends NodeCursor & NodeReadOnlyTrx> {
 
@@ -45,7 +44,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
 
   private boolean autoCommit;
 
-  private final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
+  private final BytesOut<?> bytes = Bytes.elasticHeapByteBuffer();
 
   /**
    * Constructor.

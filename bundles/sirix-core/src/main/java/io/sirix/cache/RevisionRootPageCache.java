@@ -29,30 +29,33 @@ package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.page.RevisionRootPage;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
- *
  */
 public final class RevisionRootPageCache implements Cache<Integer, RevisionRootPage> {
-  private final com.github.benmanes.caffeine.cache.Cache<Integer, RevisionRootPage> pageCache;
+  private final com.github.benmanes.caffeine.cache.Cache<Integer, RevisionRootPage> cache;
 
   public RevisionRootPageCache(final int maxSize) {
-    pageCache =
-        Caffeine.newBuilder().maximumSize(maxSize).scheduler(scheduler).build();
+    cache = Caffeine.newBuilder()
+                    .initialCapacity(maxSize)
+                    .maximumSize(maxSize)
+                    .scheduler(scheduler)
+                    .build();
   }
 
   @Override
   public void clear() {
-    pageCache.invalidateAll();
+    cache.invalidateAll();
   }
 
   @Override
   public RevisionRootPage get(Integer key) {
-    var revisionRootPage = pageCache.getIfPresent(key);
+    var revisionRootPage = cache.getIfPresent(key);
 
     if (revisionRootPage != null) {
       revisionRootPage = new RevisionRootPage(revisionRootPage, revisionRootPage.getRevision());
@@ -62,13 +65,24 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
   }
 
   @Override
-  public void put(Integer key, RevisionRootPage value) {
-    pageCache.put(key, value);
+  public RevisionRootPage get(Integer key,
+      BiFunction<? super Integer, ? super RevisionRootPage, ? extends RevisionRootPage> mappingFunction) {
+    return cache.asMap().compute(key, mappingFunction);
+  }
+
+  @Override
+  public void putIfAbsent(Integer key, RevisionRootPage value) {
+    cache.asMap().putIfAbsent(key, value);
+  }
+
+  @Override
+  public void put(Integer key, @NonNull RevisionRootPage value) {
+    cache.put(key, value);
   }
 
   @Override
   public void putAll(Map<? extends Integer, ? extends RevisionRootPage> map) {
-    pageCache.putAll(map);
+    cache.putAll(map);
   }
 
   @Override
@@ -78,12 +92,12 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
 
   @Override
   public Map<Integer, RevisionRootPage> getAll(Iterable<? extends Integer> keys) {
-    return pageCache.getAllPresent(keys);
+    return cache.getAllPresent(keys);
   }
 
   @Override
   public void remove(Integer key) {
-    pageCache.invalidate(key);
+    cache.invalidate(key);
   }
 
   @Override

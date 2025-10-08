@@ -28,7 +28,7 @@ import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
-import net.openhft.chronicle.bytes.BytesIn;
+import io.sirix.node.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.util.ArrayList;
@@ -156,7 +156,7 @@ public final class ReferencesPage4 implements Page {
   }
 
   @Override
-  public Page clearPage() {
+  public Page clear() {
     offsets.clear();
     references.clear();
     return this;

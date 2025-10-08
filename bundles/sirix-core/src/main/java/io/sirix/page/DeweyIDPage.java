@@ -26,7 +26,6 @@ import io.sirix.access.DatabaseType;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.node.DeweyIDNode;
-import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.PageReadOnlyTrx;
@@ -94,7 +93,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
   }
 
 //  @Override
-//  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
+//  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> out,
 //      final SerializationType type) {
 //    if (delegate instanceof ReferencesPage4) {
 //      out.writeByte((byte) 0);

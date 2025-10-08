@@ -2,11 +2,12 @@ package io.sirix.page;
 
 import io.sirix.access.DatabaseType;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.KeyValueLeafPagePool;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.page.delegates.BitmapReferencesPage;
-import net.openhft.chronicle.bytes.BytesIn;
+import io.sirix.node.BytesIn;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.cache.PageContainer;
@@ -15,6 +16,8 @@ import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
+
+import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 
 /**
  * Page utilities.
@@ -66,10 +69,11 @@ public final class PageUtils {
   public static void createTree(final DatabaseType databaseType, @NonNull PageReference reference,
       final IndexType indexType, final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     // Create new record page.
-    final KeyValueLeafPage recordPage = new KeyValueLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(),
-                                                             indexType,
-                                                             pageReadTrx.getResourceSession().getResourceConfig(),
-                                                             pageReadTrx.getRevisionNumber());
+    final KeyValueLeafPage recordPage = KeyValueLeafPagePool.getInstance().borrowPage(SIXTYFOUR_KB,
+                                                                                      Fixed.ROOT_PAGE_KEY.getStandardProperty(),
+                                                                                  indexType,
+                                                                                  pageReadTrx.getResourceSession().getResourceConfig(),
+                                                                                  pageReadTrx.getRevisionNumber());
 
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceSession().getResourceConfig();
 

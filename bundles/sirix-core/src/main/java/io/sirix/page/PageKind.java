@@ -32,9 +32,14 @@ import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.cache.KeyValueLeafPagePool;
+import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.io.Reader;
 import io.sirix.node.Utils;
+import io.sirix.node.Bytes;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.page.delegates.BitmapReferencesPage;
@@ -42,13 +47,14 @@ import io.sirix.page.delegates.FullReferencesPage;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import io.sirix.utils.OS;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.BytesOut;
+import io.sirix.node.BytesOut;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.ByteArrayOutputStream;
@@ -81,8 +87,33 @@ public enum PageKind {
           final IndexType indexType = IndexType.getType(source.readByte());
           final boolean areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
           final RecordSerializer recordPersister = resourceConfig.recordPersister;
-          final byte[][] slots = new byte[Constants.NDP_NODE_COUNT][];
-          final byte[][] deweyIds = new byte[Constants.NDP_NODE_COUNT][];
+          final Map<Long, PageReference> references = new LinkedHashMap<>();
+          final int slotsMemorySize = source.readInt();
+          final int lastSlotIndex = source.readInt();
+          final int deweyIdsMemorySize;
+          final int lastDeweyIdIndex;
+
+          if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
+            deweyIdsMemorySize = source.readInt();
+            lastDeweyIdIndex = source.readInt();
+          } else {
+            deweyIdsMemorySize = -1;
+            lastDeweyIdIndex = -1;
+          }
+
+          var page = KeyValueLeafPagePool.getInstance().borrowPage(
+              recordPageKey,
+              revision,
+              indexType,
+              resourceConfig,
+              areDeweyIDsStored,
+              recordPersister,
+              references,
+              slotsMemorySize,
+              deweyIdsMemorySize,
+              lastSlotIndex,
+              lastDeweyIdIndex
+          );
 
           if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer serializer) {
             final var deweyIdsBitmap = SerializationType.deserializeBitSet(source);
@@ -103,7 +134,7 @@ public enum PageKind {
                 }
 
                 deweyId = serializer.deserializeDeweyID(source, deweyId, resourceConfig);
-                deweyIds[setBit] = deweyId;
+                page.setDeweyId(deweyId, setBit);
               }
             }
           }
@@ -117,25 +148,23 @@ public enum PageKind {
             setBit = entriesBitmap.nextSetBit(setBit + 1);
             assert setBit >= 0;
 
-            final long key = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + setBit;
             final int dataSize = source.readInt();
             assert dataSize > 0;
 
             final byte[] data = new byte[dataSize];
             source.read(data);
-            final var offset = PageReadOnlyTrx.recordPageOffset(key);
 
-            slots[offset] = data;
+            page.setSlot(data, setBit);
           }
 
           final int overlongEntrySize = source.readInt();
-          final Map<Long, PageReference> references = new LinkedHashMap<>(overlongEntrySize);
+
           setBit = -1;
 
           for (int index = 0; index < overlongEntrySize; index++) {
             setBit = overlongEntriesBitmap.nextSetBit(setBit + 1);
             assert setBit >= 0;
-            //recordPageKey * Constants.NDP_NODE_COUNT + setBit;
+            // recordPageKey * Constants.NDP_NODE_COUNT + setBit;
             final long key = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + setBit;
             final PageReference reference = new PageReference();
 
@@ -143,15 +172,7 @@ public enum PageKind {
             references.put(key, reference);
           }
 
-          return new KeyValueLeafPage(recordPageKey,
-                                      revision,
-                                      indexType,
-                                      resourceConfig,
-                                      areDeweyIDsStored,
-                                      recordPersister,
-                                      slots,
-                                      deweyIds,
-                                      references);
+          return page;
         }
         default -> throw new IllegalStateException();
       }
@@ -165,7 +186,7 @@ public enum PageKind {
       final var bytes = keyValueLeafPage.getBytes();
 
       if (bytes != null) {
-        sink.write(bytes.bytesForWrite());
+        sink.write(bytes.toByteArray());
         return;
       }
 
@@ -176,24 +197,42 @@ public enum PageKind {
       final long recordPageKey = keyValueLeafPage.getPageKey();
       final IndexType indexType = keyValueLeafPage.getIndexType();
       final RecordSerializer recordPersister = resourceConfig.recordPersister;
-      final byte[][] deweyIds = keyValueLeafPage.getDeweyIds();
-      final byte[][] slots = keyValueLeafPage.getSlots();
       final Map<Long, PageReference> references = keyValueLeafPage.getReferencesMap();
 
       // Add references to overflow pages if necessary.
       keyValueLeafPage.addReferences(resourceConfig);
+
+      int usedSlotsMemorySize = keyValueLeafPage.getUsedSlotsSize();
+
+      if (usedSlotsMemorySize == 0) {
+        usedSlotsMemorySize = 1;
+      }
+
       // Write page key.
       Utils.putVarLong(sink, recordPageKey);
       // Write revision number.
       sink.writeInt(keyValueLeafPage.getRevision());
       // Write index type.
       sink.writeByte(indexType.getID());
+      // Write used slot memory size.
+      sink.writeInt(usedSlotsMemorySize);
+      // Write last slot offset.
+      sink.writeInt(keyValueLeafPage.getLastSlotIndex());
 
       // Write dewey IDs.
       if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer persistence) {
+        int usedDeweyIdMemorySize = keyValueLeafPage.getUsedDeweyIdSize();
+
+        if (usedDeweyIdMemorySize == 0) {
+          usedDeweyIdMemorySize = MemorySegmentAllocator.SEGMENT_SIZES[0]; // No dewey IDs stored, still reserve minimum size bytes (4096).
+        }
+
+        sink.writeInt(usedDeweyIdMemorySize);
+        sink.writeInt(keyValueLeafPage.getLastDeweyIdIndex());
+
         var deweyIdsBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-        for (int i = 0; i < deweyIds.length; i++) {
-          if (deweyIds[i] != null) {
+        for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+          if (keyValueLeafPage.getDeweyId(i) != null) {
             deweyIdsBitmap.set(i);
           }
         }
@@ -203,7 +242,8 @@ public enum PageKind {
         boolean first = true;
         byte[] previousDeweyId = null;
 
-        for (byte[] deweyId : deweyIds) {
+        for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+          byte[] deweyId = keyValueLeafPage.getDeweyIdAsByteArray(i);
           if (deweyId != null) {
             if (first) {
               first = false;
@@ -218,8 +258,8 @@ public enum PageKind {
 
       var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
 
-      for (int i = 0; i < slots.length; i++) {
-        if (slots[i] != null) {
+      for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+        if (keyValueLeafPage.isSlotSet(i)) {
           entriesBitmap.set(i);
         }
       }
@@ -236,8 +276,12 @@ public enum PageKind {
 
       // Write normal entries.
       sink.writeInt(entriesBitmap.cardinality());
-      for (final byte[] data : slots) {
+      for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+        var data = keyValueLeafPage.getSlotAsByteArray(i);
+
         if (data != null) {
+          assert entriesBitmap.get(i);
+          assert keyValueLeafPage.isSlotSet(i);
           final int length = data.length;
           sink.writeInt(length);
           sink.write(data);
@@ -254,10 +298,11 @@ public enum PageKind {
       keyValueLeafPage.setHashCode(Reader.hashFunction.hashBytes(sink.bytesForRead().toByteArray()).asBytes());
 
       final var byteArray = sink.bytesForRead().toByteArray();
+      final var uncompressedLength = byteArray.length;
 
       final byte[] serializedPage;
 
-      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
+      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(uncompressedLength)) {
         try (final DataOutputStream dataOutput = new DataOutputStream(resourceConfig.byteHandlePipeline.serialize(output))) {
           dataOutput.write(byteArray);
           dataOutput.flush();
@@ -267,7 +312,7 @@ public enum PageKind {
         throw new UncheckedIOException(e);
       }
 
-      keyValueLeafPage.setBytes(Bytes.wrapForRead(serializedPage));
+      keyValueLeafPage.setBytes(Bytes.wrapForWrite(serializedPage));
     }
   },
 
@@ -615,7 +660,10 @@ public enum PageKind {
           final byte[] data = new byte[source.readInt()];
           source.read(data);
 
-          return new OverflowPage(data);
+          // Convert byte array to MemorySegment
+          java.lang.foreign.MemorySegment segment = java.lang.foreign.Arena.global().allocate(data.length);
+          segment.asByteBuffer().put(data);
+          return new OverflowPage(segment);
         }
         default -> throw new IllegalStateException();
       }
@@ -627,8 +675,13 @@ public enum PageKind {
       OverflowPage overflowPage = (OverflowPage) page;
       sink.writeByte(OVERFLOWPAGE.id);
       sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
-      sink.writeInt(overflowPage.getData().length);
-      sink.write(overflowPage.getData());
+      
+      // Convert MemorySegment to byte array for writing
+      java.lang.foreign.MemorySegment data = overflowPage.getData();
+      sink.writeInt((int) data.byteSize());
+      byte[] dataBytes = new byte[(int) data.byteSize()];
+      java.lang.foreign.MemorySegment.copy(data, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, dataBytes, 0, (int) data.byteSize());
+      sink.write(dataBytes);
     }
   },
 
@@ -806,7 +859,7 @@ public enum PageKind {
    * Serialize page.
    *
    * @param ResourceConfiguration the read only page transaction
-   * @param sink                  {@link Bytes<ByteBuffer>} instance
+   * @param sink                  {@link BytesOut<?>} instance
    * @param page                  {@link Page} implementation
    */
   public abstract void serializePage(final ResourceConfiguration ResourceConfiguration, final BytesOut<?> sink,
@@ -816,7 +869,7 @@ public enum PageKind {
    * Deserialize page.
    *
    * @param resourceConfiguration the resource configuration
-   * @param source                {@link Bytes<ByteBuffer>} instance
+   * @param source                {@link BytesOut<?>} instance
    * @return page instance implementing the {@link Page} interface
    */
   public abstract Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,

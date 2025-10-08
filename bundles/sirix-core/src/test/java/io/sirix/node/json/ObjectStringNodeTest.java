@@ -21,29 +21,25 @@
 
 package io.sirix.node.json;
 
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.hashing.LongHashFunction;
+import io.sirix.node.NodeTestHelper;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
 import io.sirix.api.PageTrx;
 import io.sirix.exception.SirixException;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
-import io.sirix.node.delegates.ValueNodeDelegate;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
 /**
- * Object strjng node test.
+ * Object string node test.
  */
 public class ObjectStringNodeTest {
 
@@ -63,27 +59,44 @@ public class ObjectStringNodeTest {
 
   @Test
   public void test() throws IOException {
-    // Create empty node.
     final byte[] value = { (byte) 17, (byte) 18 };
-    final NodeDelegate del =
-        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del,
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               0L,
-                                                               0L);
-    final ObjectStringNode node = new ObjectStringNode(valDel, strucDel);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    
+    // Create data in the correct serialization format with size prefix and padding
+    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + optional fields + value][end padding]
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final var config = pageTrx.getResourceSession().getResourceConfig();
+    
+    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.OBJECT_STRING_VALUE);
+    long startPos = data.writePosition();
+    // NodeDelegate fields (16 bytes)
+    data.writeLong(14); // parentKey
+    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
+    data.writeInt(0); // lastModifiedRevision
+    // Optional fields (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+    if (config.hashType != io.sirix.access.trx.node.HashType.NONE) {
+      data.writeLong(0); // hash
+    }
+    // Variable-length value at the end
+    data.writeStopBit(value.length);
+    data.write(value);
+    
+    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    
+    // Deserialize to create properly initialized node
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
+    final ObjectStringNode node = (ObjectStringNode) NodeKind.OBJECT_STRING_VALUE.deserialize(
+        bytesIn, 13L, null, pageTrx.getResourceSession().getResourceConfig());
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final ObjectStringNode node2 =
-        (ObjectStringNode) NodeKind.OBJECT_STRING_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
+    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    data2.writeByte(NodeKind.OBJECT_STRING_VALUE.getId()); // Write NodeKind to ensure proper alignment
+    node.getKind().serialize(data2, node, pageTrx.getResourceSession().getResourceConfig());
+    var bytesIn2 = data2.asBytesIn();
+    bytesIn2.readByte(); // Skip NodeKind byte
+    final ObjectStringNode node2 = (ObjectStringNode) NodeKind.OBJECT_STRING_VALUE.deserialize(
+        bytesIn2, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

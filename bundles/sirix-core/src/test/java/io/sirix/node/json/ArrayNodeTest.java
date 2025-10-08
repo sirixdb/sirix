@@ -21,23 +21,19 @@
 
 package io.sirix.node.json;
 
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.hashing.LongHashFunction;
+import io.sirix.node.NodeTestHelper;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
-import io.sirix.api.Database;
 import io.sirix.api.PageTrx;
-import io.sirix.api.json.JsonResourceSession;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-
-import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
@@ -48,12 +44,10 @@ public class ArrayNodeTest {
 
   private PageTrx pageTrx;
 
-  private Database<JsonResourceSession> database;
-
   @Before
   public void setUp() {
     JsonTestHelper.deleteEverything();
-    database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
   }
 
@@ -64,22 +58,49 @@ public class ArrayNodeTest {
 
   @Test
   public void testNode() {
-    final NodeDelegate del =
-        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
-    final ArrayNode node = new ArrayNode(strucDel, 18);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    final long pathNodeKey = 18;
+    
+    // Use a simplified ResourceConfiguration without optional fields
+    final var config = ResourceConfiguration.newBuilder("test")
+        .hashKind(HashType.NONE)
+        .storeChildCount(false)
+        .build();
+    
+    // Create data in the correct serialization format with size prefix and padding
+    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + pathNodeKey + struct fields][end padding]
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    
+    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.ARRAY);
+    long startPos = data.writePosition();
+    // NodeDelegate fields
+    data.writeLong(14); // parentKey
+    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
+    data.writeInt(0); // lastModifiedRevision
+    // ArrayNode specific: pathNodeKey comes BEFORE struct fields
+    data.writeLong(pathNodeKey); // pathNodeKey
+    // Struct fields
+    data.writeLong(16L); // rightSibling
+    data.writeLong(15L); // leftSibling
+    data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // firstChild
+    data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // lastChild
+    
+    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    
+    // Deserialize to create properly initialized node
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
+    final ArrayNode node = (ArrayNode) NodeKind.ARRAY.deserialize(
+        bytesIn, 13L, null, config);
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final ArrayNode node2 = (ArrayNode) NodeKind.ARRAY.deserialize(data,
-                                                                   node.getNodeKey(),
-                                                                   null,
-                                                                   pageTrx.getResourceSession().getResourceConfig());
+    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    data2.writeByte(NodeKind.ARRAY.getId()); // Write NodeKind to ensure proper alignment
+    node.getKind().serialize(data2, node, config);
+    var bytesIn2 = data2.asBytesIn();
+    bytesIn2.readByte(); // Skip NodeKind byte
+    final ArrayNode node2 = (ArrayNode) NodeKind.ARRAY.deserialize(
+        bytesIn2, node.getNodeKey(), null, config);
     check(node2);
   }
 
