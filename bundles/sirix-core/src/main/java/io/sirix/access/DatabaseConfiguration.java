@@ -153,9 +153,9 @@ public final class DatabaseConfiguration {
 
   /**
    * Maximum buffer size for memory segment allocation.
-   * Default is 1GB.
+   * Default is 2GB (reduced from 8GB to avoid memory exhaustion).
    */
-  private long maxSegmentAllocationSize = 1L << 30; // 1GB default
+  private long maxSegmentAllocationSize = 2L * (1L << 30); // 2GB default
 
   /**
    * Constructor with the path to be set.

@@ -207,13 +207,12 @@ public final class JsonShredderTest {
 
   // TODO: JMH test
   // Use Shenandoah or ZGC
-  // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
-  @Disabled
+  // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:MaxDirectMemorySize=8g -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
   @Test
   public void testShredderAndTraverseChicago() {
     logger.info("start");
     final var jsonPath = JSON.resolve("cityofchicago.json");
-    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()).setMaxSegmentAllocationSize(3L * (1L << 30))); // 3GB
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       createResource(jsonPath, database, false);
       //      database.removeResource(JsonTestHelper.RESOURCE);

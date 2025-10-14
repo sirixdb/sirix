@@ -7,12 +7,16 @@ import com.github.benmanes.caffeine.cache.Scheduler;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.BiFunction;
 
 public final class PageCache implements Cache<PageReference, Page> {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(PageCache.class);
 
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> cache;
 
@@ -23,9 +27,19 @@ public final class PageCache implements Cache<PageReference, Page> {
       assert page != null;
 
       if (page instanceof KeyValueLeafPage keyValueLeafPage) {
+        // evictionListener only fires on size-based evictions, so pinCount should always be 0
+        // But to be safe, check anyway
         assert keyValueLeafPage.getPinCount() == 0 : "Page must not be pinned: " + keyValueLeafPage.getPinCount();
+        
+        // Safe to return segments - page is unpinned and being evicted
+        LOGGER.trace("PageCache: Returning segments for unpinned page {} to allocator, cause={}", 
+                    key.getKey(), cause);
+        DiagnosticLogger.log("PageCache EVICT: returning page " + keyValueLeafPage.getPageKey() + ", cause=" + cause);
+        KeyValueLeafPagePool.getInstance().returnPage(keyValueLeafPage);
+      } else {
+        DiagnosticLogger.log("PageCache: clearing non-KV page: " + page.getClass().getSimpleName());
+        page.clear();
       }
-      page.clear();
     };
 
     cache = Caffeine.newBuilder()

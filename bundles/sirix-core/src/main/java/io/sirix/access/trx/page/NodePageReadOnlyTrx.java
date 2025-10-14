@@ -68,8 +68,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                             PageReference pageReference, KeyValueLeafPage page) {
   }
 
-  private final PageReference pageReferenceForUnpinning = new PageReference();
-
   /**
    * Page reader exclusively assigned to this transaction.
    */
@@ -197,8 +195,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         reference.setPage(page);
       }
       return page;
-    //}
-
+//    }
+//
 //    if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
 //      page = pageReader.read(reference, resourceSession.getResourceConfig());
 //    }
@@ -523,17 +521,17 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       KeyValueLeafPage recordPage) {
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
       if (pathSummaryRecordPage != null) {
-        if (trxIntentLog == null) {
+        //if (trxIntentLog == null) {
           if (resourceBufferManager.getRecordPageCache().get(pathSummaryRecordPage.pageReference) != null) {
             assert !pathSummaryRecordPage.page.isClosed();
             pathSummaryRecordPage.page.decrementPinCount();
             resourceBufferManager.getRecordPageCache()
                                  .put(pathSummaryRecordPage.pageReference, pathSummaryRecordPage.page);
           }
-        } else {
-          pathSummaryRecordPage.pageReference.setPage(null);
-          pathSummaryRecordPage.page.clear();
-        }
+//        } else {
+//          pathSummaryRecordPage.pageReference.setPage(null);
+//          pathSummaryRecordPage.page.clear();
+//        }
       }
 
       pathSummaryRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
@@ -586,33 +584,64 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       assert !page.isClosed();
     }
 
-    final Page completePage = versioningApproach.combineRecordPages(pages, maxRevisionsToRestore, this);
-
-    unpinPageFragments(pageReferenceToRecordPage, pages);
-
-    pageReferenceToRecordPage.setPage(completePage);
-
-    assert !completePage.isClosed();
-    return completePage;
+    // CRITICAL: Use try-finally to ensure page fragments are ALWAYS unpinned
+    // even if combineRecordPages() throws an exception. Without this, pinned
+    // fragments leak and their segments are never returned to the allocator.
+    try {
+      final Page completePage = versioningApproach.combineRecordPages(pages, maxRevisionsToRestore, this);
+      pageReferenceToRecordPage.setPage(completePage);
+      assert !completePage.isClosed();
+      return completePage;
+    } finally {
+      // ALWAYS unpin fragments, even on exception
+      unpinPageFragments(pageReferenceToRecordPage, pages);
+    }
   }
 
   private void unpinPageFragments(PageReference pageReference, List<KeyValuePage<DataRecord>> pages) {
     if (pages.isEmpty()) {
-      return;
+        return;
     }
+
+    io.sirix.cache.DiagnosticLogger.log("unpinPageFragments: " + pages.size() + " fragments, trxIntentLog=" + (trxIntentLog != null));
 
     var mostRecentPageFragment = pages.getFirst();
     mostRecentPageFragment.decrementPinCount();
-    resourceBufferManager.getPageCache().put(pageReference, mostRecentPageFragment);
+    
+    // For read-only transactions, cache the fragment
+    if (trxIntentLog == null) {
+        resourceBufferManager.getPageCache().put(pageReference, mostRecentPageFragment);
+        io.sirix.cache.DiagnosticLogger.log("  Fragment 0 cached (read-only)");
+    } else {
+        // For write transactions, return the fragment immediately since it's no longer needed
+        if (mostRecentPageFragment instanceof KeyValueLeafPage kvPage) {
+            io.sirix.cache.DiagnosticLogger.log("  Fragment 0 returned immediately (write-trx): page=" + kvPage.getPageKey());
+            KeyValueLeafPagePool.getInstance().returnPage(kvPage);
+        } else {
+            io.sirix.cache.DiagnosticLogger.log("  Fragment 0 not KeyValueLeafPage: " + mostRecentPageFragment.getClass().getSimpleName());
+        }
+    }
 
     var pageFragments = pageReference.getPageFragments();
     for (int i = 1; i < pages.size(); i++) {
-      var pageFragment = pages.get(i);
-      pageFragment.decrementPinCount();
-      var pageFragmentKey = pageFragments.get(i - 1);
-      resourceBufferManager.getPageCache().put(new PageReference().setKey(pageFragmentKey.key()), pageFragment);
+        var pageFragment = pages.get(i);
+        pageFragment.decrementPinCount();
+        
+        if (trxIntentLog == null) {
+            var pageFragmentKey = pageFragments.get(i - 1);
+            resourceBufferManager.getPageCache().put(new PageReference().setKey(pageFragmentKey.key()), pageFragment);
+            io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " cached (read-only)");
+        } else {
+            // For write transactions, return immediately
+            if (pageFragment instanceof KeyValueLeafPage kvPage) {
+                io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " returned immediately (write-trx): page=" + kvPage.getPageKey());
+                KeyValueLeafPagePool.getInstance().returnPage(kvPage);
+            } else {
+                io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " not KeyValueLeafPage: " + pageFragment.getClass().getSimpleName());
+            }
+        }
     }
-  }
+}
 
   @Nullable
   private Page getInMemoryPageInstance(@NonNull IndexLogKey indexLogKey,
@@ -664,7 +693,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     KeyValuePage<DataRecord> page;
 
-    //if (trxIntentLog == null) {
+//    if (trxIntentLog == null) {
       page = (KeyValuePage<DataRecord>) resourceBufferManager.getPageCache().get(pageReferenceWithKey, (_, value) -> {
         var kvPage = (KeyValueLeafPage) value;
         if (value == null) {
@@ -726,9 +755,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                                                      resourceBufferManager.getPageCache()
                                                                                           .put(pageReference, page);
                                                                    }
-//                                                                 } else {
-//                                                                   ((KeyValuePage<DataRecord>) page).incrementPinCount();
-//                                                                 }
+                                                                 //} else {
+                                                                 //  ((KeyValuePage<DataRecord>) page).incrementPinCount();
+                                                                 //}
                                                                });
   }
 

@@ -114,7 +114,8 @@ public final class KeyValueLeafPagePool {
         if (currentState == PoolState.UNINITIALIZED) {
           LOGGER.info("Initializing KeyValueLeafPagePool with max buffer size: {} bytes", maxBufferSize);
           initializeSegmentAllocator(maxBufferSize);
-          preAllocatePages();
+          // NOTE: We no longer pre-allocate pages since we create fresh pages on demand
+          // The MemorySegmentAllocator handles segment pooling internally
           state.set(PoolState.INITIALIZED);
           LOGGER.info("KeyValueLeafPagePool initialization completed successfully");
         }
@@ -136,48 +137,6 @@ public final class KeyValueLeafPagePool {
     }
   }
 
-  private void preAllocatePages() {
-    for (int sizeIndex = 0; sizeIndex < PAGE_SIZES.length; sizeIndex++) {
-      int pageSize = PAGE_SIZES[sizeIndex];
-      preAllocatePagesForSize(sizeIndex, pageSize);
-    }
-  }
-
-  private void preAllocatePagesForSize(int sizeIndex, int pageSize) {
-    try {
-      // Pre-allocate fewer pages since we no longer separate by DeweyID configuration
-      int pageCount = BASE_SEGMENT_COUNT;
-
-      for (int i = 0; i < pageCount; i++) {
-        // Create page with both slot and dewey memory segments
-        // The page will use them based on the ResourceConfiguration at runtime
-        KeyValueLeafPage page = createPage(pageSize);
-        pools[sizeIndex].offer(page);
-      }
-
-      LOGGER.debug("Pre-allocated {} pages of size {} bytes", pageCount, pageSize);
-    } catch (Exception e) {
-      LOGGER.warn("Failed to pre-allocate pages for size {}: {}", pageSize, e.getMessage());
-    }
-  }
-
-  private KeyValueLeafPage createPage(int slotSize) {
-    MemorySegment slotSegment = segmentAllocator.allocate(slotSize);
-    MemorySegment deweyIdSegment = segmentAllocator.allocate(slotSize);
-
-    ResourceConfiguration resourceConfig = createDefaultResourceConfig();
-
-    return new KeyValueLeafPage(0, IndexType.DOCUMENT, resourceConfig, 0, slotSegment, deweyIdSegment);
-  }
-
-  private ResourceConfiguration createDefaultResourceConfig() {
-    return new ResourceConfiguration.Builder("temp").build();
-  }
-
-  private Deque<KeyValueLeafPage> getPool(int sizeIndex) {
-    return pools[sizeIndex];
-  }
-
   /**
    * Cleanup all resources managed by the pool.
    */
@@ -196,10 +155,18 @@ public final class KeyValueLeafPagePool {
 
   /**
    * Clear all page pools and properly clean up pages.
+   * Return segments from any pre-allocated pages back to the allocator.
    */
   private void clearAllPagePools() {
     for (Deque<KeyValueLeafPage> pool : pools) {
       if (pool != null) {
+        // Return segments from all pages before clearing
+        while (!pool.isEmpty()) {
+          KeyValueLeafPage page = pool.poll();
+          if (page != null) {
+            page.returnSegmentsToAllocator();
+          }
+        }
         pool.clear();
       }
     }
@@ -218,54 +185,6 @@ public final class KeyValueLeafPagePool {
     }
   }
 
-  /**
-   * Thread-safe borrowing with proper error handling and metrics.
-   */
-  private KeyValueLeafPage borrowPageInternal(int slotMemorySize, PageInitializer initializer) {
-    // Auto-initialize if not initialized and not shutdown
-    if (state.get() == PoolState.UNINITIALIZED) {
-      LOGGER.warn("KeyValueLeafPagePool not initialized, auto-initializing with default size");
-      init(1L << 30); // 1GB default
-    }
-
-    assertNotShutdown();
-    ensureInitialized();
-
-    int sizeIndex = validateAndGetSizeIndex(slotMemorySize);
-    Deque<KeyValueLeafPage> pool = getPool(sizeIndex);
-
-    totalBorrowedPages.incrementAndGet();
-
-    KeyValueLeafPage page = pool.poll();
-    if (page != null) {
-      poolHits.incrementAndGet();
-      // Reuse the memory segments from the pooled page but create a new page with new properties
-      MemorySegment slotSegment = page.slots();
-      MemorySegment deweyIdSegment = page.deweyIds();
-      // Clear the segments before reuse
-      slotSegment.fill((byte) 0);
-      if (deweyIdSegment != null) {
-        deweyIdSegment.fill((byte) 0);
-      }
-      return initializer.createPage(slotSegment, deweyIdSegment);
-    } else {
-      poolMisses.incrementAndGet();
-      return createNewPage(sizeIndex, initializer);
-    }
-  }
-
-  private KeyValueLeafPage createNewPage(int sizeIndex, PageInitializer initializer) {
-    try {
-      int pageSize = PAGE_SIZES[sizeIndex];
-      MemorySegment slotSegment = segmentAllocator.allocate(pageSize);
-      MemorySegment deweyIdSegment = segmentAllocator.allocate(pageSize);
-
-      return initializer.createPage(slotSegment, deweyIdSegment);
-    } catch (Exception e) {
-      LOGGER.error("Failed to create new page for size index {}", sizeIndex, e);
-      throw new RuntimeException("Page creation failed", e);
-    }
-  }
 
   private void assertNotShutdown() {
     if (state.get() == PoolState.SHUTDOWN) {
@@ -289,12 +208,6 @@ public final class KeyValueLeafPagePool {
         "Unsupported page size: " + size + ". Maximum supported size: " + PAGE_SIZES[PAGE_SIZES.length - 1]);
   }
 
-  // Thread-safe functional interface for page initialization
-  @FunctionalInterface
-  private interface PageInitializer {
-    KeyValueLeafPage createPage(MemorySegment slotSegment, MemorySegment deweyIdSegment);
-  }
-
   // Public API methods with enhanced validation and error handling
   public KeyValueLeafPage borrowPage(final long recordPageKey, final int revisionNumber, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
@@ -308,20 +221,28 @@ public final class KeyValueLeafPagePool {
     checkArgument(revisionNumber >= 0, "Revision number must be non-negative");
     checkArgument(slotMemorySize > 0, "Slot memory size must be positive");
 
-    return borrowPageInternal(slotMemorySize,
-                              (slotSegment, deweyIdSegment) -> new KeyValueLeafPage(recordPageKey,
-                                                                                    revisionNumber,
-                                                                                    indexType,
-                                                                                    resourceConfig,
-                                                                                    areDeweyIDsStored,
-                                                                                    recordPersister,
-                                                                                    references != null
-                                                                                        ? references
-                                                                                        : new HashMap<>(),
-                                                                                    slotSegment,
-                                                                                    deweyIdSegment,
-                                                                                    lastSlotIndex,
-                                                                                    lastDeweyIdIndex));
+    // Auto-initialize if needed
+    if (state.get() == PoolState.UNINITIALIZED) {
+      LOGGER.warn("KeyValueLeafPagePool not initialized, auto-initializing with default size");
+      init(1L << 30);
+    }
+    assertNotShutdown();
+    ensureInitialized();
+
+    // Validate size is supported
+    validateAndGetSizeIndex(slotMemorySize);
+    totalBorrowedPages.incrementAndGet();
+
+    // NEW APPROACH: Don't pool page objects, only pool MemorySegments via the allocator
+    // Always create fresh page objects to avoid state contamination issues
+    // The allocator will handle pooling/reuse of the actual memory segments
+    DiagnosticLogger.log("borrowPage: recordPageKey=" + recordPageKey + ", slotSize=" + slotMemorySize + 
+                        ", deweyIdSize=" + deweyIdMemorySize + ", indexType=" + indexType);
+    MemorySegment slotSegment = segmentAllocator.allocate(slotMemorySize);
+    MemorySegment deweyIdSegment = deweyIdMemorySize > 0 ? segmentAllocator.allocate(deweyIdMemorySize) : slotSegment;
+    return new KeyValueLeafPage(recordPageKey, revisionNumber, indexType, resourceConfig, areDeweyIDsStored,
+                               recordPersister, references != null ? references : new HashMap<>(),
+                               slotSegment, deweyIdSegment, lastSlotIndex, lastDeweyIdIndex);
   }
 
   public KeyValueLeafPage borrowPage(int size, final @NonNegative long recordPageKey, final IndexType indexType,
@@ -333,47 +254,57 @@ public final class KeyValueLeafPagePool {
     checkArgument(revisionNumber >= 0, "Revision number must be non-negative");
     checkArgument(size > 0, "Size must be positive");
 
-    return borrowPageInternal(size,
-                              (slotSegment, deweyIdSegment) -> new KeyValueLeafPage(recordPageKey,
-                                                                                    indexType,
-                                                                                    resourceConfig,
-                                                                                    revisionNumber,
-                                                                                    slotSegment,
-                                                                                    deweyIdSegment));
+    // Auto-initialize if needed
+    if (state.get() == PoolState.UNINITIALIZED) {
+      LOGGER.warn("KeyValueLeafPagePool not initialized, auto-initializing with default size");
+      init(1L << 30);
+    }
+    assertNotShutdown();
+    ensureInitialized();
+
+    // Validate size is supported
+    validateAndGetSizeIndex(size);
+    totalBorrowedPages.incrementAndGet();
+
+    // NEW APPROACH: Don't pool page objects, only pool MemorySegments via the allocator
+    // Always create fresh page objects to avoid state contamination issues
+    // The allocator will handle pooling/reuse of the actual memory segments
+    DiagnosticLogger.log("borrowPage(2): recordPageKey=" + recordPageKey + ", size=" + size + ", indexType=" + indexType);
+    MemorySegment slotSegment = segmentAllocator.allocate(size);
+    MemorySegment deweyIdSegment = segmentAllocator.allocate(size);
+    return new KeyValueLeafPage(recordPageKey, indexType, resourceConfig, revisionNumber,
+                               slotSegment, deweyIdSegment);
   }
 
   /**
-   * Thread-safe page return with comprehensive validation.
+   * Return memory segments from a page back to the allocator for reuse.
+   * NEW APPROACH: We don't pool page objects anymore, just return the segments.
+   * This method is safe to call multiple times on the same page (idempotent).
    */
   public void returnPage(@Nullable KeyValueLeafPage page) {
     if (page == null) {
+      DiagnosticLogger.log("KeyValueLeafPagePool.returnPage() called with null page");
       return;
     }
 
+    DiagnosticLogger.log("KeyValueLeafPagePool.returnPage() called for page " + page.getPageKey());
+
     if (state.get() == PoolState.SHUTDOWN) {
       LOGGER.debug("Pool is shutdown, discarding returned page");
+      DiagnosticLogger.log("Pool is shutdown, discarding page " + page.getPageKey());
       return;
     }
 
     try {
-      totalReturnedPages.incrementAndGet();
+      long count = totalReturnedPages.incrementAndGet();
+      DiagnosticLogger.log("Total returned pages now: " + count);
 
-      int pageSize = page.getSlotMemoryByteSize();
-      int sizeIndex = validateAndGetSizeIndex(pageSize);
+      // Use the page's idempotent segment return method to avoid double-free
+      page.returnSegmentsToAllocator();
 
-      Deque<KeyValueLeafPage> pool = getPool(sizeIndex);
-
-      // Note: We don't call page.clear() here because we want to preserve the memory segments
-      // for reuse. The segments will be cleared when the page is borrowed again.
-
-      if (!pool.offer(page)) {
-        LOGGER.warn("Failed to return page to pool - pool may be full");
-      }
-
-    } catch (IllegalArgumentException e) {
-      LOGGER.warn("Cannot return page with unsupported size {}: {}", page.getSlotMemoryByteSize(), e.getMessage());
     } catch (Exception e) {
-      LOGGER.error("Error returning page to pool", e);
+      LOGGER.error("Error returning memory segments to allocator", e);
+      DiagnosticLogger.error("ERROR in returnPage for page " + page.getPageKey() + ": " + e.getMessage(), e);
     }
   }
 

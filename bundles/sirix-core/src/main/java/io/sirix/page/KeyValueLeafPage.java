@@ -517,6 +517,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   MemorySegment resizeMemorySegment(MemorySegment oldMemory, int newSize, int[] offsets, boolean isSlotMemory) {
     MemorySegment newMemory = segmentAllocator.allocate(newSize);
     MemorySegment.copy(oldMemory, 0, newMemory, 0, oldMemory.byteSize());
+    segmentAllocator.release(oldMemory);
 
     if (isSlotMemory) {
       slotMemory = newMemory;
@@ -904,6 +905,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return count;
   }
 
+  /**
+   * Return memory segments back to the allocator.
+   * Call this when the page is being discarded (evicted from cache).
+   */
+  public void returnSegmentsToAllocator() {
+    if (slotMemory != null) {
+      segmentAllocator.release(slotMemory);
+    }
+    if (deweyIdMemory != null && deweyIdMemory != slotMemory) {
+      segmentAllocator.release(deweyIdMemory);
+    }
+  }
+
   @Override
   public Page clear() {
     if (!isClosed) {
@@ -926,10 +940,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
       // Clear memory properly - fill with zeros
       slotMemory.fill((byte) 0x00);
-      //segmentAllocator.release(slotMemory);
       if (areDeweyIDsStored && deweyIdMemory != null) {
         deweyIdMemory.fill((byte) 0x00);
-        //segmentAllocator.release(deweyIdMemory);
       }
 
       // Reset other state
@@ -1092,9 +1104,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         final var buffer = out.getDestination();
         
         if (buffer.byteSize() > PageConstants.MAX_RECORD_SIZE) {
-          // Overflow page: copy buffer to persistent arena since OverflowPage stores the reference
-          var persistentBuffer = java.lang.foreign.Arena.global().allocate(buffer.byteSize(), 8);
-          java.lang.foreign.MemorySegment.copy(buffer, 0, persistentBuffer, 0, buffer.byteSize());
+          // Overflow page: copy to byte array for storage
+          byte[] persistentBuffer = new byte[(int) buffer.byteSize()];
+          MemorySegment.copy(buffer, 0, MemorySegment.ofArray(persistentBuffer), 0, buffer.byteSize());
           
           final var reference = new PageReference();
           reference.setPage(new OverflowPage(persistentBuffer));

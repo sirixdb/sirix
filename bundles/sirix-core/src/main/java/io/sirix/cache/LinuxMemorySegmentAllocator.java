@@ -1,5 +1,6 @@
 package io.sirix.cache;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
@@ -9,6 +10,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
@@ -52,10 +54,39 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   // Define power-of-two sizes for mapping: 4KB, 8KB, 16KB, 32KB, 64KB, 128KB, 256KB
   private static final long[] SEGMENT_SIZES =
       { FOUR_KB, EIGHT_KB, SIXTEEN_KB, THIRTYTWO_KB, SIXTYFOUR_KB, ONE_TWENTYEIGHT_KB, TWO_FIFTYSIX_KB };
-  private static final int PRE_ALLOCATE_COUNT = 100; // Number of segments to touch upfront
   private static final long MAX_BUFFER_SIZE = 1L << 30; // 1GB   FIXME: Make this configurable
+  private static final long REGION_SIZE_PER_POOL = 4 * 1024 * 1024;  // 4MB per region (reduced for laptop compatibility)
 
-  private final List<MemorySegment> topLevelMappedSegments = new CopyOnWriteArrayList<>();
+  /**
+   * Represents a memory region that has been mmap'd and sliced into segments.
+   */
+  private static class MemoryRegion {
+    final Arena arena;
+    final MemorySegment baseSegment;
+    final long segmentSize;
+    final int poolIndex;
+    final AtomicInteger unusedSlices;  // Count of slices currently in pool (available)
+    final int totalSlices;
+    
+    MemoryRegion(int poolIndex, long segmentSize, MemorySegment mmappedSegment) {
+      this.poolIndex = poolIndex;
+      this.segmentSize = segmentSize;
+      this.totalSlices = (int) (mmappedSegment.byteSize() / segmentSize);
+      this.unusedSlices = new AtomicInteger(totalSlices);
+      
+      // Create Arena and associate all slices with it
+      this.arena = Arena.ofShared();
+      this.baseSegment = MemorySegment.ofAddress(mmappedSegment.address())
+                                      .reinterpret(mmappedSegment.byteSize(), arena, null);
+    }
+    
+    boolean allSlicesReturned() {
+      return unusedSlices.get() == totalSlices;
+    }
+  }
+
+  private final List<MemoryRegion> activeRegions = new CopyOnWriteArrayList<>();
+  private final AtomicLong totalMappedBytes = new AtomicLong(0);
 
   private final Deque<MemorySegment>[] segmentPools = new Deque[SEGMENT_SIZES.length];
 
@@ -87,45 +118,73 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       return;
     }
 
-    LOGGER.info("Initializing LinuxMemorySegmentAllocator...");
+    LOGGER.info("Initializing on-demand LinuxMemorySegmentAllocator with budget: {} bytes", maxBufferSize);
 
-    // Initialize segment pools for each size class
+    this.maxBufferSize.set(maxBufferSize);
+
+    // Initialize empty segment pools for each size class
     for (int i = 0; i < SEGMENT_SIZES.length; i++) {
       segmentPools[i] = new ConcurrentLinkedDeque<>();
     }
 
-    // Pre-allocate and touch memory segments
-    preAllocateAndTouchMemory(maxBufferSize);
+    LOGGER.info("On-demand allocator initialized - regions will be mmap'd as needed");
   }
 
-  private void preAllocateAndTouchMemory(long maxBufferSize) {
-    for (int index = 0; index < SEGMENT_SIZES.length; index++) {
-      long segmentSize = SEGMENT_SIZES[index];
-      Deque<MemorySegment> pool = segmentPools[index];
-
-      // Map a large memory segment and split it into smaller segments
-      MemorySegment hugeSegment = mapMemory(maxBufferSize);
-      this.maxBufferSize.set(maxBufferSize);
-
-      topLevelMappedSegments.add(hugeSegment);
-
-      for (long l = 0, max = maxBufferSize / segmentSize; l < max; l++) {
-        long actualOffset = l * segmentSize;
-        MemorySegment segment = hugeSegment.asSlice(actualOffset, segmentSize);
-
-        if (l < PRE_ALLOCATE_COUNT) {
-          // "Touch" the segment to ensure it is mapped into physical memory
-          segment.set(JAVA_BYTE, 0, (byte) 0);
-        }
-
-        pool.add(segment);
-      }
+  /**
+   * Allocate a new memory region for the specified pool index.
+   * The region is mmap'd, associated with an Arena, and sliced into segments.
+   */
+  private void allocateNewRegion(int poolIndex) {
+    long segmentSize = SEGMENT_SIZES[poolIndex];
+    long regionSize = REGION_SIZE_PER_POOL;
+    int slicesPerRegion = (int) (regionSize / segmentSize);
+    
+    // mmap the region
+    MemorySegment mmappedRegion = mapMemory(regionSize);
+    
+    // Create MemoryRegion wrapper with Arena
+    MemoryRegion region = new MemoryRegion(poolIndex, segmentSize, mmappedRegion);
+    activeRegions.add(region);
+    totalMappedBytes.addAndGet(regionSize);
+    
+    // Slice region and add all slices to pool
+    Deque<MemorySegment> pool = segmentPools[poolIndex];
+    for (int i = 0; i < slicesPerRegion; i++) {
+      MemorySegment slice = region.baseSegment.asSlice(i * segmentSize, segmentSize);
+      pool.offer(slice);
     }
+    
+    LOGGER.info("Allocated new region for pool {} (size {}): {} MB with {} slices", 
+                poolIndex, segmentSize, regionSize / (1024 * 1024), slicesPerRegion);
   }
 
   @Override
   public long getMaxBufferSize() {
     return maxBufferSize.get();
+  }
+
+  /**
+   * Get current pool sizes for diagnostics.
+   * @return array of pool sizes, one per segment size
+   */
+  public int[] getPoolSizes() {
+    int[] sizes = new int[SEGMENT_SIZES.length];
+    for (int i = 0; i < segmentPools.length; i++) {
+      sizes[i] = segmentPools[i].size();
+    }
+    return sizes;
+  }
+
+  /**
+   * Print diagnostic information about pool state.
+   */
+  public void printPoolDiagnostics() {
+    System.out.println("\n========== MEMORY SEGMENT POOL DIAGNOSTICS ==========");
+    for (int i = 0; i < SEGMENT_SIZES.length; i++) {
+      System.out.println("Pool " + i + " (size " + SEGMENT_SIZES[i] + "): " + 
+                         segmentPools[i].size() + " segments available");
+    }
+    System.out.println("====================================================\n");
   }
 
   @Override
@@ -140,7 +199,38 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     MemorySegment segment = pool.poll();
 
     if (segment == null) {
-      throw new OutOfMemoryError("No preallocated segments available for size: " + size);
+      // Pool empty - need to allocate new region
+      LOGGER.debug("Pool {} empty, allocating new region", index);
+      
+      // Check global budget before allocating
+      long currentMapped = totalMappedBytes.get();
+      if (currentMapped + REGION_SIZE_PER_POOL > maxBufferSize.get()) {
+        // Try freeing fully-returned regions first
+        freeUnusedRegions();
+        
+        // Check again after freeing
+        if (totalMappedBytes.get() + REGION_SIZE_PER_POOL > maxBufferSize.get()) {
+          LOGGER.error("Cannot allocate region: would exceed budget of {} (current: {}, need: {})",
+                      maxBufferSize.get(), totalMappedBytes.get(), REGION_SIZE_PER_POOL);
+          throw new OutOfMemoryError("Would exceed memory budget of " + maxBufferSize.get() + " bytes");
+        }
+      }
+      
+      // Allocate new region on-demand
+      allocateNewRegion(index);
+      
+      // Try again after allocation
+      segment = pool.poll();
+      if (segment == null) {
+        throw new IllegalStateException("Pool still empty after region allocation!");
+      }
+    }
+
+    int poolSize = pool.size();
+    DiagnosticLogger.log("LinuxMemorySegmentAllocator.allocate() size=" + size + ", pool " + index + " now has " + poolSize + " segments remaining");
+
+    if (poolSize < 10) {
+      LOGGER.warn("LOW ON SEGMENTS! Size: {}, Pool {} has only {} segments left", size, index, poolSize);
     }
 
     segment.fill((byte) 0); // Clear the segment
@@ -162,6 +252,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     if (addr == MemorySegment.NULL) {
       throw new OutOfMemoryError("Failed to allocate memory via mmap");
     }
+    
+    // Return the segment directly - we manage lifecycle explicitly via munmap
+    // No Arena needed since we call munmap ourselves in releaseMemory()
     return addr.reinterpret(totalSize);
   }
 
@@ -181,15 +274,93 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     long size = segment.byteSize();
     int index = SegmentAllocators.getIndexForSize(size);
 
+    DiagnosticLogger.log("LinuxMemorySegmentAllocator.release() called: size=" + size + ", pool index=" + index);
+
     if (index >= 0 && index < segmentPools.length) {
-      segmentPools[index].offer(segment);
+      var returned = segmentPools[index].offer(segment);
+
+      assert returned : "Must return segment to pool.";
+
+      // Track that this slice was returned to its region
+      MemoryRegion region = findRegionForSegment(segment);
+      if (region != null) {
+        int unused = region.unusedSlices.incrementAndGet();
+        
+        // If all slices of this region are back in pool, we can free the entire region
+        if (unused == region.totalSlices) {
+          LOGGER.debug("All slices returned for region in pool {}, freeing region", index);
+          freeRegion(region);
+        }
+      }
+
+      int poolSize = segmentPools[index].size();
+      DiagnosticLogger.log("Segment returned to pool " + index + ", pool now has " + poolSize + " segments");
+
+      // Periodic logging to verify segments are being returned
+      if (poolSize % 1000 == 0) {
+        LOGGER.info("Segment returned: size={}, pool {} now has {} segments", size, index, poolSize);
+      }
     } else {
+      LOGGER.error("CANNOT RETURN SEGMENT! Invalid size: {}", size);
+      DiagnosticLogger.error("ERROR: Invalid segment size " + size + " for index " + index, null);
       throw new IllegalArgumentException("Segment size not supported for reuse: " + size);
     }
   }
 
+  private MemoryRegion findRegionForSegment(MemorySegment segment) {
+    long addr = segment.address();
+    for (MemoryRegion region : activeRegions) {
+      long baseAddr = region.baseSegment.address();
+      long endAddr = baseAddr + region.baseSegment.byteSize();
+      if (addr >= baseAddr && addr < endAddr) {
+        return region;
+      }
+    }
+    return null;
+  }
+
+  private void freeRegion(MemoryRegion region) {
+    try {
+      // Remove all slices of this region from the pool
+      Deque<MemorySegment> pool = segmentPools[region.poolIndex];
+      pool.removeIf(seg -> {
+        long addr = seg.address();
+        long baseAddr = region.baseSegment.address();
+        long endAddr = baseAddr + region.baseSegment.byteSize();
+        return addr >= baseAddr && addr < endAddr;
+      });
+      
+      // munmap the native memory
+      releaseMemory(region.baseSegment, region.baseSegment.byteSize());
+      
+      // Close arena (invalidates all MemorySegment slices)
+      region.arena.close();
+      
+      // Update tracking
+      long freedBytes = region.baseSegment.byteSize();
+      totalMappedBytes.addAndGet(-freedBytes);
+      activeRegions.remove(region);
+      
+      LOGGER.info("Freed region from pool {}: {} MB (total mapped now: {} MB)", 
+                 region.poolIndex, freedBytes / (1024 * 1024), 
+                 totalMappedBytes.get() / (1024 * 1024));
+    } catch (Exception e) {
+      LOGGER.error("Failed to free region", e);
+    }
+  }
+
+  private void freeUnusedRegions() {
+    LOGGER.debug("Attempting to free unused regions to reclaim budget");
+    List<MemoryRegion> toFree = activeRegions.stream()
+        .filter(MemoryRegion::allSlicesReturned)
+        .toList();
+    
+    LOGGER.info("Found {} unused regions to free", toFree.size());
+    toFree.forEach(this::freeRegion);
+  }
+
   /**
-   * Cleanup all mmap'd top-level segments.
+   * Cleanup all mmap'd memory regions.
    * Called automatically during JVM shutdown.
    */
   @Override
@@ -199,21 +370,28 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       return;
     }
 
-    LOGGER.info("Cleaning up mmap'd memory segments...");
-    for (MemorySegment segment : topLevelMappedSegments) {
+    LOGGER.info("Cleaning up {} memory regions (total: {} MB)...", 
+               activeRegions.size(), totalMappedBytes.get() / (1024 * 1024));
+    
+    // Free all regions (munmap + close arena)
+    for (MemoryRegion region : activeRegions) {
       try {
-        releaseMemory(segment, segment.byteSize());
+        releaseMemory(region.baseSegment, region.baseSegment.byteSize());
+        region.arena.close();
       } catch (Exception e) {
-        LOGGER.error("Failed to release segment: {}", e.getMessage());
+        LOGGER.error("Failed to release region: {}", e.getMessage());
       }
     }
-    topLevelMappedSegments.clear();
+    activeRegions.clear();
 
+    // Clear all pools
     for (Deque<MemorySegment> pool : segmentPools) {
       pool.clear();
     }
 
+    totalMappedBytes.set(0);
     isInitialized.set(false);
+    LOGGER.info("LinuxMemorySegmentAllocator cleanup complete.");
   }
 
   public static void main(String[] args) {

@@ -660,10 +660,8 @@ public enum PageKind {
           final byte[] data = new byte[source.readInt()];
           source.read(data);
 
-          // Convert byte array to MemorySegment
-          java.lang.foreign.MemorySegment segment = java.lang.foreign.Arena.global().allocate(data.length);
-          segment.asByteBuffer().put(data);
-          return new OverflowPage(segment);
+          // Store as byte array to avoid memory leaks from Arena.global()
+          return new OverflowPage(data);
         }
         default -> throw new IllegalStateException();
       }
@@ -676,12 +674,10 @@ public enum PageKind {
       sink.writeByte(OVERFLOWPAGE.id);
       sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
       
-      // Convert MemorySegment to byte array for writing
-      java.lang.foreign.MemorySegment data = overflowPage.getData();
-      sink.writeInt((int) data.byteSize());
-      byte[] dataBytes = new byte[(int) data.byteSize()];
-      java.lang.foreign.MemorySegment.copy(data, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, dataBytes, 0, (int) data.byteSize());
-      sink.write(dataBytes);
+      // Write byte array directly
+      byte[] data = overflowPage.getDataBytes();
+      sink.writeInt(data.length);
+      sink.write(data);
     }
   },
 

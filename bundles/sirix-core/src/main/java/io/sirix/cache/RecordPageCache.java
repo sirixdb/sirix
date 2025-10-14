@@ -6,6 +6,8 @@ import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
@@ -13,16 +15,23 @@ import java.util.function.BiFunction;
 
 public final class RecordPageCache implements Cache<PageReference, KeyValueLeafPage> {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(RecordPageCache.class);
+
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, KeyValueLeafPage> cache;
 
   public RecordPageCache(final int maxWeight) {
     final RemovalListener<PageReference, KeyValueLeafPage> removalListener =
         (PageReference key, KeyValueLeafPage page, RemovalCause cause) -> {
-          assert cause.wasEvicted();
+          // Handle ALL removals (eviction, invalidate, clear) - not just evictions
           assert key != null;
           key.setPage(null);
           assert page != null;
           assert page.getPinCount() == 0 : "Page must not be pinned: " + page.getPinCount();
+          
+          // Safe to return segments - page is unpinned and being discarded
+          LOGGER.trace("Returning segments for unpinned page {} to allocator, cause={}", 
+                      key.getKey(), cause);
+          DiagnosticLogger.log("RecordPageCache EVICT: returning page " + page.getPageKey() + ", cause=" + cause);
           KeyValueLeafPagePool.getInstance().returnPage(page);
         };
 
@@ -31,8 +40,9 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
                     .weigher((PageReference _, KeyValueLeafPage value) -> value.getPinCount() > 0
                         ? 0
                         : value.getUsedSlotsSize())
-                    .scheduler(scheduler)
+                    .scheduler(com.github.benmanes.caffeine.cache.Scheduler.systemScheduler())
                     .evictionListener(removalListener)
+                    .executor(Runnable::run)
                     .build();
   }
 
