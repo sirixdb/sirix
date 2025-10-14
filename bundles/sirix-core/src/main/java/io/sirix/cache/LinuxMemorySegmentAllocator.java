@@ -58,7 +58,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private static final long[] SEGMENT_SIZES =
       { FOUR_KB, EIGHT_KB, SIXTEEN_KB, THIRTYTWO_KB, SIXTYFOUR_KB, ONE_TWENTYEIGHT_KB, TWO_FIFTYSIX_KB };
   private static final long MAX_BUFFER_SIZE = 1L << 30; // 1GB   FIXME: Make this configurable
-  private static final long REGION_SIZE_PER_POOL = 4 * 1024 * 1024;  // 4MB per region (reduced for laptop compatibility)
+  private static final long REGION_SIZE_PER_POOL = 1 * 1024 * 1024;  // 1MB per region (reduced to minimize memory usage)
 
   /**
    * Represents a memory region that has been mmap'd and sliced into segments.

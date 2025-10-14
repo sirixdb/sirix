@@ -212,7 +212,7 @@ public final class JsonShredderTest {
   public void testShredderAndTraverseChicago() {
     logger.info("start");
     final var jsonPath = JSON.resolve("cityofchicago.json");
-    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()).setMaxSegmentAllocationSize(3L * (1L << 30))); // 3GB
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()).setMaxSegmentAllocationSize(1L << 30)); // 1GB
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       createResource(jsonPath, database, false);
       //      database.removeResource(JsonTestHelper.RESOURCE);
