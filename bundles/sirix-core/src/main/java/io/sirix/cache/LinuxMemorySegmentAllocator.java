@@ -10,6 +10,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -121,6 +122,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   // Per-pool freed region queues for O(1) exact-match reuse (prevents virtual memory leak)
   @SuppressWarnings("unchecked")
   private final ConcurrentLinkedQueue<MemoryRegion>[] freedRegionsByPool = new ConcurrentLinkedQueue[SEGMENT_SIZES.length];
+  
+  // Track if cleanup is running for each pool (prevents concurrent cleanups)
+  private final AtomicBoolean[] cleanupInProgress = new AtomicBoolean[SEGMENT_SIZES.length];
 
   private static final LinuxMemorySegmentAllocator INSTANCE = new LinuxMemorySegmentAllocator();
 
@@ -163,6 +167,11 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     // Initialize freed region queues for each size class
     for (int i = 0; i < SEGMENT_SIZES.length; i++) {
       freedRegionsByPool[i] = new ConcurrentLinkedQueue<>();
+    }
+
+    // Initialize cleanup guards for each size class
+    for (int i = 0; i < SEGMENT_SIZES.length; i++) {
+      cleanupInProgress[i] = new AtomicBoolean(false);
     }
 
     LOGGER.info("On-demand allocator initialized - regions will be mmap'd as needed");
@@ -434,11 +443,26 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       MemoryRegion region = findRegionForSegment(segment);
       if (region != null) {
         region.unusedSlices.incrementAndGet();
-        
-        // CRITICAL FIX: Do NOT free regions immediately!
-        // There's a race condition where segments can be allocated from pool
-        // but not yet used when we free the region, causing SIGSEGV.
-        // Only free regions when we need budget space (in freeUnusedRegions)
+      }
+
+      // CRITICAL: Proactive freeing when pool gets large
+      // Prevents memory leak by freeing before hitting budget limit
+      if (poolSize > 5000 && poolSize % 1000 == 0) {
+        // Try to start cleanup (non-blocking check)
+        if (cleanupInProgress[index].compareAndSet(false, true)) {
+          // Won CAS - start async cleanup
+          CompletableFuture.runAsync(() -> {
+            try {
+              LOGGER.debug("Pool {} has {} segments, running cleanup", index, poolSize);
+              freeUnusedRegionsForBudget(0);
+            } catch (Exception e) {
+              LOGGER.error("Error during opportunistic region cleanup", e);
+            } finally {
+              cleanupInProgress[index].set(false);  // Allow next cleanup
+            }
+          });
+        }
+        // Lost CAS - cleanup already running, skip (no blocking)
       }
 
       // Periodic logging to verify segments are being returned (less frequent)
