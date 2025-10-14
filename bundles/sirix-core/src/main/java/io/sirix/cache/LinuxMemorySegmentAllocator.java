@@ -95,6 +95,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private final AtomicLong totalMappedBytes = new AtomicLong(0);
 
   private final Deque<MemorySegment>[] segmentPools = new Deque[SEGMENT_SIZES.length];
+  private final AtomicInteger[] poolSizes = new AtomicInteger[SEGMENT_SIZES.length];  // Track pool sizes without O(n) traversal
 
   private static final LinuxMemorySegmentAllocator INSTANCE = new LinuxMemorySegmentAllocator();
 
@@ -131,6 +132,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     // Initialize empty segment pools for each size class
     for (int i = 0; i < SEGMENT_SIZES.length; i++) {
       segmentPools[i] = new ConcurrentLinkedDeque<>();
+      poolSizes[i] = new AtomicInteger(0);
     }
 
     LOGGER.info("On-demand allocator initialized - regions will be mmap'd as needed");
@@ -158,6 +160,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       region.sliceAddresses.add(slice.address());  // Track slice address
       pool.offer(slice);
     }
+    poolSizes[poolIndex].addAndGet(slicesPerRegion);  // Update counter
     
     // Add to tracking structures
     synchronized (activeRegions) {
@@ -182,7 +185,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   public int[] getPoolSizes() {
     int[] sizes = new int[SEGMENT_SIZES.length];
     for (int i = 0; i < segmentPools.length; i++) {
-      sizes[i] = segmentPools[i].size();
+      sizes[i] = poolSizes[i].get();  // O(1) instead of O(n)
     }
     return sizes;
   }
@@ -194,7 +197,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     System.out.println("\n========== MEMORY SEGMENT POOL DIAGNOSTICS ==========");
     for (int i = 0; i < SEGMENT_SIZES.length; i++) {
       System.out.println("Pool " + i + " (size " + SEGMENT_SIZES[i] + "): " + 
-                         segmentPools[i].size() + " segments available");
+                         poolSizes[i].get() + " segments available");  // O(1) instead of O(n)
     }
     System.out.println("====================================================\n");
   }
@@ -238,9 +241,10 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       }
     }
 
-    int poolSize = pool.size();
-    DiagnosticLogger.log("LinuxMemorySegmentAllocator.allocate() size=" + size + ", pool " + index + " now has " + poolSize + " segments remaining");
-
+    // Decrement counter (O(1) instead of O(n) traversal)
+    int poolSize = poolSizes[index].decrementAndGet();
+    
+    // Only log when pool is getting low (avoid overhead on every allocation)
     if (poolSize < 10) {
       LOGGER.warn("LOW ON SEGMENTS! Size: {}, Pool {} has only {} segments left", size, index, poolSize);
     }
@@ -288,12 +292,13 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     long size = segment.byteSize();
     int index = SegmentAllocators.getIndexForSize(size);
 
-    DiagnosticLogger.log("LinuxMemorySegmentAllocator.release() called: size=" + size + ", pool index=" + index);
-
     if (index >= 0 && index < segmentPools.length) {
       var returned = segmentPools[index].offer(segment);
 
       assert returned : "Must return segment to pool.";
+
+      // Increment counter (O(1) instead of O(n) traversal)
+      int poolSize = poolSizes[index].incrementAndGet();
 
       // Track that this slice was returned to its region
       MemoryRegion region = findRegionForSegment(segment);
@@ -307,16 +312,12 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         }
       }
 
-      int poolSize = segmentPools[index].size();
-      DiagnosticLogger.log("Segment returned to pool " + index + ", pool now has " + poolSize + " segments");
-
-      // Periodic logging to verify segments are being returned
+      // Periodic logging to verify segments are being returned (less frequent)
       if (poolSize % 1000 == 0) {
         LOGGER.info("Segment returned: size={}, pool {} now has {} segments", size, index, poolSize);
       }
     } else {
       LOGGER.error("CANNOT RETURN SEGMENT! Invalid size: {}", size);
-      DiagnosticLogger.error("ERROR: Invalid segment size " + size + " for index " + index, null);
       throw new IllegalArgumentException("Segment size not supported for reuse: " + size);
     }
   }
@@ -349,7 +350,16 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       // Remove all slices of this region from the pool using tracked addresses
       // This is much faster than removeIf() with range checking
       Deque<MemorySegment> pool = segmentPools[region.poolIndex];
+      
+      // Count how many segments we're removing to update counter
+      int removedCount = (int) pool.stream()
+          .filter(seg -> region.sliceAddresses.contains(seg.address()))
+          .count();
+      
       pool.removeIf(seg -> region.sliceAddresses.contains(seg.address()));
+      
+      // Update counter
+      poolSizes[region.poolIndex].addAndGet(-removedCount);
       
       // munmap the native memory
       releaseMemory(region.baseSegment, region.baseSegment.byteSize());
