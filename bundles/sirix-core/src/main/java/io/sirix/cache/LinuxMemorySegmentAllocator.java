@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -90,6 +91,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     final AtomicInteger unusedSlices;  // Count of slices currently in pool (available)
     final int totalSlices;
     final Set<Long> sliceAddresses;  // Track slice addresses for fast removal
+    final AtomicBoolean isPhysicallyMapped;  // Track if physical memory is allocated
     
     MemoryRegion(int poolIndex, long segmentSize, MemorySegment mmappedSegment) {
       this.poolIndex = poolIndex;
@@ -97,10 +99,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       this.totalSlices = (int) (mmappedSegment.byteSize() / segmentSize);
       this.unusedSlices = new AtomicInteger(totalSlices);
       this.sliceAddresses = ConcurrentHashMap.newKeySet();  // Thread-safe set
-      
-      // Use the mmap'd segment directly - it has an implicit global Arena
-      // Segments stay valid until we munmap in freeRegion()
       this.baseSegment = mmappedSegment;
+      this.isPhysicallyMapped = new AtomicBoolean(true);  // Starts as mapped
     }
     
     boolean allSlicesReturned() {
@@ -110,10 +110,17 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
   private final List<MemoryRegion> activeRegions = new ArrayList<>();  // Synchronized access
   private final Map<Long, MemoryRegion> regionByBaseAddress = new ConcurrentHashMap<>();  // Fast O(1) lookup
-  private final AtomicLong totalMappedBytes = new AtomicLong(0);
+  
+  // Separate virtual and physical memory tracking (critical for madvise-based reuse)
+  private final AtomicLong totalVirtualBytes = new AtomicLong(0);   // Virtual address space
+  private final AtomicLong totalPhysicalBytes = new AtomicLong(0);  // Physical RAM estimate
 
   private final Deque<MemorySegment>[] segmentPools = new Deque[SEGMENT_SIZES.length];
   private final AtomicInteger[] poolSizes = new AtomicInteger[SEGMENT_SIZES.length];  // Track pool sizes without O(n) traversal
+  
+  // Per-pool freed region queues for O(1) exact-match reuse (prevents virtual memory leak)
+  @SuppressWarnings("unchecked")
+  private final ConcurrentLinkedQueue<MemoryRegion>[] freedRegionsByPool = new ConcurrentLinkedQueue[SEGMENT_SIZES.length];
 
   private static final LinuxMemorySegmentAllocator INSTANCE = new LinuxMemorySegmentAllocator();
 
@@ -153,54 +160,68 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       poolSizes[i] = new AtomicInteger(0);
     }
 
+    // Initialize freed region queues for each size class
+    for (int i = 0; i < SEGMENT_SIZES.length; i++) {
+      freedRegionsByPool[i] = new ConcurrentLinkedQueue<>();
+    }
+
     LOGGER.info("On-demand allocator initialized - regions will be mmap'd as needed");
   }
 
   /**
    * Allocate one or more memory regions for the specified pool index.
-   * UmbraDB-style: Use dynamic region sizes based on segment size.
+   * UmbraDB-style: Try reuse first, then allocate new if needed.
    * 
    * @param poolIndex the pool to allocate for
    * @param minSegmentsNeeded minimum number of segments to ensure are available
    */
   private void allocateNewRegion(int poolIndex, int minSegmentsNeeded) {
     long segmentSize = SEGMENT_SIZES[poolIndex];
-    long regionSize = getRegionSizeForPool(segmentSize);  // Dynamic size!
+    long regionSize = getRegionSizeForPool(segmentSize);
     int slicesPerRegion = (int) (regionSize / segmentSize);
-    
-    // For parallel workloads, allocate multiple regions if needed
     int regionsToAllocate = Math.max(1, (minSegmentsNeeded + slicesPerRegion - 1) / slicesPerRegion);
     
-    LOGGER.info("Pool {} empty, allocating {} region(s) of {} MB for {} segments ({} slices/region)",
-                poolIndex, regionsToAllocate, regionSize / (1024 * 1024), 
-                minSegmentsNeeded, slicesPerRegion);
+    LOGGER.info("Pool {} needs {} region(s) of {} MB", poolIndex, regionsToAllocate, regionSize / (1024 * 1024));
     
     for (int r = 0; r < regionsToAllocate; r++) {
-      // mmap the region
-      MemorySegment mmappedRegion = mapMemory(regionSize);
+      MemoryRegion region = null;
       
-      // Create MemoryRegion wrapper
-      MemoryRegion region = new MemoryRegion(poolIndex, segmentSize, mmappedRegion);
+      // TRY TO REUSE: Poll from THIS pool's freed queue (O(1), perfect match)
+      MemoryRegion candidate = freedRegionsByPool[poolIndex].poll();
+      if (candidate != null && candidate.isPhysicallyMapped.compareAndSet(false, true)) {
+        region = candidate;
+        LOGGER.info("REUSING region for pool {}: {} MB (no new mmap)", 
+                   poolIndex, regionSize / (1024 * 1024));
+      }
       
-      // Slice region and add all slices to pool
+      if (region == null) {
+        // No reusable region - allocate NEW
+        MemorySegment mmappedRegion = mapMemory(regionSize);
+        region = new MemoryRegion(poolIndex, segmentSize, mmappedRegion);
+        
+        synchronized (activeRegions) {
+          activeRegions.add(region);
+        }
+        regionByBaseAddress.put(region.baseSegment.address(), region);
+        
+        totalVirtualBytes.addAndGet(regionSize);  // Virtual grows ONLY here
+        LOGGER.info("NEW mmap for pool {}: {} MB (virtual: {} MB, regions: {})", 
+                   poolIndex, regionSize / (1024 * 1024),
+                   totalVirtualBytes.get() / (1024 * 1024), activeRegions.size());
+      }
+      
+      // Re-slice and add to pool (both new and reused)
       Deque<MemorySegment> pool = segmentPools[poolIndex];
+      
+      // Reset counter (sliceAddresses unchanged - same addresses)
+      region.unusedSlices.set(slicesPerRegion);
+      
       for (int i = 0; i < slicesPerRegion; i++) {
         MemorySegment slice = region.baseSegment.asSlice(i * segmentSize, segmentSize);
-        region.sliceAddresses.add(slice.address());  // Track slice address
         pool.offer(slice);
       }
-      poolSizes[poolIndex].addAndGet(slicesPerRegion);  // Update counter
-      
-      // Add to tracking structures
-      synchronized (activeRegions) {
-        activeRegions.add(region);
-      }
-      regionByBaseAddress.put(region.baseSegment.address(), region);
-      totalMappedBytes.addAndGet(regionSize);
-      
-      LOGGER.info("Allocated region {} for pool {}: {} MB with {} slices (total mapped: {} MB)", 
-                  r + 1, poolIndex, regionSize / (1024 * 1024), slicesPerRegion,
-                  totalMappedBytes.get() / (1024 * 1024));
+      poolSizes[poolIndex].addAndGet(slicesPerRegion);
+      totalPhysicalBytes.addAndGet(regionSize);  // Physical allocated
     }
   }
 
@@ -257,30 +278,30 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           // Estimate parallel threads (ForkJoinPool.commonPool size + buffer)
           int parallelism = Math.max(8, Runtime.getRuntime().availableProcessors() * 2);
           
-          // UmbraDB-style: Dynamic region size based on segment size
+          // UmbraDB-style: Dynamic region size
           long regionSize = getRegionSizeForPool(SEGMENT_SIZES[index]);
-          long currentMapped = totalMappedBytes.get();
           
-          if (currentMapped + regionSize > maxBufferSize.get()) {
-            // UmbraDB approach: Try freeing unused regions from ANY pool
-            // madvise makes this safe - virtual addresses stay valid
-            long deficit = (currentMapped + regionSize) - maxBufferSize.get();
-            
-            LOGGER.info("Budget pressure: {} MB deficit, attempting to free unused regions", 
-                       deficit / (1024 * 1024));
+          // CRITICAL: Check VIRTUAL memory budget to prevent address space exhaustion
+          long currentVirtual = totalVirtualBytes.get();
+          
+          if (currentVirtual + regionSize > maxBufferSize.get()) {
+            // Try freeing unused regions (releases physical + queues for reuse)
+            LOGGER.info("Virtual budget pressure: {} MB used, {} MB limit, {} MB needed",
+                       currentVirtual / (1024 * 1024),
+                       maxBufferSize.get() / (1024 * 1024),
+                       regionSize / (1024 * 1024));
             
             freeUnusedRegionsForBudget(regionSize);
             
-            // Check if we freed enough
-            if (totalMappedBytes.get() + regionSize > maxBufferSize.get()) {
-              LOGGER.error("Budget exceeded: {} MB limit, {} MB used, {} MB needed",
+            // After freeing, check if we can proceed:
+            // 1. If we have reusable regions for THIS pool → virtual won't grow → OK
+            // 2. If no reusable AND would exceed → OOM
+            if (totalVirtualBytes.get() + regionSize > maxBufferSize.get() && 
+                freedRegionsByPool[index].isEmpty()) {
+              LOGGER.error("Virtual memory exhausted: {} MB limit, {} MB used, no reusable regions",
                           maxBufferSize.get() / (1024 * 1024),
-                          totalMappedBytes.get() / (1024 * 1024),
-                          regionSize / (1024 * 1024));
-              LOGGER.error("Active regions: {}, all in use - consider increasing budget", 
-                          activeRegions.size());
-              throw new OutOfMemoryError("Memory budget exceeded: " + maxBufferSize.get() + 
-                                        " bytes limit, all regions in use");
+                          totalVirtualBytes.get() / (1024 * 1024));
+              throw new OutOfMemoryError("Virtual memory budget exceeded: " + maxBufferSize.get() + " bytes");
             }
           }
           
@@ -455,36 +476,34 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
   /**
    * UmbraDB approach: Release physical memory using madvise, keep virtual mapping.
-   * This is safe for pooling - MemorySegments remain valid after madvise.
+   * Queue region for reuse to prevent virtual memory leak.
    */
   private void freeRegion(MemoryRegion region) {
     try {
       Deque<MemorySegment> pool = segmentPools[region.poolIndex];
       
-      // Performance: Use unusedSlices count (O(1)) instead of stream
-      int removedCount = region.unusedSlices.get();
-      
       // Remove slices from pool
+      int removedCount = region.unusedSlices.get();
       pool.removeIf(seg -> region.sliceAddresses.contains(seg.address()));
       poolSizes[region.poolIndex].addAndGet(-removedCount);
       
-      // UmbraDB approach: madvise instead of munmap
-      // Releases physical memory but keeps virtual addresses valid
-      // Segments in pool remain usable - NO SIGSEGV!
+      // Release physical memory via madvise
       releasePhysicalMemory(region.baseSegment, region.baseSegment.byteSize());
       
-      // Update budget tracking (physical memory freed)
+      // Mark as freed and queue for reuse in THIS pool's queue
+      region.isPhysicallyMapped.set(false);
+      freedRegionsByPool[region.poolIndex].offer(region);  // Per-pool queue for O(1) reuse
+      
+      // Update ONLY physical memory (virtual stays allocated for reuse)
       long freedBytes = region.baseSegment.byteSize();
-      totalMappedBytes.addAndGet(-freedBytes);
+      totalPhysicalBytes.addAndGet(-freedBytes);
       
-      // DON'T remove from activeRegions or regionByBaseAddress!
-      // Virtual memory still mapped - regions can be reused
-      
-      LOGGER.info("Released {} MB physical memory from pool {} (virtual kept, total physical: {} MB)", 
+      LOGGER.info("Freed {} MB physical from pool {} (queued for reuse, physical: {} MB, virtual: {} MB)", 
                  freedBytes / (1024 * 1024), region.poolIndex,
-                 totalMappedBytes.get() / (1024 * 1024));
+                 totalPhysicalBytes.get() / (1024 * 1024),
+                 totalVirtualBytes.get() / (1024 * 1024));
     } catch (Exception e) {
-      LOGGER.error("Failed to release region physical memory", e);
+      LOGGER.error("Failed to free region", e);
     }
   }
 
@@ -553,13 +572,15 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
     List<MemoryRegion> regionsToFree;
     synchronized (activeRegions) {
-      LOGGER.info("Cleaning up {} memory regions (total: {} MB)...", 
-                 activeRegions.size(), totalMappedBytes.get() / (1024 * 1024));
+      LOGGER.info("Cleaning up {} memory regions (physical: {} MB, virtual: {} MB)...", 
+                 activeRegions.size(), 
+                 totalPhysicalBytes.get() / (1024 * 1024),
+                 totalVirtualBytes.get() / (1024 * 1024));
       regionsToFree = new ArrayList<>(activeRegions);
       activeRegions.clear();
     }
     
-    // Free all regions (munmap only - no arena to close)
+    // Free all regions (munmap - final cleanup)
     for (MemoryRegion region : regionsToFree) {
       try {
         releaseMemory(region.baseSegment, region.baseSegment.byteSize());
@@ -569,14 +590,36 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     }
     regionByBaseAddress.clear();
 
-    // Clear all pools
+    // Clear all pools and freed queues
     for (Deque<MemorySegment> pool : segmentPools) {
       pool.clear();
     }
+    for (ConcurrentLinkedQueue<MemoryRegion> freedQueue : freedRegionsByPool) {
+      freedQueue.clear();
+    }
 
-    totalMappedBytes.set(0);
+    totalVirtualBytes.set(0);
+    totalPhysicalBytes.set(0);
     isInitialized.set(false);
     LOGGER.info("LinuxMemorySegmentAllocator cleanup complete.");
+  }
+
+  /**
+   * Print current memory statistics for debugging.
+   */
+  public void printMemoryStats() {
+    int totalFreed = 0;
+    for (int i = 0; i < freedRegionsByPool.length; i++) {
+      if (freedRegionsByPool[i] != null) {
+        totalFreed += freedRegionsByPool[i].size();
+      }
+    }
+    
+    LOGGER.info("Memory: Virtual={} MB, Physical={} MB, Active Regions={}, Freed Regions={}",
+               totalVirtualBytes.get() / (1024 * 1024),
+               totalPhysicalBytes.get() / (1024 * 1024),
+               activeRegions.size(),
+               totalFreed);
   }
 
   public static void main(String[] args) {
