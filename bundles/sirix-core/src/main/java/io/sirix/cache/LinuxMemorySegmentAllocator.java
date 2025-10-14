@@ -141,38 +141,53 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   }
 
   /**
-   * Allocate a new memory region for the specified pool index.
-   * The region is mmap'd, associated with an Arena, and sliced into segments.
+   * Allocate one or more memory regions for the specified pool index.
+   * For small slice counts (<32), allocate multiple regions to ensure
+   * sufficient segments for parallel workloads.
+   * 
+   * @param poolIndex the pool to allocate for
+   * @param minSegmentsNeeded minimum number of segments to ensure are available
    */
-  private void allocateNewRegion(int poolIndex) {
+  private void allocateNewRegion(int poolIndex, int minSegmentsNeeded) {
     long segmentSize = SEGMENT_SIZES[poolIndex];
     long regionSize = REGION_SIZE_PER_POOL;
     int slicesPerRegion = (int) (regionSize / segmentSize);
     
-    // mmap the region
-    MemorySegment mmappedRegion = mapMemory(regionSize);
+    // For parallel workloads, allocate enough regions to provide sufficient segments
+    // With small regions (1MB) and large segments (128KB/256KB), we get only 4-8 slices
+    // Need to allocate multiple regions to satisfy parallel threads
+    int regionsToAllocate = Math.max(1, (minSegmentsNeeded + slicesPerRegion - 1) / slicesPerRegion);
     
-    // Create MemoryRegion wrapper with Arena
-    MemoryRegion region = new MemoryRegion(poolIndex, segmentSize, mmappedRegion);
+    LOGGER.info("Pool {} empty, allocating {} region(s) for {} segments (size: {}, slices per region: {})",
+                poolIndex, regionsToAllocate, minSegmentsNeeded, segmentSize, slicesPerRegion);
     
-    // Slice region and add all slices to pool
-    Deque<MemorySegment> pool = segmentPools[poolIndex];
-    for (int i = 0; i < slicesPerRegion; i++) {
-      MemorySegment slice = region.baseSegment.asSlice(i * segmentSize, segmentSize);
-      region.sliceAddresses.add(slice.address());  // Track slice address
-      pool.offer(slice);
+    for (int r = 0; r < regionsToAllocate; r++) {
+      // mmap the region
+      MemorySegment mmappedRegion = mapMemory(regionSize);
+      
+      // Create MemoryRegion wrapper
+      MemoryRegion region = new MemoryRegion(poolIndex, segmentSize, mmappedRegion);
+      
+      // Slice region and add all slices to pool
+      Deque<MemorySegment> pool = segmentPools[poolIndex];
+      for (int i = 0; i < slicesPerRegion; i++) {
+        MemorySegment slice = region.baseSegment.asSlice(i * segmentSize, segmentSize);
+        region.sliceAddresses.add(slice.address());  // Track slice address
+        pool.offer(slice);
+      }
+      poolSizes[poolIndex].addAndGet(slicesPerRegion);  // Update counter
+      
+      // Add to tracking structures
+      synchronized (activeRegions) {
+        activeRegions.add(region);
+      }
+      regionByBaseAddress.put(region.baseSegment.address(), region);
+      totalMappedBytes.addAndGet(regionSize);
+      
+      LOGGER.info("Allocated region {} for pool {}: {} MB with {} slices (total mapped: {} MB)", 
+                  r + 1, poolIndex, regionSize / (1024 * 1024), slicesPerRegion,
+                  totalMappedBytes.get() / (1024 * 1024));
     }
-    poolSizes[poolIndex].addAndGet(slicesPerRegion);  // Update counter
-    
-    // Add to tracking structures
-    synchronized (activeRegions) {
-      activeRegions.add(region);
-    }
-    regionByBaseAddress.put(region.baseSegment.address(), region);
-    totalMappedBytes.addAndGet(regionSize);
-    
-    LOGGER.info("Allocated new region for pool {} (size {}): {} MB with {} slices", 
-                poolIndex, segmentSize, regionSize / (1024 * 1024), slicesPerRegion);
   }
 
   @Override
@@ -225,8 +240,13 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         if (segment == null) {
           LOGGER.debug("Pool {} empty, allocating new region", index);
           
+          // Estimate parallel threads (ForkJoinPool.commonPool size + some buffer)
+          int parallelism = Math.max(8, Runtime.getRuntime().availableProcessors() * 2);
+          
           // Check global budget before allocating
           long currentMapped = totalMappedBytes.get();
+          long neededMemory = (long) parallelism * REGION_SIZE_PER_POOL;
+          
           if (currentMapped + REGION_SIZE_PER_POOL > maxBufferSize.get()) {
             // CRITICAL: Do NOT try to free regions during normal operation!
             // There's always a race between checking allSlicesReturned() and actually freeing.
@@ -243,13 +263,13 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                                        "Active regions: " + activeRegions.size());
           }
           
-          // Allocate new region on-demand
-          allocateNewRegion(index);
+          // Allocate enough regions for parallel workload
+          allocateNewRegion(index, parallelism);
           
           // Try again after allocation
           segment = pool.poll();
           if (segment == null) {
-            throw new IllegalStateException("Pool still empty after region allocation!");
+            throw new IllegalStateException("Pool still empty after region allocation! Pool size: " + poolSizes[index].get());
           }
         }
       }
