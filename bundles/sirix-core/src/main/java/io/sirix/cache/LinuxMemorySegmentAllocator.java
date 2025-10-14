@@ -62,10 +62,13 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
   /**
    * Represents a memory region that has been mmap'd and sliced into segments.
+   * 
+   * CRITICAL: MemorySegments from mmap() have an implicit global Arena.
+   * They remain valid until we explicitly munmap them.
+   * We do NOT create explicit Arenas - that would cause premature invalidation!
    */
   private static class MemoryRegion {
-    final Arena arena;
-    final MemorySegment baseSegment;
+    final MemorySegment baseSegment;  // mmap'd segment with implicit global Arena
     final long segmentSize;
     final int poolIndex;
     final AtomicInteger unusedSlices;  // Count of slices currently in pool (available)
@@ -79,10 +82,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       this.unusedSlices = new AtomicInteger(totalSlices);
       this.sliceAddresses = ConcurrentHashMap.newKeySet();  // Thread-safe set
       
-      // Create Arena and associate all slices with it
-      this.arena = Arena.ofShared();
-      this.baseSegment = MemorySegment.ofAddress(mmappedSegment.address())
-                                      .reinterpret(mmappedSegment.byteSize(), arena, null);
+      // Use the mmap'd segment directly - it has an implicit global Arena
+      // Segments stay valid until we munmap in freeRegion()
+      this.baseSegment = mmappedSegment;
     }
     
     boolean allSlicesReturned() {
@@ -220,15 +222,19 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       // Check global budget before allocating
       long currentMapped = totalMappedBytes.get();
       if (currentMapped + REGION_SIZE_PER_POOL > maxBufferSize.get()) {
-        // Try freeing fully-returned regions first
-        freeUnusedRegions();
+        // CRITICAL: Do NOT try to free regions during normal operation!
+        // There's always a race between checking allSlicesReturned() and actually freeing.
+        // Better to fail fast than risk SIGSEGV from use-after-munmap.
+        //
+        // Regions will be freed ONLY during explicit cleanup (free() or shutdown).
+        // This is the safest approach for a pooled allocator.
         
-        // Check again after freeing
-        if (totalMappedBytes.get() + REGION_SIZE_PER_POOL > maxBufferSize.get()) {
-          LOGGER.error("Cannot allocate region: would exceed budget of {} (current: {}, need: {})",
-                      maxBufferSize.get(), totalMappedBytes.get(), REGION_SIZE_PER_POOL);
-          throw new OutOfMemoryError("Would exceed memory budget of " + maxBufferSize.get() + " bytes");
-        }
+        LOGGER.error("Cannot allocate region: would exceed budget of {} (current: {}, need: {})",
+                    maxBufferSize.get(), totalMappedBytes.get(), REGION_SIZE_PER_POOL);
+        LOGGER.error("Active regions: {}, consider increasing budget or reducing workload", 
+                    activeRegions.size());
+        throw new OutOfMemoryError("Would exceed memory budget of " + maxBufferSize.get() + " bytes. " +
+                                   "Active regions: " + activeRegions.size());
       }
       
       // Allocate new region on-demand
@@ -241,8 +247,15 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       }
     }
 
-    // Decrement counter (O(1) instead of O(n) traversal)
+    // Decrement pool counter (O(1) instead of O(n) traversal)
     int poolSize = poolSizes[index].decrementAndGet();
+    
+    // CRITICAL: Also decrement the region's unused counter
+    // This ensures freeUnusedRegions() won't free regions with segments in use!
+    MemoryRegion region = findRegionForSegment(segment);
+    if (region != null) {
+      region.unusedSlices.decrementAndGet();
+    }
     
     // Only log when pool is getting low (avoid overhead on every allocation)
     if (poolSize < 10) {
@@ -361,10 +374,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       poolSizes[region.poolIndex].addAndGet(-removedCount);
       
       // munmap the native memory
+      // No arena.close() needed - we're managing lifecycle manually
       releaseMemory(region.baseSegment, region.baseSegment.byteSize());
-      
-      // Close arena (invalidates all MemorySegment slices)
-      region.arena.close();
       
       // Update tracking
       long freedBytes = region.baseSegment.byteSize();
@@ -414,11 +425,10 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       activeRegions.clear();
     }
     
-    // Free all regions (munmap + close arena)
+    // Free all regions (munmap only - no arena to close)
     for (MemoryRegion region : regionsToFree) {
       try {
         releaseMemory(region.baseSegment, region.baseSegment.byteSize());
-        region.arena.close();
       } catch (Exception e) {
         LOGGER.error("Failed to release region: {}", e.getMessage());
       }
