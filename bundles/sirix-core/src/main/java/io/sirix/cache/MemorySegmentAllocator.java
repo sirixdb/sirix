@@ -23,4 +23,13 @@ public interface MemorySegmentAllocator {
   void release(MemorySegment segment);
 
   long getMaxBufferSize();
+
+  /**
+   * Reset a memory segment by clearing its contents.
+   * Implementations should use the most efficient approach available (e.g., madvise on Linux).
+   * Thread-safe: can be called concurrently on different segments.
+   * 
+   * @param segment the segment to reset
+   */
+  void resetSegment(MemorySegment segment);
 }

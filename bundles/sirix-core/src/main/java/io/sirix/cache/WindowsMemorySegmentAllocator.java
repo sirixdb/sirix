@@ -115,6 +115,20 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
   }
 
   /**
+   * Reset a memory segment by clearing its contents.
+   * Windows implementation: Falls back to fill() for now.
+   * Could be optimized with VirtualFree/VirtualAlloc with MEM_RESET in the future.
+   */
+  @Override
+  public void resetSegment(MemorySegment segment) {
+    // Windows: Could use VirtualFree with MEM_DECOMMIT or just skip
+    // For now, fall back to fill for Windows
+    if (segment != null && segment.byteSize() > 0) {
+      segment.fill((byte) 0);
+    }
+  }
+
+  /**
    * Allocate a memory segment using VirtualAlloc.
    *
    * @param size The size to allocate.
