@@ -397,33 +397,21 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   }
 
   /**
-   * Reset a memory segment by releasing physical memory and getting fresh zero pages from OS.
-   * UmbraDB approach: Much faster than fill() - OS provides zeros lazily on next write.
+   * Reset a memory segment - NO-OP implementation.
    * 
-   * Thread-safe: madvise is a system call that operates on virtual addresses atomically.
-   * Multiple threads can call this concurrently on different segments safely.
+   * Memory clearing not needed if offset tracking is correct.
+   * Slots are only read when slotOffsets[i] >= 0.
+   * If offsets are properly managed, stale data is never accessed.
    * 
-   * Performance: ~1-2μs vs ~100μs for fill(64KB) = 50-100x faster
+   * This provides maximum performance (zero overhead).
+   * If corruption occurs, it indicates a bug in offset management, not dirty memory.
    * 
-   * @param segment the segment to reset (must not be null)
+   * @param segment the segment to reset (ignored)
    */
   @Override
   public void resetSegment(MemorySegment segment) {
-    if (segment == null || segment.byteSize() == 0) {
-      return;  // Fast path - nothing to do
-    }
-    
-    // PERFORMANCE: Only call madvise for segments larger than a threshold
-    // For very small segments, the syscall overhead might exceed fill() cost
-    if (segment.byteSize() < 4096) {
-      // Small segment - fill is faster than syscall overhead
-      segment.fill((byte) 0);
-      return;
-    }
-    
-    // Release physical memory - OS will provide fresh zero pages on next access
-    // Thread-safe: madvise operates atomically on the virtual address range
-    releasePhysicalMemory(segment, segment.byteSize());
+    // NO-OP: Trust offset tracking to prevent reading uninitialized memory
+    // This gives us maximum performance - zero overhead on reuse
   }
 
   @Override

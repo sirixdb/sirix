@@ -672,10 +672,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       throw new IllegalStateException("Slot memory is null for page " + recordPageKey);
     }
 
+    // DEFENSIVE: Ensure offset is within segment bounds BEFORE reading
     if (slotOffset + INT_SIZE > slotMemory.byteSize()) {
       throw new IllegalStateException(String.format(
-          "Slot offset %d + %d exceeds memory segment size %d (page %d, slot %d)",
-          slotOffset, INT_SIZE, slotMemory.byteSize(), recordPageKey, slotNumber));
+          "CORRUPT OFFSET: slot %d has offset %d but would exceed segment (size %d, page %d, rev %d)",
+          slotNumber, slotOffset, slotMemory.byteSize(), recordPageKey, revision));
     }
 
     // Read the length from the first 4 bytes at the offset
@@ -686,6 +687,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       throw new IllegalStateException(String.format(
           "Failed to read length at offset %d (page %d, slot %d, memory size %d)",
           slotOffset, recordPageKey, slotNumber, slotMemory.byteSize()), e);
+    }
+
+    // DEFENSIVE: Sanity check the length value before using it
+    if (length < 0 || length > slotMemory.byteSize()) {
+      throw new IllegalStateException(String.format(
+          "CORRUPT LENGTH at offset %d: %d (segment size: %d, page %d, slot %d, revision: %d)",
+          slotOffset, length, slotMemory.byteSize(), recordPageKey, slotNumber, revision));
     }
 
     if (length <= 0) {
