@@ -303,13 +303,12 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       // Track that this slice was returned to its region
       MemoryRegion region = findRegionForSegment(segment);
       if (region != null) {
-        int unused = region.unusedSlices.incrementAndGet();
+        region.unusedSlices.incrementAndGet();
         
-        // If all slices of this region are back in pool, we can free the entire region
-        if (unused == region.totalSlices) {
-          LOGGER.debug("All slices returned for region in pool {}, freeing region", index);
-          freeRegion(region);
-        }
+        // CRITICAL FIX: Do NOT free regions immediately!
+        // There's a race condition where segments can be allocated from pool
+        // but not yet used when we free the region, causing SIGSEGV.
+        // Only free regions when we need budget space (in freeUnusedRegions)
       }
 
       // Periodic logging to verify segments are being returned (less frequent)
