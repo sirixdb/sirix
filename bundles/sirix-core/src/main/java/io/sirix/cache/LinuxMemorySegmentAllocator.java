@@ -217,33 +217,41 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
     if (segment == null) {
       // Pool empty - need to allocate new region
-      LOGGER.debug("Pool {} empty, allocating new region", index);
-      
-      // Check global budget before allocating
-      long currentMapped = totalMappedBytes.get();
-      if (currentMapped + REGION_SIZE_PER_POOL > maxBufferSize.get()) {
-        // CRITICAL: Do NOT try to free regions during normal operation!
-        // There's always a race between checking allSlicesReturned() and actually freeing.
-        // Better to fail fast than risk SIGSEGV from use-after-munmap.
-        //
-        // Regions will be freed ONLY during explicit cleanup (free() or shutdown).
-        // This is the safest approach for a pooled allocator.
-        
-        LOGGER.error("Cannot allocate region: would exceed budget of {} (current: {}, need: {})",
-                    maxBufferSize.get(), totalMappedBytes.get(), REGION_SIZE_PER_POOL);
-        LOGGER.error("Active regions: {}, consider increasing budget or reducing workload", 
-                    activeRegions.size());
-        throw new OutOfMemoryError("Would exceed memory budget of " + maxBufferSize.get() + " bytes. " +
-                                   "Active regions: " + activeRegions.size());
-      }
-      
-      // Allocate new region on-demand
-      allocateNewRegion(index);
-      
-      // Try again after allocation
-      segment = pool.poll();
-      if (segment == null) {
-        throw new IllegalStateException("Pool still empty after region allocation!");
+      // CRITICAL: Synchronize to prevent multiple threads from racing to allocate
+      // In parallel serialization, many threads hit empty pool simultaneously
+      synchronized (pool) {
+        // Double-check after acquiring lock - another thread might have allocated
+        segment = pool.poll();
+        if (segment == null) {
+          LOGGER.debug("Pool {} empty, allocating new region", index);
+          
+          // Check global budget before allocating
+          long currentMapped = totalMappedBytes.get();
+          if (currentMapped + REGION_SIZE_PER_POOL > maxBufferSize.get()) {
+            // CRITICAL: Do NOT try to free regions during normal operation!
+            // There's always a race between checking allSlicesReturned() and actually freeing.
+            // Better to fail fast than risk SIGSEGV from use-after-munmap.
+            //
+            // Regions will be freed ONLY during explicit cleanup (free() or shutdown).
+            // This is the safest approach for a pooled allocator.
+            
+            LOGGER.error("Cannot allocate region: would exceed budget of {} (current: {}, need: {})",
+                        maxBufferSize.get(), totalMappedBytes.get(), REGION_SIZE_PER_POOL);
+            LOGGER.error("Active regions: {}, consider increasing budget or reducing workload", 
+                        activeRegions.size());
+            throw new OutOfMemoryError("Would exceed memory budget of " + maxBufferSize.get() + " bytes. " +
+                                       "Active regions: " + activeRegions.size());
+          }
+          
+          // Allocate new region on-demand
+          allocateNewRegion(index);
+          
+          // Try again after allocation
+          segment = pool.poll();
+          if (segment == null) {
+            throw new IllegalStateException("Pool still empty after region allocation!");
+          }
+        }
       }
     }
 
