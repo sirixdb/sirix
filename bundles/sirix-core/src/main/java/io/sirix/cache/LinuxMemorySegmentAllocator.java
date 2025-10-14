@@ -30,11 +30,13 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   // Static final MethodHandles for mmap and munmap to avoid repeated lookups
   private static final MethodHandle MMAP;
   private static final MethodHandle MUNMAP;
+  private static final MethodHandle MADVISE;
 
   private static final int PROT_READ = 0x1;   // Page can be read
   private static final int PROT_WRITE = 0x2;  // Page can be written
   private static final int MAP_PRIVATE = 0x02; // Changes are private
   private static final int MAP_ANONYMOUS = 0x20; // Anonymous mapping
+  private static final int MADV_DONTNEED = 4;  // Linux: release physical memory, keep virtual
 
   static {
     MMAP = LINKER.downcallHandle(LINKER.defaultLookup()
@@ -52,13 +54,27 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                                          .find("munmap")
                                          .orElseThrow(() -> new RuntimeException("munmap not found")),
                                    FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG));
+
+    MADVISE = LINKER.downcallHandle(LINKER.defaultLookup()
+                                          .find("madvise")
+                                          .orElseThrow(() -> new RuntimeException("madvise not found")),
+                                    FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT));
   }
 
   // Define power-of-two sizes for mapping: 4KB, 8KB, 16KB, 32KB, 64KB, 128KB, 256KB
   private static final long[] SEGMENT_SIZES =
       { FOUR_KB, EIGHT_KB, SIXTEEN_KB, THIRTYTWO_KB, SIXTYFOUR_KB, ONE_TWENTYEIGHT_KB, TWO_FIFTYSIX_KB };
   private static final long MAX_BUFFER_SIZE = 1L << 30; // 1GB   FIXME: Make this configurable
-  private static final long REGION_SIZE_PER_POOL = 1 * 1024 * 1024;  // 1MB per region (reduced to minimize memory usage)
+  
+  /**
+   * UmbraDB-style: Calculate region size dynamically based on segment size.
+   * Target 32 slices per region for optimal parallel workload performance.
+   * Cap at 8MB for memory efficiency.
+   */
+  private static long getRegionSizeForPool(long segmentSize) {
+    long optimalSize = segmentSize * 32;  // 32 slices per region
+    return Math.min(8 * 1024 * 1024, Math.max(1024 * 1024, optimalSize));
+  }
 
   /**
    * Represents a memory region that has been mmap'd and sliced into segments.
@@ -142,24 +158,22 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
   /**
    * Allocate one or more memory regions for the specified pool index.
-   * For small slice counts (<32), allocate multiple regions to ensure
-   * sufficient segments for parallel workloads.
+   * UmbraDB-style: Use dynamic region sizes based on segment size.
    * 
    * @param poolIndex the pool to allocate for
    * @param minSegmentsNeeded minimum number of segments to ensure are available
    */
   private void allocateNewRegion(int poolIndex, int minSegmentsNeeded) {
     long segmentSize = SEGMENT_SIZES[poolIndex];
-    long regionSize = REGION_SIZE_PER_POOL;
+    long regionSize = getRegionSizeForPool(segmentSize);  // Dynamic size!
     int slicesPerRegion = (int) (regionSize / segmentSize);
     
-    // For parallel workloads, allocate enough regions to provide sufficient segments
-    // With small regions (1MB) and large segments (128KB/256KB), we get only 4-8 slices
-    // Need to allocate multiple regions to satisfy parallel threads
+    // For parallel workloads, allocate multiple regions if needed
     int regionsToAllocate = Math.max(1, (minSegmentsNeeded + slicesPerRegion - 1) / slicesPerRegion);
     
-    LOGGER.info("Pool {} empty, allocating {} region(s) for {} segments (size: {}, slices per region: {})",
-                poolIndex, regionsToAllocate, minSegmentsNeeded, segmentSize, slicesPerRegion);
+    LOGGER.info("Pool {} empty, allocating {} region(s) of {} MB for {} segments ({} slices/region)",
+                poolIndex, regionsToAllocate, regionSize / (1024 * 1024), 
+                minSegmentsNeeded, slicesPerRegion);
     
     for (int r = 0; r < regionsToAllocate; r++) {
       // mmap the region
@@ -240,27 +254,34 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         if (segment == null) {
           LOGGER.debug("Pool {} empty, allocating new region", index);
           
-          // Estimate parallel threads (ForkJoinPool.commonPool size + some buffer)
+          // Estimate parallel threads (ForkJoinPool.commonPool size + buffer)
           int parallelism = Math.max(8, Runtime.getRuntime().availableProcessors() * 2);
           
-          // Check global budget before allocating
+          // UmbraDB-style: Dynamic region size based on segment size
+          long regionSize = getRegionSizeForPool(SEGMENT_SIZES[index]);
           long currentMapped = totalMappedBytes.get();
-          long neededMemory = (long) parallelism * REGION_SIZE_PER_POOL;
           
-          if (currentMapped + REGION_SIZE_PER_POOL > maxBufferSize.get()) {
-            // CRITICAL: Do NOT try to free regions during normal operation!
-            // There's always a race between checking allSlicesReturned() and actually freeing.
-            // Better to fail fast than risk SIGSEGV from use-after-munmap.
-            //
-            // Regions will be freed ONLY during explicit cleanup (free() or shutdown).
-            // This is the safest approach for a pooled allocator.
+          if (currentMapped + regionSize > maxBufferSize.get()) {
+            // UmbraDB approach: Try freeing unused regions from ANY pool
+            // madvise makes this safe - virtual addresses stay valid
+            long deficit = (currentMapped + regionSize) - maxBufferSize.get();
             
-            LOGGER.error("Cannot allocate region: would exceed budget of {} (current: {}, need: {})",
-                        maxBufferSize.get(), totalMappedBytes.get(), REGION_SIZE_PER_POOL);
-            LOGGER.error("Active regions: {}, consider increasing budget or reducing workload", 
-                        activeRegions.size());
-            throw new OutOfMemoryError("Would exceed memory budget of " + maxBufferSize.get() + " bytes. " +
-                                       "Active regions: " + activeRegions.size());
+            LOGGER.info("Budget pressure: {} MB deficit, attempting to free unused regions", 
+                       deficit / (1024 * 1024));
+            
+            freeUnusedRegionsForBudget(regionSize);
+            
+            // Check if we freed enough
+            if (totalMappedBytes.get() + regionSize > maxBufferSize.get()) {
+              LOGGER.error("Budget exceeded: {} MB limit, {} MB used, {} MB needed",
+                          maxBufferSize.get() / (1024 * 1024),
+                          totalMappedBytes.get() / (1024 * 1024),
+                          regionSize / (1024 * 1024));
+              LOGGER.error("Active regions: {}, all in use - consider increasing budget", 
+                          activeRegions.size());
+              throw new OutOfMemoryError("Memory budget exceeded: " + maxBufferSize.get() + 
+                                        " bytes limit, all regions in use");
+            }
           }
           
           // Allocate enough regions for parallel workload
@@ -328,6 +349,23 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     }
   }
 
+  /**
+   * UmbraDB approach: Release physical memory but keep virtual address mapping.
+   * This allows MemorySegments to remain valid - next access gets fresh zero page from OS.
+   * CRITICAL for pooling: No SIGSEGV since virtual addresses never become invalid.
+   */
+  private void releasePhysicalMemory(MemorySegment segment, long size) {
+    try {
+      int result = (int) MADVISE.invoke(segment, size, MADV_DONTNEED);
+      if (result != 0) {
+        LOGGER.warn("madvise MADV_DONTNEED failed for address {}, size {} (error code: {})",
+                   segment.address(), size, result);
+      }
+    } catch (Throwable e) {
+      LOGGER.error("madvise invocation failed", e);
+    }
+  }
+
   @Override
   public void release(MemorySegment segment) {
     long size = segment.byteSize();
@@ -385,53 +423,91 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     return null;
   }
 
+  /**
+   * UmbraDB approach: Release physical memory using madvise, keep virtual mapping.
+   * This is safe for pooling - MemorySegments remain valid after madvise.
+   */
   private void freeRegion(MemoryRegion region) {
     try {
-      // Remove all slices of this region from the pool using tracked addresses
-      // This is much faster than removeIf() with range checking
       Deque<MemorySegment> pool = segmentPools[region.poolIndex];
       
-      // Count how many segments we're removing to update counter
-      int removedCount = (int) pool.stream()
-          .filter(seg -> region.sliceAddresses.contains(seg.address()))
-          .count();
+      // Performance: Use unusedSlices count (O(1)) instead of stream
+      int removedCount = region.unusedSlices.get();
       
+      // Remove slices from pool
       pool.removeIf(seg -> region.sliceAddresses.contains(seg.address()));
-      
-      // Update counter
       poolSizes[region.poolIndex].addAndGet(-removedCount);
       
-      // munmap the native memory
-      // No arena.close() needed - we're managing lifecycle manually
-      releaseMemory(region.baseSegment, region.baseSegment.byteSize());
+      // UmbraDB approach: madvise instead of munmap
+      // Releases physical memory but keeps virtual addresses valid
+      // Segments in pool remain usable - NO SIGSEGV!
+      releasePhysicalMemory(region.baseSegment, region.baseSegment.byteSize());
       
-      // Update tracking
+      // Update budget tracking (physical memory freed)
       long freedBytes = region.baseSegment.byteSize();
       totalMappedBytes.addAndGet(-freedBytes);
-      synchronized (activeRegions) {
-        activeRegions.remove(region);
-      }
-      regionByBaseAddress.remove(region.baseSegment.address());
       
-      LOGGER.info("Freed region from pool {}: {} MB (total mapped now: {} MB)", 
-                 region.poolIndex, freedBytes / (1024 * 1024), 
+      // DON'T remove from activeRegions or regionByBaseAddress!
+      // Virtual memory still mapped - regions can be reused
+      
+      LOGGER.info("Released {} MB physical memory from pool {} (virtual kept, total physical: {} MB)", 
+                 freedBytes / (1024 * 1024), region.poolIndex,
                  totalMappedBytes.get() / (1024 * 1024));
     } catch (Exception e) {
-      LOGGER.error("Failed to free region", e);
+      LOGGER.error("Failed to release region physical memory", e);
     }
   }
 
-  private void freeUnusedRegions() {
-    LOGGER.debug("Attempting to free unused regions to reclaim budget");
-    List<MemoryRegion> toFree;
+  /**
+   * UmbraDB-style: Simple global budget enforcement.
+   * Free unused regions from ANY pool until we have enough budget.
+   * Performance-optimized with fast-path check and minimal locking.
+   */
+  private void freeUnusedRegionsForBudget(long memoryNeeded) {
+    // PERFORMANCE: Fast-path check - avoid expensive work if all in use
+    boolean hasUnused = false;
     synchronized (activeRegions) {
-      toFree = activeRegions.stream()
-          .filter(MemoryRegion::allSlicesReturned)
-          .toList();
+      for (MemoryRegion region : activeRegions) {
+        if (region.allSlicesReturned()) {
+          hasUnused = true;
+          break;  // Early exit
+        }
+      }
     }
     
-    LOGGER.info("Found {} unused regions to free", toFree.size());
-    toFree.forEach(this::freeRegion);
+    if (!hasUnused) {
+      LOGGER.debug("No unused regions available for budget reclaim");
+      return;  // Fast path - nothing to free
+    }
+    
+    // Collect candidates with minimal lock time
+    List<MemoryRegion> candidates;
+    synchronized (activeRegions) {
+      candidates = new ArrayList<>(activeRegions.size());
+      for (MemoryRegion region : activeRegions) {
+        if (region.allSlicesReturned()) {
+          candidates.add(region);
+        }
+      }
+    }
+    
+    // Sort outside lock for better concurrency (largest first for efficiency)
+    candidates.sort((r1, r2) -> Long.compare(r2.baseSegment.byteSize(), 
+                                              r1.baseSegment.byteSize()));
+    
+    LOGGER.info("Budget reclaim: need {} MB, found {} unused regions",
+               memoryNeeded / (1024 * 1024), candidates.size());
+    
+    // Free until budget satisfied
+    long freed = 0;
+    for (MemoryRegion region : candidates) {
+      freeRegion(region);
+      freed += region.baseSegment.byteSize();
+      if (freed >= memoryNeeded) {
+        LOGGER.info("Freed {} MB, budget satisfied", freed / (1024 * 1024));
+        break;  // Early exit when enough freed
+      }
+    }
   }
 
   /**
