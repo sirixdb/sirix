@@ -290,9 +290,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       LOGGER.warn("LOW ON SEGMENTS! Size: {}, Pool {} has only {} segments left", size, index, poolSize);
     }
 
-    // Note: mmap with MAP_ANONYMOUS already zeros pages on first access.
-    // For reused segments, caller is responsible for clearing if needed.
-    // Removing fill() here provides massive performance improvement.
+    // Note: mmap with MAP_ANONYMOUS already zeros fresh pages on first access.
+    // For reused segments, KeyValueLeafPage is responsible for clearing before use.
+    // Not clearing here avoids massive performance overhead.
     return segment;
   }
 

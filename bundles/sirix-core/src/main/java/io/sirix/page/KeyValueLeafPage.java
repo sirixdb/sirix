@@ -987,9 +987,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Clear references
     references.clear();
 
-    // No need to fill memory with zeros - page will be overwritten with new data
-    // Removing fill() provides significant performance improvement (1-2% CPU savings)
-    // Memory safety is maintained through proper tracking of valid slots via offsets arrays
+    // CRITICAL: Must clear memory segments when reusing page!
+    // Without this, stale data from previous use causes corruption (zero-length slots, etc.)
+    // This is necessary for correctness even though it has performance cost.
+    // The slotMemory parameter passed in is from the pool and may contain stale data.
+    this.slotMemory = slotMemory;
+    this.deweyIdMemory = deweyIdMemory;
+    
+    if (slotMemory != null) {
+      slotMemory.fill((byte) 0);
+    }
+    if (deweyIdMemory != null) {
+      deweyIdMemory.fill((byte) 0);
+    }
 
     // Reset other state
     bytes = null;
