@@ -5,11 +5,13 @@ import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
+
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -91,15 +93,15 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     final int poolIndex;
     final AtomicInteger unusedSlices;  // Count of slices currently in pool (available)
     final int totalSlices;
-    final Set<Long> sliceAddresses;  // Track slice addresses for fast removal
+    final LongSet sliceAddresses;  // Primitive long set - immutable after creation (no boxing!)
     final AtomicBoolean isPhysicallyMapped;  // Track if physical memory is allocated
     
-    MemoryRegion(int poolIndex, long segmentSize, MemorySegment mmappedSegment) {
+    MemoryRegion(int poolIndex, long segmentSize, MemorySegment mmappedSegment, LongSet sliceAddresses) {
       this.poolIndex = poolIndex;
       this.segmentSize = segmentSize;
       this.totalSlices = (int) (mmappedSegment.byteSize() / segmentSize);
       this.unusedSlices = new AtomicInteger(totalSlices);
-      this.sliceAddresses = ConcurrentHashMap.newKeySet();  // Thread-safe set
+      this.sliceAddresses = sliceAddresses;  // Immutable - no modifications after construction
       this.baseSegment = mmappedSegment;
       this.isPhysicallyMapped = new AtomicBoolean(true);  // Starts as mapped
     }
@@ -206,7 +208,16 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       if (region == null) {
         // No reusable region - allocate NEW
         MemorySegment mmappedRegion = mapMemory(regionSize);
-        region = new MemoryRegion(poolIndex, segmentSize, mmappedRegion);
+        
+        // PRE-POPULATE slice addresses BEFORE creating region (thread-safety)
+        LongSet addresses = new LongOpenHashSet(slicesPerRegion);
+        long baseAddr = mmappedRegion.address();
+        for (int i = 0; i < slicesPerRegion; i++) {
+          addresses.add(baseAddr + (i * segmentSize));
+        }
+        
+        // Create region with immutable address set
+        region = new MemoryRegion(poolIndex, segmentSize, mmappedRegion, addresses);
         
         synchronized (activeRegions) {
           activeRegions.add(region);
