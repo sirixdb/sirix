@@ -209,37 +209,44 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         // No reusable region - allocate NEW
         MemorySegment mmappedRegion = mapMemory(regionSize);
         
-        // PRE-POPULATE slice addresses BEFORE creating region (thread-safety)
+        // Create slices FIRST to get ACTUAL addresses (not calculated)
+        MemorySegment[] slices = new MemorySegment[slicesPerRegion];
         LongSet addresses = new LongOpenHashSet(slicesPerRegion);
-        long baseAddr = mmappedRegion.address();
+        
         for (int i = 0; i < slicesPerRegion; i++) {
-          addresses.add(baseAddr + (i * segmentSize));
+          slices[i] = mmappedRegion.asSlice(i * segmentSize, segmentSize);
+          addresses.add(slices[i].address());  // ACTUAL address from asSlice()!
         }
         
-        // Create region with immutable address set
+        // Create region with actual slice addresses
         region = new MemoryRegion(poolIndex, segmentSize, mmappedRegion, addresses);
         
         synchronized (activeRegions) {
           activeRegions.add(region);
         }
         regionByBaseAddress.put(region.baseSegment.address(), region);
+        totalVirtualBytes.addAndGet(regionSize);
         
-        totalVirtualBytes.addAndGet(regionSize);  // Virtual grows ONLY here
         LOGGER.info("NEW mmap for pool {}: {} MB (virtual: {} MB, regions: {})", 
                    poolIndex, regionSize / (1024 * 1024),
                    totalVirtualBytes.get() / (1024 * 1024), activeRegions.size());
+        
+        // Add pre-created slices to pool
+        Deque<MemorySegment> pool = segmentPools[poolIndex];
+        for (int i = 0; i < slicesPerRegion; i++) {
+          pool.offer(slices[i]);
+        }
+      } else {
+        // Reused region - sliceAddresses already correct from first creation
+        Deque<MemorySegment> pool = segmentPools[poolIndex];
+        for (int i = 0; i < slicesPerRegion; i++) {
+          MemorySegment slice = region.baseSegment.asSlice(i * segmentSize, segmentSize);
+          pool.offer(slice);
+        }
       }
       
-      // Re-slice and add to pool (both new and reused)
-      Deque<MemorySegment> pool = segmentPools[poolIndex];
-      
-      // Reset counter (sliceAddresses unchanged - same addresses)
+      // Reset counter (applies to both new and reused)
       region.unusedSlices.set(slicesPerRegion);
-      
-      for (int i = 0; i < slicesPerRegion; i++) {
-        MemorySegment slice = region.baseSegment.asSlice(i * segmentSize, segmentSize);
-        pool.offer(slice);
-      }
       poolSizes[poolIndex].addAndGet(slicesPerRegion);
       totalPhysicalBytes.addAndGet(regionSize);  // Physical allocated
     }
