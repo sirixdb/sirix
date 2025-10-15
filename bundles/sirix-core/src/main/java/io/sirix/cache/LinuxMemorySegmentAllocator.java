@@ -420,40 +420,28 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     int index = SegmentAllocators.getIndexForSize(size);
 
     if (index >= 0 && index < segmentPools.length) {
+      // CRITICAL: madvise BEFORE returning to pool
+      // This ensures OS provides fresh zeros on next allocation
+      // UmbraDB approach: Release physical, keep virtual valid
+      releasePhysicalMemory(segment, size);
+      
+      // Now safe to pool - segment will have zeros on reuse
       var returned = segmentPools[index].offer(segment);
-
       assert returned : "Must return segment to pool.";
 
-      // Increment counter (O(1) instead of O(n) traversal)
+      // Increment counter (O(1))
       int poolSize = poolSizes[index].incrementAndGet();
 
-      // Track that this slice was returned to its region
+      // Track region state (for potential region-level freeing)
       MemoryRegion region = findRegionForSegment(segment);
       if (region != null) {
         region.unusedSlices.incrementAndGet();
       }
 
-      // CRITICAL: Proactive freeing when pool gets large
-      // Prevents memory leak by freeing before hitting budget limit
-      if (poolSize > 5000 && poolSize % 1000 == 0) {
-        // Try to start cleanup (non-blocking check)
-        if (cleanupInProgress[index].compareAndSet(false, true)) {
-          // Won CAS - start async cleanup
-          CompletableFuture.runAsync(() -> {
-            try {
-              LOGGER.debug("Pool {} has {} segments, running cleanup", index, poolSize);
-              freeUnusedRegionsForBudget(0);
-            } catch (Exception e) {
-              LOGGER.error("Error during opportunistic region cleanup", e);
-            } finally {
-              cleanupInProgress[index].set(false);  // Allow next cleanup
-            }
-          });
-        }
-        // Lost CAS - cleanup already running, skip (no blocking)
-      }
+      // Update physical memory budget (physical freed by madvise)
+      totalPhysicalBytes.addAndGet(-size);
 
-      // Periodic logging to verify segments are being returned (less frequent)
+      // Periodic logging to verify segments are being returned
       if (poolSize % 1000 == 0) {
         LOGGER.info("Segment returned: size={}, pool {} now has {} segments", size, index, poolSize);
       }
