@@ -995,18 +995,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Clear references
     references.clear();
 
-    // CRITICAL: Clear memory segments efficiently using madvise
-    // UmbraDB approach: OS provides fresh zero pages on next write (50-100x faster than fill)
-    // Thread-safe: madvise operates atomically on virtual address ranges
+    // CRITICAL: Return OLD segments to pool BEFORE assigning new ones
+    // This ensures proper recycling: old segments get madvise'd on release
+    if (this.slotMemory != null && this.slotMemory != slotMemory) {
+      segmentAllocator.release(this.slotMemory);  // Return old segment
+    }
+    if (this.deweyIdMemory != null && this.deweyIdMemory != deweyIdMemory) {
+      segmentAllocator.release(this.deweyIdMemory);  // Return old segment  
+    }
+
+    // NOW assign new segments
     this.slotMemory = slotMemory;
     this.deweyIdMemory = deweyIdMemory;
-    
-    if (slotMemory != null) {
-      segmentAllocator.resetSegment(slotMemory);  // Fast!
-    }
-    if (deweyIdMemory != null) {
-      segmentAllocator.resetSegment(deweyIdMemory);  // Fast!
-    }
+
+    // No need to call resetSegment() - new segments are already clean
+    // (either fresh from mmap or madvise'd on previous release)
 
     // Reset other state
     bytes = null;
