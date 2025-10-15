@@ -441,6 +441,25 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       // Update physical memory budget (physical freed by madvise)
       totalPhysicalBytes.addAndGet(-size);
 
+      // CRITICAL: Proactive region freeing when pool gets large
+      // Fixes virtual memory leak by freeing unused regions
+      if (poolSize > 5000 && poolSize % 1000 == 0) {
+        // Try to start cleanup (non-blocking)
+        if (cleanupInProgress[index].compareAndSet(false, true)) {
+          // Async cleanup to free fully-returned regions
+          CompletableFuture.runAsync(() -> {
+            try {
+              LOGGER.debug("Pool {} has {} segments, running region cleanup", index, poolSize);
+              freeUnusedRegionsForBudget(0);
+            } catch (Exception e) {
+              LOGGER.error("Error during region cleanup", e);
+            } finally {
+              cleanupInProgress[index].set(false);
+            }
+          });
+        }
+      }
+
       // Periodic logging to verify segments are being returned
       if (poolSize % 1000 == 0) {
         LOGGER.info("Segment returned: size={}, pool {} now has {} segments", size, index, poolSize);
