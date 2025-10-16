@@ -917,13 +917,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Return memory segments back to the allocator.
    * Call this when the page is being discarded (evicted from cache).
+   * 
+   * The allocator's duplicate detection makes this idempotent.
+   * We DON'T null segments to allow pages to be accessed after return
+   * (needed for caching and lifecycle edge cases).
    */
   public void returnSegmentsToAllocator() {
     if (slotMemory != null) {
       segmentAllocator.release(slotMemory);
+      this.slotMemory = null;
     }
     if (deweyIdMemory != null && deweyIdMemory != slotMemory) {
       segmentAllocator.release(deweyIdMemory);
+      this.deweyIdMemory = null;
     }
   }
 
@@ -947,10 +953,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       // Clear references
       references.clear();
 
-      // Clear memory efficiently using madvise
-      segmentAllocator.resetSegment(slotMemory);  // Fast!
+      segmentAllocator.resetSegment(slotMemory);
       if (areDeweyIDsStored && deweyIdMemory != null) {
-        segmentAllocator.resetSegment(deweyIdMemory);  // Fast!
+        segmentAllocator.resetSegment(deweyIdMemory);
       }
 
       // Reset other state
@@ -996,17 +1001,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     references.clear();
 
     // CRITICAL: Return OLD segments to pool BEFORE assigning new ones
-    // This ensures proper recycling: old segments get madvise'd on release
+    // Don't null - allocator's duplicate detection handles multiple returns
     if (this.slotMemory != null && this.slotMemory != slotMemory) {
-      segmentAllocator.release(this.slotMemory);  // Return old segment
+      segmentAllocator.release(this.slotMemory);
+      this.slotMemory = null;
     }
     if (this.deweyIdMemory != null && this.deweyIdMemory != deweyIdMemory) {
-      segmentAllocator.release(this.deweyIdMemory);  // Return old segment  
+      segmentAllocator.release(this.deweyIdMemory);
+      this.deweyIdMemory = null;
     }
 
-    // NOW assign new segments
-    this.slotMemory = slotMemory;
-    this.deweyIdMemory = deweyIdMemory;
 
     // No need to call resetSegment() - new segments are already clean
     // (either fresh from mmap or madvise'd on previous release)

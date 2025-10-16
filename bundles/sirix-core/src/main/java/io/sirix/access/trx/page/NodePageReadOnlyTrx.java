@@ -182,7 +182,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
     }
 
-    //if (trxIntentLog == null) {
+ //   if (trxIntentLog == null) {
       assert reference.getLogKey() == Constants.NULL_ID_INT;
       page = resourceBufferManager.getPageCache().get(reference, (_, _) -> {
         try {
@@ -196,7 +196,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
       return page;
 //    }
-//
+
 //    if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
 //      page = pageReader.read(reference, resourceSession.getResourceConfig());
 //    }
@@ -211,7 +211,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private void putIntoPageCache(PageReference reference, Page page) {
     if (!(page instanceof UberPage)) {
       // Put page into buffer manager.
-      resourceBufferManager.getPageCache().putIfAbsent(reference, page);
+      // Use put() not putIfAbsent() to replace any stale cached pages
+      resourceBufferManager.getPageCache().put(reference, page);
     }
   }
 
@@ -521,17 +522,17 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       KeyValueLeafPage recordPage) {
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
       if (pathSummaryRecordPage != null) {
-        //if (trxIntentLog == null) {
+        if (trxIntentLog == null) {
           if (resourceBufferManager.getRecordPageCache().get(pathSummaryRecordPage.pageReference) != null) {
             assert !pathSummaryRecordPage.page.isClosed();
             pathSummaryRecordPage.page.decrementPinCount();
             resourceBufferManager.getRecordPageCache()
                                  .put(pathSummaryRecordPage.pageReference, pathSummaryRecordPage.page);
           }
-//        } else {
-//          pathSummaryRecordPage.pageReference.setPage(null);
-//          pathSummaryRecordPage.page.clear();
-//        }
+        } else {
+          pathSummaryRecordPage.pageReference.setPage(null);
+          pathSummaryRecordPage.page.clear();
+        }
       }
 
       pathSummaryRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
@@ -607,39 +608,17 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     var mostRecentPageFragment = pages.getFirst();
     mostRecentPageFragment.decrementPinCount();
-    
-    // For read-only transactions, cache the fragment
-    if (trxIntentLog == null) {
-        resourceBufferManager.getPageCache().put(pageReference, mostRecentPageFragment);
-        io.sirix.cache.DiagnosticLogger.log("  Fragment 0 cached (read-only)");
-    } else {
-        // For write transactions, return the fragment immediately since it's no longer needed
-        if (mostRecentPageFragment instanceof KeyValueLeafPage kvPage) {
-            io.sirix.cache.DiagnosticLogger.log("  Fragment 0 returned immediately (write-trx): page=" + kvPage.getPageKey());
-            KeyValueLeafPagePool.getInstance().returnPage(kvPage);
-        } else {
-            io.sirix.cache.DiagnosticLogger.log("  Fragment 0 not KeyValueLeafPage: " + mostRecentPageFragment.getClass().getSimpleName());
-        }
-    }
+    resourceBufferManager.getPageCache().put(pageReference, mostRecentPageFragment);
+    io.sirix.cache.DiagnosticLogger.log("  Fragment 0 cached (read-only)");
 
     var pageFragments = pageReference.getPageFragments();
     for (int i = 1; i < pages.size(); i++) {
         var pageFragment = pages.get(i);
         pageFragment.decrementPinCount();
         
-        if (trxIntentLog == null) {
-            var pageFragmentKey = pageFragments.get(i - 1);
-            resourceBufferManager.getPageCache().put(new PageReference().setKey(pageFragmentKey.key()), pageFragment);
-            io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " cached (read-only)");
-        } else {
-            // For write transactions, return immediately
-            if (pageFragment instanceof KeyValueLeafPage kvPage) {
-                io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " returned immediately (write-trx): page=" + kvPage.getPageKey());
-                KeyValueLeafPagePool.getInstance().returnPage(kvPage);
-            } else {
-                io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " not KeyValueLeafPage: " + pageFragment.getClass().getSimpleName());
-            }
-        }
+        var pageFragmentKey = pageFragments.get(i - 1);
+        resourceBufferManager.getPageCache().put(new PageReference().setKey(pageFragmentKey.key()), pageFragment);
+        io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " cached (read-only)");
     }
 }
 

@@ -93,22 +93,23 @@ public final class TransactionIntentLog implements AutoCloseable {
     logKey = 0;
     
     // Fast path - no diagnostic logging or complex type tracking
+    // CRITICAL: Clear pages BEFORE returning segments to avoid null pointer errors
     for (final PageContainer pageContainer : list) {
       Page complete = pageContainer.getComplete();
       Page modified = pageContainer.getModified();
       
       if (complete != null) {
+        complete.clear();  // Clear state first
         if (complete instanceof KeyValueLeafPage completePage) {
-          KeyValueLeafPagePool.getInstance().returnPage(completePage);
+          KeyValueLeafPagePool.getInstance().returnPage(completePage);  // Then return segments
         }
-        complete.clear();
       }
       
       if (modified != null) {
+        modified.clear();  // Clear state first
         if (modified instanceof KeyValueLeafPage modifiedPage) {
-          KeyValueLeafPagePool.getInstance().returnPage(modifiedPage);
+          KeyValueLeafPagePool.getInstance().returnPage(modifiedPage);  // Then return segments
         }
-        modified.clear();
       }
     }
     list.clear();
