@@ -4,6 +4,7 @@ import io.sirix.cache.LinuxMemorySegmentAllocator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Arrays;
@@ -33,24 +34,28 @@ public class FFILz4CompressorTest {
       return;
     }
 
-    // Create test data
+    // Create test data in native memory
     byte[] testData = "Hello, World! This is a test of LZ4 compression using FFI.".getBytes();
-    MemorySegment source = MemorySegment.ofArray(testData);
+    
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment source = arena.allocate(testData.length);
+      MemorySegment.copy(testData, 0, source, ValueLayout.JAVA_BYTE, 0, testData.length);
 
-    // Compress
-    MemorySegment compressed = compressor.compress(source);
-    assertNotNull(compressed);
-    assertTrue(compressed.byteSize() > 0);
-    System.out.println("Original: " + testData.length + " bytes, Compressed: " + compressed.byteSize() + " bytes");
+      // Compress
+      MemorySegment compressed = compressor.compress(source);
+      assertNotNull(compressed);
+      assertTrue(compressed.byteSize() > 0);
+      System.out.println("Original: " + testData.length + " bytes, Compressed: " + compressed.byteSize() + " bytes");
 
-    // Decompress
-    MemorySegment decompressed = compressor.decompress(compressed);
-    assertNotNull(decompressed);
-    assertEquals(testData.length, decompressed.byteSize());
+      // Decompress
+      MemorySegment decompressed = compressor.decompress(compressed);
+      assertNotNull(decompressed);
+      assertEquals(testData.length, decompressed.byteSize());
 
-    // Verify data matches
-    byte[] result = decompressed.toArray(ValueLayout.JAVA_BYTE);
-    assertArrayEquals(testData, result);
+      // Verify data matches
+      byte[] result = decompressed.toArray(ValueLayout.JAVA_BYTE);
+      assertArrayEquals(testData, result);
+    }
   }
 
   @Test
@@ -60,28 +65,32 @@ public class FFILz4CompressorTest {
       return;
     }
 
-    // Create large test data (1MB of repeated pattern)
+    // Create large test data (1MB of repeated pattern) in native memory
     byte[] testData = new byte[1024 * 1024];
     for (int i = 0; i < testData.length; i++) {
       testData[i] = (byte) (i % 256);
     }
-    MemorySegment source = MemorySegment.ofArray(testData);
+    
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment source = arena.allocate(testData.length);
+      MemorySegment.copy(testData, 0, source, ValueLayout.JAVA_BYTE, 0, testData.length);
 
-    // Compress
-    MemorySegment compressed = compressor.compress(source);
-    assertNotNull(compressed);
-    System.out.println("Large data - Original: " + testData.length + " bytes, Compressed: " + 
-                      compressed.byteSize() + " bytes, Ratio: " + 
-                      String.format("%.2f%%", 100.0 * compressed.byteSize() / testData.length));
+      // Compress
+      MemorySegment compressed = compressor.compress(source);
+      assertNotNull(compressed);
+      System.out.println("Large data - Original: " + testData.length + " bytes, Compressed: " + 
+                        compressed.byteSize() + " bytes, Ratio: " + 
+                        String.format("%.2f%%", 100.0 * compressed.byteSize() / testData.length));
 
-    // Decompress
-    MemorySegment decompressed = compressor.decompress(compressed);
-    assertNotNull(decompressed);
-    assertEquals(testData.length, decompressed.byteSize());
+      // Decompress
+      MemorySegment decompressed = compressor.decompress(compressed);
+      assertNotNull(decompressed);
+      assertEquals(testData.length, decompressed.byteSize());
 
-    // Verify data matches
-    byte[] result = decompressed.toArray(ValueLayout.JAVA_BYTE);
-    assertArrayEquals(testData, result);
+      // Verify data matches
+      byte[] result = decompressed.toArray(ValueLayout.JAVA_BYTE);
+      assertArrayEquals(testData, result);
+    }
   }
 
   @Test

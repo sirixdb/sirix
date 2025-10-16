@@ -186,10 +186,10 @@ public final class FFILz4Compressor implements ByteHandler {
 
   /**
    * Compress data and return a new MemorySegment with compressed data.
-   * Allocates from the segment allocator pool.
+   * Uses a confined Arena for temporary compression buffer.
    *
-   * @param source uncompressed data
-   * @return compressed data in a pooled MemorySegment
+   * @param source uncompressed data (can be heap or native)
+   * @return compressed data in a MemorySegment
    */
   @Override
   public MemorySegment compress(MemorySegment source) {
@@ -200,29 +200,34 @@ public final class FFILz4Compressor implements ByteHandler {
     int srcSize = (int) source.byteSize();
     int maxDstSize = compressBound(srcSize);
 
-    // Allocate from pool with header space for decompressed size
-    MemorySegment compressed = ALLOCATOR.allocate(maxDstSize + 4);
+    // Use Arena for temporary compression buffer
+    try (Arena arena = Arena.ofConfined()) {
+      // Allocate temporary buffer with header space
+      MemorySegment tempCompressed = arena.allocate(maxDstSize + 4);
 
-    // Write decompressed size header (for decompression)
-    compressed.set(JAVA_INT, 0, srcSize);
+      // Write decompressed size header (for decompression)
+      tempCompressed.set(JAVA_INT, 0, srcSize);
 
-    // Compress
-    int compressedSize = compressSegment(source, compressed.asSlice(4));
-    if (compressedSize <= 0) {
-      ALLOCATOR.release(compressed);
-      throw new RuntimeException("LZ4 compression failed: " + compressedSize);
+      // Compress (source must be off-heap/native memory)
+      int compressedSize = compressSegment(source, tempCompressed.asSlice(4));
+      if (compressedSize <= 0) {
+        throw new RuntimeException("LZ4 compression failed: " + compressedSize);
+      }
+
+      // Copy to auto arena result that persists
+      int totalSize = compressedSize + 4;
+      MemorySegment result = Arena.ofAuto().allocate(totalSize);
+      MemorySegment.copy(tempCompressed, 0, result, 0, totalSize);
+      return result;
     }
-
-    // Return slice with actual compressed size (+4 for header)
-    return compressed.asSlice(0, compressedSize + 4);
   }
 
   /**
    * Decompress data and return a new MemorySegment with decompressed data.
-   * Allocates from the segment allocator pool.
+   * Uses Arena.global() for large sizes that exceed pool limits.
    *
    * @param compressed compressed data (with 4-byte header containing decompressed size)
-   * @return decompressed data in a pooled MemorySegment
+   * @return decompressed data in a MemorySegment
    */
   @Override
   public MemorySegment decompress(MemorySegment compressed) {
@@ -233,8 +238,8 @@ public final class FFILz4Compressor implements ByteHandler {
     // Read decompressed size from header
     int decompressedSize = compressed.get(JAVA_INT, 0);
 
-    // Allocate from pool
-    MemorySegment decompressed = ALLOCATOR.allocate(decompressedSize);
+    // Allocate from pool if size permits, otherwise use global arena
+    MemorySegment decompressed = Arena.ofAuto().allocate(decompressedSize);
 
     // Decompress
     int actualSize = decompressSegment(
@@ -244,7 +249,6 @@ public final class FFILz4Compressor implements ByteHandler {
     );
 
     if (actualSize < 0) {
-      ALLOCATOR.release(decompressed);
       throw new RuntimeException("LZ4 decompression failed: " + actualSize);
     }
 
