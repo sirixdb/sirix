@@ -12,7 +12,7 @@ buildscript {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.2"
         classpath 'net.researchgate:gradle-release:3.1.0'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.51.0"
-        classpath "com.gradleup.shadow:shadow-gradle-plugin:8.3.5"
+        classpath "com.gradleup.shadow:shadow-gradle-plugin:8.3.3"
         classpath "com.diffplug.spotless:spotless-plugin-gradle:7.2.1"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
@@ -89,7 +89,6 @@ subprojects {
     apply plugin: 'maven-publish'
     apply plugin: 'signing'
     apply plugin: 'com.github.ben-manes.versions'
-    apply plugin: "com.gradleup.shadow"
     apply plugin: "com.diffplug.spotless"
 
     java {
