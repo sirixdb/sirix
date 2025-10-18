@@ -29,10 +29,13 @@ import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.PageTrx;
 import io.sirix.cache.IndexLogKey;
-import io.sirix.cache.KeyValueLeafPagePool;
+import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
+import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
+import io.sirix.utils.OS;
 import io.sirix.index.IndexType;
 import io.sirix.io.Writer;
 import io.sirix.node.DeletedNode;
@@ -613,20 +616,32 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       }
 
       if (reference.getKey() == Constants.NULL_ID_LONG) {
-        // Use pool now that we've fixed pinCount resetting
-        final KeyValueLeafPage completePage = KeyValueLeafPagePool.getInstance()
-                                                                   .borrowPage(SIXTYFOUR_KB,
-                                                                              recordPageKey,
-                                                                              indexType,
-                                                                              getResourceSession().getResourceConfig(),
-                                                                              pageRtx.getRevisionNumber());
+        // Direct allocation (no pool)
+        final MemorySegmentAllocator allocator = OS.isWindows() 
+            ? WindowsMemorySegmentAllocator.getInstance() 
+            : LinuxMemorySegmentAllocator.getInstance();
         
-        final KeyValueLeafPage modifyPage = KeyValueLeafPagePool.getInstance()
-                                                                .borrowPage(SIXTYFOUR_KB,
-                                                                           recordPageKey,
-                                                                           indexType,
-                                                                           getResourceSession().getResourceConfig(),
-                                                                           pageRtx.getRevisionNumber());
+        final KeyValueLeafPage completePage = new KeyValueLeafPage(
+            recordPageKey,
+            indexType,
+            getResourceSession().getResourceConfig(),
+            pageRtx.getRevisionNumber(),
+            allocator.allocate(SIXTYFOUR_KB),
+            getResourceSession().getResourceConfig().areDeweyIDsStored 
+                ? allocator.allocate(SIXTYFOUR_KB) 
+                : null
+        );
+        
+        final KeyValueLeafPage modifyPage = new KeyValueLeafPage(
+            recordPageKey,
+            indexType,
+            getResourceSession().getResourceConfig(),
+            pageRtx.getRevisionNumber(),
+            allocator.allocate(SIXTYFOUR_KB),
+            getResourceSession().getResourceConfig().areDeweyIDsStored 
+                ? allocator.allocate(SIXTYFOUR_KB) 
+                : null
+        );
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
       } else {
         pageContainer = dereferenceRecordPageForModification(reference);

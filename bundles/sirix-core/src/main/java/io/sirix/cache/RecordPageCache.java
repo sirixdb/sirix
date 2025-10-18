@@ -28,11 +28,11 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
           assert page != null;
           assert page.getPinCount() == 0 : "Page must not be pinned: " + page.getPinCount();
           
-          // Safe to return segments - page is unpinned and being discarded
-          LOGGER.trace("Returning segments for unpinned page {} to allocator, cause={}", 
+          // Page handles its own cleanup
+          LOGGER.trace("Closing page {} and releasing segments, cause={}", 
                       key.getKey(), cause);
-          DiagnosticLogger.log("RecordPageCache EVICT: returning page " + page.getPageKey() + ", cause=" + cause);
-          KeyValueLeafPagePool.getInstance().returnPage(page);
+          DiagnosticLogger.log("RecordPageCache EVICT: closing page " + page.getPageKey() + ", cause=" + cause);
+          page.close();
         };
 
     cache = Caffeine.newBuilder()

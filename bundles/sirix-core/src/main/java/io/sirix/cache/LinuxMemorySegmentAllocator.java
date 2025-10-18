@@ -1,22 +1,19 @@
 package io.sirix.cache;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
-import java.util.ArrayList;
 import java.util.Deque;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static java.lang.foreign.ValueLayout.*;
 
@@ -68,7 +65,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   // Define power-of-two sizes: 4KB, 8KB, 16KB, 32KB, 64KB, 128KB, 256KB
   private static final long[] SEGMENT_SIZES =
       { FOUR_KB, EIGHT_KB, SIXTEEN_KB, THIRTYTWO_KB, SIXTYFOUR_KB, ONE_TWENTYEIGHT_KB, TWO_FIFTYSIX_KB };
-  
+
   // Fixed region size per pool: 2MB (good balance for most workloads)
   private static final long REGION_SIZE = 2 * 1024 * 1024;
 
@@ -85,14 +82,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private final Deque<MemorySegment>[] segmentPools = new Deque[SEGMENT_SIZES.length];
   private final AtomicInteger[] poolSizes = new AtomicInteger[SEGMENT_SIZES.length];
 
-  // Global borrowed segment tracking (prevents duplicate returns)
-  private final ConcurrentHashMap<Long, Boolean> borrowedSegments = new ConcurrentHashMap<>();
-
   // NEW: Rebalancing infrastructure
   private final Map<Long, MemorySegment> mmappedBases = new ConcurrentHashMap<>();
-  @SuppressWarnings("unchecked")
   private final AtomicLong[] totalBorrows = new AtomicLong[SEGMENT_SIZES.length];
-  @SuppressWarnings("unchecked")
   private final AtomicLong[] totalReturns = new AtomicLong[SEGMENT_SIZES.length];
 
   /**
@@ -116,9 +108,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       return;
     }
 
-    LOGGER.info("Initializing LinuxMemorySegmentAllocator with budget: {} MB", 
-               maxBufferSize / (1024 * 1024));
-    
+    LOGGER.info("Initializing LinuxMemorySegmentAllocator with budget: {} MB", maxBufferSize / (1024 * 1024));
+
     this.maxBufferSize.set(maxBufferSize);
 
     // Initialize pools
@@ -154,11 +145,10 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   public void printPoolDiagnostics() {
     System.out.println("\n========== MEMORY SEGMENT POOL DIAGNOSTICS ==========");
     for (int i = 0; i < SEGMENT_SIZES.length; i++) {
-      System.out.println("Pool " + i + " (size " + SEGMENT_SIZES[i] + "): " + 
-                         poolSizes[i].get() + " segments available");
+      System.out.println(
+          "Pool " + i + " (size " + SEGMENT_SIZES[i] + "): " + poolSizes[i].get() + " segments available");
     }
     System.out.println("Physical memory: " + (physicalMemoryBytes.get() / (1024 * 1024)) + " MB");
-    System.out.println("Borrowed segments: " + borrowedSegments.size());
     System.out.println("mmap'd bases: " + mmappedBases.size());
     System.out.println("====================================================\n");
   }
@@ -176,29 +166,20 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
     if (segment == null) {
       // Pool empty - allocate new segments
-      synchronized (pool) {
-        // Double-check after lock
+      // Double-check after lock
+      segment = pool.poll();
+      if (segment == null) {
+        LOGGER.debug("Pool {} empty, allocating new segments", index);
+        allocateSegmentsForPool(index);
         segment = pool.poll();
         if (segment == null) {
-          LOGGER.debug("Pool {} empty, allocating new segments", index);
-          allocateSegmentsForPool(index);
-          segment = pool.poll();
-          if (segment == null) {
-            throw new IllegalStateException("Pool still empty after allocation!");
-          }
+          throw new IllegalStateException("Pool still empty after allocation!");
         }
       }
     }
 
     // Decrement pool counter
     poolSizes[index].decrementAndGet();
-
-    // Track as borrowed (detect duplicates)
-    long address = segment.address();
-    Boolean previous = borrowedSegments.putIfAbsent(address, Boolean.TRUE);
-    if (previous != null) {
-      LOGGER.error("CRITICAL: Segment {} was already borrowed! (pool {})", address, index);
-    }
 
     // Track utilization
     totalBorrows[index].incrementAndGet();
@@ -207,7 +188,6 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     // LOGGER.trace("ALLOCATE: address={}, pool={}, size={}", address, index, size);
 
     // Note: mmap with MAP_ANONYMOUS gives zero-filled fresh segments.
-    // Reused segments should still have previous data (no madvise in release).
     return segment;
   }
 
@@ -224,9 +204,12 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     // Allocate base segment
     MemorySegment base = mapMemory(REGION_SIZE);
     mmappedBases.put(base.address(), base);
-    
-    LOGGER.info("Allocated {} MB region for pool {} ({} x {} byte segments)", 
-               REGION_SIZE / (1024 * 1024), poolIndex, segmentsPerRegion, segmentSize);
+
+    LOGGER.info("Allocated {} MB region for pool {} ({} x {} byte segments)",
+                REGION_SIZE / (1024 * 1024),
+                poolIndex,
+                segmentsPerRegion,
+                segmentSize);
 
     // Slice into segments and add to pool
     Deque<MemorySegment> pool = segmentPools[poolIndex];
@@ -238,7 +221,6 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     poolSizes[poolIndex].addAndGet(segmentsPerRegion);
     physicalMemoryBytes.addAndGet(REGION_SIZE);
   }
-
 
   /**
    * Map memory using mmap.
@@ -259,7 +241,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     if (addr == MemorySegment.NULL) {
       throw new OutOfMemoryError("Failed to allocate memory via mmap");
     }
-    
+
     return addr.reinterpret(totalSize);
   }
 
@@ -287,7 +269,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       int result = (int) MADVISE.invoke(segment, size, MADV_DONTNEED);
       if (result != 0) {
         LOGGER.warn("madvise MADV_DONTNEED failed for address {}, size {} (error code: {})",
-                   segment.address(), size, result);
+                    segment.address(),
+                    size,
+                    result);
       }
     } catch (Throwable e) {
       LOGGER.error("madvise invocation failed", e);
@@ -299,10 +283,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     if (segment == null) {
       return; // Already released/nulled
     }
-    // NO-OP: Don't call madvise here
-    // Memory is zeroed in release() when segment is returned to pool
-    // This avoids over-zealous zeroing when clear() is called multiple times
-    // LOGGER.trace("RESET_SEGMENT: address={}, size={} (NO-OP)", segment.address(), segment.byteSize());
+
+    releasePhysicalMemory(segment, segment.byteSize());
   }
 
   @Override
@@ -317,15 +299,6 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     if (index < 0 || index >= segmentPools.length) {
       LOGGER.error("CANNOT RETURN SEGMENT! Invalid size: {}", size);
       throw new IllegalArgumentException("Segment size not supported for reuse: " + size);
-    }
-
-    // Check if this segment was borrowed (detect duplicates)
-    long address = segment.address();
-    Boolean removed = borrowedSegments.remove(address);
-    if (removed == null) {
-      LOGGER.warn("RELEASE_DUPLICATE: address={}, pool={}, from={}", 
-                  address, index, Thread.currentThread().getName());
-      return; // Ignore duplicate return
     }
 
     // Release logging disabled for performance
@@ -352,9 +325,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       return;
     }
 
-    LOGGER.info("Cleaning up allocator (physical memory: {} MB, borrowed: {})",
-               physicalMemoryBytes.get() / (1024 * 1024),
-               borrowedSegments.size());
+    LOGGER.info("Cleaning up allocator (physical memory: {} MB)",
+                physicalMemoryBytes.get() / (1024 * 1024));
 
     // Clear pools
     for (int i = 0; i < segmentPools.length; i++) {
@@ -366,11 +338,10 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       }
     }
 
-    borrowedSegments.clear();
     mmappedBases.clear();
     physicalMemoryBytes.set(0);
     isInitialized.set(false);
-    
+
     LOGGER.info("LinuxMemorySegmentAllocator cleanup complete");
   }
 
@@ -378,10 +349,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
    * Print current memory statistics.
    */
   public void printMemoryStats() {
-    LOGGER.info("Memory: Physical={} MB, Borrowed segments={}, mmap'd bases={}",
-               physicalMemoryBytes.get() / (1024 * 1024),
-               borrowedSegments.size(),
-               mmappedBases.size());
+    LOGGER.info("Memory: Physical={} MB, mmap'd bases={}",
+                physicalMemoryBytes.get() / (1024 * 1024),
+                mmappedBases.size());
   }
 
   public static void main(String[] args) {
@@ -396,7 +366,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
     allocator.release(segment4KB);
     allocator.release(segment128KB);
-    
+
     allocator.printMemoryStats();
   }
 }

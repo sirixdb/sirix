@@ -32,11 +32,12 @@ import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.cache.KeyValueLeafPagePool;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
+
+import java.lang.foreign.MemorySegment;
 import io.sirix.io.Reader;
 import io.sirix.node.Utils;
 import io.sirix.node.Bytes;
@@ -101,7 +102,17 @@ public enum PageKind {
             lastDeweyIdIndex = -1;
           }
 
-          var page = KeyValueLeafPagePool.getInstance().borrowPage(
+          // Direct allocation (no pool)
+          MemorySegmentAllocator allocator = OS.isWindows() 
+              ? WindowsMemorySegmentAllocator.getInstance() 
+              : LinuxMemorySegmentAllocator.getInstance();
+          
+          MemorySegment slotMemory = allocator.allocate(slotsMemorySize);
+          MemorySegment deweyIdMemory = (deweyIdsMemorySize > 0) 
+              ? allocator.allocate(deweyIdsMemorySize) 
+              : null;
+          
+          var page = new KeyValueLeafPage(
               recordPageKey,
               revision,
               indexType,
@@ -109,8 +120,8 @@ public enum PageKind {
               areDeweyIDsStored,
               recordPersister,
               references,
-              slotsMemorySize,
-              deweyIdsMemorySize,
+              slotMemory,
+              deweyIdMemory,
               lastSlotIndex,
               lastDeweyIdIndex
           );

@@ -92,24 +92,17 @@ public final class TransactionIntentLog implements AutoCloseable {
   public void clear() {
     logKey = 0;
     
-    // Fast path - no diagnostic logging or complex type tracking
-    // CRITICAL: Clear pages BEFORE returning segments to avoid null pointer errors
+    // Fast path - close pages to release segments
     for (final PageContainer pageContainer : list) {
       Page complete = pageContainer.getComplete();
       Page modified = pageContainer.getModified();
       
-      if (complete != null) {
-        complete.clear();  // Clear state first
-        if (complete instanceof KeyValueLeafPage completePage) {
-          KeyValueLeafPagePool.getInstance().returnPage(completePage);  // Then return segments
-        }
+      if (complete instanceof KeyValueLeafPage completePage) {
+        completePage.close();
       }
       
-      if (modified != null) {
-        modified.clear();  // Clear state first
-        if (modified instanceof KeyValueLeafPage modifiedPage) {
-          KeyValueLeafPagePool.getInstance().returnPage(modifiedPage);  // Then return segments
-        }
+      if (modified instanceof KeyValueLeafPage modifiedPage) {
+        modifiedPage.close();
       }
     }
     list.clear();
@@ -126,27 +119,17 @@ public final class TransactionIntentLog implements AutoCloseable {
 
   @Override
   public void close() {
-    // Clear pages thoroughly first, then return KeyValueLeafPages to pool
+    // Close pages to release segments
     for (final PageContainer pageContainer : list) {
       Page completePage = pageContainer.getComplete();
       Page modifiedPage = pageContainer.getModified();
       
-      // CRITICAL: Clear pages completely before returning to pool
-      // This ensures no data leakage between transactions
-      if (completePage != null) {
-        completePage.clear();
-      }
-      if (modifiedPage != null) {
-        modifiedPage.clear();
-      }
-      
-      // Return to pool after clearing (pinCount is now 0)
       if (completePage instanceof KeyValueLeafPage kvCompletePage) {
-        KeyValueLeafPagePool.getInstance().returnPage(kvCompletePage);
+        kvCompletePage.close();
       }
       
       if (modifiedPage instanceof KeyValueLeafPage kvModifiedPage) {
-        KeyValueLeafPagePool.getInstance().returnPage(kvModifiedPage);
+        kvModifiedPage.close();
       }
     }
     logKey = 0;

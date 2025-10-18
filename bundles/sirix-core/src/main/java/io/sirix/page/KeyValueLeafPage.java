@@ -5,7 +5,6 @@ import com.google.common.base.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.PageTrx;
-import io.sirix.cache.KeyValueLeafPagePool;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
@@ -23,6 +22,8 @@ import io.sirix.node.MemorySegmentBytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -49,6 +50,7 @@ import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 @SuppressWarnings({ "unchecked" })
 public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
   private static final int INT_SIZE = Integer.BYTES;
 
   private final AtomicInteger pinCount = new AtomicInteger();
@@ -879,12 +881,25 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public <C extends KeyValuePage<DataRecord>> C newInstance(@NonNegative long recordPageKey,
       @NonNull IndexType indexType, @NonNull PageReadOnlyTrx pageReadTrx) {
-    return (C) KeyValueLeafPagePool.getInstance()
-                                   .borrowPage(SIXTYFOUR_KB,
-                                               recordPageKey,
-                                               indexType,
-                                               pageReadTrx.getResourceSession().getResourceConfig(),
-                                               pageReadTrx.getRevisionNumber());
+    // Direct allocation (no pool)
+    ResourceConfiguration config = pageReadTrx.getResourceSession().getResourceConfig();
+    MemorySegmentAllocator allocator = OS.isWindows() 
+        ? WindowsMemorySegmentAllocator.getInstance() 
+        : LinuxMemorySegmentAllocator.getInstance();
+    
+    MemorySegment slotMemory = allocator.allocate(SIXTYFOUR_KB);
+    MemorySegment deweyIdMemory = config.areDeweyIDsStored 
+        ? allocator.allocate(SIXTYFOUR_KB) 
+        : null;
+    
+    return (C) new KeyValueLeafPage(
+        recordPageKey,
+        indexType,
+        config,
+        pageReadTrx.getRevisionNumber(),
+        slotMemory,
+        deweyIdMemory
+    );
   }
 
   @Override
@@ -914,118 +929,41 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return count;
   }
 
-  /**
-   * Return memory segments back to the allocator.
-   * Call this when the page is being discarded (evicted from cache).
-   * 
-   * The allocator's duplicate detection makes this idempotent.
-   * We DON'T null segments to allow pages to be accessed after return
-   * (needed for caching and lifecycle edge cases).
-   */
-  public void returnSegmentsToAllocator() {
-    if (slotMemory != null) {
-      segmentAllocator.release(slotMemory);
-      this.slotMemory = null;
-    }
-    if (deweyIdMemory != null && deweyIdMemory != slotMemory) {
-      segmentAllocator.release(deweyIdMemory);
-      this.deweyIdMemory = null;
-    }
-  }
-
-  @Override
-  public Page clear() {
-    if (!isClosed) {
-      // Reset state but don't modify final fields like recordPageKey
-      slotMemoryFreeSpaceStart = 0;
-      lastSlotIndex = -1;
-      deweyIdMemoryFreeSpaceStart = 0;
-      lastDeweyIdIndex = -1;
-      addedReferences = false;
-
-      // Clear arrays
-      Arrays.fill(records, null);
-      Arrays.fill(slotOffsets, -1);
-      if (areDeweyIDsStored) {
-        Arrays.fill(deweyIdOffsets, -1);
-      }
-
-      // Clear references
-      references.clear();
-
-      segmentAllocator.resetSegment(slotMemory);
-      if (areDeweyIDsStored && deweyIdMemory != null) {
-        segmentAllocator.resetSegment(deweyIdMemory);
-      }
-
-      // Reset other state
-      bytes = null;
-      hashCode = null;
-      hash = 0;
-    }
-    return this;
-  }
-
-  /**
-   * Reset this page for reuse with new parameters.
-   */
-  public void resetForReuse(final long recordPageKey, final int revisionNumber, final IndexType indexType,
-      final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
-      final RecordSerializer recordPersister, final Map<Long, PageReference> references, final MemorySegment slotMemory,
-      final MemorySegment deweyIdMemory, final int lastSlotIndex, final int lastDeweyIdIndex) {
-    // Update page properties
-    this.recordPageKey = recordPageKey;
-    this.indexType = indexType;
-    this.resourceConfig = resourceConfig;
-    this.revision = revisionNumber;
-    this.recordPersister = recordPersister;
-    this.areDeweyIDsStored = areDeweyIDsStored;
-    this.lastSlotIndex = lastSlotIndex;
-    this.lastDeweyIdIndex = lastDeweyIdIndex;
-
-    // Clear all state
-    this.slotMemoryFreeSpaceStart = 0;
-    this.deweyIdMemoryFreeSpaceStart = 0;
-    this.lastSlotIndex = -1;
-    this.lastDeweyIdIndex = -1;
-    this.addedReferences = false;
-
-    // Clear arrays
-    Arrays.fill(records, null);
-    Arrays.fill(slotOffsets, -1);
-    if (areDeweyIDsStored) {
-      Arrays.fill(deweyIdOffsets, -1);
-    }
-
-    // Clear references
-    references.clear();
-
-    // CRITICAL: Return OLD segments to pool BEFORE assigning new ones
-    // Don't null - allocator's duplicate detection handles multiple returns
-    if (this.slotMemory != null && this.slotMemory != slotMemory) {
-      segmentAllocator.release(this.slotMemory);
-      this.slotMemory = null;
-    }
-    if (this.deweyIdMemory != null && this.deweyIdMemory != deweyIdMemory) {
-      segmentAllocator.release(this.deweyIdMemory);
-      this.deweyIdMemory = null;
-    }
 
 
-    // No need to call resetSegment() - new segments are already clean
-    // (either fresh from mmap or madvise'd on previous release)
-
-    // Reset other state
-    bytes = null;
-    hashCode = null;
-    hash = 0;
-    isClosed = false;
-  }
 
 
   @Override
   public boolean isClosed() {
     return isClosed;
+  }
+
+  @Override
+  public void close() {
+    if (!isClosed) {
+      isClosed = true;
+      
+      // Release segments back to allocator
+      try {
+        if (slotMemory != null) {
+          segmentAllocator.release(slotMemory);
+          slotMemory = null;
+        }
+        if (deweyIdMemory != null) {
+          segmentAllocator.release(deweyIdMemory);
+          deweyIdMemory = null;
+        }
+      } catch (Exception e) {
+        // Log but don't throw - we're in cleanup
+        LOGGER.error("Failed to release segments for page {}", recordPageKey, e);
+      }
+      
+      // Clear references to help GC
+      Arrays.fill(records, null);
+      references.clear();
+      bytes = null;
+      hashCode = null;
+    }
   }
 
   @Override

@@ -27,18 +27,13 @@ public final class PageCache implements Cache<PageReference, Page> {
       assert page != null;
 
       if (page instanceof KeyValueLeafPage keyValueLeafPage) {
-        // evictionListener only fires on size-based evictions, so pinCount should always be 0
-        // But to be safe, check anyway
         assert keyValueLeafPage.getPinCount() == 0 : "Page must not be pinned: " + keyValueLeafPage.getPinCount();
         
-        // Safe to return segments - page is unpinned and being evicted
-        LOGGER.trace("PageCache: Returning segments for unpinned page {} to allocator, cause={}", 
+        // Page handles its own cleanup
+        LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}", 
                     key.getKey(), cause);
-        DiagnosticLogger.log("PageCache EVICT: returning page " + keyValueLeafPage.getPageKey() + ", cause=" + cause);
-        KeyValueLeafPagePool.getInstance().returnPage(keyValueLeafPage);
-      } else {
-        DiagnosticLogger.log("PageCache: clearing non-KV page: " + page.getClass().getSimpleName());
-        page.clear();
+        DiagnosticLogger.log("PageCache EVICT: closing page " + keyValueLeafPage.getPageKey() + ", cause=" + cause);
+        keyValueLeafPage.close();
       }
     };
 

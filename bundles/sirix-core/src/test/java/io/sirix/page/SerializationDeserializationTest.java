@@ -3,12 +3,14 @@ package io.sirix.page;
 import io.sirix.node.Bytes;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.cache.KeyValueLeafPagePool;
+import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeSerializerImpl;
 import io.sirix.settings.Constants;
 import io.sirix.node.BytesOut;
 import io.sirix.node.BytesIn;
+import io.sirix.utils.OS;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;
@@ -24,20 +26,23 @@ public final class SerializationDeserializationTest {
 
   private static final int NUM_RANDOM_INSERTIONS = 1000; // Number of random insertions
 
-  private final KeyValueLeafPagePool pagePool = KeyValueLeafPagePool.getInstance();
+  private MemorySegmentAllocator allocator;
 
   private ResourceConfiguration config;
 
   @BeforeEach
   public void setUp() {
-    pagePool.init(1 << 30); // Initialize the segment allocator with a max size
+    allocator = OS.isWindows() 
+        ? LinuxMemorySegmentAllocator.getInstance()  // TODO: Should be WindowsMemorySegmentAllocator
+        : LinuxMemorySegmentAllocator.getInstance();
+    allocator.init(1L << 30); // Initialize the segment allocator with a max size
     config = createResourceConfiguration();
   }
 
   @AfterEach
   public void tearDown() {
     // Clean up resources if necessary
-    pagePool.free();
+    allocator.free();
   }
 
   // Helper method to create a ResourceConfiguration
@@ -60,7 +65,7 @@ public final class SerializationDeserializationTest {
                                                          false,
                                                          null,
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(10_000),
+                                                         allocator.allocate(10_000),
                                                          null,
                                                          0,
                                                          0);
@@ -121,7 +126,7 @@ public final class SerializationDeserializationTest {
                                                          false,
                                                          null,
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(110_000),
+                                                         allocator.allocate(110_000),
                                                          null,
                                                          -1,
                                                          -1);
@@ -176,7 +181,7 @@ public final class SerializationDeserializationTest {
                                                          false,
                                                          null,
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(1),
+                                                         allocator.allocate(1),
                                                          null,
                                                          -1,
                                                          -1);
@@ -204,7 +209,7 @@ public final class SerializationDeserializationTest {
                                                          false,
                                                          null,
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(1000),
+                                                         allocator.allocate(1000),
                                                          null,
                                                          -1,
                                                          -1);
@@ -236,8 +241,8 @@ public final class SerializationDeserializationTest {
                                                          true,
                                                          new NodeSerializerImpl(),
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(1000),
-                                                         pagePool.getSegmentAllocator().allocate(1000),
+                                                         allocator.allocate(1000),
+                                                         allocator.allocate(1000),
                                                          -1,
                                                          -1);
     originalPage.setDeweyId(new byte[] { 0, 1, 2 }, 2);
@@ -265,7 +270,7 @@ public final class SerializationDeserializationTest {
                                                          false,
                                                          null,
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(1),
+                                                         allocator.allocate(1),
                                                          null,
                                                          -1,
                                                          -1);
@@ -293,7 +298,7 @@ public final class SerializationDeserializationTest {
                                                          false,
                                                          null,
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(10000),
+                                                         allocator.allocate(10000),
                                                          null,
                                                          0,
                                                          0);

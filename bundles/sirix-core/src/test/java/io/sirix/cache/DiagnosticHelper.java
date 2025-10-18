@@ -43,22 +43,10 @@ public class DiagnosticHelper {
     }
     
     /**
-     * Print statistics about page borrowing/returning to the diagnostic log.
-     * Shows if pages are being leaked (borrowed but not returned).
+     * Print statistics about memory segment allocation to the diagnostic log.
      */
     public static void printPoolStatistics() {
-        DiagnosticLogger.separator("POOL STATISTICS");
-        
-        // KeyValueLeafPagePool statistics
-        var pagePoolStats = KeyValueLeafPagePool.getInstance().getDetailedStatistics();
-        long borrowed = (Long) pagePoolStats.get("totalBorrowedPages");
-        long returned = (Long) pagePoolStats.get("totalReturnedPages");
-        long leaked = borrowed - returned;
-        
-        DiagnosticLogger.log("KeyValueLeafPagePool:");
-        DiagnosticLogger.log("  Total borrowed pages: " + borrowed);
-        DiagnosticLogger.log("  Total returned pages: " + returned);
-        DiagnosticLogger.log("  Difference (leaked):  " + leaked + (leaked > 0 ? " ⚠️  LEAK!" : " ✓"));
+        DiagnosticLogger.separator("ALLOCATOR STATISTICS");
         
         // LinuxMemorySegmentAllocator statistics
         var allocator = LinuxMemorySegmentAllocator.getInstance();
@@ -67,8 +55,7 @@ public class DiagnosticHelper {
         DiagnosticLogger.separator("END STATISTICS");
         
         // Also print to console
-        System.out.println("Pool statistics written to: " + DiagnosticLogger.getLogFilePath());
-        System.out.println("Borrowed: " + borrowed + ", Returned: " + returned + ", Leaked: " + leaked);
+        System.out.println("Allocator statistics written to: " + DiagnosticLogger.getLogFilePath());
     }
     
     /**
