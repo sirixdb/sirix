@@ -65,7 +65,7 @@ public final class SerializationDeserializationTest {
                                                          false,
                                                          null,
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(10_000),
+                                                         allocator.allocate(10_000),
                                                          null,
                                                          0,
                                                          0);
@@ -126,7 +126,7 @@ public final class SerializationDeserializationTest {
                                                          false,
                                                          null,
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(110_000),
+                                                         allocator.allocate(110_000),
                                                          null,
                                                          -1,
                                                          -1);
@@ -181,7 +181,7 @@ public final class SerializationDeserializationTest {
                                                          false,
                                                          null,
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(1),
+                                                         allocator.allocate(1),
                                                          null,
                                                          -1,
                                                          -1);
@@ -209,7 +209,7 @@ public final class SerializationDeserializationTest {
                                                          false,
                                                          null,
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(1000),
+                                                         allocator.allocate(1000),
                                                          null,
                                                          -1,
                                                          -1);
@@ -241,8 +241,8 @@ public final class SerializationDeserializationTest {
                                                          true,
                                                          new NodeSerializerImpl(),
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(1000),
-                                                         pagePool.getSegmentAllocator().allocate(1000),
+                                                         allocator.allocate(1000),
+                                                         allocator.allocate(1000),
                                                          -1,
                                                          -1);
     originalPage.setDeweyId(new byte[] { 0, 1, 2 }, 2);
@@ -270,7 +270,7 @@ public final class SerializationDeserializationTest {
                                                          false,
                                                          null,
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(1),
+                                                         allocator.allocate(1),
                                                          null,
                                                          -1,
                                                          -1);
@@ -298,7 +298,7 @@ public final class SerializationDeserializationTest {
                                                          false,
                                                          null,
                                                          new LinkedHashMap<>(),
-                                                         pagePool.getSegmentAllocator().allocate(10000),
+                                                         allocator.allocate(10000),
                                                          null,
                                                          0,
                                                          0);
