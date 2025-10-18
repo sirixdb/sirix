@@ -55,7 +55,7 @@ public final class LoadIntegrationTest extends TestCase {
 
       // Use Query to store a JSON string into the store.
       final var str = jsonArray.toAbsolutePath().toString();
-      final String query = STR."jn:load('mycol.jn','mydoc.jn','\{str}',true(),{\"commitMessage\": \"commitMessage\"})";
+      final String query = "jn:load('mycol.jn','mydoc.jn','" + str + "',true(),{\"commitMessage\": \"commitMessage\"})";
       new Query(chain, query).evaluate(ctx);
     }
   }
@@ -69,7 +69,7 @@ public final class LoadIntegrationTest extends TestCase {
 
       // Use Query to store a JSON string into the store.
       final var str = jsonArray.toAbsolutePath().toString();
-      final String query = STR."jn:load('mycol.jn','mydoc.jn','\{str}',true(),{\"commitMessage\": \"commitMessage\",\"commitTimestamp\": \"2021-05-01T00:00:00\"})";
+      final String query = "jn:load('mycol.jn','mydoc.jn','" + str + "',true(),{\"commitMessage\": \"commitMessage\",\"commitTimestamp\": \"2021-05-01T00:00:00\"})";
       new Query(chain, query).evaluate(ctx);
     }
   }
