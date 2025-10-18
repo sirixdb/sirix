@@ -18,12 +18,13 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
   public RecordPageCache(final int maxWeight) {
     final RemovalListener<PageReference, KeyValueLeafPage> removalListener =
         (PageReference key, KeyValueLeafPage page, RemovalCause cause) -> {
-          assert cause.wasEvicted();
           assert key != null;
           key.setPage(null);
           assert page != null;
           assert page.getPinCount() == 0 : "Page must not be pinned: " + page.getPinCount();
-          KeyValueLeafPagePool.getInstance().returnPage(page);
+          
+          // Page handles its own cleanup
+          page.close();
         };
 
     cache = Caffeine.newBuilder()
@@ -32,7 +33,7 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
                         ? 0
                         : value.getUsedSlotsSize())
                     .scheduler(scheduler)
-                    .evictionListener(removalListener)
+                    .removalListener(removalListener)
                     .build();
   }
 

@@ -24,8 +24,10 @@ public final class PageCache implements Cache<PageReference, Page> {
 
       if (page instanceof KeyValueLeafPage keyValueLeafPage) {
         assert keyValueLeafPage.getPinCount() == 0 : "Page must not be pinned: " + keyValueLeafPage.getPinCount();
+        
+        // Page handles its own cleanup
+        keyValueLeafPage.close();
       }
-      page.clear();
     };
 
     cache = Caffeine.newBuilder()
@@ -42,7 +44,7 @@ public final class PageCache implements Cache<PageReference, Page> {
                       }
                     })
                     .scheduler(Scheduler.systemScheduler())
-                    .evictionListener(removalListener)
+                    .removalListener(removalListener)
                     .executor(Runnable::run)
                     .build();
   }

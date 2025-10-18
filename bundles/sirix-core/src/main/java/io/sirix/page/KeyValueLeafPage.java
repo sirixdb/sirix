@@ -5,7 +5,6 @@ import com.google.common.base.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.PageTrx;
-import io.sirix.cache.KeyValueLeafPagePool;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
@@ -23,6 +22,8 @@ import io.sirix.node.MemorySegmentBytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -48,6 +49,7 @@ import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 @SuppressWarnings({ "unchecked" })
 public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
   private static final int INT_SIZE = Integer.BYTES;
 
   private final AtomicInteger pinCount = new AtomicInteger();
@@ -869,12 +871,25 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public <C extends KeyValuePage<DataRecord>> C newInstance(@NonNegative long recordPageKey,
       @NonNull IndexType indexType, @NonNull PageReadOnlyTrx pageReadTrx) {
-    return (C) KeyValueLeafPagePool.getInstance()
-                                   .borrowPage(SIXTYFOUR_KB,
-                                               recordPageKey,
-                                               indexType,
-                                               pageReadTrx.getResourceSession().getResourceConfig(),
-                                               pageReadTrx.getRevisionNumber());
+    // Direct allocation (no pool)
+    ResourceConfiguration config = pageReadTrx.getResourceSession().getResourceConfig();
+    MemorySegmentAllocator allocator = OS.isWindows() 
+        ? WindowsMemorySegmentAllocator.getInstance() 
+        : LinuxMemorySegmentAllocator.getInstance();
+    
+    MemorySegment slotMemory = allocator.allocate(SIXTYFOUR_KB);
+    MemorySegment deweyIdMemory = config.areDeweyIDsStored 
+        ? allocator.allocate(SIXTYFOUR_KB) 
+        : null;
+    
+    return (C) new KeyValueLeafPage(
+        recordPageKey,
+        indexType,
+        config,
+        pageReadTrx.getRevisionNumber(),
+        slotMemory,
+        deweyIdMemory
+    );
   }
 
   @Override
@@ -991,6 +1006,34 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public boolean isClosed() {
     return isClosed;
+  }
+
+  @Override
+  public void close() {
+    if (!isClosed) {
+      isClosed = true;
+      
+      // Release segments back to allocator
+      try {
+        if (slotMemory != null) {
+          segmentAllocator.release(slotMemory);
+          slotMemory = null;
+        }
+        if (deweyIdMemory != null) {
+          segmentAllocator.release(deweyIdMemory);
+          deweyIdMemory = null;
+        }
+      } catch (Exception e) {
+        // Log but don't throw - we're in cleanup
+        LOGGER.error("Failed to release segments for page {}", recordPageKey, e);
+      }
+      
+      // Clear references to help GC
+      Arrays.fill(records, null);
+      references.clear();
+      bytes = null;
+      hashCode = null;
+    }
   }
 
   @Override

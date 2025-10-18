@@ -173,11 +173,10 @@ public final class Databases {
 
   public static void freeAllocatedMemory() {
     if (MANAGER.sessions().isEmpty()) {
-//      // If no sessions are left, we can clean up the allocator.
-//      MemorySegmentAllocator segmentAllocator =
-//          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
-//      segmentAllocator.free();
-      KeyValueLeafPagePool.getInstance().free();
+      // If no sessions are left, we can clean up the allocator.
+      MemorySegmentAllocator segmentAllocator =
+          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
+      segmentAllocator.free();
       BUFFER_MANAGERS.values()
                      .forEach((resourcePathsToBufferManagers -> resourcePathsToBufferManagers.forEach((_, bufferManager) -> bufferManager.clearAllCaches())));
     }
@@ -286,10 +285,10 @@ public final class Databases {
 
   private static void initAllocator(long maxSegmentAllocationSize) {
     if (MANAGER.sessions().isEmpty()) {
-      KeyValueLeafPagePool.getInstance().init(maxSegmentAllocationSize);
-//      MemorySegmentAllocator segmentAllocator =
-//          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
-//      segmentAllocator.init(maxSegmentAllocationSize);
+      // Initialize the allocator (no pool needed anymore)
+      MemorySegmentAllocator segmentAllocator =
+          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
+      segmentAllocator.init(maxSegmentAllocationSize);
     }
   }
 

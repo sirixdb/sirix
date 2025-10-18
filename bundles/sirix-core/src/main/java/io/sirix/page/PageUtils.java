@@ -2,9 +2,12 @@ package io.sirix.page;
 
 import io.sirix.access.DatabaseType;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.cache.KeyValueLeafPagePool;
+import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.TransactionIntentLog;
+import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
+import io.sirix.utils.OS;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.node.BytesIn;
@@ -69,13 +72,21 @@ public final class PageUtils {
   public static void createTree(final DatabaseType databaseType, @NonNull PageReference reference,
       final IndexType indexType, final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
     // Create new record page.
-    final KeyValueLeafPage recordPage = KeyValueLeafPagePool.getInstance().borrowPage(SIXTYFOUR_KB,
-                                                                                      Fixed.ROOT_PAGE_KEY.getStandardProperty(),
-                                                                                  indexType,
-                                                                                  pageReadTrx.getResourceSession().getResourceConfig(),
-                                                                                  pageReadTrx.getRevisionNumber());
-
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceSession().getResourceConfig();
+    
+    // Direct allocation (no pool)
+    final MemorySegmentAllocator allocator = OS.isWindows() 
+        ? WindowsMemorySegmentAllocator.getInstance()
+        : LinuxMemorySegmentAllocator.getInstance();
+    
+    final KeyValueLeafPage recordPage = new KeyValueLeafPage(
+        Fixed.ROOT_PAGE_KEY.getStandardProperty(),
+        indexType,
+        resourceConfiguration,
+        pageReadTrx.getRevisionNumber(),
+        allocator.allocate(SIXTYFOUR_KB),
+        resourceConfiguration.areDeweyIDsStored ? allocator.allocate(SIXTYFOUR_KB) : null
+    );
 
     final SirixDeweyID id = resourceConfiguration.areDeweyIDsStored ? SirixDeweyID.newRootID() : null;
 
