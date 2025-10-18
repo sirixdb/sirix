@@ -79,6 +79,18 @@ public enum ByteHandlerKind {
     }
   },
 
+  FFI_LZ4_COMPRESSOR(FFILz4Compressor.class) {
+    @Override
+    public ByteHandler deserialize(JsonReader reader) {
+      return callDefaultConstructor(reader, FFILz4Compressor.class.getName());
+    }
+
+    @Override
+    public void serialize(ByteHandler byteHandler, JsonWriter writer) throws IOException {
+      serializeDefaultConstructor(byteHandler, writer);
+    }
+  },
+
   ENCRYPTOR(Encryptor.class) {
     @Override
     public ByteHandler deserialize(JsonReader reader) {

@@ -57,7 +57,6 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -97,7 +96,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    * Transaction intent log.
    */
   TransactionIntentLog log;
-
+  
   /**
    * Last reference to the actual revRoot.
    */
@@ -398,16 +397,16 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final int revision = uberPage.getRevisionNumber();
       serializeIndexDefinitions(revision);
 
-      log.getList().forEach(pageContainer -> {
-        pageContainer.getComplete().clear();
-        pageContainer.getModified().clear();
-      });
+      // Clear and return pages to pool (TransactionIntentLog.clear() handles clearing and returning)
       log.clear();
-      pageContainerCache.values().forEach(pageContainer -> {
-        pageContainer.getComplete().clear();
-        pageContainer.getModified().clear();
-      });
+      
+      // Clear local cache (pages are already handled by log.clear())
       pageContainerCache.clear();
+      
+      // Null out cache references since pages have been returned to pool
+      mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
+      secondMostRecentPageContainer = mostRecentPageContainer;
+      mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
 
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
@@ -488,6 +487,13 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   public UberPage rollback() {
     pageRtx.assertNotClosed();
     log.clear();
+    
+    // Clear local cache and reset references (pages already handled by log.clear())
+    pageContainerCache.clear();
+    mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
+    secondMostRecentPageContainer = mostRecentPageContainer;
+    mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
+    
     return readUberPage();
   }
 
@@ -496,20 +502,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     if (!isClosed) {
       pageRtx.assertNotClosed();
 
-      if (mostRecentPageContainer.pageContainer != null) {
-        mostRecentPageContainer.pageContainer.getComplete().clear();
-        mostRecentPageContainer.pageContainer.getModified().clear();
-      }
-
-      if (secondMostRecentPageContainer.pageContainer != null) {
-        secondMostRecentPageContainer.pageContainer.getComplete().clear();
-        secondMostRecentPageContainer.pageContainer.getModified().clear();
-      }
-
-      if (mostRecentPathSummaryPageContainer.pageContainer != null) {
-        mostRecentPathSummaryPageContainer.pageContainer.getComplete().clear();
-        mostRecentPathSummaryPageContainer.pageContainer.getModified().clear();
-      }
+      // Don't clear the cached containers here - they've either been:
+      // 1. Already cleared and returned to pool during commit(), or
+      // 2. Will be cleared and returned to pool by log.close() below
+      // Clearing them here could corrupt pages that have been returned to pool
+      // and reused by other transactions.
 
       final UberPage lastUberPage = readUberPage();
 
@@ -646,12 +643,10 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
                 : null
         );
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
-      } else{
+      } else {
         pageContainer = dereferenceRecordPageForModification(reference);
         return pageContainer;
       }
-
-      assert pageContainer != null;
 
       // $CASES-OMITTED$
       switch (indexType) {

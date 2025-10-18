@@ -1,35 +1,43 @@
 package io.sirix.cache;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
 import java.util.Deque;
-import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static java.lang.foreign.ValueLayout.*;
 
+/**
+ * Memory segment allocator using per-segment madvise (UmbraDB approach) with rebalancing.
+ * Tracks borrowed segments globally to prevent duplicate returns.
+ * Implements pool rebalancing to stay within memory budget.
+ */
 public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(LinuxMemorySegmentAllocator.class.getName());
 
   private static final Linker LINKER = Linker.nativeLinker();
 
-  // Static final MethodHandles for mmap and munmap to avoid repeated lookups
+  // Static final MethodHandles for mmap, munmap, and madvise
   private static final MethodHandle MMAP;
   private static final MethodHandle MUNMAP;
+  private static final MethodHandle MADVISE;
 
   private static final int PROT_READ = 0x1;   // Page can be read
   private static final int PROT_WRITE = 0x2;  // Page can be written
   private static final int MAP_PRIVATE = 0x02; // Changes are private
   private static final int MAP_ANONYMOUS = 0x20; // Anonymous mapping
+  private static final int MADV_DONTNEED = 4;  // Linux: release physical memory, keep virtual
 
   static {
     MMAP = LINKER.downcallHandle(LINKER.defaultLookup()
@@ -47,27 +55,40 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                                          .find("munmap")
                                          .orElseThrow(() -> new RuntimeException("munmap not found")),
                                    FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG));
+
+    MADVISE = LINKER.downcallHandle(LINKER.defaultLookup()
+                                          .find("madvise")
+                                          .orElseThrow(() -> new RuntimeException("madvise not found")),
+                                    FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT));
   }
 
-  // Define power-of-two sizes for mapping: 4KB, 8KB, 16KB, 32KB, 64KB, 128KB, 256KB
+  // Define power-of-two sizes: 4KB, 8KB, 16KB, 32KB, 64KB, 128KB, 256KB
   private static final long[] SEGMENT_SIZES =
       { FOUR_KB, EIGHT_KB, SIXTEEN_KB, THIRTYTWO_KB, SIXTYFOUR_KB, ONE_TWENTYEIGHT_KB, TWO_FIFTYSIX_KB };
-  private static final int PRE_ALLOCATE_COUNT = 100; // Number of segments to touch upfront
-  private static final long MAX_BUFFER_SIZE = 1L << 30; // 1GB   FIXME: Make this configurable
 
-  private final List<MemorySegment> topLevelMappedSegments = new CopyOnWriteArrayList<>();
+  // Fixed region size per pool: 2MB (good balance for most workloads)
+  private static final long REGION_SIZE = 2 * 1024 * 1024;
 
-  private final Deque<MemorySegment>[] segmentPools = new Deque[SEGMENT_SIZES.length];
-
+  // Singleton instance
   private static final LinuxMemorySegmentAllocator INSTANCE = new LinuxMemorySegmentAllocator();
 
+  // State tracking
   private final AtomicBoolean isInitialized = new AtomicBoolean(false);
+  private final AtomicLong physicalMemoryBytes = new AtomicLong(0);
+  private final AtomicLong maxBufferSize = new AtomicLong(Long.MAX_VALUE);
 
-  private final AtomicLong maxBufferSize = new AtomicLong(MAX_BUFFER_SIZE);
+  // Size-class pools (one per segment size)
+  @SuppressWarnings("unchecked")
+  private final Deque<MemorySegment>[] segmentPools = new Deque[SEGMENT_SIZES.length];
+  private final AtomicInteger[] poolSizes = new AtomicInteger[SEGMENT_SIZES.length];
+
+  // NEW: Rebalancing infrastructure
+  private final Map<Long, MemorySegment> mmappedBases = new ConcurrentHashMap<>();
+  private final AtomicLong[] totalBorrows = new AtomicLong[SEGMENT_SIZES.length];
+  private final AtomicLong[] totalReturns = new AtomicLong[SEGMENT_SIZES.length];
 
   /**
    * Private constructor to enforce singleton pattern.
-   * Use getInstance() to obtain the singleton instance.
    */
   private LinuxMemorySegmentAllocator() {
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -87,45 +108,49 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       return;
     }
 
-    LOGGER.info("Initializing LinuxMemorySegmentAllocator...");
+    LOGGER.info("Initializing LinuxMemorySegmentAllocator with budget: {} MB", maxBufferSize / (1024 * 1024));
 
-    // Initialize segment pools for each size class
+    this.maxBufferSize.set(maxBufferSize);
+
+    // Initialize pools
     for (int i = 0; i < SEGMENT_SIZES.length; i++) {
       segmentPools[i] = new ConcurrentLinkedDeque<>();
+      poolSizes[i] = new AtomicInteger(0);
+      totalBorrows[i] = new AtomicLong(0);
+      totalReturns[i] = new AtomicLong(0);
     }
 
-    // Pre-allocate and touch memory segments
-    preAllocateAndTouchMemory(maxBufferSize);
-  }
-
-  private void preAllocateAndTouchMemory(long maxBufferSize) {
-    for (int index = 0; index < SEGMENT_SIZES.length; index++) {
-      long segmentSize = SEGMENT_SIZES[index];
-      Deque<MemorySegment> pool = segmentPools[index];
-
-      // Map a large memory segment and split it into smaller segments
-      MemorySegment hugeSegment = mapMemory(maxBufferSize);
-      this.maxBufferSize.set(maxBufferSize);
-
-      topLevelMappedSegments.add(hugeSegment);
-
-      for (long l = 0, max = maxBufferSize / segmentSize; l < max; l++) {
-        long actualOffset = l * segmentSize;
-        MemorySegment segment = hugeSegment.asSlice(actualOffset, segmentSize);
-
-        if (l < PRE_ALLOCATE_COUNT) {
-          // "Touch" the segment to ensure it is mapped into physical memory
-          segment.set(JAVA_BYTE, 0, (byte) 0);
-        }
-
-        pool.add(segment);
-      }
-    }
+    LOGGER.info("Allocator initialized - on-demand allocation with rebalancing");
   }
 
   @Override
   public long getMaxBufferSize() {
     return maxBufferSize.get();
+  }
+
+  /**
+   * Get current pool sizes for diagnostics.
+   */
+  public int[] getPoolSizes() {
+    int[] sizes = new int[SEGMENT_SIZES.length];
+    for (int i = 0; i < segmentPools.length; i++) {
+      sizes[i] = poolSizes[i].get();
+    }
+    return sizes;
+  }
+
+  /**
+   * Print diagnostic information about pool state.
+   */
+  public void printPoolDiagnostics() {
+    System.out.println("\n========== MEMORY SEGMENT POOL DIAGNOSTICS ==========");
+    for (int i = 0; i < SEGMENT_SIZES.length; i++) {
+      System.out.println(
+          "Pool " + i + " (size " + SEGMENT_SIZES[i] + "): " + poolSizes[i].get() + " segments available");
+    }
+    System.out.println("Physical memory: " + (physicalMemoryBytes.get() / (1024 * 1024)) + " MB");
+    System.out.println("mmap'd bases: " + mmappedBases.size());
+    System.out.println("====================================================\n");
   }
 
   @Override
@@ -140,13 +165,67 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     MemorySegment segment = pool.poll();
 
     if (segment == null) {
-      throw new OutOfMemoryError("No preallocated segments available for size: " + size);
+      // Pool empty - allocate new segments
+      // Double-check after lock
+      segment = pool.poll();
+      if (segment == null) {
+        LOGGER.debug("Pool {} empty, allocating new segments", index);
+        allocateSegmentsForPool(index);
+        segment = pool.poll();
+        if (segment == null) {
+          throw new IllegalStateException("Pool still empty after allocation!");
+        }
+      }
     }
 
-    segment.fill((byte) 0); // Clear the segment
+    // Decrement pool counter
+    poolSizes[index].decrementAndGet();
+
+    // Track utilization
+    totalBorrows[index].incrementAndGet();
+
+    // Allocate logging disabled for performance
+    // LOGGER.trace("ALLOCATE: address={}, pool={}, size={}", address, index, size);
+
+    // Note: mmap with MAP_ANONYMOUS gives zero-filled fresh segments.
     return segment;
   }
 
+  /**
+   * Allocate a batch of segments for the given pool.
+   * UmbraDB approach: mmap a region, slice it, add to pool.
+   * New segments are zero-filled by OS (MAP_ANONYMOUS).
+   * Reused segments are zeroed via madvise in release().
+   */
+  private void allocateSegmentsForPool(int poolIndex) {
+    long segmentSize = SEGMENT_SIZES[poolIndex];
+    int segmentsPerRegion = (int) (REGION_SIZE / segmentSize);
+
+    // Allocate base segment
+    MemorySegment base = mapMemory(REGION_SIZE);
+    mmappedBases.put(base.address(), base);
+
+    LOGGER.info("Allocated {} MB region for pool {} ({} x {} byte segments)",
+                REGION_SIZE / (1024 * 1024),
+                poolIndex,
+                segmentsPerRegion,
+                segmentSize);
+
+    // Slice into segments and add to pool
+    Deque<MemorySegment> pool = segmentPools[poolIndex];
+    for (int i = 0; i < segmentsPerRegion; i++) {
+      MemorySegment slice = base.asSlice(i * segmentSize, segmentSize);
+      pool.offer(slice);
+    }
+
+    poolSizes[poolIndex].addAndGet(segmentsPerRegion);
+    physicalMemoryBytes.addAndGet(REGION_SIZE);
+  }
+
+  /**
+   * Map memory using mmap.
+   * Public for testing purposes.
+   */
   public MemorySegment mapMemory(long totalSize) {
     MemorySegment addr;
     try {
@@ -162,9 +241,14 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     if (addr == MemorySegment.NULL) {
       throw new OutOfMemoryError("Failed to allocate memory via mmap");
     }
+
     return addr.reinterpret(totalSize);
   }
 
+  /**
+   * Release memory using munmap.
+   * Public for testing purposes.
+   */
   public void releaseMemory(MemorySegment addr, long size) {
     try {
       int result = (int) MUNMAP.invoke(addr, size);
@@ -176,48 +260,103 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     }
   }
 
-  @Override
-  public void release(MemorySegment segment) {
-    long size = segment.byteSize();
-    int index = SegmentAllocators.getIndexForSize(size);
-
-    if (index >= 0 && index < segmentPools.length) {
-      segmentPools[index].offer(segment);
-    } else {
-      throw new IllegalArgumentException("Segment size not supported for reuse: " + size);
+  /**
+   * UmbraDB approach: Release physical memory but keep virtual address mapping.
+   * Next access gets fresh zero page from OS.
+   */
+  private void releasePhysicalMemory(MemorySegment segment, long size) {
+    try {
+      int result = (int) MADVISE.invoke(segment, size, MADV_DONTNEED);
+      if (result != 0) {
+        LOGGER.warn("madvise MADV_DONTNEED failed for address {}, size {} (error code: {})",
+                    segment.address(),
+                    size,
+                    result);
+      }
+    } catch (Throwable e) {
+      LOGGER.error("madvise invocation failed", e);
     }
   }
 
-  /**
-   * Cleanup all mmap'd top-level segments.
-   * Called automatically during JVM shutdown.
-   */
+  @Override
+  public void resetSegment(MemorySegment segment) {
+    if (segment == null) {
+      return; // Already released/nulled
+    }
+
+    releasePhysicalMemory(segment, segment.byteSize());
+  }
+
+  @Override
+  public void release(MemorySegment segment) {
+    if (segment == null) {
+      return; // Already released/nulled
+    }
+
+    long size = segment.byteSize();
+    int index = SegmentAllocators.getIndexForSize(size);
+
+    if (index < 0 || index >= segmentPools.length) {
+      LOGGER.error("CANNOT RETURN SEGMENT! Invalid size: {}", size);
+      throw new IllegalArgumentException("Segment size not supported for reuse: " + size);
+    }
+
+    // Release logging disabled for performance
+    // LOGGER.trace("RELEASE: address={}, pool={}, size={}", address, index, size);
+
+    // Track utilization
+    totalReturns[index].incrementAndGet();
+
+    releasePhysicalMemory(segment, size);
+    physicalMemoryBytes.addAndGet(-size);
+    segmentPools[index].offer(segment);
+    int poolSize = poolSizes[index].incrementAndGet();
+
+    // Periodic logging
+    if (poolSize % 1000 == 0) {
+      LOGGER.info("Segment returned: size={}, pool {} now has {} segments", size, index, poolSize);
+    }
+  }
+
   @Override
   public void free() {
     if (!isInitialized.get()) {
-      LOGGER.debug("Allocator is not initialized, nothing to free.");
+      LOGGER.debug("Allocator not initialized, nothing to free");
       return;
     }
 
-    LOGGER.info("Cleaning up mmap'd memory segments...");
-    for (MemorySegment segment : topLevelMappedSegments) {
-      try {
-        releaseMemory(segment, segment.byteSize());
-      } catch (Exception e) {
-        LOGGER.error("Failed to release segment: {}", e.getMessage());
+    LOGGER.info("Cleaning up allocator (physical memory: {} MB)",
+                physicalMemoryBytes.get() / (1024 * 1024));
+
+    // Clear pools
+    for (int i = 0; i < segmentPools.length; i++) {
+      if (segmentPools[i] != null) {
+        segmentPools[i].clear();
+        poolSizes[i].set(0);
+        totalBorrows[i].set(0);
+        totalReturns[i].set(0);
       }
     }
-    topLevelMappedSegments.clear();
 
-    for (Deque<MemorySegment> pool : segmentPools) {
-      pool.clear();
-    }
-
+    mmappedBases.clear();
+    physicalMemoryBytes.set(0);
     isInitialized.set(false);
+
+    LOGGER.info("LinuxMemorySegmentAllocator cleanup complete");
+  }
+
+  /**
+   * Print current memory statistics.
+   */
+  public void printMemoryStats() {
+    LOGGER.info("Memory: Physical={} MB, mmap'd bases={}",
+                physicalMemoryBytes.get() / (1024 * 1024),
+                mmappedBases.size());
   }
 
   public static void main(String[] args) {
     LinuxMemorySegmentAllocator allocator = LinuxMemorySegmentAllocator.getInstance();
+    allocator.init(1L << 30);
 
     MemorySegment segment4KB = allocator.allocate(4096);
     System.out.println("Allocated 4KB segment: " + segment4KB);
@@ -227,5 +366,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
     allocator.release(segment4KB);
     allocator.release(segment128KB);
+
+    allocator.printMemoryStats();
   }
 }

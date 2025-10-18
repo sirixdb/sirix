@@ -1,8 +1,8 @@
 package io.sirix.node;
 
 import java.io.OutputStream;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -34,7 +34,7 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
      * @param arena the arena to use for memory allocation
      * @param initialCapacity the initial capacity in bytes
      */
-    public MemorySegmentBytesOut(java.lang.foreign.Arena arena, int initialCapacity) {
+    public MemorySegmentBytesOut(Arena arena, int initialCapacity) {
         this.growingSegment = new GrowingMemorySegment(arena, initialCapacity);
     }
     
@@ -43,7 +43,7 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
      * 
      * @param arena the arena to use for memory allocation
      */
-    public MemorySegmentBytesOut(java.lang.foreign.Arena arena) {
+    public MemorySegmentBytesOut(Arena arena) {
         this.growingSegment = new GrowingMemorySegment(arena, 1024);
     }
 

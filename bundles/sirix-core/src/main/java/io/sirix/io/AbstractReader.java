@@ -3,6 +3,7 @@ package io.sirix.io;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.io.bytepipe.ByteHandler;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
@@ -13,6 +14,7 @@ import io.sirix.node.Bytes;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.lang.foreign.MemorySegment;
 
 public abstract class AbstractReader implements Reader {
 
@@ -37,7 +39,13 @@ public abstract class AbstractReader implements Reader {
   }
 
   public Page deserialize(ResourceConfiguration resourceConfiguration, byte[] page) throws IOException {
-    // perform byte operations
+    // Use MemorySegment path if supported (zero-copy)
+    if (byteHandler.supportsMemorySegments()) {
+      MemorySegment segment = MemorySegment.ofArray(page);
+      return deserializeFromSegment(resourceConfiguration, segment);
+    }
+    
+    // Fallback to stream-based approach
     byte[] bytes;
     try (final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page))) {
       bytes = inputStream.readAllBytes();
@@ -47,6 +55,29 @@ public abstract class AbstractReader implements Reader {
     final var deserializedPage = pagePersister.deserializePage(resourceConfiguration, wrappedForRead.asBytesIn(), type);
     wrappedForRead.clear();
     return deserializedPage;
+  }
+
+  /**
+   * Zero-copy deserialization using MemorySegments.
+   * Requires ByteHandler to support MemorySegment operations.
+   *
+   * @param resourceConfiguration resource configuration
+   * @param compressedPage compressed page data
+   * @return deserialized page
+   * @throws IOException if deserialization fails
+   */
+  public Page deserializeFromSegment(ResourceConfiguration resourceConfiguration, MemorySegment compressedPage) throws IOException {
+    if (!byteHandler.supportsMemorySegments()) {
+      throw new UnsupportedOperationException("ByteHandler does not support MemorySegment operations");
+    }
+
+    // Decompress directly into MemorySegment (NO copies!)
+    MemorySegment decompressed = byteHandler.decompress(compressedPage);
+
+    // Deserialize directly from MemorySegment
+    return pagePersister.deserializePage(resourceConfiguration, 
+                                          new MemorySegmentBytesIn(decompressed), 
+                                          type);
   }
 
   @Override

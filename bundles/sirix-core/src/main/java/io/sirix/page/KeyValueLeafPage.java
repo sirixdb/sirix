@@ -25,6 +25,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteOrder;
@@ -519,6 +520,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   MemorySegment resizeMemorySegment(MemorySegment oldMemory, int newSize, int[] offsets, boolean isSlotMemory) {
     MemorySegment newMemory = segmentAllocator.allocate(newSize);
     MemorySegment.copy(oldMemory, 0, newMemory, 0, oldMemory.byteSize());
+    segmentAllocator.release(oldMemory);
 
     if (isSlotMemory) {
       slotMemory = newMemory;
@@ -672,10 +674,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       throw new IllegalStateException("Slot memory is null for page " + recordPageKey);
     }
 
+    // DEFENSIVE: Ensure offset is within segment bounds BEFORE reading
     if (slotOffset + INT_SIZE > slotMemory.byteSize()) {
       throw new IllegalStateException(String.format(
-          "Slot offset %d + %d exceeds memory segment size %d (page %d, slot %d)",
-          slotOffset, INT_SIZE, slotMemory.byteSize(), recordPageKey, slotNumber));
+          "CORRUPT OFFSET: slot %d has offset %d but would exceed segment (size %d, page %d, rev %d)",
+          slotNumber, slotOffset, slotMemory.byteSize(), recordPageKey, revision));
     }
 
     // Read the length from the first 4 bytes at the offset
@@ -686,6 +689,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       throw new IllegalStateException(String.format(
           "Failed to read length at offset %d (page %d, slot %d, memory size %d)",
           slotOffset, recordPageKey, slotNumber, slotMemory.byteSize()), e);
+    }
+
+    // DEFENSIVE: Sanity check the length value before using it
+    if (length < 0 || length > slotMemory.byteSize()) {
+      throw new IllegalStateException(String.format(
+          "CORRUPT LENGTH at offset %d: %d (segment size: %d, page %d, slot %d, revision: %d)",
+          slotOffset, length, slotMemory.byteSize(), recordPageKey, slotNumber, revision));
     }
 
     if (length <= 0) {
@@ -919,88 +929,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return count;
   }
 
-  @Override
-  public Page clear() {
-    if (!isClosed) {
-      // Reset state but don't modify final fields like recordPageKey
-      slotMemoryFreeSpaceStart = 0;
-      lastSlotIndex = -1;
-      deweyIdMemoryFreeSpaceStart = 0;
-      lastDeweyIdIndex = -1;
-      addedReferences = false;
 
-      // Clear arrays
-      Arrays.fill(records, null);
-      Arrays.fill(slotOffsets, -1);
-      if (areDeweyIDsStored) {
-        Arrays.fill(deweyIdOffsets, -1);
-      }
 
-      // Clear references
-      references.clear();
-
-      // Clear memory properly - fill with zeros
-      slotMemory.fill((byte) 0x00);
-      //segmentAllocator.release(slotMemory);
-      if (areDeweyIDsStored && deweyIdMemory != null) {
-        deweyIdMemory.fill((byte) 0x00);
-        //segmentAllocator.release(deweyIdMemory);
-      }
-
-      // Reset other state
-      bytes = null;
-      hashCode = null;
-      hash = 0;
-    }
-    return this;
-  }
-
-  /**
-   * Reset this page for reuse with new parameters.
-   */
-  public void resetForReuse(final long recordPageKey, final int revisionNumber, final IndexType indexType,
-      final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
-      final RecordSerializer recordPersister, final Map<Long, PageReference> references, final MemorySegment slotMemory,
-      final MemorySegment deweyIdMemory, final int lastSlotIndex, final int lastDeweyIdIndex) {
-    // Update page properties
-    this.recordPageKey = recordPageKey;
-    this.indexType = indexType;
-    this.resourceConfig = resourceConfig;
-    this.revision = revisionNumber;
-    this.recordPersister = recordPersister;
-    this.areDeweyIDsStored = areDeweyIDsStored;
-    this.lastSlotIndex = lastSlotIndex;
-    this.lastDeweyIdIndex = lastDeweyIdIndex;
-
-    // Clear all state
-    this.slotMemoryFreeSpaceStart = 0;
-    this.deweyIdMemoryFreeSpaceStart = 0;
-    this.lastSlotIndex = -1;
-    this.lastDeweyIdIndex = -1;
-    this.addedReferences = false;
-
-    // Clear arrays
-    Arrays.fill(records, null);
-    Arrays.fill(slotOffsets, -1);
-    if (areDeweyIDsStored) {
-      Arrays.fill(deweyIdOffsets, -1);
-    }
-
-    // Clear references
-    references.clear();
-
-    // Reset memory to clean state
-    slotMemory.fill((byte) 0x00);
-    if (deweyIdMemory != null) {
-      deweyIdMemory.fill((byte) 0x00);
-    }
-
-    // Reset other state
-    bytes = null;
-    hashCode = null;
-    hash = 0;
-    isClosed = false;
-  }
 
 
   @Override
@@ -1120,7 +1050,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Use a confined arena for temporary serialization buffers.
     // This allows immediate cleanup of memory for normal records (which are copied to slotMemory).
     // For overflow records, we copy to a persistent arena since they need to outlive this method.
-    try (var tempArena = java.lang.foreign.Arena.ofConfined()) {
+    try (var tempArena = Arena.ofConfined()) {
       for (final DataRecord record : records) {
         if (record == null) {
           continue;
@@ -1130,14 +1060,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
         // Must be either a normal record or one which requires an overflow page.
         // Use confined arena for temporary serialization
-        var out = new MemorySegmentBytesOut(tempArena, 30);
+        var out = new MemorySegmentBytesOut(tempArena, 60);
         recordPersister.serialize(out, record, resourceConfiguration);
         final var buffer = out.getDestination();
         
         if (buffer.byteSize() > PageConstants.MAX_RECORD_SIZE) {
-          // Overflow page: copy buffer to persistent arena since OverflowPage stores the reference
-          var persistentBuffer = java.lang.foreign.Arena.global().allocate(buffer.byteSize(), 8);
-          java.lang.foreign.MemorySegment.copy(buffer, 0, persistentBuffer, 0, buffer.byteSize());
+          // Overflow page: copy to byte array for storage
+          byte[] persistentBuffer = new byte[(int) buffer.byteSize()];
+          MemorySegment.copy(buffer, 0, MemorySegment.ofArray(persistentBuffer), 0, buffer.byteSize());
           
           final var reference = new PageReference();
           reference.setPage(new OverflowPage(persistentBuffer));

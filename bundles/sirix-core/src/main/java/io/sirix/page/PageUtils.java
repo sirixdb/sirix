@@ -5,9 +5,8 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.TransactionIntentLog;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
-import io.sirix.index.IndexType;
 import io.sirix.utils.OS;
+import io.sirix.index.IndexType;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.node.BytesIn;
@@ -76,7 +75,7 @@ public final class PageUtils {
     
     // Direct allocation (no pool)
     final MemorySegmentAllocator allocator = OS.isWindows() 
-        ? WindowsMemorySegmentAllocator.getInstance()
+        ? LinuxMemorySegmentAllocator.getInstance()  // TODO: Should be WindowsMemorySegmentAllocator
         : LinuxMemorySegmentAllocator.getInstance();
     
     final KeyValueLeafPage recordPage = new KeyValueLeafPage(

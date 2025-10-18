@@ -68,8 +68,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                             PageReference pageReference, KeyValueLeafPage page) {
   }
 
-  private final PageReference pageReferenceForUnpinning = new PageReference();
-
   /**
    * Page reader exclusively assigned to this transaction.
    */
@@ -184,7 +182,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
     }
 
-    //if (trxIntentLog == null) {
+ //   if (trxIntentLog == null) {
       assert reference.getLogKey() == Constants.NULL_ID_INT;
       page = resourceBufferManager.getPageCache().get(reference, (_, _) -> {
         try {
@@ -197,7 +195,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         reference.setPage(page);
       }
       return page;
-    //}
+//    }
 
 //    if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
 //      page = pageReader.read(reference, resourceSession.getResourceConfig());
@@ -213,7 +211,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private void putIntoPageCache(PageReference reference, Page page) {
     if (!(page instanceof UberPage)) {
       // Put page into buffer manager.
-      resourceBufferManager.getPageCache().putIfAbsent(reference, page);
+      // Use put() not putIfAbsent() to replace any stale cached pages
+      resourceBufferManager.getPageCache().put(reference, page);
     }
   }
 
@@ -586,33 +585,42 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       assert !page.isClosed();
     }
 
-    final Page completePage = versioningApproach.combineRecordPages(pages, maxRevisionsToRestore, this);
-
-    unpinPageFragments(pageReferenceToRecordPage, pages);
-
-    pageReferenceToRecordPage.setPage(completePage);
-
-    assert !completePage.isClosed();
-    return completePage;
+    // CRITICAL: Use try-finally to ensure page fragments are ALWAYS unpinned
+    // even if combineRecordPages() throws an exception. Without this, pinned
+    // fragments leak and their segments are never returned to the allocator.
+    try {
+      final Page completePage = versioningApproach.combineRecordPages(pages, maxRevisionsToRestore, this);
+      pageReferenceToRecordPage.setPage(completePage);
+      assert !completePage.isClosed();
+      return completePage;
+    } finally {
+      // ALWAYS unpin fragments, even on exception
+      unpinPageFragments(pageReferenceToRecordPage, pages);
+    }
   }
 
   private void unpinPageFragments(PageReference pageReference, List<KeyValuePage<DataRecord>> pages) {
     if (pages.isEmpty()) {
-      return;
+        return;
     }
+
+    io.sirix.cache.DiagnosticLogger.log("unpinPageFragments: " + pages.size() + " fragments, trxIntentLog=" + (trxIntentLog != null));
 
     var mostRecentPageFragment = pages.getFirst();
     mostRecentPageFragment.decrementPinCount();
     resourceBufferManager.getPageCache().put(pageReference, mostRecentPageFragment);
+    io.sirix.cache.DiagnosticLogger.log("  Fragment 0 cached (read-only)");
 
     var pageFragments = pageReference.getPageFragments();
     for (int i = 1; i < pages.size(); i++) {
-      var pageFragment = pages.get(i);
-      pageFragment.decrementPinCount();
-      var pageFragmentKey = pageFragments.get(i - 1);
-      resourceBufferManager.getPageCache().put(new PageReference().setKey(pageFragmentKey.key()), pageFragment);
+        var pageFragment = pages.get(i);
+        pageFragment.decrementPinCount();
+        
+        var pageFragmentKey = pageFragments.get(i - 1);
+        resourceBufferManager.getPageCache().put(new PageReference().setKey(pageFragmentKey.key()), pageFragment);
+        io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " cached (read-only)");
     }
-  }
+}
 
   @Nullable
   private Page getInMemoryPageInstance(@NonNull IndexLogKey indexLogKey,
@@ -664,7 +672,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     KeyValuePage<DataRecord> page;
 
-    //if (trxIntentLog == null) {
+//    if (trxIntentLog == null) {
       page = (KeyValuePage<DataRecord>) resourceBufferManager.getPageCache().get(pageReferenceWithKey, (_, value) -> {
         var kvPage = (KeyValueLeafPage) value;
         if (value == null) {
@@ -726,9 +734,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                                                      resourceBufferManager.getPageCache()
                                                                                           .put(pageReference, page);
                                                                    }
-//                                                                 } else {
-//                                                                   ((KeyValuePage<DataRecord>) page).incrementPinCount();
-//                                                                 }
+                                                                 //} else {
+                                                                 //  ((KeyValuePage<DataRecord>) page).incrementPinCount();
+                                                                 //}
                                                                });
   }
 

@@ -173,10 +173,12 @@ public final class Databases {
 
   public static void freeAllocatedMemory() {
     if (MANAGER.sessions().isEmpty()) {
+ 
       // If no sessions are left, we can clean up the allocator.
       MemorySegmentAllocator segmentAllocator =
           OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
       segmentAllocator.free();
+      // All caches will be cleared automatically
       BUFFER_MANAGERS.values()
                      .forEach((resourcePathsToBufferManagers -> resourcePathsToBufferManagers.forEach((_, bufferManager) -> bufferManager.clearAllCaches())));
     }

@@ -331,7 +331,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
     if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
+      io.sirix.cache.DiagnosticLogger.log("AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
       commit("autoCommit");
+      io.sirix.cache.DiagnosticLogger.log("AUTO-COMMIT completed");
     }
   }
 

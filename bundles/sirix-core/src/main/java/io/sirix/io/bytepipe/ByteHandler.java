@@ -2,6 +2,7 @@ package io.sirix.io.bytepipe;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.foreign.MemorySegment;
 
 /**
  * Interface for the decorator, representing any byte representation to be serialized or to
@@ -34,4 +35,35 @@ public interface ByteHandler {
    * @return new instance
    */
   ByteHandler getInstance();
+
+  /**
+   * Compress data using MemorySegment (zero-copy).
+   * Default implementation throws UnsupportedOperationException.
+   *
+   * @param source uncompressed data
+   * @return compressed data in a MemorySegment
+   */
+  default MemorySegment compress(MemorySegment source) {
+    throw new UnsupportedOperationException("MemorySegment compression not supported by " + getClass().getName());
+  }
+
+  /**
+   * Decompress data using MemorySegment (zero-copy).
+   * Default implementation throws UnsupportedOperationException.
+   *
+   * @param compressed compressed data
+   * @return decompressed data in a MemorySegment
+   */
+  default MemorySegment decompress(MemorySegment compressed) {
+    throw new UnsupportedOperationException("MemorySegment decompression not supported by " + getClass().getName());
+  }
+
+  /**
+   * Check if this handler supports MemorySegment-based operations.
+   *
+   * @return true if compress/decompress MemorySegment methods are supported
+   */
+  default boolean supportsMemorySegments() {
+    return false;
+  }
 }

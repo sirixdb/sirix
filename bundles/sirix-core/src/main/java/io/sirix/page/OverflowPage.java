@@ -18,14 +18,14 @@ public final class OverflowPage implements Page {
   /**
    * Data to be stored.
    */
-  private final MemorySegment data;
+  private final byte[] data;
 
   /**
    * Constructor.
    *
-   * @param data data to be stored
+   * @param data data to be stored as byte array
    */
-  public OverflowPage(final MemorySegment data) {
+  public OverflowPage(final byte[] data) {
     assert data != null;
     this.data = data;
   }
@@ -38,6 +38,7 @@ public final class OverflowPage implements Page {
 
   @Override
   public void commit(@NonNull PageTrx pageWriteTrx) {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -50,7 +51,18 @@ public final class OverflowPage implements Page {
     throw new UnsupportedOperationException();
   }
 
+  /**
+   * Get the data as a MemorySegment (for compatibility with existing code).
+   * Returns a heap segment backed by the byte array.
+   */
   public MemorySegment getData() {
+    return MemorySegment.ofArray(data);
+  }
+
+  /**
+   * Get the raw byte array data.
+   */
+  public byte[] getDataBytes() {
     return data;
   }
 }

@@ -7,12 +7,16 @@ import com.github.benmanes.caffeine.cache.Scheduler;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.BiFunction;
 
 public final class PageCache implements Cache<PageReference, Page> {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(PageCache.class);
 
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> cache;
 
@@ -26,6 +30,9 @@ public final class PageCache implements Cache<PageReference, Page> {
         assert keyValueLeafPage.getPinCount() == 0 : "Page must not be pinned: " + keyValueLeafPage.getPinCount();
         
         // Page handles its own cleanup
+        LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}", 
+                    key.getKey(), cause);
+        DiagnosticLogger.log("PageCache EVICT: closing page " + keyValueLeafPage.getPageKey() + ", cause=" + cause);
         keyValueLeafPage.close();
       }
     };
@@ -44,7 +51,7 @@ public final class PageCache implements Cache<PageReference, Page> {
                       }
                     })
                     .scheduler(Scheduler.systemScheduler())
-                    .removalListener(removalListener)
+                    .evictionListener(removalListener)
                     .executor(Runnable::run)
                     .build();
   }

@@ -6,6 +6,8 @@ import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
@@ -13,17 +15,23 @@ import java.util.function.BiFunction;
 
 public final class RecordPageCache implements Cache<PageReference, KeyValueLeafPage> {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(RecordPageCache.class);
+
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, KeyValueLeafPage> cache;
 
   public RecordPageCache(final int maxWeight) {
     final RemovalListener<PageReference, KeyValueLeafPage> removalListener =
         (PageReference key, KeyValueLeafPage page, RemovalCause cause) -> {
+          // Handle ALL removals (eviction, invalidate, clear) - not just evictions
           assert key != null;
           key.setPage(null);
           assert page != null;
           assert page.getPinCount() == 0 : "Page must not be pinned: " + page.getPinCount();
           
           // Page handles its own cleanup
+          LOGGER.trace("Closing page {} and releasing segments, cause={}", 
+                      key.getKey(), cause);
+          DiagnosticLogger.log("RecordPageCache EVICT: closing page " + page.getPageKey() + ", cause=" + cause);
           page.close();
         };
 
@@ -32,8 +40,9 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
                     .weigher((PageReference _, KeyValueLeafPage value) -> value.getPinCount() > 0
                         ? 0
                         : value.getUsedSlotsSize())
-                    .scheduler(scheduler)
-                    .removalListener(removalListener)
+                    .scheduler(com.github.benmanes.caffeine.cache.Scheduler.systemScheduler())
+                    .evictionListener(removalListener)
+                    .executor(Runnable::run)
                     .build();
   }
 
