@@ -40,10 +40,6 @@ release {
     buildTasks = ['releaseBuild']
 }
 
-tasks.withType(KotlinJvmCompile).configureEach {
-    jvmTargetValidationMode.set(JvmTargetValidationMode.WARNING)
-}
-
 task releaseBuild {
     project.afterEvaluate {
         dependsOn project.getTasksByName('build', true)
@@ -92,12 +88,18 @@ subprojects {
     // Shadow plugin applied selectively in subprojects that need it
     apply plugin: "com.diffplug.spotless"
 
+    tasks.withType(KotlinJvmCompile).configureEach {
+        jvmTargetValidationMode.set(JvmTargetValidationMode.WARNING)
+    }
+
     java {
         withSourcesJar()
         withJavadocJar()
         toolchain {
             languageVersion = JavaLanguageVersion.of(25)
         }
+        sourceCompatibility = JavaVersion.VERSION_25
+        targetCompatibility = JavaVersion.VERSION_25
     }
 
 

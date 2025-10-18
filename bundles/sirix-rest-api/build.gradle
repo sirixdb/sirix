@@ -46,6 +46,10 @@ dependencies {
 
 description = 'Non-blocking REST-API for SirixDB.'
 
+kotlin {
+    jvmToolchain(25)
+}
+
 shadowJar {
     archiveClassifier = 'fat'
     manifest {

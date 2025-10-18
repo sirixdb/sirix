@@ -15,6 +15,10 @@ tasks.withType(KotlinCompile).all {
     }
 }
 
+kotlin {
+    jvmToolchain(25)
+}
+
 dependencies {
     implementation project(':sirix-core')
     implementation project(':sirix-query')
