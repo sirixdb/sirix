@@ -96,7 +96,7 @@ subprojects {
         withSourcesJar()
         withJavadocJar()
         toolchain {
-            languageVersion = JavaLanguageVersion.of(22)
+            languageVersion = JavaLanguageVersion.of(25)
         }
     }
 
@@ -104,7 +104,7 @@ subprojects {
     javadoc {
         failOnError = false
         options {
-            addStringOption('-release', '22')
+            addStringOption('-release', '25')
             addBooleanOption('-enable-preview', true)
         }
     }
