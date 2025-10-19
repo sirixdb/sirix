@@ -1,0 +1,228 @@
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/home/johannes/.gradle/wrapper/dists/gradle-9.1.0-bin/9agqghryom9wkf8r80qlhnts3/gradle-9.1.0/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+> Task :sirix-core:compileJava UP-TO-DATE
+> Task :sirix-core:processResources UP-TO-DATE
+> Task :sirix-core:classes UP-TO-DATE
+> Task :sirix-core:compileTestJava UP-TO-DATE
+> Task :sirix-core:processTestResources UP-TO-DATE
+> Task :sirix-core:testClasses UP-TO-DATE
+WARNING: A restricted method in java.lang.foreign.Linker has been called
+WARNING: java.lang.foreign.Linker::downcallHandle has been called by io.sirix.cache.LinuxMemorySegmentAllocator in an unnamed module (file:/home/johannes/IdeaProjects/sirix/bundles/sirix-core/build/classes/java/main/)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by net.openhft.hashing.UnsafeAccess (file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/zero-allocation-hashing/0.16/ca252f328160ed5d027f100a4fe525d6d21daaf/zero-allocation-hashing-0.16.jar)
+WARNING: Please consider reporting this to the maintainers of class net.openhft.hashing.UnsafeAccess
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+> Task :sirix-core:test
+
+Java HotSpot(TM) 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
+
+> Task :sirix-core:test
+
+XPathAxisWideTest > testIterateFactbook FAILED
+    java.lang.AssertionError at XPathAxisWideTest.java:73
+
+VersioningTest > testSlidingSnapshot3 FAILED
+    java.lang.AssertionError at VersioningTest.java:223
+
+VersioningTest > testIncremental1 FAILED
+    org.gradle.internal.exceptions.DefaultMultiCauseException at TestRun.java:196
+        Caused by: java.lang.AssertionError at VersioningTest.java:316
+
+VersioningTest > testIncremental2 FAILED
+    io.sirix.exception.SirixUsageException at VersioningTest.java:368
+
+VersioningTest > testIncremental FAILED
+    io.sirix.exception.SirixUsageException at VersioningTest.java:235
+
+VersioningTest > testSlidingSnapshot FAILED
+    io.sirix.exception.SirixUsageException at VersioningTest.java:235
+
+PathSummaryTest > testSecondMoveToFirstChild() FAILED
+    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+
+PathSummaryTest > testSetQNmFourth() FAILED
+    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+
+PathSummaryTest > testSetQNmSecond() FAILED
+    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+
+PathSummaryTest > testFirstMoveToFirstChild() FAILED
+    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+
+PathSummaryTest > testSetQNmFirst() FAILED
+    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+
+PathSummaryTest > testSetQNmThird() FAILED
+    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+
+PathSummaryTest > testDelete() FAILED
+    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+
+PathSummaryTest > testInsert() FAILED
+    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+
+ConcurrentAxisTest > testSeriellNew() FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:117
+
+ConcurrentAxisTest > testSeriellOld() FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:100
+
+ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 1 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+
+ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 2 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+
+ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 3 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+
+ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 4 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+
+ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 5 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+
+ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 6 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+
+ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 7 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+
+ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 8 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+
+ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 9 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+
+ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 10 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+
+ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 1 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+
+ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 2 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+
+ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 3 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+
+ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 4 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+
+ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 5 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+
+ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 6 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+
+ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 7 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+
+ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 8 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+
+ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 9 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+
+ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 10 of 10 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+
+ConcurrentAxisTest > testConcurrent() > repetition 1 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 2 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 3 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 4 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 5 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 6 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 7 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 8 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 9 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 10 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 11 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 12 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 13 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 14 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 15 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 16 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 17 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 18 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 19 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+ConcurrentAxisTest > testConcurrent() > repetition 20 of 20 FAILED
+    java.lang.NullPointerException at ConcurrentAxisTest.java:138
+
+09:16:29.713 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - Shutting down LinuxMemorySegmentAllocator...
+09:16:29.713 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator shutdown complete.
+
+> Task :sirix-core:test
+
+799 tests completed, 56 failed, 50 skipped
+
+> Task :sirix-core:test FAILED
+
+[Incubating] Problems report is available at: file:///home/johannes/IdeaProjects/sirix/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':sirix-core:test'.
+> Test process encountered an unexpected problem.
+   > Could not complete execution for Gradle Test Executor 4.
+
+* Try:
+> Check common problems https://docs.gradle.org/9.1.0/userguide/java_testing.html#sec:java_testing_troubleshooting.
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to generate a Build Scan (Powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 12m 47s
+5 actionable tasks: 1 executed, 4 up-to-date

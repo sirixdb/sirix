@@ -75,8 +75,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private static final long[] SEGMENT_SIZES =
       { FOUR_KB, EIGHT_KB, SIXTEEN_KB, THIRTYTWO_KB, SIXTYFOUR_KB, ONE_TWENTYEIGHT_KB, TWO_FIFTYSIX_KB };
 
-  // Virtual memory region size per size class: 10 GB
-  private static final long VIRTUAL_REGION_SIZE = 10L * 1024 * 1024 * 1024;
+  // Virtual memory region size per size class: 2 GB  
+  // (10GB would be 70GB total virtual, which can cause issues in test environments)
+  private static final long VIRTUAL_REGION_SIZE = 2L * 1024 * 1024 * 1024;
 
   // Singleton instance
   private static final LinuxMemorySegmentAllocator INSTANCE = new LinuxMemorySegmentAllocator();
@@ -202,8 +203,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private void preAllocateVirtualRegion(int poolIndex, long segmentSize) {
     long virtualSize = VIRTUAL_REGION_SIZE;
     
-    // Try full 10GB, fall back to smaller sizes if needed
-    long[] attemptSizes = {virtualSize, virtualSize / 2, virtualSize / 5};
+    // Try full size, fall back to smaller sizes if needed (2GB -> 1GB -> 512MB)
+    long[] attemptSizes = {virtualSize, virtualSize / 2, virtualSize / 4};
     
     for (long attemptSize : attemptSizes) {
       try {
