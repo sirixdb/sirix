@@ -40,6 +40,10 @@ public final class Constants {
   // --- Varia
   // ------------------------------------------------------------------
 
+  public static final int MAX_RECORD_SIZE = 500;
+
+  public static final int MAX_DEWEYID_SIZE = 100;
+
   /** Default internal encoding. */
   public static final Charset DEFAULT_ENCODING = StandardCharsets.UTF_8;
 

@@ -3,10 +3,11 @@ package io.sirix.access;
 import io.sirix.api.*;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
-import io.sirix.cache.BufferManager;
+import io.sirix.cache.*;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.utils.LogWrapper;
+import io.sirix.utils.OS;
 import io.sirix.utils.SirixFiles;
 import org.slf4j.LoggerFactory;
 
@@ -40,7 +41,8 @@ public final class Databases {
   /**
    * Buffer managers / page cache for each resource.
    */
-  private static final ConcurrentMap<Path, ConcurrentMap<Path, BufferManager>> BUFFER_MANAGERS = new ConcurrentHashMap<>();
+  private static final ConcurrentMap<Path, ConcurrentMap<Path, BufferManager>> BUFFER_MANAGERS =
+      new ConcurrentHashMap<>();
 
   /**
    * DI component that manages the database.
@@ -82,6 +84,10 @@ public final class Databases {
   }
 
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
+    requireNonNull(dbConfig);
+
+    initAllocator(dbConfig.getMaxSegmentAllocationSize());
+
     boolean returnVal = true;
     // if file is existing, skipping
     final var databaseFile = dbConfig.getDatabaseFile();
@@ -158,6 +164,23 @@ public final class Databases {
         bufferManagers.values().forEach(BufferManager::clearAllCaches);
       }
       SirixFiles.recursiveRemove(dbFile);
+
+      freeAllocatedMemory();
+    } else {
+      logger.warn("Database at {} could not be removed, because it is either not existing or still in use.", dbFile);
+    }
+  }
+
+  public static void freeAllocatedMemory() {
+    if (MANAGER.sessions().isEmpty()) {
+ 
+      // If no sessions are left, we can clean up the allocator.
+      MemorySegmentAllocator segmentAllocator =
+          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
+      segmentAllocator.free();
+      // All caches will be cleared automatically
+      BUFFER_MANAGERS.values()
+                     .forEach((resourcePathsToBufferManagers -> resourcePathsToBufferManagers.forEach((_, bufferManager) -> bufferManager.clearAllCaches())));
     }
   }
 
@@ -257,7 +280,18 @@ public final class Databases {
     if (dbConfig == null) {
       throw new IllegalStateException("Configuration may not be null!");
     }
+
+    initAllocator(dbConfig.getMaxSegmentAllocationSize());
     return databaseType.createDatabase(dbConfig, user);
+  }
+
+  private static void initAllocator(long maxSegmentAllocationSize) {
+    if (MANAGER.sessions().isEmpty()) {
+      // Initialize the allocator (no pool needed anymore)
+      MemorySegmentAllocator segmentAllocator =
+          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
+      segmentAllocator.init(maxSegmentAllocationSize);
+    }
   }
 
   /**

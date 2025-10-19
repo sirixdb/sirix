@@ -29,9 +29,13 @@ import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.PageTrx;
 import io.sirix.cache.IndexLogKey;
+import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
+import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
+import io.sirix.utils.OS;
 import io.sirix.index.IndexType;
 import io.sirix.io.Writer;
 import io.sirix.node.DeletedNode;
@@ -45,14 +49,14 @@ import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.settings.VersioningType;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -63,6 +67,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -80,7 +85,7 @@ import static java.util.Objects.requireNonNull;
  */
 final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements PageTrx {
 
-  private Bytes<ByteBuffer> bufferBytes = Bytes.elasticHeapByteBuffer(Writer.FLUSH_SIZE);
+  private BytesOut<?> bufferBytes = Bytes.elasticHeapByteBuffer(Writer.FLUSH_SIZE);
 
   /**
    * Page writer to serialize.
@@ -91,7 +96,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    * Transaction intent log.
    */
   TransactionIntentLog log;
-
+  
   /**
    * Last reference to the actual revRoot.
    */
@@ -175,16 +180,16 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer = mostRecentPageContainer;
     mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
-    pageContainerCache = new LinkedHashMap<>(2_500) {
+    pageContainerCache = new LinkedHashMap<>(100, 0.75f, true) {
       @Override
       protected boolean removeEldestEntry(Map.Entry<IndexLogKey, PageContainer> eldest) {
-        return size() > 2_500;
+        return size() > 100;
       }
     };
   }
 
   @Override
-  public Bytes<ByteBuffer> newBufferedBytesInstance() {
+  public BytesOut<?> newBufferedBytesInstance() {
     bufferBytes = Bytes.elasticHeapByteBuffer(Writer.FLUSH_SIZE);
     return bufferBytes;
   }
@@ -352,8 +357,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     page.commit(this);
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
 
-    container.getComplete().clearPage();
-    page.clearPage();
+    container.getComplete().clear();
+    page.clear();
 
     // Remove page reference.
     reference.setPage(null);
@@ -392,8 +397,16 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final int revision = uberPage.getRevisionNumber();
       serializeIndexDefinitions(revision);
 
+      // Clear and return pages to pool (TransactionIntentLog.clear() handles clearing and returning)
       log.clear();
+      
+      // Clear local cache (pages are already handled by log.clear())
       pageContainerCache.clear();
+      
+      // Null out cache references since pages have been returned to pool
+      mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
+      secondMostRecentPageContainer = mostRecentPageContainer;
+      mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
 
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
@@ -441,8 +454,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
        .map(PageContainer::getModified)
        .filter(page -> page instanceof KeyValueLeafPage)
        .forEach(page -> {
-         final var bytes = Bytes.elasticHeapByteBuffer(60_000);
-         PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
+         try {
+           final var bytes = Bytes.elasticHeapByteBuffer(60_000);
+           PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
+         } catch (final Exception e) {
+           throw new SirixIOException(e);
+         }
        });
   }
 
@@ -470,13 +487,26 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   public UberPage rollback() {
     pageRtx.assertNotClosed();
     log.clear();
+    
+    // Clear local cache and reset references (pages already handled by log.clear())
+    pageContainerCache.clear();
+    mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
+    secondMostRecentPageContainer = mostRecentPageContainer;
+    mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
+    
     return readUberPage();
   }
 
   @Override
-  public synchronized void close() {
+  public void close() {
     if (!isClosed) {
       pageRtx.assertNotClosed();
+
+      // Don't clear the cached containers here - they've either been:
+      // 1. Already cleared and returned to pool during commit(), or
+      // 2. Will be cleared and returned to pool by log.close() below
+      // Clearing them here could corrupt pages that have been returned to pool
+      // and reused by other transactions.
 
       final UberPage lastUberPage = readUberPage();
 
@@ -510,7 +540,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     return pageContainerCache.computeIfAbsent(new IndexLogKey(indexType,
                                                               recordPageKey,
                                                               indexNumber,
-                                                              newRevisionRootPage.getRevision()), (unused) -> {
+                                                              newRevisionRootPage.getRevision()), _ -> {
       final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
       final var leafPageReference =
           pageRtx.getLeafPageReference(pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);
@@ -561,11 +591,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     PageContainer mostRecentPageContainer1 =
         getMostRecentPageContainer(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
 
-    if (mostRecentPageContainer1 != null) {
+    if (mostRecentPageContainer1 != null && !mostRecentPageContainer1.getModified().isClosed()
+        && !mostRecentPageContainer1.getComplete().isClosed()) {
       return mostRecentPageContainer1;
     }
 
-    final Function<IndexLogKey, PageContainer> fetchPageContainer = (key) -> {
+    final Function<IndexLogKey, PageContainer> fetchPageContainer = _ -> {
       final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
 
       // Get the reference to the unordered key/value page storing the records.
@@ -585,21 +616,37 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       }
 
       if (reference.getKey() == Constants.NULL_ID_LONG) {
-        final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey,
-                                                                   indexType,
-                                                                   getResourceSession().getResourceConfig(),
-                                                                   pageRtx.getRevisionNumber());
-        final KeyValueLeafPage modifyPage = new KeyValueLeafPage(recordPageKey,
-                                                                   indexType,
-                                                                   getResourceSession().getResourceConfig(),
-                                                                   pageRtx.getRevisionNumber());
+        // Direct allocation (no pool)
+        final MemorySegmentAllocator allocator = OS.isWindows() 
+            ? WindowsMemorySegmentAllocator.getInstance() 
+            : LinuxMemorySegmentAllocator.getInstance();
+        
+        final KeyValueLeafPage completePage = new KeyValueLeafPage(
+            recordPageKey,
+            indexType,
+            getResourceSession().getResourceConfig(),
+            pageRtx.getRevisionNumber(),
+            allocator.allocate(SIXTYFOUR_KB),
+            getResourceSession().getResourceConfig().areDeweyIDsStored 
+                ? allocator.allocate(SIXTYFOUR_KB) 
+                : null
+        );
+        
+        final KeyValueLeafPage modifyPage = new KeyValueLeafPage(
+            recordPageKey,
+            indexType,
+            getResourceSession().getResourceConfig(),
+            pageRtx.getRevisionNumber(),
+            allocator.allocate(SIXTYFOUR_KB),
+            getResourceSession().getResourceConfig().areDeweyIDsStored 
+                ? allocator.allocate(SIXTYFOUR_KB) 
+                : null
+        );
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
       } else {
         pageContainer = dereferenceRecordPageForModification(reference);
         return pageContainer;
       }
-
-      assert pageContainer != null;
 
       // $CASES-OMITTED$
       switch (indexType) {
@@ -646,7 +693,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     final List<KeyValuePage<DataRecord>> pageFragments = pageRtx.getPageFragments(reference);
     final VersioningType versioningType = pageRtx.resourceSession.getResourceConfig().versioningType;
     final int mileStoneRevision = pageRtx.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
-    return versioningType.combineRecordPagesForModification(pageFragments, mileStoneRevision, pageRtx, reference, log);
+    return versioningType.combineRecordPagesForModification(pageFragments, mileStoneRevision, this, reference, log);
   }
 
   @Override
@@ -685,7 +732,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public long getTrxId() {
+  public int getTrxId() {
     return pageRtx.getTrxId();
   }
 

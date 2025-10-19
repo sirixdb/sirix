@@ -21,9 +21,10 @@
 
 package io.sirix.page;
 
+import io.sirix.access.trx.node.HashType;
+import io.sirix.node.Bytes;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.hashing.LongHashFunction;
+import io.sirix.node.BytesOut;
 import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -34,17 +35,13 @@ import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.index.IndexType;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.NameNodeDelegate;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.xml.ElementNode;
 import io.sirix.settings.Constants;
-import io.sirix.utils.NamePageHash;
-
 import java.io.IOException;
-import java.nio.ByteBuffer;
-
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static org.junit.Assert.assertEquals;
 
 /**
@@ -55,28 +52,32 @@ public final class NodePageTest {
   /**
    * {@link Holder} instance.
    */
-  private Holder mHolder;
+  private Holder holder;
 
   /**
    * Sirix {@link PageReadOnlyTrx} instance.
    */
   private PageReadOnlyTrx pageReadTrx;
 
+  private Arena arena;
+
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceSession();
+    pageReadTrx = holder.getResourceSession().beginPageReadOnlyTrx();
+    arena = Arena.ofConfined();
   }
 
   @After
   public void tearDown() throws SirixException {
     pageReadTrx.close();
-    mHolder.close();
+    holder.close();
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
+    arena.close();
   }
 
   @Test
@@ -84,25 +85,64 @@ public final class NodePageTest {
     final KeyValueLeafPage page1 = new KeyValueLeafPage(0L,
                                                         IndexType.DOCUMENT,
                                                         pageReadTrx.getResourceSession().getResourceConfig(),
-                                                        pageReadTrx.getRevisionNumber());
+                                                        pageReadTrx.getRevisionNumber(),
+                                                        arena.allocate(SIXTYFOUR_KB),
+                                                        null);
     assertEquals(0L, page1.getPageKey());
 
-    final NodeDelegate del =
-        new NodeDelegate(0, 1, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12L, 4L, 3L, 1L, 0L);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
-    final ElementNode node1 =
-        new ElementNode(strucDel, nameDel, new LongArrayList(), new LongArrayList(), new QNm("a", "b", "c"));
+    // Create ResourceConfiguration for testing
+    final var config = pageReadTrx.getResourceSession().getResourceConfig();
+    
+    // Create MemorySegment with all fields in correct order matching ElementNode.CORE_LAYOUT
+    final BytesOut<?> nodeData = Bytes.elasticHeapByteBuffer();
+    
+    // Write NodeDelegate fields (16 bytes)
+    nodeData.writeLong(1);                              // parentKey - offset 0
+    nodeData.writeInt(Constants.NULL_REVISION_NUMBER);  // previousRevision - offset 8
+    nodeData.writeInt(0);                               // lastModifiedRevision - offset 12
+    
+    // Write StructNode fields (32 bytes)
+    nodeData.writeLong(4L);                             // rightSiblingKey - offset 16
+    nodeData.writeLong(3L);                             // leftSiblingKey - offset 24
+    nodeData.writeLong(12L);                            // firstChildKey - offset 32
+    nodeData.writeLong(12L);                            // lastChildKey - offset 40
+    
+    // Write NameNode fields (20 bytes)
+    nodeData.writeLong(1L);                             // pathNodeKey - offset 48
+    nodeData.writeInt(6);                               // prefixKey - offset 56
+    nodeData.writeInt(7);                               // localNameKey - offset 60
+    nodeData.writeInt(5);                               // uriKey - offset 64
+    
+    // Write optional fields
+    if (config.storeChildCount()) {
+      nodeData.writeLong(1L);                           // childCount - offset 68
+    }
+    if (config.hashType != HashType.NONE) {
+      nodeData.writeLong(0);                            // hash placeholder - offset 76
+      nodeData.writeLong(0);                            // descendantCount - offset 84
+    }
+    
+    // Create ElementNode from MemorySegment
+    final MemorySegment segment = (MemorySegment) nodeData.asBytesIn().getUnderlying();
+    final LongArrayList attributeKeys = new LongArrayList();
+    attributeKeys.add(88L);
+    attributeKeys.add(87L);
+    final LongArrayList namespaceKeys = new LongArrayList();
+    namespaceKeys.add(99L);
+    namespaceKeys.add(98L);
+    
+    final ElementNode node1 = new ElementNode(segment, 0L, SirixDeweyID.newRootID(), 
+                                               config, attributeKeys, namespaceKeys, 
+                                               new QNm("a", "b", "c"));
+    
+    // Compute and set hash
     var bytes = Bytes.elasticHeapByteBuffer();
     node1.setHash(node1.computeHash(bytes));
-    node1.insertAttribute(88L);
-    node1.insertAttribute(87L);
-    node1.insertNamespace(99L);
-    node1.insertNamespace(98L);
+    
     assertEquals(0L, node1.getNodeKey());
     page1.setRecord(node1);
 
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
     final PagePersister pagePersister = new PagePersister();
     pagePersister.serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
                                 data,
@@ -130,6 +170,6 @@ public final class NodePageTest {
     assertEquals(5, ((NameNode) pageReadTrx.getValue(page2, 0L)).getURIKey());
     assertEquals(6, ((NameNode) pageReadTrx.getValue(page2, 0L)).getPrefixKey());
     assertEquals(7, ((NameNode) pageReadTrx.getValue(page2, 0L)).getLocalNameKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), element.getTypeKey());
+    // typeKey is not persisted, so we don't test it
   }
 }

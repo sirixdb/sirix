@@ -26,7 +26,8 @@ import io.sirix.io.filechannel.FileChannelStorage;
 import io.sirix.io.memorymapped.MMStorage;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import io.sirix.XmlTestHelper;
 import io.sirix.exception.SirixException;
 import io.sirix.io.IOStorage;
@@ -80,7 +81,7 @@ public final class StorageTest {
     for (final IOStorage handler : storages) {
       assertFalse("empty storage should not return true on exists", handler.exists());
 
-      final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
+      final BytesOut<?> bytes = Bytes.elasticHeapByteBuffer();
 
       try (final Writer writer = handler.createWriter()) {
         var ref = new PageReference();
@@ -105,7 +106,7 @@ public final class StorageTest {
         final UberPage page1 = new UberPage();
         pageRef1.setPage(page1);
 
-        final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
+        final BytesOut<?> bytes = Bytes.elasticHeapByteBuffer();
 
         // same instance check
         final PageReference pageRef2;

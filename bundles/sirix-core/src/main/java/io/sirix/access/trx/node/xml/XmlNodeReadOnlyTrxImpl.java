@@ -70,7 +70,7 @@ public final class XmlNodeReadOnlyTrxImpl
    * @param documentNode        the document node
    */
   XmlNodeReadOnlyTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
-      final @NonNegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableXmlNode documentNode) {
+      final @NonNegative int trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableXmlNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
   }
 

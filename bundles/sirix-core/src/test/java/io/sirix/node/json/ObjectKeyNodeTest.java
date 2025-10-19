@@ -21,10 +21,12 @@
 
 package io.sirix.node.json;
 
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.hashing.LongHashFunction;
+import io.sirix.node.NodeTestHelper;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -33,11 +35,7 @@ import io.sirix.api.Database;
 import io.sirix.api.PageTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.settings.Constants;
-
-import java.nio.ByteBuffer;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -65,27 +63,49 @@ public class ObjectKeyNodeTest {
 
   @Test
   public void testNode() {
-    // Create empty node.
-    final int nameKey = pageTrx.createNameKey("foobar", NodeKind.OBJECT_KEY);
-    final String name = "foobar";
-
+    final int nameKey = 5; // Use hardcoded nameKey to avoid database writes
     final long pathNodeKey = 12;
-    final NodeDelegate del =
-        new NodeDelegate(14, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 17L, 16L, 15L, 0L, 0L);
-    final ObjectKeyNode node = new ObjectKeyNode(strucDel, nameKey, name, pathNodeKey);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    
+    // Use a simplified ResourceConfiguration without optional fields
+    final var config = ResourceConfiguration.newBuilder("test")
+        .hashKind(HashType.NONE)
+        .storeChildCount(false)
+        .build();
+    
+    // Create data in the correct serialization format with size prefix and padding
+    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + pathNodeKey + siblings + firstChild + nameKey][end padding]
+    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    
+    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.OBJECT_KEY);
+    long startPos = data.writePosition();
+    // NodeDelegate fields
+    data.writeLong(13); // parentKey
+    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
+    data.writeInt(0); // lastModifiedRevision
+    // Fixed fields - longs first for alignment
+    data.writeLong(pathNodeKey); // pathNodeKey
+    data.writeLong(16L); // rightSibling
+    data.writeLong(15L); // leftSibling
+    data.writeLong(17L); // firstChild
+    data.writeInt(nameKey); // nameKey (4 bytes)
+    
+    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    
+    // Deserialize to create properly initialized node
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
+    final ObjectKeyNode node = (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(
+        bytesIn, 14L, null, config);
     check(node, nameKey);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final ObjectKeyNode node2 = (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(data,
-                                                                                node.getNodeKey(),
-                                                                                null,
-                                                                                pageTrx.getResourceSession()
-                                                                                       .getResourceConfig());
+    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    data2.writeByte(NodeKind.OBJECT_KEY.getId()); // Write NodeKind to ensure proper alignment
+    node.getKind().serialize(data2, node, config);
+    var bytesIn2 = data2.asBytesIn();
+    bytesIn2.readByte(); // Skip NodeKind byte
+    final ObjectKeyNode node2 = (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(
+        bytesIn2, node.getNodeKey(), null, config);
     check(node2, nameKey);
   }
 

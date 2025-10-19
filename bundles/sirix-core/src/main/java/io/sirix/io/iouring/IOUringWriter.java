@@ -29,7 +29,8 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.io.*;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import one.jasyncfio.AsyncFile;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -41,6 +42,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -79,7 +81,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   private boolean isFirstUberPage;
 
-  private final Bytes<ByteBuffer> byteBufferBytes = Bytes.elasticHeapByteBuffer(1_000);
+  private final BytesOut<?> byteBufferBytes = Bytes.elasticHeapByteBuffer(1_000);
 
   /**
    * Constructor.
@@ -130,7 +132,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   @Override
   public IOUringWriter write(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
-      final Page page, final Bytes<ByteBuffer> bufferedBytes) {
+      final Page page, final BytesOut<?> bufferedBytes) {
     try {
       final long offset = getOffset(bufferedBytes);
       return writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, offset);
@@ -139,7 +141,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     }
   }
 
-  private long getOffset(Bytes<ByteBuffer> bufferedBytes) throws IOException {
+  private long getOffset(BytesOut<?> bufferedBytes) throws IOException {
     final long fileSize = dataFile.size().join();
     long offset;
 
@@ -156,7 +158,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   @NonNull
   private IOUringWriter writePageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, final Page page, Bytes<ByteBuffer> bufferedBytes, long offset) {
+      final PageReference pageReference, final Page page, BytesOut<?> bufferedBytes, long offset) {
     try {
       POOL.submit(() -> writePage(resourceConfiguration, pageReference, page, bufferedBytes, offset)).get();
       return this;
@@ -166,16 +168,19 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @NonNull
-  private IOUringWriter writePage(ResourceConfiguration resourceConfiguration, PageReference pageReference,
-      Page page, Bytes<ByteBuffer> bufferedBytes, long offset) {
+  private IOUringWriter writePage(final ResourceConfiguration resourceConfiguration,
+      final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
       pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
-      final var byteArray = byteBufferBytes.toByteArray();
+
+      // Serialize page.
+      pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
 
       final byte[] serializedPage;
 
+      final var byteArray = byteBufferBytes.toByteArray();
       if (page instanceof KeyValueLeafPage) {
         serializedPage = byteArray;
       } else {
@@ -290,7 +295,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   @Override
   public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, final Page page, Bytes<ByteBuffer> bufferedBytes) {
+      final PageReference pageReference, final Page page, BytesOut<?> bufferedBytes) {
     isFirstUberPage = true;
     writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, 0);
     isFirstUberPage = false;

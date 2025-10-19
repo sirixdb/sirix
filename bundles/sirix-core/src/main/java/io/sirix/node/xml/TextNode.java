@@ -34,93 +34,162 @@ import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
-import io.sirix.node.delegates.ValueNodeDelegate;
 import io.sirix.node.immutable.xml.ImmutableText;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.node.interfaces.Node;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.utils.Compression;
+import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.nio.ByteBuffer;
+import java.lang.foreign.MemoryLayout;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.lang.invoke.VarHandle;
 
 /**
- * <p>
- * Node representing a text node.
- * </p>
+ * Text node implementation backed by MemorySegment.
+ *
+ * <p><strong>All instances are backed by MemorySegment for consistent memory layout.</strong></p>
+ * <p><strong>Uses MemoryLayout and VarHandles for type-safe field access.</strong></p>
+ * <p><strong>This class is not part of the public API and might change.</strong></p>
  */
-public final class TextNode extends AbstractStructForwardingNode implements ValueNode, ImmutableXmlNode {
+public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
+
+  // MemorySegment layout with FIXED offsets:
+  // NodeDelegate data (16 bytes):
+  //   - parentKey (8 bytes)            - offset 0
+  //   - previousRevision (4 bytes)     - offset 8
+  //   - lastModifiedRevision (4 bytes) - offset 12
+  // Sibling keys (16 bytes):
+  //   - rightSiblingKey (8 bytes)      - offset 16
+  //   - leftSiblingKey (8 bytes)       - offset 24
 
   /**
-   * Delegate for common value node information.
+   * Core layout (always present) - 32 bytes total
    */
-  private final ValueNodeDelegate valueNodeDelegate;
+  public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
+      // NodeDelegate fields
+      ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
+      ValueLayout.JAVA_INT.withName("previousRevision"),              // offset 8
+      ValueLayout.JAVA_INT.withName("lastModifiedRevision"),          // offset 12
+      // Sibling keys only (no child keys for text nodes)
+      ValueLayout.JAVA_LONG_UNALIGNED.withName("rightSiblingKey"),              // offset 16
+      ValueLayout.JAVA_LONG_UNALIGNED.withName("leftSiblingKey")                // offset 24
+  );
 
-  /**
-   * {@link StructNodeDelegate} reference.
-   */
-  private final StructNodeDelegate structNodeDelegate;
+  // VarHandles for type-safe field access
+  private static final VarHandle PARENT_KEY_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("parentKey"));
+  private static final VarHandle PREVIOUS_REVISION_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("previousRevision"));
+  private static final VarHandle LAST_MODIFIED_REVISION_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("lastModifiedRevision"));
+  private static final VarHandle RIGHT_SIBLING_KEY_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("rightSiblingKey"));
+  private static final VarHandle LEFT_SIBLING_KEY_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("leftSiblingKey"));
 
-  /**
-   * Value of the node.
-   */
+  /** The underlying MemorySegment storing node data. */
+  private final MemorySegment segment;
+
+  /** The node key. */
+  private final long nodeKey;
+
+  /** The hash function for this node. */
+  private final LongHashFunction hashFunction;
+
+  /** Optional Dewey ID. */
+  private SirixDeweyID sirixDeweyID;
+  private byte[] deweyIDBytes;
+
+  /** The text value (lazily decompressed). */
   private byte[] value;
 
+  /** Whether the value is compressed. */
+  private boolean isCompressed;
+
+  /** Computed hash (lazily computed). */
   private long hash;
 
+  /** Compressed/serialized value bytes for lazy decompression. */
+  private byte[] compressedValue;
+
   /**
-   * Constructor for TextNode.
+   * Constructor for MemorySegment-based TextNode (eager value loading)
    *
-   * @param hashCode  the initial hash code
-   * @param valDel    delegate for {@link ValueNode} implementation
-   * @param structDel delegate for {@link StructNode} implementation
+   * @param segment        the MemorySegment containing all node data
+   * @param nodeKey        the node key (record ID)
+   * @param deweyID        optional DeweyID bytes
+   * @param hashFunction   hash function for computing node hashes
+   * @param value          the text value
+   * @param isCompressed   whether the value is compressed
    */
-  public TextNode(final long hashCode, final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
-    hash = hashCode;
-    assert structDel != null;
-    structNodeDelegate = structDel;
-    assert valDel != null;
-    this.valueNodeDelegate = valDel;
+  public TextNode(final MemorySegment segment, final long nodeKey, final byte[] deweyID,
+      final LongHashFunction hashFunction, final byte[] value, final boolean isCompressed) {
+    this(segment, nodeKey, deweyID != null ? new SirixDeweyID(deweyID) : null, 
+         hashFunction, value, isCompressed);
+    this.deweyIDBytes = deweyID;
   }
 
   /**
-   * Constructor for TextNode.
+   * Constructor for MemorySegment-based TextNode
    *
-   * @param valDel    delegate for {@link ValueNode} implementation
-   * @param structDel delegate for {@link StructNode} implementation
+   * @param segment        the MemorySegment containing all node data
+   * @param nodeKey        the node key (record ID)
+   * @param id             optional DeweyID
+   * @param hashFunction   hash function for computing node hashes
+   * @param value          the value bytes (compressed or uncompressed)
+   * @param isCompressed   whether the value is compressed
    */
-  public TextNode(final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
-    assert structDel != null;
-    structNodeDelegate = structDel;
-    assert valDel != null;
-    this.valueNodeDelegate = valDel;
+  public TextNode(final MemorySegment segment, final long nodeKey, final SirixDeweyID id,
+      final LongHashFunction hashFunction, final byte[] value, final boolean isCompressed) {
+    assert segment != null;
+    this.segment = segment;
+    this.nodeKey = nodeKey;
+    this.sirixDeweyID = id;
+    assert hashFunction != null;
+    this.hashFunction = hashFunction;
+    assert value != null;
+    this.isCompressed = isCompressed;
+    if (isCompressed) {
+      // Store compressed bytes, decompress lazily
+      this.compressedValue = value;
+      this.value = null;
+    } else {
+      // Store uncompressed bytes directly
+      this.value = value;
+      this.compressedValue = null;
+    }
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+  public NodeKind getKind() {
+    return NodeKind.TEXT;
+  }
 
-    final var rawValue = valueNodeDelegate.getRawValue();
-
+  @Override
+  public long computeHash(BytesOut<?> bytes) {
     bytes.clear();
 
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+    bytes.writeLong(nodeKey)
+         .writeLong(getParentKey())
+         .writeByte(NodeKind.TEXT.getId());
 
-    bytes.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey());
+    bytes.writeLong(getLeftSiblingKey()).writeLong(getRightSiblingKey());
 
-    bytes.write(rawValue);
+    bytes.write(getRawValue());
 
-    final var buffer = bytes.underlyingObject().rewind();
+    final var buffer = ((java.nio.ByteBuffer) bytes.underlyingObject()).rewind();
     buffer.limit((int) bytes.readLimit());
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
+    return hashFunction.hashBytes(buffer);
   }
 
   @Override
@@ -137,43 +206,185 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   }
 
   @Override
-  public NodeKind getKind() {
-    return NodeKind.TEXT;
-  }
-
-  @Override
   public byte[] getRawValue() {
-    if (value == null) {
-      value = valueNodeDelegate.getRawValue();
+    if (value == null && compressedValue != null) {
+      // Lazy decompress the value
+      value = Compression.decompress(compressedValue);
+      // Clear compressed data to save memory
+      compressedValue = null;
     }
     return value;
   }
 
   @Override
   public void setRawValue(final byte[] value) {
-    this.value = null;
-    hash = 0L;
-    valueNodeDelegate.setRawValue(value);
+    this.value = value;
+    this.compressedValue = null;
+    this.isCompressed = false;
+    this.hash = 0L; // Invalidate hash
+  }
+
+  @Override
+  public String getValue() {
+    return new String(getRawValue(), Constants.DEFAULT_ENCODING);
+  }
+
+  // NodeDelegate methods
+  @Override
+  public long getNodeKey() {
+    return nodeKey;
+  }
+
+  @Override
+  public long getParentKey() {
+    return (long) PARENT_KEY_HANDLE.get(segment, 0L);
+  }
+
+  @Override
+  public void setParentKey(final long parentKey) {
+    PARENT_KEY_HANDLE.set(segment, 0L, parentKey);
+  }
+
+  @Override
+  public boolean hasParent() {
+    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    return (int) PREVIOUS_REVISION_HANDLE.get(segment, 0L);
+  }
+
+  @Override
+  public void setPreviousRevision(final int revision) {
+    PREVIOUS_REVISION_HANDLE.set(segment, 0L, revision);
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    return (int) LAST_MODIFIED_REVISION_HANDLE.get(segment, 0L);
+  }
+
+  @Override
+  public void setLastModifiedRevision(final int revision) {
+    LAST_MODIFIED_REVISION_HANDLE.set(segment, 0L, revision);
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    return sirixDeweyID;
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    if (deweyIDBytes == null && sirixDeweyID != null) {
+      deweyIDBytes = sirixDeweyID.toBytes();
+    }
+    return deweyIDBytes;
+  }
+
+  @Override
+  public void setDeweyID(final SirixDeweyID id) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = null; // Clear cached bytes
+  }
+
+  @Override
+  public int getTypeKey() {
+    // Text nodes always have xs:untyped type
+    return io.sirix.utils.NamePageHash.generateHashForString("xs:untyped");
+  }
+
+  @Override
+  public void setTypeKey(final int typeKey) {
+    // typeKey is not stored, so this is a no-op
+  }
+
+  @Override
+  public boolean isSameItem(@Nullable Node other) {
+    return other != null && other.getNodeKey() == nodeKey;
+  }
+
+  // StructNode methods
+  @Override
+  public long getRightSiblingKey() {
+    return (long) RIGHT_SIBLING_KEY_HANDLE.get(segment, 0L);
+  }
+
+  @Override
+  public void setRightSiblingKey(final long key) {
+    RIGHT_SIBLING_KEY_HANDLE.set(segment, 0L, key);
+  }
+
+  @Override
+  public boolean hasRightSibling() {
+    return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public long getLeftSiblingKey() {
+    return (long) LEFT_SIBLING_KEY_HANDLE.get(segment, 0L);
+  }
+
+  @Override
+  public void setLeftSiblingKey(final long key) {
+    LEFT_SIBLING_KEY_HANDLE.set(segment, 0L, key);
+  }
+
+  @Override
+  public boolean hasLeftSibling() {
+    return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public long getFirstChildKey() {
+    // Text nodes can't have children
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
-  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
-    return visitor.visit(ImmutableText.of(this));
+  public void setFirstChildKey(final long key) {
+    throw new UnsupportedOperationException("Text nodes can't have children");
+  }
+
+  @Override
+  public boolean hasFirstChild() {
+    return false;
+  }
+
+  @Override
+  public long getLastChildKey() {
+    // Text nodes can't have children
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public void setLastChildKey(final long key) {
+    throw new UnsupportedOperationException("Text nodes can't have children");
+  }
+
+  @Override
+  public boolean hasLastChild() {
+    return false;
+  }
+
+  @Override
+  public long getChildCount() {
+    return 0;
   }
 
   @Override
   public void decrementChildCount() {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("Text nodes can't have children");
   }
 
   @Override
   public void incrementChildCount() {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("Text nodes can't have children");
+  }
+
+  public void setChildCount(final long childCount) {
+    throw new UnsupportedOperationException("Text nodes can't have children");
   }
 
   @Override
@@ -183,29 +394,35 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
 
   @Override
   public void decrementDescendantCount() {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("Text nodes can't have descendants");
   }
 
   @Override
   public void incrementDescendantCount() {
-    throw new UnsupportedOperationException();
+    throw new UnsupportedOperationException("Text nodes can't have descendants");
   }
 
   @Override
-  public void setDescendantCount(long descendantCount) {
-    throw new UnsupportedOperationException();
+  public void setDescendantCount(final long descendantCount) {
+    throw new UnsupportedOperationException("Text nodes can't have descendants");
+  }
+
+  @Override
+  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
+    return visitor.visit(ImmutableText.of(this));
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(structNodeDelegate.getNodeDelegate(), valueNodeDelegate);
+    return Objects.hashCode(nodeKey, getParentKey(), value);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof TextNode other) {
-      return Objects.equal(structNodeDelegate.getNodeDelegate(), other.getNodeDelegate()) && valueNodeDelegate.equals(
-          other.valueNodeDelegate);
+    if (obj instanceof final TextNode other) {
+      return nodeKey == other.nodeKey 
+          && getParentKey() == other.getParentKey() 
+          && java.util.Arrays.equals(value, other.value);
     }
     return false;
   }
@@ -213,43 +430,22 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   @Override
   public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("node delegate", structNodeDelegate.getNodeDelegate())
-                      .add("struct delegate", structNodeDelegate)
-                      .add("value delegate", valueNodeDelegate)
+                      .add("nodeKey", nodeKey)
+                      .add("parentKey", getParentKey())
+                      .add("previousRevision", getPreviousRevisionNumber())
+                      .add("lastModifiedRevision", getLastModifiedRevisionNumber())
+                      .add("rightSiblingKey", getRightSiblingKey())
+                      .add("leftSiblingKey", getLeftSiblingKey())
+                      .add("value", getValue())
+                      .add("compressed", isCompressed)
                       .toString();
   }
 
-  public ValueNodeDelegate getValNodeDelegate() {
-    return valueNodeDelegate;
+  public boolean isCompressed() {
+    return isCompressed;
   }
 
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return structNodeDelegate.getNodeDelegate();
-  }
-
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
-
-  @Override
-  public String getValue() {
-    return new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING);
-  }
-
-  @Override
-  public SirixDeweyID getDeweyID() {
-    return structNodeDelegate.getNodeDelegate().getDeweyID();
-  }
-
-  @Override
-  public int getTypeKey() {
-    return structNodeDelegate.getNodeDelegate().getTypeKey();
-  }
-
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    return structNodeDelegate.getDeweyIDAsBytes();
+  public LongHashFunction getHashFunction() {
+    return hashFunction;
   }
 }
