@@ -37,6 +37,9 @@ dependencies {
     implementation implLibraries.jsoup
     testImplementation testLibraries.kotlinTestJunit
     testImplementation testLibraries.junit
+    testImplementation testLibraries.junitJupiterApi
+    testImplementation testLibraries.junitJupiterEngine
+    testImplementation testLibraries.junitPlatformLauncher
     testImplementation testLibraries.vertxJunit5
     testImplementation testLibraries.jsonassert
 
