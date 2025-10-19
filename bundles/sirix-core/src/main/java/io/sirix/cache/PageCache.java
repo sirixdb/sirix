@@ -42,17 +42,16 @@ public final class PageCache implements Cache<PageReference, Page> {
                     .weigher((PageReference _, Page value) -> {
                       if (value instanceof KeyValueLeafPage keyValueLeafPage) {
                         if (keyValueLeafPage.getPinCount() > 0) {
-                          return 0;
+                          return 0; // Pinned pages have zero weight (won't be evicted)
                         } else {
-                          return keyValueLeafPage.getUsedSlotsSize();
+                          // Use actual memory segment sizes for accurate tracking
+                          return (int) keyValueLeafPage.getActualMemorySize();
                         }
                       } else {
-                        return 1000;
+                        return 1000; // Other page types use fixed weight
                       }
                     })
-                    .scheduler(Scheduler.systemScheduler())
                     .evictionListener(removalListener)
-                    .executor(Runnable::run)
                     .build();
   }
 

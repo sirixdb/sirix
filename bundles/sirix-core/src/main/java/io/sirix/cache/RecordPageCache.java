@@ -37,12 +37,14 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
 
     cache = Caffeine.newBuilder()
                     .maximumWeight(maxWeight)
-                    .weigher((PageReference _, KeyValueLeafPage value) -> value.getPinCount() > 0
-                        ? 0
-                        : value.getUsedSlotsSize())
-                    .scheduler(com.github.benmanes.caffeine.cache.Scheduler.systemScheduler())
+                    .weigher((PageReference _, KeyValueLeafPage value) -> {
+                      if (value.getPinCount() > 0) {
+                        return 0; // Pinned pages have zero weight (won't be evicted)
+                      }
+                      // Use actual memory segment sizes for accurate tracking
+                      return (int) value.getActualMemorySize();
+                    })
                     .evictionListener(removalListener)
-                    .executor(Runnable::run)
                     .build();
   }
 

@@ -8,7 +8,6 @@ import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
 import java.util.Deque;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,16 +27,21 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
   private static final Linker LINKER = Linker.nativeLinker();
 
-  // Static final MethodHandles for mmap, munmap, and madvise
+  // Static final MethodHandles for mmap, munmap, madvise, and sysconf
   private static final MethodHandle MMAP;
   private static final MethodHandle MUNMAP;
   private static final MethodHandle MADVISE;
+  private static final MethodHandle SYSCONF;
 
   private static final int PROT_READ = 0x1;   // Page can be read
   private static final int PROT_WRITE = 0x2;  // Page can be written
   private static final int MAP_PRIVATE = 0x02; // Changes are private
   private static final int MAP_ANONYMOUS = 0x20; // Anonymous mapping
+  private static final int MAP_NORESERVE = 0x4000; // Don't reserve swap space
   private static final int MADV_DONTNEED = 4;  // Linux: release physical memory, keep virtual
+  
+  // sysconf constants for page size detection
+  private static final int _SC_PAGESIZE = 30;  // Get system page size
 
   static {
     MMAP = LINKER.downcallHandle(LINKER.defaultLookup()
@@ -60,17 +64,26 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                                           .find("madvise")
                                           .orElseThrow(() -> new RuntimeException("madvise not found")),
                                     FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT));
+
+    SYSCONF = LINKER.downcallHandle(LINKER.defaultLookup()
+                                          .find("sysconf")
+                                          .orElseThrow(() -> new RuntimeException("sysconf not found")),
+                                    FunctionDescriptor.of(JAVA_LONG, JAVA_INT));
   }
 
   // Define power-of-two sizes: 4KB, 8KB, 16KB, 32KB, 64KB, 128KB, 256KB
   private static final long[] SEGMENT_SIZES =
       { FOUR_KB, EIGHT_KB, SIXTEEN_KB, THIRTYTWO_KB, SIXTYFOUR_KB, ONE_TWENTYEIGHT_KB, TWO_FIFTYSIX_KB };
 
-  // Fixed region size per pool: 2MB (good balance for most workloads)
-  private static final long REGION_SIZE = 2 * 1024 * 1024;
+  // Virtual memory region size per size class: 10 GB
+  private static final long VIRTUAL_REGION_SIZE = 10L * 1024 * 1024 * 1024;
 
   // Singleton instance
   private static final LinuxMemorySegmentAllocator INSTANCE = new LinuxMemorySegmentAllocator();
+
+  // Detected page sizes
+  private long basePageSize = 4096;  // Default to 4KB, will be detected
+  private long hugePageSize = 0;     // 0 means huge pages not available
 
   // State tracking
   private final AtomicBoolean isInitialized = new AtomicBoolean(false);
@@ -82,8 +95,13 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private final Deque<MemorySegment>[] segmentPools = new Deque[SEGMENT_SIZES.length];
   private final AtomicInteger[] poolSizes = new AtomicInteger[SEGMENT_SIZES.length];
 
-  // NEW: Rebalancing infrastructure
-  private final Map<Long, MemorySegment> mmappedBases = new ConcurrentHashMap<>();
+  // Pre-allocated virtual memory regions (one per size class)
+  private final MemorySegment[] virtualRegions = new MemorySegment[SEGMENT_SIZES.length];
+  
+  // Track borrowed segments to prevent double-returns and for accurate physical memory tracking
+  private final java.util.Set<Long> borrowedSegments = ConcurrentHashMap.newKeySet();
+  
+  // Rebalancing infrastructure
   private final AtomicLong[] totalBorrows = new AtomicLong[SEGMENT_SIZES.length];
   private final AtomicLong[] totalReturns = new AtomicLong[SEGMENT_SIZES.length];
 
@@ -102,17 +120,176 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     return INSTANCE;
   }
 
+  /**
+   * Detect the base OS page size using sysconf().
+   * Returns the detected page size or 4096 if detection fails.
+   */
+  private long detectBasePageSize() {
+    try {
+      long pageSize = (long) SYSCONF.invokeExact(_SC_PAGESIZE);
+      if (pageSize > 0) {
+        LOGGER.info("Detected base page size: {} bytes", pageSize);
+        return pageSize;
+      }
+    } catch (Throwable t) {
+      LOGGER.warn("Failed to detect page size via sysconf, defaulting to 4KB", t);
+    }
+    return 4096; // Default fallback
+  }
+
+  /**
+   * Detect huge page size from /proc/meminfo.
+   * Returns 0 if huge pages are not available.
+   */
+  private long detectHugePageSize() {
+    try {
+      java.nio.file.Path meminfoPath = java.nio.file.Path.of("/proc/meminfo");
+      if (!java.nio.file.Files.exists(meminfoPath)) {
+        LOGGER.debug("/ proc/meminfo not found, huge pages not available");
+        return 0;
+      }
+      
+      java.util.List<String> lines = java.nio.file.Files.readAllLines(meminfoPath);
+      for (String line : lines) {
+        if (line.startsWith("Hugepagesize:")) {
+          // Format: "Hugepagesize:     2048 kB"
+          String[] parts = line.split("\\s+");
+          if (parts.length >= 2) {
+            long sizeKb = Long.parseLong(parts[1]);
+            long sizeBytes = sizeKb * 1024;
+            LOGGER.info("Detected huge page size: {} MB", sizeBytes / (1024 * 1024));
+            return sizeBytes;
+          }
+        }
+      }
+    } catch (Exception e) {
+      LOGGER.debug("Could not read huge page size from /proc/meminfo", e);
+    }
+    
+    LOGGER.info("Huge pages not available or not configured");
+    return 0;
+  }
+
+  /**
+   * Validate configuration before initialization.
+   */
+  private void validateConfiguration(long maxBufferSize) {
+    if (maxBufferSize <= 0) {
+      throw new IllegalArgumentException("maxBufferSize must be > 0, got: " + maxBufferSize);
+    }
+
+    // Validate all segment sizes are multiples of base page size
+    for (long segmentSize : SEGMENT_SIZES) {
+      if (segmentSize % basePageSize != 0) {
+        throw new IllegalStateException(
+            String.format("Segment size %d is not a multiple of page size %d", segmentSize, basePageSize));
+      }
+    }
+
+    // Check virtual address space requirement
+    long totalVirtualMemory = VIRTUAL_REGION_SIZE * SEGMENT_SIZES.length;
+    LOGGER.info("Virtual address space required: {} GB", totalVirtualMemory / (1024 * 1024 * 1024));
+    
+    if (totalVirtualMemory < 0) {
+      throw new IllegalStateException("Virtual memory requirement overflow");
+    }
+  }
+
+  /**
+   * Pre-allocate a large virtual memory region for a size class.
+   * Uses MAP_NORESERVE to avoid reserving swap space.
+   */
+  private void preAllocateVirtualRegion(int poolIndex, long segmentSize) {
+    long virtualSize = VIRTUAL_REGION_SIZE;
+    
+    // Try full 10GB, fall back to smaller sizes if needed
+    long[] attemptSizes = {virtualSize, virtualSize / 2, virtualSize / 5};
+    
+    for (long attemptSize : attemptSizes) {
+      try {
+        MemorySegment addr = (MemorySegment) MMAP.invokeExact(
+            MemorySegment.NULL,
+            attemptSize,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE,
+            -1,
+            0L
+        );
+        
+        if (addr.address() == 0 || addr == MemorySegment.NULL) {
+          LOGGER.warn("mmap returned NULL for {} GB virtual region, trying smaller size",
+                      attemptSize / (1024 * 1024 * 1024));
+          continue;
+        }
+        
+        virtualRegions[poolIndex] = addr.reinterpret(attemptSize);
+        
+        LOGGER.info("Pre-allocated {} GB virtual region for size class {} ({} bytes per segment)",
+                    attemptSize / (1024 * 1024 * 1024),
+                    poolIndex,
+                    segmentSize);
+        
+        // Partition the virtual region into segments
+        partitionVirtualRegion(poolIndex, segmentSize, attemptSize);
+        return;
+        
+      } catch (Throwable t) {
+        LOGGER.warn("Failed to allocate {} GB virtual region for pool {}, trying smaller size",
+                    attemptSize / (1024 * 1024 * 1024), poolIndex, t);
+      }
+    }
+    
+    throw new RuntimeException("Failed to pre-allocate virtual memory region for pool " + poolIndex);
+  }
+
+  /**
+   * Partition a virtual region into segments and add them to the pool.
+   * Physical memory is not committed until segments are actually used.
+   */
+  private void partitionVirtualRegion(int poolIndex, long segmentSize, long regionSize) {
+    MemorySegment region = virtualRegions[poolIndex];
+    long segmentCount = regionSize / segmentSize;
+    
+    LOGGER.debug("Partitioning virtual region into {} segments of {} bytes each",
+                 segmentCount, segmentSize);
+    
+    Deque<MemorySegment> pool = segmentPools[poolIndex];
+    for (long i = 0; i < segmentCount; i++) {
+      MemorySegment slice = region.asSlice(i * segmentSize, segmentSize);
+      pool.offer(slice);
+    }
+    
+    poolSizes[poolIndex].set((int) segmentCount);
+    LOGGER.info("Pool {} initialized with {} pre-allocated segments", poolIndex, segmentCount);
+  }
+
   @Override
   public void init(long maxBufferSize) {
     if (!isInitialized.compareAndSet(false, true)) {
+      LOGGER.debug("Allocator already initialized");
       return;
     }
 
-    LOGGER.info("Initializing LinuxMemorySegmentAllocator with budget: {} MB", maxBufferSize / (1024 * 1024));
+    LOGGER.info("========== Initializing UmbraDB-Style Memory Allocator ==========");
+    LOGGER.info("Physical memory limit: {} MB", maxBufferSize / (1024 * 1024));
 
+    // Step 1: Detect page sizes
+    basePageSize = detectBasePageSize();
+    hugePageSize = detectHugePageSize();
+
+    // Step 2: Set max buffer size
     this.maxBufferSize.set(maxBufferSize);
 
-    // Initialize pools
+    // Step 3: Validate configuration
+    try {
+      validateConfiguration(maxBufferSize);
+    } catch (Exception e) {
+      LOGGER.error("Configuration validation failed", e);
+      isInitialized.set(false);
+      throw e;
+    }
+
+    // Step 4: Initialize pool data structures
     for (int i = 0; i < SEGMENT_SIZES.length; i++) {
       segmentPools[i] = new ConcurrentLinkedDeque<>();
       poolSizes[i] = new AtomicInteger(0);
@@ -120,7 +297,34 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       totalReturns[i] = new AtomicLong(0);
     }
 
-    LOGGER.info("Allocator initialized - on-demand allocation with rebalancing");
+    // Step 5: Pre-allocate virtual memory regions for each size class
+    LOGGER.info("Pre-allocating virtual memory regions...");
+    try {
+      for (int i = 0; i < SEGMENT_SIZES.length; i++) {
+        preAllocateVirtualRegion(i, SEGMENT_SIZES[i]);
+      }
+    } catch (Exception e) {
+      LOGGER.error("Failed to pre-allocate virtual memory regions", e);
+      // Cleanup any successfully allocated regions
+      free();
+      isInitialized.set(false);
+      throw new RuntimeException("Virtual memory pre-allocation failed", e);
+    }
+
+    // Log final initialization summary
+    long totalVirtual = virtualRegions.length * VIRTUAL_REGION_SIZE;
+    LOGGER.info("=================================================================");
+    LOGGER.info("Allocator initialized successfully:");
+    LOGGER.info("  - Base page size: {} bytes", basePageSize);
+    LOGGER.info("  - Huge page size: {} MB ({})", 
+                hugePageSize / (1024 * 1024), 
+                hugePageSize > 0 ? "available" : "not available");
+    LOGGER.info("  - Virtual memory mapped: {} GB (across {} size classes)",
+                totalVirtual / (1024 * 1024 * 1024),
+                SEGMENT_SIZES.length);
+    LOGGER.info("  - Physical memory limit: {} MB", maxBufferSize / (1024 * 1024));
+    LOGGER.info("  - Segment size classes: {}", java.util.Arrays.toString(SEGMENT_SIZES));
+    LOGGER.info("=================================================================");
   }
 
   @Override
@@ -148,8 +352,11 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       System.out.println(
           "Pool " + i + " (size " + SEGMENT_SIZES[i] + "): " + poolSizes[i].get() + " segments available");
     }
-    System.out.println("Physical memory: " + (physicalMemoryBytes.get() / (1024 * 1024)) + " MB");
-    System.out.println("mmap'd bases: " + mmappedBases.size());
+    System.out.println("Physical memory: " + (physicalMemoryBytes.get() / (1024 * 1024)) + " MB / " + 
+                       (maxBufferSize.get() / (1024 * 1024)) + " MB limit");
+    System.out.println("Borrowed segments: " + borrowedSegments.size());
+    System.out.println("Virtual regions: " + virtualRegions.length + " x " + 
+                       (VIRTUAL_REGION_SIZE / (1024 * 1024 * 1024)) + " GB");
     System.out.println("====================================================\n");
   }
 
@@ -161,20 +368,45 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       throw new IllegalArgumentException("Unsupported size: " + size);
     }
 
+    // Check physical memory limit before allocation
+    long currentPhysical = physicalMemoryBytes.get();
+    if (currentPhysical + size > maxBufferSize.get()) {
+      LOGGER.warn("Physical memory limit approaching: {} / {} MB (requested {} bytes)",
+                  currentPhysical / (1024 * 1024),
+                  maxBufferSize.get() / (1024 * 1024),
+                  size);
+      
+      // TODO: Implement memory pressure notification and waiting mechanism
+      // For now, throw an exception to prevent exceeding limit
+      throw new OutOfMemoryError(String.format(
+          "Cannot allocate %d bytes. Physical memory: %d/%d MB, would exceed limit",
+          size, currentPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024)));
+    }
+
     Deque<MemorySegment> pool = segmentPools[index];
     MemorySegment segment = pool.poll();
 
     if (segment == null) {
-      // Pool empty - allocate new segments
-      // Double-check after lock
-      segment = pool.poll();
-      if (segment == null) {
-        LOGGER.debug("Pool {} empty, allocating new segments", index);
-        allocateSegmentsForPool(index);
-        segment = pool.poll();
-        if (segment == null) {
-          throw new IllegalStateException("Pool still empty after allocation!");
-        }
+      // This should not happen with pre-allocated virtual regions
+      LOGGER.error("Pool {} exhausted! All {} segments in use. Virtual region may be too small.",
+                   index, poolSizes[index].get());
+      throw new OutOfMemoryError("Memory pool exhausted for size class " + size);
+    }
+
+    // Track if this is the first time we're borrowing this segment
+    long address = segment.address();
+    boolean isFirstBorrow = borrowedSegments.add(address);
+    
+    if (isFirstBorrow) {
+      // First time borrowing - physical pages will be committed on first access
+      long newPhysical = physicalMemoryBytes.addAndGet(size);
+      
+      if (newPhysical > maxBufferSize.get() * 0.9) {
+        double percentUsed = (newPhysical * 100.0) / maxBufferSize.get();
+        LOGGER.warn("Physical memory at {:.1f}% of limit ({} MB / {} MB)",
+                    percentUsed,
+                    newPhysical / (1024 * 1024),
+                    maxBufferSize.get() / (1024 * 1024));
       }
     }
 
@@ -184,42 +416,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     // Track utilization
     totalBorrows[index].incrementAndGet();
 
-    // Allocate logging disabled for performance
-    // LOGGER.trace("ALLOCATE: address={}, pool={}, size={}", address, index, size);
-
-    // Note: mmap with MAP_ANONYMOUS gives zero-filled fresh segments.
     return segment;
-  }
-
-  /**
-   * Allocate a batch of segments for the given pool.
-   * UmbraDB approach: mmap a region, slice it, add to pool.
-   * New segments are zero-filled by OS (MAP_ANONYMOUS).
-   * Reused segments are zeroed via madvise in release().
-   */
-  private void allocateSegmentsForPool(int poolIndex) {
-    long segmentSize = SEGMENT_SIZES[poolIndex];
-    int segmentsPerRegion = (int) (REGION_SIZE / segmentSize);
-
-    // Allocate base segment
-    MemorySegment base = mapMemory(REGION_SIZE);
-    mmappedBases.put(base.address(), base);
-
-    LOGGER.info("Allocated {} MB region for pool {} ({} x {} byte segments)",
-                REGION_SIZE / (1024 * 1024),
-                poolIndex,
-                segmentsPerRegion,
-                segmentSize);
-
-    // Slice into segments and add to pool
-    Deque<MemorySegment> pool = segmentPools[poolIndex];
-    for (int i = 0; i < segmentsPerRegion; i++) {
-      MemorySegment slice = base.asSlice(i * segmentSize, segmentSize);
-      pool.offer(slice);
-    }
-
-    poolSizes[poolIndex].addAndGet(segmentsPerRegion);
-    physicalMemoryBytes.addAndGet(REGION_SIZE);
   }
 
   /**
@@ -301,21 +498,44 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       throw new IllegalArgumentException("Segment size not supported for reuse: " + size);
     }
 
-    // Release logging disabled for performance
-    // LOGGER.trace("RELEASE: address={}, pool={}, size={}", address, index, size);
+    long address = segment.address();
+    
+    // Check if this segment was actually borrowed
+    if (!borrowedSegments.contains(address)) {
+      LOGGER.warn("Attempting to release segment that was never borrowed or already released: address={}",
+                  address);
+      return; // Prevent double-release
+    }
 
     // Track utilization
     totalReturns[index].incrementAndGet();
 
-    releasePhysicalMemory(segment, size);
-    physicalMemoryBytes.addAndGet(-size);
-    segmentPools[index].offer(segment);
-    int poolSize = poolSizes[index].incrementAndGet();
-
-    // Periodic logging
-    if (poolSize % 1000 == 0) {
-      LOGGER.info("Segment returned: size={}, pool {} now has {} segments", size, index, poolSize);
+    // Use madvise to release physical memory while keeping virtual mapping
+    try {
+      int result = (int) MADVISE.invokeExact(segment, size, MADV_DONTNEED);
+      if (result == 0) {
+        // Successfully released physical memory
+        long newPhysical = physicalMemoryBytes.addAndGet(-size);
+        
+        if (newPhysical < 0) {
+          LOGGER.error("Physical memory counter went negative: {} MB. Resetting to 0.", 
+                       newPhysical / (1024 * 1024));
+          physicalMemoryBytes.set(0);
+        }
+      } else {
+        LOGGER.warn("madvise MADV_DONTNEED failed for address {}, size {} (error code: {}). " +
+                    "Physical memory may not be released.",
+                    address, size, result);
+        // Still return the segment to pool even if madvise failed
+      }
+    } catch (Throwable t) {
+      LOGGER.error("madvise invocation failed for address {}, size {}", address, size, t);
+      // Continue with returning segment to pool
     }
+
+    // Return segment to pool for reuse
+    segmentPools[index].offer(segment);
+    poolSizes[index].incrementAndGet();
   }
 
   @Override
@@ -328,6 +548,26 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     LOGGER.info("Cleaning up allocator (physical memory: {} MB)",
                 physicalMemoryBytes.get() / (1024 * 1024));
 
+    // Unmap virtual memory regions
+    for (int i = 0; i < virtualRegions.length; i++) {
+      MemorySegment region = virtualRegions[i];
+      if (region != null) {
+        try {
+          long size = region.byteSize();
+          int result = (int) MUNMAP.invokeExact(region, size);
+          if (result != 0) {
+            LOGGER.error("Failed to munmap virtual region {} (size {} GB, error code: {})",
+                         i, size / (1024 * 1024 * 1024), result);
+          } else {
+            LOGGER.debug("Unmapped virtual region {} ({} GB)", i, size / (1024 * 1024 * 1024));
+          }
+        } catch (Throwable t) {
+          LOGGER.error("Error unmapping virtual region {}", i, t);
+        }
+        virtualRegions[i] = null;
+      }
+    }
+
     // Clear pools
     for (int i = 0; i < segmentPools.length; i++) {
       if (segmentPools[i] != null) {
@@ -338,7 +578,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       }
     }
 
-    mmappedBases.clear();
+    borrowedSegments.clear();
     physicalMemoryBytes.set(0);
     isInitialized.set(false);
 
@@ -349,9 +589,10 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
    * Print current memory statistics.
    */
   public void printMemoryStats() {
-    LOGGER.info("Memory: Physical={} MB, mmap'd bases={}",
+    LOGGER.info("Memory: Physical={} MB / {} MB limit, Borrowed segments={}",
                 physicalMemoryBytes.get() / (1024 * 1024),
-                mmappedBases.size());
+                maxBufferSize.get() / (1024 * 1024),
+                borrowedSegments.size());
   }
 
   public static void main(String[] args) {

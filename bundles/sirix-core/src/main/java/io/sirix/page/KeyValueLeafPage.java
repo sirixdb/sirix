@@ -966,6 +966,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
   }
 
+  /**
+   * Get the actual memory size used by this page's memory segments.
+   * Used for accurate Caffeine cache weighing.
+   * 
+   * @return Total size in bytes of all memory segments used by this page
+   */
+  public long getActualMemorySize() {
+    long total = 0;
+    if (slotMemory != null) {
+      total += slotMemory.byteSize();
+    }
+    if (deweyIdMemory != null) {
+      total += deweyIdMemory.byteSize();
+    }
+    return total;
+  }
+
   @Override
   public List<PageReference> getReferences() {
     return List.of(references.values().toArray(new PageReference[0]));
