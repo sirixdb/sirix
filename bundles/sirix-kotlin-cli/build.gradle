@@ -30,7 +30,7 @@ dependencies {
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine
     testImplementation testLibraries.junitVintageEngine
-    testImplementation testLibraries.junitJupiterApi
+    testImplementation testLibraries.junitPlatformLauncher
     testImplementation testLibraries.junitJupiterParams
     testImplementation testLibraries.jsonassert
 }
