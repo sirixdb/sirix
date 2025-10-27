@@ -896,18 +896,21 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (mostRecentlyReadRecordPage != null) {
         if (mostRecentlyReadRecordPage.page.getPinCount() > 0) {
           mostRecentlyReadRecordPage.page.decrementPinCount(trxId);
+          resourceBufferManager.getRecordPageCache().put(mostRecentlyReadRecordPage.pageReference, mostRecentlyReadRecordPage.page);
         }
       }
 
       if (secondMostRecentlyReadRecordPage != null) {
         if (secondMostRecentlyReadRecordPage.page.getPinCount() > 0) {
           secondMostRecentlyReadRecordPage.page.decrementPinCount(trxId);
+          resourceBufferManager.getRecordPageCache().put(secondMostRecentlyReadRecordPage.pageReference, secondMostRecentlyReadRecordPage.page);
         }
       }
 
       if (pathSummaryRecordPage != null) {
         if (pathSummaryRecordPage.page.getPinCount() > 0) {
           pathSummaryRecordPage.page.decrementPinCount(trxId);
+          resourceBufferManager.getRecordPageCache().put(pathSummaryRecordPage.pageReference, pathSummaryRecordPage.page);
         }
         if (trxIntentLog != null) {
           pathSummaryRecordPage.page.clear();
