@@ -563,6 +563,13 @@ public enum VersioningType {
         }
       }
 
+      // CRITICAL FIX: Close temporary page to prevent memory leak
+      if (pageWithRecordsInSlidingWindow instanceof io.sirix.page.KeyValueLeafPage tempPage) {
+        if (!tempPage.isClosed()) {
+          tempPage.close();
+        }
+      }
+
       final var pageContainer = PageContainer.getInstance(completePage, modifyingPage);
       log.put(reference, pageContainer);
       return pageContainer;
