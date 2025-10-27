@@ -31,6 +31,8 @@ import io.sirix.XmlTestHelper;
 import io.sirix.XmlTestHelper.PATHS;
 import io.sirix.axis.filter.FilterAxis;
 import io.sirix.axis.filter.xml.XmlNameFilter;
+import io.sirix.index.IndexType;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.service.xml.xpath.XPathAxis;
 import org.junit.jupiter.api.AfterEach;
@@ -45,6 +47,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** Test {@link ConcurrentAxis}. */
 public final class ConcurrentAxisTest {
+
+  /** DEBUG FLAG: Enable with -Dsirix.debug.leak.diagnostics=true */
+  private static final boolean DEBUG_LEAK_DIAGNOSTICS = 
+    Boolean.getBoolean("sirix.debug.leak.diagnostics");
 
   /** XML file name to test. */
   private static final String XMLFILE = "10mb.xml";
@@ -62,6 +68,14 @@ public final class ConcurrentAxisTest {
   @BeforeEach
   public void setUp() {
     try {
+      // Reset diagnostics (but NOT ALL_LIVE_PAGES to track cumulative leaks)
+      if (DEBUG_LEAK_DIAGNOSTICS) {
+        io.sirix.page.KeyValueLeafPage.PAGES_CREATED.set(0);
+        io.sirix.page.KeyValueLeafPage.PAGES_CLOSED.set(0);
+        io.sirix.page.KeyValueLeafPage.PAGES_BY_TYPE.clear();
+        io.sirix.page.KeyValueLeafPage.PAGES_CLOSED_BY_TYPE.clear();
+      }
+      
       XmlTestHelper.deleteEverything();
       XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
       holder = Holder.generateRtx();
@@ -79,6 +93,71 @@ public final class ConcurrentAxisTest {
     try {
       holder.close();
       XmlTestHelper.closeEverything();
+      
+      if (DEBUG_LEAK_DIAGNOSTICS) {
+        // DIAGNOSTIC: Print page statistics
+        System.err.println("\n========== PAGE STATISTICS ==========");
+        System.err.println("PAGES_CREATED: " + io.sirix.page.KeyValueLeafPage.PAGES_CREATED.get());
+        System.err.println("PAGES_CLOSED: " + io.sirix.page.KeyValueLeafPage.PAGES_CLOSED.get());
+        System.err.println("UNCLOSED LEAK: " + (io.sirix.page.KeyValueLeafPage.PAGES_CREATED.get() - io.sirix.page.KeyValueLeafPage.PAGES_CLOSED.get()));
+        
+        System.err.println("\nPages by type (CREATED / CLOSED / LEAKED):");
+        io.sirix.page.KeyValueLeafPage.PAGES_BY_TYPE.forEach((type, created) -> {
+          long closed = io.sirix.page.KeyValueLeafPage.PAGES_CLOSED_BY_TYPE.getOrDefault(type, new java.util.concurrent.atomic.AtomicLong(0)).get();
+          long leaked = created.get() - closed;
+          System.err.println("  " + type + ": " + created.get() + " / " + closed + " / " + leaked);
+        });
+        
+        System.err.println("\n=== LEAKED PAGE ANALYSIS ===");
+        System.err.println("Live pages still in memory: " + io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES.size());
+        
+        // Check how many leaked pages are in cache vs swizzled only
+        try {
+          var bufMgr = holder.getXmlNodeReadTrx().getPageTrx().getBufferManager();
+          long inRecordCache = io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES.stream()
+            .filter(p -> bufMgr.getRecordPageCache().asMap().containsValue(p))
+            .count();
+          long inFragmentCache = io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES.stream()
+            .filter(p -> bufMgr.getRecordPageFragmentCache().asMap().containsValue(p))
+            .count();
+          
+          System.err.println("  In RecordPageCache: " + inRecordCache);
+          System.err.println("  In RecordPageFragmentCache: " + inFragmentCache);
+          System.err.println("  Only swizzled (not in cache): " + (io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES.size() - inRecordCache - inFragmentCache));
+          
+          // Group by type and check pin status
+          var leakedByType = new java.util.HashMap<IndexType, java.util.List<KeyValueLeafPage>>();
+          io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES.forEach(page -> {
+            leakedByType.computeIfAbsent(page.getIndexType(), _ -> new java.util.ArrayList<>()).add(page);
+          });
+          
+          leakedByType.forEach((type, pages) -> {
+            long pinned = pages.stream().filter(p -> p.getPinCount() > 0).count();
+            System.err.println("  " + type + ": " + pages.size() + " leaked (" + pinned + " still pinned)");
+            
+            // Sample first 5 leaked pages for detailed analysis
+            pages.stream().limit(5).forEach(page -> {
+              System.err.println("    Page " + page.getPageKey() + ": pinCount=" + page.getPinCount() + 
+                               ", closed=" + page.isClosed() +
+                               ", pinByTrx=" + page.getPinCountByTransaction());
+            });
+          });
+          
+          System.err.println("\nLeak Analysis:");
+          long notClosed = io.sirix.page.KeyValueLeafPage.PAGES_CREATED.get() - io.sirix.page.KeyValueLeafPage.PAGES_CLOSED.get();
+          long stillLive = io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES.size();
+          long finalized = io.sirix.page.KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
+          long missing = notClosed - stillLive - finalized;
+          
+          System.err.println("  Not closed: " + notClosed);
+          System.err.println("  Still in ALL_LIVE_PAGES: " + stillLive);
+          System.err.println("  Finalized without close: " + finalized);
+          System.err.println("  MISSING (accounting gap): " + missing);
+        } catch (Exception ex) {
+          System.err.println("  (Detailed analysis skipped - transaction already closed)");
+        }
+        System.err.println("=====================================\n");
+      }
     } catch (final Exception e) {
       e.printStackTrace();
     }

@@ -53,6 +53,25 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
   private static final int INT_SIZE = Integer.BYTES;
   
+  // DEBUG FLAG: Enable with -Dsirix.debug.memory.leaks=true
+  public static final boolean DEBUG_MEMORY_LEAKS = 
+    Boolean.getBoolean("sirix.debug.memory.leaks");
+  
+  // DIAGNOSTIC COUNTERS (enabled via DEBUG_MEMORY_LEAKS)
+  public static final java.util.concurrent.atomic.AtomicLong PAGES_CREATED = new java.util.concurrent.atomic.AtomicLong(0);
+  public static final java.util.concurrent.atomic.AtomicLong PAGES_CLOSED = new java.util.concurrent.atomic.AtomicLong(0);
+  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> PAGES_BY_TYPE = 
+    new java.util.concurrent.ConcurrentHashMap<>();
+  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> PAGES_CLOSED_BY_TYPE = 
+    new java.util.concurrent.ConcurrentHashMap<>();
+  
+  // TRACK ALL LIVE PAGES - for leak detection (use object identity, not recordPageKey)
+  public static final java.util.Set<KeyValueLeafPage> ALL_LIVE_PAGES = 
+    java.util.concurrent.ConcurrentHashMap.newKeySet();
+  
+  // LEAK DETECTION: Track finalized pages
+  public static final java.util.concurrent.atomic.AtomicLong PAGES_FINALIZED_WITHOUT_CLOSE = new java.util.concurrent.atomic.AtomicLong(0);
+  
   /**
    * Track pin counts per transaction ID (PostgreSQL PrivateRefCount pattern).
    * Each transaction independently pins/unpins shared pages.
@@ -183,6 +202,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.lastDeweyIdIndex = -1;
     this.slotMemory = slotMemory;
     this.deweyIdMemory = deweyIdMemory;
+    
+    // DIAGNOSTIC
+    if (DEBUG_MEMORY_LEAKS) {
+      PAGES_CREATED.incrementAndGet();
+      PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      ALL_LIVE_PAGES.add(this);
+    }
   }
 
   /**
@@ -224,6 +250,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     } else {
       this.deweyIdMemoryFreeSpaceStart = 0;
       this.lastDeweyIdIndex = -1;
+    }
+    
+    // DIAGNOSTIC
+    if (DEBUG_MEMORY_LEAKS) {
+      PAGES_CREATED.incrementAndGet();
+      PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      ALL_LIVE_PAGES.add(this);
     }
   }
 
@@ -963,9 +996,34 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
+  @SuppressWarnings("emerging")
+  protected void finalize() {
+    if (!isClosed) {
+      PAGES_FINALIZED_WITHOUT_CLOSE.incrementAndGet();
+      io.sirix.cache.DiagnosticLogger.log("FINALIZER LEAK CAUGHT: Page " + recordPageKey + " (" + indexType + ") - closing it now!");
+      //io.sirix.cache.DiagnosticLogger.log("  Created at: " + (creationStack.length > 3 ? creationStack[3] : "unknown"));
+      
+      // CRITICAL: Actually close the page to prevent MemorySegment leak
+      // This is a safety net - pages should be closed before finalization
+      try {
+        //close();
+      } catch (Exception e) {
+        io.sirix.cache.DiagnosticLogger.log("  Finalizer close() failed: " + e.getMessage());
+      }
+    }
+  }
+
+  @Override
   public void close() {
     if (!isClosed) {
       isClosed = true;
+      
+      // DIAGNOSTIC
+      if (DEBUG_MEMORY_LEAKS) {
+        PAGES_CLOSED.incrementAndGet();
+        PAGES_CLOSED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+        ALL_LIVE_PAGES.remove(this);
+      }
       
       // Release segments back to allocator
       try {
