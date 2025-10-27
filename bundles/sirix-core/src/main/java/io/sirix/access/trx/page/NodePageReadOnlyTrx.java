@@ -503,7 +503,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                 (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(pageReferenceToRecordPage);
           }
           if (kvPage != null) {
-            kvPage.incrementPinCount();
+            kvPage.incrementPinCount(trxId);
           }
           return kvPage;
         });
@@ -525,7 +525,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         if (trxIntentLog == null) {
           if (resourceBufferManager.getRecordPageCache().get(pathSummaryRecordPage.pageReference) != null) {
             assert !pathSummaryRecordPage.page.isClosed();
-            pathSummaryRecordPage.page.decrementPinCount();
+            pathSummaryRecordPage.page.decrementPinCount(trxId);
             resourceBufferManager.getRecordPageCache()
                                  .put(pathSummaryRecordPage.pageReference, pathSummaryRecordPage.page);
           }
@@ -547,7 +547,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (secondMostRecentlyReadRecordPage != null
           && resourceBufferManager.getRecordPageCache().get(secondMostRecentlyReadRecordPage.pageReference) != null) {
         assert !secondMostRecentlyReadRecordPage.page.isClosed();
-        secondMostRecentlyReadRecordPage.page.decrementPinCount();
+        secondMostRecentlyReadRecordPage.page.decrementPinCount(trxId);
         resourceBufferManager.getRecordPageCache()
                              .put(secondMostRecentlyReadRecordPage.pageReference,
                                   secondMostRecentlyReadRecordPage.page);
@@ -607,14 +607,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     io.sirix.cache.DiagnosticLogger.log("unpinPageFragments: " + pages.size() + " fragments, trxIntentLog=" + (trxIntentLog != null));
 
     var mostRecentPageFragment = pages.getFirst();
-    mostRecentPageFragment.decrementPinCount();
+    mostRecentPageFragment.decrementPinCount(trxId);
     resourceBufferManager.getPageCache().put(pageReference, mostRecentPageFragment);
     io.sirix.cache.DiagnosticLogger.log("  Fragment 0 cached (read-only)");
 
     var pageFragments = pageReference.getPageFragments();
     for (int i = 1; i < pages.size(); i++) {
         var pageFragment = pages.get(i);
-        pageFragment.decrementPinCount();
+        pageFragment.decrementPinCount(trxId);
         
         var pageFragmentKey = pageFragments.get(i - 1);
         resourceBufferManager.getPageCache().put(new PageReference().setKey(pageFragmentKey.key()), pageFragment);
@@ -630,7 +630,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     if (page != null) {
       if (trxIntentLog == null || indexLogKey.getIndexType() != IndexType.PATH_SUMMARY) {
         var kvLeafPage = ((KeyValueLeafPage) page);
-        kvLeafPage.incrementPinCount();
+        kvLeafPage.incrementPinCount(trxId);
         resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, kvLeafPage);
       }
       setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, (KeyValueLeafPage) page);
@@ -678,13 +678,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         if (value == null) {
           kvPage = (KeyValueLeafPage) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
         }
-        kvPage.incrementPinCount();
+        kvPage.incrementPinCount(trxId);
         return kvPage;
       });
       assert !page.isClosed();
 //    } else {
 //      page = (KeyValuePage<DataRecord>) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
-//      page.incrementPinCount();
+//      page.incrementPinCount(trxId);
 //    }
     pages.add(page);
 
@@ -716,7 +716,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (pageFromBufferManager != null) {
         assert !pageFromBufferManager.isClosed();
         assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) pageFromBufferManager).getRevision();
-        ((KeyValueLeafPage) pageFromBufferManager).incrementPinCount();
+        ((KeyValueLeafPage) pageFromBufferManager).incrementPinCount(trxId);
         resourceBufferManager.getPageCache().put(pageReference, pageFromBufferManager);
         return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) pageFromBufferManager);
       }
@@ -730,12 +730,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                                                    assert pageFragmentKey.revision()
                                                                        == ((KeyValuePage<DataRecord>) page).getRevision();
                                                                    synchronized (resourceBufferManager.getPageCache()) {
-                                                                     ((KeyValueLeafPage) page).incrementPinCount();
+                                                                     ((KeyValueLeafPage) page).incrementPinCount(trxId);
                                                                      resourceBufferManager.getPageCache()
                                                                                           .put(pageReference, page);
                                                                    }
                                                                  //} else {
-                                                                 //  ((KeyValuePage<DataRecord>) page).incrementPinCount();
+                                                                 //  ((KeyValuePage<DataRecord>) page).incrementPinCount(trxId);
                                                                  //}
                                                                });
   }
@@ -893,19 +893,19 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
       if (mostRecentlyReadRecordPage != null) {
         if (mostRecentlyReadRecordPage.page.getPinCount() > 0) {
-          mostRecentlyReadRecordPage.page.decrementPinCount();
+          mostRecentlyReadRecordPage.page.decrementPinCount(trxId);
         }
       }
 
       if (secondMostRecentlyReadRecordPage != null) {
         if (secondMostRecentlyReadRecordPage.page.getPinCount() > 0) {
-          secondMostRecentlyReadRecordPage.page.decrementPinCount();
+          secondMostRecentlyReadRecordPage.page.decrementPinCount(trxId);
         }
       }
 
       if (pathSummaryRecordPage != null) {
         if (pathSummaryRecordPage.page.getPinCount() > 0) {
-          pathSummaryRecordPage.page.decrementPinCount();
+          pathSummaryRecordPage.page.decrementPinCount(trxId);
         }
         if (trxIntentLog != null) {
           pathSummaryRecordPage.page.clear();

@@ -52,8 +52,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
   private static final int INT_SIZE = Integer.BYTES;
-
-  private final AtomicInteger pinCount = new AtomicInteger();
+  
+  /**
+   * Track pin counts per transaction ID (PostgreSQL PrivateRefCount pattern).
+   * Each transaction independently pins/unpins shared pages.
+   */
+  private final ConcurrentHashMap<Integer, AtomicInteger> pinCountByTrx = new ConcurrentHashMap<>();
+  private final AtomicInteger cachedTotalPinCount = new AtomicInteger(0);  // Cached sum for O(1) weigher
 
   /**
    * The current revision.
@@ -223,23 +228,42 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public void incrementPinCount() {
-    assert !isClosed;
-    pinCount.incrementAndGet();
+  public void incrementPinCount(int trxId) {
+    assert !isClosed : "Cannot pin closed page " + recordPageKey;
+    pinCountByTrx.computeIfAbsent(trxId, _ -> new AtomicInteger(0)).incrementAndGet();
+    cachedTotalPinCount.incrementAndGet();  // O(1) cache update
   }
 
   @Override
-  public void decrementPinCount() {
-    assert !isClosed;
-    var count = pinCount.decrementAndGet();
-    assert
-        count >= 0 :
-        "Pin count must be >= 0, but is " + count + " (page: " + recordPageKey + ", indexType: " + indexType + ")";
+  public void decrementPinCount(int trxId) {
+    assert !isClosed : "Cannot unpin closed page " + recordPageKey;
+    var counter = pinCountByTrx.get(trxId);
+    if (counter == null) {
+      throw new IllegalStateException("Transaction " + trxId + " never pinned page " + recordPageKey);
+    }
+    int newCount = counter.decrementAndGet();
+    if (newCount < 0) {
+      throw new IllegalStateException("Pin count for trx " + trxId + " went negative on page " + recordPageKey);
+    }
+    cachedTotalPinCount.decrementAndGet();  // O(1) cache update
+    if (newCount == 0) {
+      pinCountByTrx.remove(trxId);  // Cleanup when transaction done with this page
+    }
   }
 
   @Override
   public int getPinCount() {
-    return pinCount.get();
+    // Cached total - O(1) for Caffeine weigher (hot path!)
+    return cachedTotalPinCount.get();
+  }
+  
+  /**
+   * Get pin count breakdown per transaction for diagnostics.
+   * @return Map of transaction ID to pin count
+   */
+  public Map<Integer, Integer> getPinCountByTransaction() {
+    return pinCountByTrx.entrySet().stream()
+        .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().get()));
   }
 
   // Update the last slot index after setting a slot.
