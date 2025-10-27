@@ -10,6 +10,8 @@ import io.sirix.page.interfaces.Page;
 public interface BufferManager extends AutoCloseable {
   Cache<PageReference, KeyValueLeafPage> getRecordPageCache();
 
+  Cache<PageReference, KeyValueLeafPage> getRecordPageFragmentCache();
+
   Cache<PageReference, Page> getPageCache();
 
   Cache<Integer, RevisionRootPage> getRevisionRootPageCache();

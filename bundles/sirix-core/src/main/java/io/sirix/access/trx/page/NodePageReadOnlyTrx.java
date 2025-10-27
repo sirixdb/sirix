@@ -606,19 +606,19 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     io.sirix.cache.DiagnosticLogger.log("unpinPageFragments: " + pages.size() + " fragments, trxIntentLog=" + (trxIntentLog != null));
 
-    var mostRecentPageFragment = pages.getFirst();
+    var mostRecentPageFragment = (KeyValueLeafPage) pages.getFirst();
     mostRecentPageFragment.decrementPinCount(trxId);
-    resourceBufferManager.getPageCache().put(pageReference, mostRecentPageFragment);
-    io.sirix.cache.DiagnosticLogger.log("  Fragment 0 cached (read-only)");
+    resourceBufferManager.getRecordPageFragmentCache().put(pageReference, mostRecentPageFragment);
+    io.sirix.cache.DiagnosticLogger.log("  Fragment 0 cached (unpinned)");
 
     var pageFragments = pageReference.getPageFragments();
     for (int i = 1; i < pages.size(); i++) {
-        var pageFragment = pages.get(i);
+        var pageFragment = (KeyValueLeafPage) pages.get(i);
         pageFragment.decrementPinCount(trxId);
         
         var pageFragmentKey = pageFragments.get(i - 1);
-        resourceBufferManager.getPageCache().put(new PageReference().setKey(pageFragmentKey.key()), pageFragment);
-        io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " cached (read-only)");
+        resourceBufferManager.getRecordPageFragmentCache().put(new PageReference().setKey(pageFragmentKey.key()), pageFragment);
+        io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " cached (unpinned)");
     }
 }
 
@@ -673,11 +673,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     KeyValuePage<DataRecord> page;
 
 //    if (trxIntentLog == null) {
-      page = (KeyValuePage<DataRecord>) resourceBufferManager.getPageCache().get(pageReferenceWithKey, (_, value) -> {
-        var kvPage = (KeyValueLeafPage) value;
-        if (value == null) {
-          kvPage = (KeyValueLeafPage) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
-        }
+      page = (KeyValuePage<DataRecord>) resourceBufferManager.getRecordPageFragmentCache().get(pageReferenceWithKey, (_, value) -> {
+        var kvPage = (value != null) ? value :
+            (KeyValueLeafPage) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
+        
+        // Pin for this transaction (fragments are unpinned after combineRecordPages)
         kvPage.incrementPinCount(trxId);
         return kvPage;
       });
@@ -711,13 +711,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   @SuppressWarnings("unchecked")
   private CompletableFuture<KeyValuePage<DataRecord>> readPage(final PageFragmentKey pageFragmentKey) {
     final var pageReference = new PageReference().setKey(pageFragmentKey.key());
+    
     //if (trxIntentLog == null) {
-      final var pageFromBufferManager = resourceBufferManager.getPageCache().get(pageReference);
+      final var pageFromBufferManager = resourceBufferManager.getRecordPageFragmentCache().get(pageReference);
       if (pageFromBufferManager != null) {
         assert !pageFromBufferManager.isClosed();
         assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) pageFromBufferManager).getRevision();
         ((KeyValueLeafPage) pageFromBufferManager).incrementPinCount(trxId);
-        resourceBufferManager.getPageCache().put(pageReference, pageFromBufferManager);
+        resourceBufferManager.getRecordPageFragmentCache().put(pageReference, pageFromBufferManager);
         return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) pageFromBufferManager);
       }
     //}
@@ -729,10 +730,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                                                  //if (trxIntentLog == null) {
                                                                    assert pageFragmentKey.revision()
                                                                        == ((KeyValuePage<DataRecord>) page).getRevision();
-                                                                   synchronized (resourceBufferManager.getPageCache()) {
-                                                                     ((KeyValueLeafPage) page).incrementPinCount(trxId);
-                                                                     resourceBufferManager.getPageCache()
-                                                                                          .put(pageReference, page);
+                                                                   synchronized (resourceBufferManager.getRecordPageFragmentCache()) {
+                                                                     var kvPage = (KeyValueLeafPage) page;
+                                                                     kvPage.incrementPinCount(trxId);
+                                                                     resourceBufferManager.getRecordPageFragmentCache()
+                                                                                          .put(pageReference, kvPage);
                                                                    }
                                                                  //} else {
                                                                  //  ((KeyValuePage<DataRecord>) page).incrementPinCount(trxId);

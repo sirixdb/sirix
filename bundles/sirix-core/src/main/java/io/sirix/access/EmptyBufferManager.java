@@ -12,6 +12,8 @@ public final class EmptyBufferManager implements BufferManager {
 
   private static final EmptyCache<PageReference, KeyValueLeafPage> RECORD_PAGE_CACHE = new EmptyCache<>();
 
+  private static final EmptyCache<PageReference, KeyValueLeafPage> RECORD_PAGE_FRAGMENT_CACHE = new EmptyCache<>();
+
   private static final EmptyCache<PageReference, Page> PAGE_CACHE = new EmptyCache<>();
 
   private static final EmptyCache<Integer, RevisionRootPage> REVISION_ROOT_PAGE_CACHE = new EmptyCache<>();
@@ -28,6 +30,11 @@ public final class EmptyBufferManager implements BufferManager {
   @Override
   public Cache<PageReference, KeyValueLeafPage> getRecordPageCache() {
     return RECORD_PAGE_CACHE;
+  }
+
+  @Override
+  public Cache<PageReference, KeyValueLeafPage> getRecordPageFragmentCache() {
+    return RECORD_PAGE_FRAGMENT_CACHE;
   }
 
   @Override

@@ -12,6 +12,8 @@ public final class BufferManagerImpl implements BufferManager {
 
   private final RecordPageCache recordPageCache;
 
+  private final RecordPageFragmentCache recordPageFragmentCache;
+
   private final RevisionRootPageCache revisionRootPageCache;
 
   private final RedBlackTreeNodeCache redBlackTreeNodeCache;
@@ -24,6 +26,7 @@ public final class BufferManagerImpl implements BufferManager {
       int maxRevisionRootPageCache, int maxRBTreeNodeCache, int maxNamesCacheSize, int maxPathSummaryCacheSize) {
     pageCache = new PageCache(maxPageCachWeight);
     recordPageCache = new RecordPageCache(maxRecordPageCacheWeight);
+    recordPageFragmentCache = new RecordPageFragmentCache(maxRecordPageCacheWeight / 2); // Half the size of recordPageCache
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
     namesCache = new NamesCache(maxNamesCacheSize);
@@ -38,6 +41,11 @@ public final class BufferManagerImpl implements BufferManager {
   @Override
   public Cache<PageReference, KeyValueLeafPage> getRecordPageCache() {
     return recordPageCache;
+  }
+
+  @Override
+  public Cache<PageReference, KeyValueLeafPage> getRecordPageFragmentCache() {
+    return recordPageFragmentCache;
   }
 
   @Override
@@ -68,6 +76,7 @@ public final class BufferManagerImpl implements BufferManager {
   public void clearAllCaches() {
     pageCache.clear();
     recordPageCache.clear();
+    recordPageFragmentCache.clear();
     revisionRootPageCache.clear();
     redBlackTreeNodeCache.clear();
     namesCache.clear();
