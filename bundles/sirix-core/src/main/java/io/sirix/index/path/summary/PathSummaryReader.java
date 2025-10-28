@@ -50,6 +50,10 @@ import static java.util.Objects.requireNonNull;
 @SuppressWarnings({ "unused", "UnusedReturnValue" })
 public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
+  // DEBUG FLAG: Enable with -Dsirix.debug.path.summary=true
+  private static final boolean DEBUG_PATH_SUMMARY = 
+    Boolean.getBoolean("sirix.debug.path.summary");
+
   /**
    * Strong reference to currently selected node.
    */
@@ -104,6 +108,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final PathSummaryData pathSummaryData = pathSummaryCache.get(pageReadTrx.getRevisionNumber());
 
     if (pathSummaryData == null || pageReadTrx.hasTrxIntentLog()) {
+      if (DEBUG_PATH_SUMMARY) {
+        System.err.println("[PATH_SUMMARY-INIT] Initializing pathNodeMapping: " +
+                           "hasTrxIntentLog=" + pageReadTrx.hasTrxIntentLog() +
+                           ", revision=" + pageReadTrx.getRevisionNumber());
+      }
+      
       currentNode =
           this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
 
@@ -120,6 +130,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       boolean first = true;
       boolean hasMoved = moveToFirstChild();
       if (hasMoved) {
+        int nodesLoaded = 0;
         var axis = new LevelOrderSettingInMemoryInstancesAxis.Builder(this).includeSelf().build();
         while (axis.hasNext()) {
           final var pathNode = axis.next();
@@ -127,7 +138,13 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
           moveTo(pathNode.getNodeKey());
           assert this.getNodeKey() == pathNode.getNodeKey();
           qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
+          nodesLoaded++;
          // assert Objects.equals(this.getName(), pathNode.getName());
+        }
+
+        if (DEBUG_PATH_SUMMARY) {
+          System.err.println("[PATH_SUMMARY-INIT]   -> Loaded " + nodesLoaded + " nodes into pathNodeMapping, " +
+                             "arraySize=" + pathNodeMapping.length);
         }
 
         moveToDocumentRoot();
@@ -137,6 +154,10 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
                              new PathSummaryData(currentNode, pathNodeMapping, qnmMapping));
       }
     } else {
+      if (DEBUG_PATH_SUMMARY) {
+        System.err.println("[PATH_SUMMARY-INIT] Using cached pathSummaryData from revision " + 
+                           pageReadTrx.getRevisionNumber());
+      }
       currentNode = pathSummaryData.currentNode();
       pathNodeMapping = pathSummaryData.pathNodeMapping();
       qnmMapping = pathSummaryData.qnmMapping();
@@ -407,11 +428,23 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       final PathNode node = (PathNode) pathNodeMapping[(int) nodeKey];
 
       if (node != null) {
+        if (DEBUG_PATH_SUMMARY) {
+          System.err.println("[PATH_SUMMARY-MOVETO] Found in pathNodeMapping: nodeKey=" + nodeKey);
+        }
         currentNode = node;
         return true;
       } else {
+        if (DEBUG_PATH_SUMMARY) {
+          System.err.println("[PATH_SUMMARY-MOVETO] NOT in pathNodeMapping: nodeKey=" + nodeKey +
+                             ", arrayLength=" + pathNodeMapping.length +
+                             ", init=" + init);
+        }
         return false;
       }
+    }
+
+    if (DEBUG_PATH_SUMMARY) {
+      System.err.println("[PATH_SUMMARY-MOVETO] Loading from page (init=" + init + "): nodeKey=" + nodeKey);
     }
 
     // Remember old node and fetch new one.
@@ -424,9 +457,15 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     }
 
     if (newNode == null) {
+      if (DEBUG_PATH_SUMMARY) {
+        System.err.println("[PATH_SUMMARY-MOVETO]   -> Failed to load from page: nodeKey=" + nodeKey);
+      }
       currentNode = oldNode;
       return false;
     } else {
+      if (DEBUG_PATH_SUMMARY) {
+        System.err.println("[PATH_SUMMARY-MOVETO]   -> Loaded from page: nodeKey=" + nodeKey);
+      }
       currentNode = newNode;
       return true;
     }

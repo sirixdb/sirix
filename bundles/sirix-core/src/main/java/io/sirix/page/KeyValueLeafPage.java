@@ -55,8 +55,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   
   // DEBUG FLAG: Enable with -Dsirix.debug.memory.leaks=true
   public static final boolean DEBUG_MEMORY_LEAKS = 
-    true; // TEMP
-    //Boolean.getBoolean("sirix.debug.memory.leaks");
+    Boolean.getBoolean("sirix.debug.memory.leaks");
   
   // DIAGNOSTIC COUNTERS (enabled via DEBUG_MEMORY_LEAKS)
   public static final java.util.concurrent.atomic.AtomicLong PAGES_CREATED = new java.util.concurrent.atomic.AtomicLong(0);

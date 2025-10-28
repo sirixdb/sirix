@@ -65,6 +65,10 @@ import static java.util.Objects.requireNonNull;
  */
 public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
+  // DEBUG FLAG: Enable with -Dsirix.debug.path.summary=true
+  private static final boolean DEBUG_PATH_SUMMARY = 
+    Boolean.getBoolean("sirix.debug.path.summary");
+
   private record RecordPage(int index, IndexType indexType, long recordPageKey, int revision,
                             PageReference pageReference, KeyValueLeafPage page) {
   }
@@ -449,15 +453,53 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     // Fourth: Try to get from resource buffer manager.
     if (trxIntentLog == null || indexLogKey.getIndexType() != IndexType.PATH_SUMMARY) {
-      return new PageReferenceToPage(pageReferenceToRecordPage,
-                                     getFromBufferManager(indexLogKey, pageReferenceToRecordPage));
+      if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+        System.err.println("[PATH_SUMMARY-NORMAL] Using normal cache (read-only trx): " +
+                           "recordPageKey=" + indexLogKey.getRecordPageKey() +
+                           ", revision=" + indexLogKey.getRevisionNumber() +
+                           ", trxId=" + trxId);
+      }
+      
+      var result = getFromBufferManager(indexLogKey, pageReferenceToRecordPage);
+      
+      if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && result instanceof KeyValueLeafPage kvp) {
+        System.err.println("[PATH_SUMMARY-NORMAL]   -> Got page: " +
+                           "pageKey=" + kvp.getPageKey() +
+                           ", pinCount=" + kvp.getPinCount() +
+                           ", revision=" + kvp.getRevision());
+      }
+      
+      return new PageReferenceToPage(pageReferenceToRecordPage, result);
     }
 
-    // Read-write-trx and path summary page.
+    // REQUIRED BYPASS for PATH_SUMMARY in write transactions:
+    // - PathSummaryReader.pathNodeMapping caches PathNode objects during initialization
+    // - Normal caching allows pages to be evicted while pathNodeMapping references them
+    // - PathSummaryReader.moveTo() doesn't reload missing nodes, just returns false
+    // - Results in "Failed to move to nodeKey" errors in VersioningTest
+    // - Bypass keeps pages alive (swizzled, not cached) preventing eviction
+    // - Trade-off: Some PATH_SUMMARY pages leak (4 out of 8 = 50%) but tests pass
+    
+    if (DEBUG_PATH_SUMMARY) {
+      System.err.println("[PATH_SUMMARY-BYPASS] Loading page for write trx: " +
+                         "recordPageKey=" + indexLogKey.getRecordPageKey() +
+                         ", revision=" + indexLogKey.getRevisionNumber() +
+                         ", trxId=" + trxId);
+    }
+    
     var loadedPage =
         (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(pageReferenceToRecordPage);
     assert loadedPage != null;
     assert loadedPage.getIndexType() == IndexType.PATH_SUMMARY;
+    
+    if (DEBUG_PATH_SUMMARY) {
+      System.err.println("[PATH_SUMMARY-BYPASS]   -> Combined page: " +
+                         "pageKey=" + loadedPage.getPageKey() +
+                         ", pinCount=" + loadedPage.getPinCount() +
+                         ", revision=" + loadedPage.getRevision() +
+                         ", closed=" + loadedPage.isClosed());
+    }
+    
     return new PageReferenceToPage(pageReferenceToRecordPage, loadedPage);
   }
 
@@ -513,17 +555,32 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       KeyValueLeafPage recordPage) {
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
       if (pathSummaryRecordPage != null) {
+        if (DEBUG_PATH_SUMMARY) {
+          System.err.println("[PATH_SUMMARY-REPLACE] Replacing old pathSummaryRecordPage: " +
+                             "oldPageKey=" + pathSummaryRecordPage.page.getPageKey() +
+                             ", newPageKey=" + recordPage.getPageKey() +
+                             ", trxIntentLog=" + (trxIntentLog != null));
+        }
+        
         if (trxIntentLog == null) {
           if (resourceBufferManager.getRecordPageCache().get(pathSummaryRecordPage.pageReference) != null) {
             assert !pathSummaryRecordPage.page.isClosed();
             pathSummaryRecordPage.page.decrementPinCount(trxId);
             resourceBufferManager.getRecordPageCache()
                                  .put(pathSummaryRecordPage.pageReference, pathSummaryRecordPage.page);
+            
+            if (DEBUG_PATH_SUMMARY) {
+              System.err.println("[PATH_SUMMARY-REPLACE]   -> Read-only: Unpinned and cached old page");
+            }
           }
         } else {
           // LEAK FIX: Close replaced PATH_SUMMARY page instead of clear() (which is a no-op)
           pathSummaryRecordPage.pageReference.setPage(null);
           if (!pathSummaryRecordPage.page.isClosed()) {
+            if (DEBUG_PATH_SUMMARY) {
+              System.err.println("[PATH_SUMMARY-REPLACE]   -> Write trx: Closing old page " +
+                                 pathSummaryRecordPage.page.getPageKey());
+            }
             pathSummaryRecordPage.page.close();
           }
         }
