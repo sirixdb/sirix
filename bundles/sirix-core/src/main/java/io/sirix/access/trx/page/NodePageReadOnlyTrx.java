@@ -33,7 +33,9 @@ import io.sirix.cache.*;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.io.Reader;
-import io.sirix.node.*;
+import io.sirix.node.DeletedNode;
+import io.sirix.node.MemorySegmentBytesIn;
+import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.KeyValuePage;
@@ -55,7 +57,6 @@ import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
-import io.sirix.node.Bytes;
 
 /**
  * Page read-only transaction. The only thing shared amongst transactions is the resource manager.
@@ -135,8 +136,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   private RecordPage pathSummaryRecordPage;
 
-  private final BytesOut<?> byteBufferForRecords = Bytes.elasticHeapByteBuffer(40);
-
   /**
    * Standard constructor.
    *
@@ -206,14 +205,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 //      reference.setPage(page);
 //    }
 //    return page;
-  }
-
-  private void putIntoPageCache(PageReference reference, Page page) {
-    if (!(page instanceof UberPage)) {
-      // Put page into buffer manager.
-      // Use put() not putIfAbsent() to replace any stale cached pages
-      resourceBufferManager.getPageCache().put(reference, page);
-    }
   }
 
   @Override
@@ -530,8 +521,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                  .put(pathSummaryRecordPage.pageReference, pathSummaryRecordPage.page);
           }
         } else {
+          // LEAK FIX: Close replaced PATH_SUMMARY page instead of clear() (which is a no-op)
           pathSummaryRecordPage.pageReference.setPage(null);
-          pathSummaryRecordPage.page.clear();
+          if (!pathSummaryRecordPage.page.isClosed()) {
+            pathSummaryRecordPage.page.close();
+          }
         }
       }
 
@@ -628,11 +622,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     Page page = pageReferenceToRecordPage.getPage();
 
     if (page != null) {
-      if (trxIntentLog == null || indexLogKey.getIndexType() != IndexType.PATH_SUMMARY) {
+      //if (trxIntentLog == null || indexLogKey.getIndexType() != IndexType.PATH_SUMMARY) {
         var kvLeafPage = ((KeyValueLeafPage) page);
         kvLeafPage.incrementPinCount(trxId);
         resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, kvLeafPage);
-      }
+      //}
       setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, (KeyValueLeafPage) page);
       return page;
     }
@@ -659,7 +653,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @return dereferenced pages
    * @throws SirixIOException if an I/O-error occurs within the creation process
    */
-  @SuppressWarnings("unchecked")
   List<KeyValuePage<DataRecord>> getPageFragments(final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceSession.getResourceConfig();
@@ -673,7 +666,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     KeyValuePage<DataRecord> page;
 
 //    if (trxIntentLog == null) {
-      page = (KeyValuePage<DataRecord>) resourceBufferManager.getRecordPageFragmentCache().get(pageReferenceWithKey, (_, value) -> {
+      page = resourceBufferManager.getRecordPageFragmentCache().get(pageReferenceWithKey, (_, value) -> {
         var kvPage = (value != null) ? value :
             (KeyValueLeafPage) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
         
@@ -716,10 +709,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       final var pageFromBufferManager = resourceBufferManager.getRecordPageFragmentCache().get(pageReference);
       if (pageFromBufferManager != null) {
         assert !pageFromBufferManager.isClosed();
-        assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) pageFromBufferManager).getRevision();
-        ((KeyValueLeafPage) pageFromBufferManager).incrementPinCount(trxId);
+        assert pageFragmentKey.revision() == pageFromBufferManager.getRevision();
+        pageFromBufferManager.incrementPinCount(trxId);
         resourceBufferManager.getRecordPageFragmentCache().put(pageReference, pageFromBufferManager);
-        return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) pageFromBufferManager);
+        return CompletableFuture.completedFuture(pageFromBufferManager);
       }
     //}
     final var reader = resourceSession.createReader();

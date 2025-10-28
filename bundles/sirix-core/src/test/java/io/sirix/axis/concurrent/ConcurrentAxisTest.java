@@ -50,7 +50,8 @@ public final class ConcurrentAxisTest {
 
   /** DEBUG FLAG: Enable with -Dsirix.debug.leak.diagnostics=true */
   private static final boolean DEBUG_LEAK_DIAGNOSTICS = 
-    Boolean.getBoolean("sirix.debug.leak.diagnostics");
+    true; // TEMP
+    //Boolean.getBoolean("sirix.debug.leak.diagnostics");
 
   /** XML file name to test. */
   private static final String XMLFILE = "10mb.xml";

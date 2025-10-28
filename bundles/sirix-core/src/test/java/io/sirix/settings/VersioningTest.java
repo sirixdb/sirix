@@ -21,9 +21,8 @@
 
 package io.sirix.settings;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
+import io.brackit.query.atomic.QNm;
+import io.sirix.XmlTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -33,12 +32,12 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixException;
-import io.brackit.query.atomic.QNm;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import io.sirix.XmlTestHelper;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Test revisioning.
@@ -50,14 +49,14 @@ public class VersioningTest {
    */
   private Database<XmlResourceSession> database;
 
-  @Before
+  @BeforeEach
   public void setUp() {
     XmlTestHelper.deleteEverything();
     Databases.createXmlDatabase(new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile()));
     database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile());
   }
 
-  @After
+  @AfterEach
   public void tearDown() {
     database.close();
   }
@@ -237,34 +236,34 @@ public class VersioningTest {
           wtx.insertElementAsFirstChild(new QNm("foo"));
         }
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), Constants.NDP_NODE_COUNT - 1);
+        assertEquals(Constants.NDP_NODE_COUNT - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT << 1) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT << 1) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 3) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT * 3) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT << 2) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT << 2) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 5) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT * 5) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 6) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT * 6) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 7) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT * 7) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT << 3) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT << 3) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 9) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT * 9) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 10) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT * 10) - 1, wtx.getNodeKey());
         try (final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
           for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
             assertTrue(rtx.moveToFirstChild());
@@ -295,7 +294,7 @@ public class VersioningTest {
         wtx.insertElementAsFirstChild(new QNm("foo"));
       }
       wtx.commit();
-      Assert.assertEquals(wtx.getNodeKey(), Constants.NDP_NODE_COUNT - 1);
+      assertEquals(Constants.NDP_NODE_COUNT - 1, wtx.getNodeKey());
       wtx.close();
       wtx = manager.beginNodeTrx();
       setBaaaz(wtx);
