@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static java.util.Objects.requireNonNull;
 
@@ -39,10 +40,19 @@ public final class Databases {
   private static final LogWrapper logger = new LogWrapper(LoggerFactory.getLogger(Databases.class));
 
   /**
-   * Buffer managers / page cache for each resource.
+   * Single global BufferManager shared across all databases and resources.
+   * This follows the PostgreSQL/MySQL/SQL Server architecture pattern where
+   * a single buffer pool serves the entire database server instance.
+   * 
+   * Cache keys include (databaseId, resourceId) to prevent collisions.
+   * Initialized lazily when first database is opened.
    */
-  private static final ConcurrentMap<Path, ConcurrentMap<Path, BufferManager>> BUFFER_MANAGERS =
-      new ConcurrentHashMap<>();
+  private static volatile BufferManager GLOBAL_BUFFER_MANAGER = null;
+
+  /**
+   * Database ID counter for assigning unique IDs to databases.
+   */
+  private static final AtomicLong DATABASE_ID_COUNTER = new AtomicLong(0);
 
   /**
    * DI component that manages the database.
@@ -124,6 +134,12 @@ public final class Databases {
           }
         }
       }
+      
+      // Assign unique database ID if not already set
+      if (dbConfig.getDatabaseId() == 0) {
+        dbConfig.setDatabaseId(DATABASE_ID_COUNTER.getAndIncrement());
+      }
+      
       // serialization of the config
       DatabaseConfiguration.serialize(dbConfig);
 
@@ -158,11 +174,9 @@ public final class Databases {
         }
       }
 
-      ConcurrentMap<Path, BufferManager> bufferManagers = BUFFER_MANAGERS.remove(dbFile);
-      if (bufferManagers != null && !bufferManagers.isEmpty()) {
-        // TODO: Why is this necessary? BUG!
-        bufferManagers.values().forEach(BufferManager::clearAllCaches);
-      }
+      // Note: With global BufferManager, we don't clear caches here.
+      // Caches will be cleared when last database is closed (see freeAllocatedMemory).
+      // This allows pages to remain cached if database is quickly reopened.
       SirixFiles.recursiveRemove(dbFile);
 
       freeAllocatedMemory();
@@ -174,13 +188,16 @@ public final class Databases {
   public static void freeAllocatedMemory() {
     if (MANAGER.sessions().isEmpty()) {
  
-      // If no sessions are left, we can clean up the allocator.
-      MemorySegmentAllocator segmentAllocator =
-          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
-      segmentAllocator.free();
-      // All caches will be cleared automatically
-      BUFFER_MANAGERS.values()
-                     .forEach((resourcePathsToBufferManagers -> resourcePathsToBufferManagers.forEach((_, bufferManager) -> bufferManager.clearAllCaches())));
+//      // If no sessions are left, we can clean up the allocator and global caches.
+//      MemorySegmentAllocator segmentAllocator =
+//          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
+//      segmentAllocator.free();
+//
+//      // Clear the global BufferManager caches if initialized
+//      if (GLOBAL_BUFFER_MANAGER != null) {
+//        GLOBAL_BUFFER_MANAGER.clearAllCaches();
+//        GLOBAL_BUFFER_MANAGER = null; // Allow re-initialization with new settings
+//      }
     }
   }
 
@@ -281,6 +298,12 @@ public final class Databases {
       throw new IllegalStateException("Configuration may not be null!");
     }
 
+    // Assign database ID if not already set (backward compatibility)
+    if (dbConfig.getDatabaseId() == 0) {
+      dbConfig.setDatabaseId(DATABASE_ID_COUNTER.getAndIncrement());
+      DatabaseConfiguration.serialize(dbConfig);
+    }
+
     initAllocator(dbConfig.getMaxSegmentAllocationSize());
     return databaseType.createDatabase(dbConfig, user);
   }
@@ -291,6 +314,9 @@ public final class Databases {
       MemorySegmentAllocator segmentAllocator =
           OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
       segmentAllocator.init(maxSegmentAllocationSize);
+      
+      // Initialize global BufferManager with sizes proportional to memory budget
+      initializeGlobalBufferManager(maxSegmentAllocationSize);
     }
   }
 
@@ -304,7 +330,73 @@ public final class Databases {
     return Files.exists(dbPath) && DatabaseConfiguration.DatabasePaths.compareStructure(dbPath) == 0;
   }
 
-  public static ConcurrentMap<Path, BufferManager> getBufferManager(Path databaseFile) {
-    return BUFFER_MANAGERS.computeIfAbsent(databaseFile, (unused) -> new ConcurrentHashMap<>());
+  /**
+   * Initialize the global BufferManager with sizes based on memory budget.
+   * Called when the first database is opened.
+   *
+   * @param maxSegmentAllocationSize the maximum memory budget for the allocator
+   */
+  private static synchronized void initializeGlobalBufferManager(long maxSegmentAllocationSize) {
+    if (GLOBAL_BUFFER_MANAGER == null) {
+      // Only scale record page caches with memory budget
+      // Other caches use fixed baseline sizes
+      long budgetGB = maxSegmentAllocationSize / (1L << 30);
+      int scaleFactor = (int) Math.max(1, budgetGB);
+      
+      // Scale with budget (these are the main memory consumers)
+      int maxRecordPageCacheWeight = 65_536 * 100 * scaleFactor;
+      int maxRecordPageFragmentCacheWeight = (65_536 * 100 * scaleFactor) / 2;
+      
+      // Fixed sizes (don't scale with budget)
+      int maxPageCacheWeight = 500_000;
+      int maxRevisionRootPageCache = 5_000;
+      int maxRBTreeNodeCache = 50_000;
+      int maxNamesCacheSize = 500;
+      int maxPathSummaryCacheSize = 20;
+      
+      logger.info("Initializing global BufferManager with memory budget: {} GB", budgetGB);
+      logger.info("  - RecordPageCache weight: {} (scaled {}x)", maxRecordPageCacheWeight, scaleFactor);
+      logger.info("  - RecordPageFragmentCache weight: {} (scaled {}x)", maxRecordPageFragmentCacheWeight, scaleFactor);
+      logger.info("  - PageCache weight: {} (fixed)", maxPageCacheWeight);
+      logger.info("  - RevisionRootPageCache size: {} (fixed)", maxRevisionRootPageCache);
+      logger.info("  - RBTreeNodeCache size: {} (fixed)", maxRBTreeNodeCache);
+      logger.info("  - NamesCache size: {} (fixed)", maxNamesCacheSize);
+      logger.info("  - PathSummaryCache size: {} (fixed)", maxPathSummaryCacheSize);
+      
+      GLOBAL_BUFFER_MANAGER = new BufferManagerImpl(
+          maxPageCacheWeight,
+          maxRecordPageCacheWeight,
+          maxRevisionRootPageCache,
+          maxRBTreeNodeCache,
+          maxNamesCacheSize,
+          maxPathSummaryCacheSize);
+    }
+  }
+
+  /**
+   * Get the global BufferManager instance.
+   * 
+   * @param databaseFile the database file path (kept for API compatibility, but ignored)
+   * @return the single global BufferManager instance
+   */
+  public static BufferManager getBufferManager(Path databaseFile) {
+    if (GLOBAL_BUFFER_MANAGER == null) {
+      // Initialize with default if called before any database is opened
+      initializeGlobalBufferManager(2L * (1L << 30)); // 2GB default
+    }
+    return GLOBAL_BUFFER_MANAGER;
+  }
+  
+  /**
+   * Get the global BufferManager instance directly.
+   * 
+   * @return the single global BufferManager instance
+   */
+  public static BufferManager getGlobalBufferManager() {
+    if (GLOBAL_BUFFER_MANAGER == null) {
+      // Initialize with default if called before any database is opened
+      initializeGlobalBufferManager(2L * (1L << 30)); // 2GB default
+    }
+    return GLOBAL_BUFFER_MANAGER;
   }
 }

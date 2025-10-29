@@ -103,49 +103,10 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     
-    if (unpinnedPages > 0) {
-      System.err.println("✓ clearAllCaches() force-unpinned " + unpinnedPages + " leaked pages");
-    }
     
-    // Second pass: explicitly close all pages to release segments
-    // Cache removal listeners will also close, but let's be explicit
-    for (var entry : recordPageCache.asMap().entrySet()) {
-      var page = entry.getValue();
-      if (!page.isClosed()) {
-        page.close();
-        closedPages++;
-      }
-    }
-    
-    for (var entry : recordPageFragmentCache.asMap().entrySet()) {
-      var page = entry.getValue();
-      if (!page.isClosed()) {
-        page.close();
-        closedPages++;
-      }
-    }
-    
-    for (var entry : pageCache.asMap().entrySet()) {
-      if (entry.getValue() instanceof KeyValueLeafPage kvPage && !kvPage.isClosed()) {
-        kvPage.close();
-        closedPages++;
-      }
-    }
-    
-    if (closedPages > 0) {
-      System.err.println("✓ clearAllCaches() closed " + closedPages + " pages to release segments");
-    }
-    
-    // Report page leak statistics (if DEBUG_MEMORY_LEAKS enabled)
-    long finalized = KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
-    long created = KeyValueLeafPage.PAGES_CREATED.get();
-    long closed = KeyValueLeafPage.PAGES_CLOSED.get();
-    if (finalized > 0 || (created > 0 && created != closed)) {
-      System.err.println("📊 Page Leak Stats: Created=" + created + ", Closed=" + closed + 
-                         ", Finalized=" + finalized + ", Live=" + KeyValueLeafPage.ALL_LIVE_PAGES.size());
-    }
-    
-    // Now clear the caches (pages already closed)
+    // DON'T explicitly close pages - let the cache removal listener do it
+    // Explicitly closing leaves closed pages in cache which causes "assert !isClosed()" failures
+    // Just clear the caches - removal listener will close pages
     pageCache.clear();
     recordPageCache.clear();
     recordPageFragmentCache.clear();

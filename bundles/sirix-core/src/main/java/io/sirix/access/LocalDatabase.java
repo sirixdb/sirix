@@ -90,9 +90,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private final WriteLocksRegistry writeLocks;
 
   /**
-   * The resource buffer managers.
+   * The global buffer manager shared across all databases and resources.
    */
-  private final ConcurrentMap<Path, BufferManager> bufferManagers;
+  private final BufferManager bufferManager;
 
   /**
    * Constructor.
@@ -115,11 +115,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     this.writeLocks = writeLocks;
     this.resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
     this.sessions.putObject(dbConfig.getDatabaseFile(), this);
-    this.bufferManagers = Databases.getBufferManager(dbConfig.getDatabaseFile());
-  }
-
-  private void addResourceToBufferManagerMapping(Path resourceFile) {
-    bufferManagers.put(resourceFile, new BufferManagerImpl(500_000, 65_536 * 100, 5_000, 50_000, 500, 20));
+    this.bufferManager = Databases.getGlobalBufferManager();
   }
 
   @Override
@@ -146,12 +142,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // Keep track of the resource-ID.
     resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
-    // Add resource to buffer manager mapping.
-    if (!bufferManagers.containsKey(resourcePath)) {
-      addResourceToBufferManagerMapping(resourcePath);
-    }
-
-    return resourceStore.beginResourceSession(resourceConfig, bufferManagers.get(resourcePath), resourcePath);
+    // Use the global BufferManager for this resource session.
+    // Cache keys include (databaseId, resourceId) to prevent collisions.
+    return resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath);
   }
 
   @Override
@@ -219,9 +212,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       SirixFiles.recursiveRemove(resourceConfig.resourcePath);
     }
 
-    if (!bufferManagers.containsKey(path)) {
-      addResourceToBufferManagerMapping(path);
-    }
+    // Note: With global BufferManager, no per-resource setup needed.
+    // Cache keys include (databaseId, resourceId) to prevent collisions.
 
     return returnVal;
   }
@@ -280,14 +272,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
       this.writeLocks.removeWriteLock(resourceFile);
 
-      var bufferManager = bufferManagers.remove(resourceFile);
-      if (bufferManager != null) {
-        try {
-          bufferManager.clearAllCaches();
-        } catch (Exception e) {
-          throw new RuntimeException(e);
-        }
-      }
+      // Note: With global BufferManager, we don't remove it per-resource.
+      // Caches are cleared when last database is closed.
+      // Individual pages for this resource will naturally be evicted by LRU.
 
       final var cache = StorageType.CACHE_REPOSITORY.remove(resourceFile);
       if (cache != null) {

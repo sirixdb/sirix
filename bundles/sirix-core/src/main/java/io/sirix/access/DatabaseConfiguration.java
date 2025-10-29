@@ -147,15 +147,21 @@ public final class DatabaseConfiguration {
   private long maxResourceID;
 
   /**
+   * Unique database ID to distinguish this database from others in a global BufferManager.
+   */
+  private long databaseId;
+
+  /**
    * The database type.
    */
   private DatabaseType databaseType;
 
   /**
    * Maximum buffer size for memory segment allocation.
-   * Default is 2GB (reduced from 8GB to avoid memory exhaustion).
+   * Default is 8GB to support global BufferManager serving all databases and resources.
+   * With global buffer pool, this budget is shared across all databases, so larger is better.
    */
-  private long maxSegmentAllocationSize = 2L * (1L << 30); // 2GB default
+  private long maxSegmentAllocationSize = 8L * (1L << 30); // 8GB default
 
   /**
    * Constructor with the path to be set.
@@ -230,6 +236,27 @@ public final class DatabaseConfiguration {
   }
 
   /**
+   * Set unique database ID.
+   *
+   * @param id database ID
+   * @return this {@link DatabaseConfiguration} instance
+   */
+  public DatabaseConfiguration setDatabaseId(final long id) {
+    checkArgument(id >= 0, "Database ID must be >= 0!");
+    databaseId = id;
+    return this;
+  }
+
+  /**
+   * Get the unique database ID.
+   *
+   * @return database ID
+   */
+  public long getDatabaseId() {
+    return databaseId;
+  }
+
+  /**
    * Getting the database file.
    *
    * @return the database file
@@ -287,6 +314,7 @@ public final class DatabaseConfiguration {
       final String filePath = config.file.toAbsolutePath().toString();
       jsonWriter.name("file").value(filePath);
       jsonWriter.name("ID").value(config.maxResourceID);
+      jsonWriter.name("databaseId").value(config.databaseId);
       jsonWriter.name("databaseType").value(config.databaseType.toString());
       jsonWriter.name("maxSegmentAllocationSize").value(config.maxSegmentAllocationSize);
       jsonWriter.endObject();
@@ -313,8 +341,16 @@ public final class DatabaseConfiguration {
       final String IDName = jsonReader.nextName();
       assert IDName.equals("ID");
       final int ID = jsonReader.nextInt();
-      final String databaseType = jsonReader.nextName();
-      assert databaseType.equals("databaseType");
+      
+      // Read databaseId if present (for backward compatibility)
+      long databaseId = -1;
+      String nextName = jsonReader.nextName();
+      if (nextName.equals("databaseId")) {
+        databaseId = jsonReader.nextLong();
+        nextName = jsonReader.nextName();
+      }
+      
+      assert nextName.equals("databaseType");
       final String type = jsonReader.nextString();
       final String maxSegmentAllocationSizeName = jsonReader.nextName();
       assert maxSegmentAllocationSizeName.equals("maxSegmentAllocationSize");
@@ -322,7 +358,18 @@ public final class DatabaseConfiguration {
       jsonReader.endObject();
       final DatabaseType dbType = DatabaseType.fromString(type)
                                               .orElseThrow(() -> new IllegalStateException("Type can not be unknown."));
-      return new DatabaseConfiguration(dbFile).setMaximumResourceID(ID).setDatabaseType(dbType).setMaxSegmentAllocationSize(maxSegmentAllocationSize);
+      
+      final DatabaseConfiguration config = new DatabaseConfiguration(dbFile)
+          .setMaximumResourceID(ID)
+          .setDatabaseType(dbType)
+          .setMaxSegmentAllocationSize(maxSegmentAllocationSize);
+      
+      // If databaseId was present in file, use it; otherwise it will be assigned later
+      if (databaseId >= 0) {
+        config.setDatabaseId(databaseId);
+      }
+      
+      return config;
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

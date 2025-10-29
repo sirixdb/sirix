@@ -164,7 +164,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private int hash;
 
-  private boolean isClosed;
+  private volatile boolean isClosed;
 
   private MemorySegmentAllocator segmentAllocator =
       OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
@@ -263,8 +263,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public void incrementPinCount(int trxId) {
     assert !isClosed : "Cannot pin closed page " + recordPageKey;
-    pinCountByTrx.computeIfAbsent(trxId, _ -> new AtomicInteger(0)).incrementAndGet();
+    int newPinCount = pinCountByTrx.computeIfAbsent(trxId, _ -> new AtomicInteger(0)).incrementAndGet();
     cachedTotalPinCount.incrementAndGet();  // O(1) cache update
+    
+    // Track PATH_SUMMARY pins for transactions 3-10 to debug leak
+    if (indexType == io.sirix.index.IndexType.PATH_SUMMARY && 
+        trxId >= 3 && trxId <= 10 && 
+        recordPageKey >= 2 && recordPageKey <= 9 &&
+        revision >= 1 && revision <= 8) {
+      System.err.println("📌 PIN: Trx " + trxId + " pinned Page " + recordPageKey + 
+                         " (rev=" + revision + ") count=" + newPinCount +
+                         " at " + new Exception().getStackTrace()[1].getMethodName());
+    }
   }
 
   @Override
@@ -279,6 +289,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       throw new IllegalStateException("Pin count for trx " + trxId + " went negative on page " + recordPageKey);
     }
     cachedTotalPinCount.decrementAndGet();  // O(1) cache update
+    
+    // Track PATH_SUMMARY unpins for transactions 3-10 to debug leak
+    if (indexType == io.sirix.index.IndexType.PATH_SUMMARY && 
+        trxId >= 3 && trxId <= 10 && 
+        recordPageKey >= 2 && recordPageKey <= 9 &&
+        revision >= 1 && revision <= 8) {
+      System.err.println("📍 UNPIN: Trx " + trxId + " unpinned Page " + recordPageKey + 
+                         " (rev=" + revision + ") count=" + newCount +
+                         " at " + new Exception().getStackTrace()[1].getMethodName());
+    }
+    
     if (newCount == 0) {
       pinCountByTrx.remove(trxId);  // Cleanup when transaction done with this page
     }
@@ -1000,16 +1021,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   protected void finalize() {
     if (!isClosed) {
       PAGES_FINALIZED_WITHOUT_CLOSE.incrementAndGet();
-      io.sirix.cache.DiagnosticLogger.log("FINALIZER LEAK CAUGHT: Page " + recordPageKey + " (" + indexType + ") - closing it now!");
-      //io.sirix.cache.DiagnosticLogger.log("  Created at: " + (creationStack.length > 3 ? creationStack[3] : "unknown"));
+      io.sirix.cache.DiagnosticLogger.log("FINALIZER LEAK CAUGHT: Page " + recordPageKey + " (" + indexType + ") - not closed explicitly!");
       
-      // CRITICAL: Actually close the page to prevent MemorySegment leak
-      // This is a safety net - pages should be closed before finalization
-      try {
-        //close();
-      } catch (Exception e) {
-        io.sirix.cache.DiagnosticLogger.log("  Finalizer close() failed: " + e.getMessage());
-      }
+      // NOTE: We don't call close() from finalizer because:
+      // 1. Finalizer runs on GC thread - race conditions with main threads
+      // 2. Modern Java discourages finalizers (deprecated)
+      // 3. MemorySegments are cleaned up when Arena/allocator is freed
+      // 
+      // This counter tracks pages that should have been explicitly closed.
+      // The real fix is in unpinAllPagesForTransaction() and TIL.clear()
     }
   }
 

@@ -26,7 +26,28 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
           assert key != null;
           key.setPage(null);
           assert page != null;
-          assert page.getPinCount() == 0 : "Page must not be pinned: " + page.getPinCount();
+          
+          // CRITICAL: Handle different removal causes appropriately
+          // - EXPLICIT (TIL.put() removing page): Skip if pinned (will be closed by TIL)
+          // - REPLACED (cache update): Skip if pinned (new version being cached)
+          // - SIZE (eviction): Must be unpinned, always close
+          // - COLLECTED (GC): Page key was GC'd, page might already be unreachable
+          if (cause == RemovalCause.COLLECTED) {
+            // Key was garbage collected - page might be unreachable, still try to close
+            LOGGER.trace("RecordPage {} key collected by GC, closing page", key.getKey());
+          } else if (cause == RemovalCause.EXPLICIT || cause == RemovalCause.REPLACED) {
+            if (page.getPinCount() > 0) {
+              // Page still pinned - don't close, will be handled by transaction/TIL
+              LOGGER.trace("RecordPage {} removed but NOT closed (cause={}, pinCount={})", 
+                          key.getKey(), cause, page.getPinCount());
+              return;
+            }
+            // Unpinned on explicit removal - close it
+            LOGGER.trace("RecordPage {} removed and closing (cause={}, unpinned)", key.getKey(), cause);
+          } else if (cause == RemovalCause.SIZE) {
+            // SIZE evictions must have pinCount == 0
+            assert page.getPinCount() == 0 : "Evicted page must not be pinned: " + page.getPinCount();
+          }
           
           // Page handles its own cleanup
           LOGGER.trace("Closing page {} and releasing segments, cause={}", 
@@ -44,7 +65,8 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
                       // Use actual memory segment sizes for accurate tracking
                       return (int) value.getActualMemorySize();
                     })
-                    .evictionListener(removalListener)
+                    .removalListener(removalListener) // FIXED: Use removalListener for ALL removals
+                    .recordStats() // Enable statistics for diagnostics
                     .build();
   }
 
@@ -101,5 +123,70 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
 
   @Override
   public void close() {
+  }
+  
+  /**
+   * Get cache statistics for diagnostics.
+   */
+  public CacheStatistics getStatistics() {
+    com.github.benmanes.caffeine.cache.stats.CacheStats caffeineStats = cache.stats();
+    
+    int totalPages = 0;
+    int pinnedPages = 0;
+    long totalWeight = 0;
+    long pinnedWeight = 0;
+    
+    for (KeyValueLeafPage page : cache.asMap().values()) {
+      totalPages++;
+      long weight = page.getActualMemorySize();
+      totalWeight += weight;
+      
+      if (page.getPinCount() > 0) {
+        pinnedPages++;
+        pinnedWeight += weight;
+      }
+    }
+    
+    return new CacheStatistics(
+        totalPages,
+        pinnedPages,
+        totalPages - pinnedPages,
+        totalWeight,
+        pinnedWeight,
+        totalWeight - pinnedWeight,
+        caffeineStats.hitCount(),
+        caffeineStats.missCount(),
+        caffeineStats.evictionCount()
+    );
+  }
+  
+  /**
+   * Cache statistics for diagnostics.
+   */
+  public record CacheStatistics(
+      int totalPages,
+      int pinnedPages,
+      int unpinnedPages,
+      long totalWeightBytes,
+      long pinnedWeightBytes,
+      long unpinnedWeightBytes,
+      long hitCount,
+      long missCount,
+      long evictionCount
+  ) {
+    @Override
+    public String toString() {
+      return String.format(
+          "CacheStats[pages=%d (pinned=%d, unpinned=%d), " +
+          "weight=%.2fMB (pinned=%.2fMB, unpinned=%.2fMB), " +
+          "hits=%d, misses=%d, evictions=%d, hit-rate=%.1f%%]",
+          totalPages, pinnedPages, unpinnedPages,
+          totalWeightBytes / (1024.0 * 1024.0),
+          pinnedWeightBytes / (1024.0 * 1024.0),
+          unpinnedWeightBytes / (1024.0 * 1024.0),
+          hitCount, missCount, evictionCount,
+          (hitCount + missCount) > 0 ? 100.0 * hitCount / (hitCount + missCount) : 0.0
+      );
+    }
   }
 }

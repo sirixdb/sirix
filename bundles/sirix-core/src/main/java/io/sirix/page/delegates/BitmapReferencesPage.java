@@ -131,6 +131,8 @@ public final class BitmapReferencesPage implements Page {
       pageReference.setKey(pageReferenceToClone.getKey());
       pageReference.setPage(pageReferenceToClone.getPage());
       pageReference.setLogKey(pageReferenceToClone.getLogKey());
+      pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
+      pageReference.setResourceId(pageReferenceToClone.getResourceId());
       pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
       references.add(offset, pageReference);
     }
@@ -221,9 +223,8 @@ public final class BitmapReferencesPage implements Page {
   }
 
   @Override
-  public Page clear() {
+  public void close() {
     references.clear();
     bitmap.clear();
-    return this;
   }
 }

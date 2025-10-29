@@ -131,6 +131,12 @@ public final class FileReader implements Reader {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
     final BytesIn<?> input = Bytes.wrapForRead(inputStream.readAllBytes());
     final var deserializedPage = pagePersiter.deserializePage(resourceConfiguration, input, serializationType);
+    
+    // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page
+    if (resourceConfiguration != null) {
+      io.sirix.page.PageUtils.fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+    }
+    
     return deserializedPage;
   }
 

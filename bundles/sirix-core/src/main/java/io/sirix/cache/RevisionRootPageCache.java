@@ -32,13 +32,14 @@ import io.sirix.page.RevisionRootPage;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.BiFunction;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
-public final class RevisionRootPageCache implements Cache<Integer, RevisionRootPage> {
-  private final com.github.benmanes.caffeine.cache.Cache<Integer, RevisionRootPage> cache;
+public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheKey, RevisionRootPage> {
+  private final com.github.benmanes.caffeine.cache.Cache<RevisionRootPageCacheKey, RevisionRootPage> cache;
 
   public RevisionRootPageCache(final int maxSize) {
     cache = Caffeine.newBuilder()
@@ -54,7 +55,7 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
   }
 
   @Override
-  public RevisionRootPage get(Integer key) {
+  public RevisionRootPage get(RevisionRootPageCacheKey key) {
     var revisionRootPage = cache.getIfPresent(key);
 
     if (revisionRootPage != null) {
@@ -65,23 +66,23 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
   }
 
   @Override
-  public RevisionRootPage get(Integer key,
-      BiFunction<? super Integer, ? super RevisionRootPage, ? extends RevisionRootPage> mappingFunction) {
+  public RevisionRootPage get(RevisionRootPageCacheKey key,
+      BiFunction<? super RevisionRootPageCacheKey, ? super RevisionRootPage, ? extends RevisionRootPage> mappingFunction) {
     return cache.asMap().compute(key, mappingFunction);
   }
 
   @Override
-  public void putIfAbsent(Integer key, RevisionRootPage value) {
+  public void putIfAbsent(RevisionRootPageCacheKey key, RevisionRootPage value) {
     cache.asMap().putIfAbsent(key, value);
   }
 
   @Override
-  public void put(Integer key, @NonNull RevisionRootPage value) {
+  public void put(RevisionRootPageCacheKey key, @NonNull RevisionRootPage value) {
     cache.put(key, value);
   }
 
   @Override
-  public void putAll(Map<? extends Integer, ? extends RevisionRootPage> map) {
+  public void putAll(Map<? extends RevisionRootPageCacheKey, ? extends RevisionRootPage> map) {
     cache.putAll(map);
   }
 
@@ -91,13 +92,18 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
   }
 
   @Override
-  public Map<Integer, RevisionRootPage> getAll(Iterable<? extends Integer> keys) {
+  public Map<RevisionRootPageCacheKey, RevisionRootPage> getAll(Iterable<? extends RevisionRootPageCacheKey> keys) {
     return cache.getAllPresent(keys);
   }
 
   @Override
-  public void remove(Integer key) {
+  public void remove(RevisionRootPageCacheKey key) {
     cache.invalidate(key);
+  }
+
+  @Override
+  public ConcurrentMap<RevisionRootPageCacheKey, RevisionRootPage> asMap() {
+    return cache.asMap();
   }
 
   @Override

@@ -34,11 +34,7 @@ import java.util.List;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public interface Page extends Closeable {
-
-  default Page clear() {
-    return this;
-  }
+public interface Page extends AutoCloseable {
 
   /**
    * Get all page references.

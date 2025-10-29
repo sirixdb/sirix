@@ -81,6 +81,16 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   }
 
   @Override
+  public long getDatabaseId() {
+    return delegate().getDatabaseId();
+  }
+
+  @Override
+  public long getResourceId() {
+    return delegate().getResourceId();
+  }
+
+  @Override
   public ResourceSession<?, ?> getResourceSession() {
     return delegate().getResourceSession();
   }

@@ -377,6 +377,15 @@ public final class ResourceConfiguration {
     return id;
   }
 
+  /**
+   * Get the database ID from the parent database configuration.
+   *
+   * @return the database ID, or 0 if database configuration not set
+   */
+  public long getDatabaseId() {
+    return databaseConfig != null ? databaseConfig.getDatabaseId() : 0;
+  }
+
   @Override
   public int hashCode() {
     return Objects.hash(storageType, versioningType, hashType, resourcePath, databaseConfig);

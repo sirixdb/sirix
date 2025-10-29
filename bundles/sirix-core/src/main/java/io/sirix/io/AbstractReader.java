@@ -54,6 +54,14 @@ public abstract class AbstractReader implements Reader {
     wrappedForRead.write(bytes);
     final var deserializedPage = pagePersister.deserializePage(resourceConfiguration, wrappedForRead.asBytesIn(), type);
     wrappedForRead.clear();
+    
+    // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page.
+    // This follows PostgreSQL pattern where BufferTag context (tablespace, database, relation)
+    // is combined with on-disk block numbers when pages are read.
+    if (resourceConfiguration != null) {
+      io.sirix.page.PageUtils.fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+    }
+    
     return deserializedPage;
   }
 
@@ -75,9 +83,16 @@ public abstract class AbstractReader implements Reader {
     MemorySegment decompressed = byteHandler.decompress(compressedPage);
 
     // Deserialize directly from MemorySegment
-    return pagePersister.deserializePage(resourceConfiguration, 
+    Page deserializedPage = pagePersister.deserializePage(resourceConfiguration, 
                                           new MemorySegmentBytesIn(decompressed), 
                                           type);
+    
+    // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page
+    if (resourceConfiguration != null) {
+      io.sirix.page.PageUtils.fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+    }
+    
+    return deserializedPage;
   }
 
   @Override

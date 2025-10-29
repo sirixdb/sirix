@@ -15,6 +15,7 @@ import io.sirix.axis.filter.PathNameFilter;
 import io.sirix.axis.pathsummary.LevelOrderSettingInMemoryInstancesAxis;
 import io.sirix.cache.Cache;
 import io.sirix.cache.PathSummaryData;
+import io.sirix.cache.PathSummaryCacheKey;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -104,8 +105,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     isClosed = false;
     this.resourceSession = resourceSession;
 
-    final Cache<Integer, PathSummaryData> pathSummaryCache = pageReadTrx.getBufferManager().getPathSummaryCache();
-    final PathSummaryData pathSummaryData = pathSummaryCache.get(pageReadTrx.getRevisionNumber());
+    final Cache<PathSummaryCacheKey, PathSummaryData> pathSummaryCache = pageReadTrx.getBufferManager().getPathSummaryCache();
+    final PathSummaryCacheKey cacheKey = new PathSummaryCacheKey(
+        pageReadTrx.getDatabaseId(),
+        pageReadTrx.getResourceId(),
+        pageReadTrx.getRevisionNumber());
+    final PathSummaryData pathSummaryData = pathSummaryCache.get(cacheKey);
 
     if (pathSummaryData == null || pageReadTrx.hasTrxIntentLog()) {
       if (DEBUG_PATH_SUMMARY) {
@@ -150,8 +155,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         moveToDocumentRoot();
       }
       if (!pageReadTrx.hasTrxIntentLog()) {
-        pathSummaryCache.put(pageReadTrx.getRevisionNumber(),
-                             new PathSummaryData(currentNode, pathNodeMapping, qnmMapping));
+        final PathSummaryCacheKey putKey = new PathSummaryCacheKey(
+            pageReadTrx.getDatabaseId(),
+            pageReadTrx.getResourceId(),
+            pageReadTrx.getRevisionNumber());
+        pathSummaryCache.put(putKey, new PathSummaryData(currentNode, pathNodeMapping, qnmMapping));
       }
     } else {
       if (DEBUG_PATH_SUMMARY) {
@@ -195,6 +203,14 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   // package private, only used in writer to keep the mapping always up-to-date
   void putMapping(final @NonNegative long pathNodeKey, final StructNode node) {
+    if (DEBUG_PATH_SUMMARY) {
+      String nodeInfo = "nodeKey=" + pathNodeKey;
+      if (node instanceof PathNode pn) {
+        nodeInfo += ", refCount=" + pn.getReferences() + ", level=" + pn.getLevel();
+      }
+      System.err.println("[PATH_SUMMARY-PUT-MAPPING] Updating cache: " + nodeInfo);
+    }
+    
     if (pathNodeKey >= pathNodeMapping.length) {
       var nodeCountTimes2 = Constants.NDP_NODE_COUNT << 1;
       pathNodeMapping = Arrays.copyOf(pathNodeMapping, pathNodeKey >= nodeCountTimes2 ? (int) pathNodeKey * 2 : nodeCountTimes2);
@@ -464,7 +480,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       return false;
     } else {
       if (DEBUG_PATH_SUMMARY) {
-        System.err.println("[PATH_SUMMARY-MOVETO]   -> Loaded from page: nodeKey=" + nodeKey);
+        String nodeInfo = "nodeKey=" + nodeKey;
+        if (newNode instanceof PathNode pn) {
+          nodeInfo += ", refCount=" + pn.getReferences() + ", level=" + pn.getLevel();
+        }
+        System.err.println("[PATH_SUMMARY-MOVETO]   -> Loaded from page: " + nodeInfo);
       }
       currentNode = newNode;
       return true;

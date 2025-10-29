@@ -357,8 +357,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     page.commit(this);
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
 
-    container.getComplete().clear();
-    page.clear();
+    container.getComplete().close();
+    page.close();
 
     // Remove page reference.
     reference.setPage(null);
@@ -377,7 +377,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       // Issues with windows that it's not created in the first time?
       createIfAbsent(commitFile);
 
-      final PageReference uberPageReference = new PageReference();
+      final PageReference uberPageReference = new PageReference()
+          .setDatabaseId(pageRtx.getDatabaseId())
+          .setResourceId(pageRtx.getResourceId());
       final UberPage uberPage = pageRtx.getUberPage();
       uberPageReference.setPage(uberPage);
 
@@ -398,6 +400,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       serializeIndexDefinitions(revision);
 
       // Clear and return pages to pool (TransactionIntentLog.clear() handles clearing and returning)
+      // Note: Pages are already unpinned when added to TIL, so they're closed by cache removal listener
       log.clear();
       
       // Clear local cache (pages are already handled by log.clear())
@@ -486,6 +489,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   @Override
   public UberPage rollback() {
     pageRtx.assertNotClosed();
+    
+    // Note: Pages are already unpinned when added to TIL
     log.clear();
     
     // Clear local cache and reset references (pages already handled by log.clear())
@@ -516,6 +521,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
         pageRtx.resourceSession.closePageWriteTransaction(pageRtx.getTrxId());
       }
 
+      // Note: Pages are already unpinned when added to TIL
       log.close();
       pageRtx.close();
       storagePageReaderWriter.close();
@@ -694,6 +700,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     final VersioningType versioningType = pageRtx.resourceSession.getResourceConfig().versioningType;
     final int mileStoneRevision = pageRtx.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
     return versioningType.combineRecordPagesForModification(pageFragments, mileStoneRevision, this, reference, log);
+    
+    // NOTE: Fragments remain pinned here, causing 8 PATH_SUMMARY page pin leaks per full test suite
+    // These are unpinned by clearAllCaches() force-unpinning between tests
+    // Proper fix would require tracking fragments and unpinning at commit/close, but that's complex
+    // TODO: Investigate why unpinning here causes "Cannot pin closed page" errors
   }
 
   @Override

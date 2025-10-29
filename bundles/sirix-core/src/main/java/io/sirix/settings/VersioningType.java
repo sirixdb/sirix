@@ -172,7 +172,11 @@ public enum VersioningType {
       final long recordPageKey = firstPage.getPageKey();
       final int revision = pageReadTrx.getUberPage().getRevisionNumber();
 
-      reference.setPageFragments(List.of(new PageFragmentKeyImpl(firstPage.getRevision(), reference.getKey())));
+      reference.setPageFragments(List.of(new PageFragmentKeyImpl(
+          firstPage.getRevision(), 
+          reference.getKey(),
+          (int) pageReadTrx.getDatabaseId(),
+          (int) pageReadTrx.getResourceId())));
 
       final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
       final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
@@ -322,7 +326,11 @@ public enum VersioningType {
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
-      previousPageFragmentKeys.add(new PageFragmentKeyImpl(firstPage.getRevision(), reference.getKey()));
+      previousPageFragmentKeys.add(new PageFragmentKeyImpl(
+          firstPage.getRevision(), 
+          reference.getKey(),
+          (int) pageReadTrx.getDatabaseId(),
+          (int) pageReadTrx.getResourceId()));
       for (int i = 0, previousRefKeysSize = reference.getPageFragments().size();
            i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
         previousPageFragmentKeys.add(reference.getPageFragments().get(i));
@@ -484,7 +492,11 @@ public enum VersioningType {
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
-      previousPageFragmentKeys.add(new PageFragmentKeyImpl(firstPage.getRevision(), reference.getKey()));
+      previousPageFragmentKeys.add(new PageFragmentKeyImpl(
+          firstPage.getRevision(), 
+          reference.getKey(),
+          (int) pageReadTrx.getDatabaseId(),
+          (int) pageReadTrx.getResourceId()));
       for (int i = 0, previousRefKeysSize = reference.getPageFragments().size();
            i < previousRefKeysSize && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
         previousPageFragmentKeys.add(reference.getPageFragments().get(i));

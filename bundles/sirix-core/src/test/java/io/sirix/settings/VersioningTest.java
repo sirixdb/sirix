@@ -75,7 +75,7 @@ public class VersioningTest {
     // Then clear global buffer manager caches to release memory segments
     // This is essential with global BufferManager to prevent memory pool exhaustion
     try {
-      //io.sirix.access.Databases.getGlobalBufferManager().clearAllCaches();
+      io.sirix.access.Databases.getGlobalBufferManager().clearAllCaches();
     } catch (Exception e) {
       // Ignore - might happen if buffer manager not initialized yet
     }

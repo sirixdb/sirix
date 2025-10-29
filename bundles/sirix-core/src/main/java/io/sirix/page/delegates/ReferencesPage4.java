@@ -86,6 +86,8 @@ public final class ReferencesPage4 implements Page {
       final var pageReferenceToClone = pageToClone.getReferences().get(offset);
       pageReference.setKey(pageReferenceToClone.getKey());
       pageReference.setLogKey(pageReferenceToClone.getLogKey());
+      pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
+      pageReference.setResourceId(pageReferenceToClone.getResourceId());
       pageReference.setPage(pageReferenceToClone.getPage());
       pageReference.setPageFragments(pageReferenceToClone.getPageFragments());
       references.add(pageReference);
@@ -156,9 +158,8 @@ public final class ReferencesPage4 implements Page {
   }
 
   @Override
-  public Page clear() {
+  public void close() {
     offsets.clear();
     references.clear();
-    return this;
   }
 }

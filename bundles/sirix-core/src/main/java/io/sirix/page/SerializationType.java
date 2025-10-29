@@ -203,7 +203,9 @@ public enum SerializationType {
       for (int i = 0; i < keysSize; i++) {
         final var revision = in.readInt();
         final var key = in.readLong();
-        reference.addPageFragment(new PageFragmentKeyImpl(revision, key));
+        // Note: Database and resource IDs will be set by Reader.fixupPageReferenceIds()
+        // after the page is fully deserialized. This matches PostgreSQL pattern.
+        reference.addPageFragment(new PageFragmentKeyImpl(revision, key, 0, 0));
       }
     }
     final long key = in.readLong();

@@ -52,7 +52,7 @@ public final class ReferencesPage4Test {
     pageReference.setLogKey(5);
 
     final List<PageFragmentKey> pageFragmentKeys =
-        List.of(new PageFragmentKeyImpl(1, 200), new PageFragmentKeyImpl(2, 763));
+        List.of(new PageFragmentKeyImpl(1, 200, 1, 1), new PageFragmentKeyImpl(2, 763, 1, 1));
 
     pageReference.setPageFragments(pageFragmentKeys);
 

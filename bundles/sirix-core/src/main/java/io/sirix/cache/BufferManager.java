@@ -14,13 +14,13 @@ public interface BufferManager extends AutoCloseable {
 
   Cache<PageReference, Page> getPageCache();
 
-  Cache<Integer, RevisionRootPage> getRevisionRootPageCache();
+  Cache<RevisionRootPageCacheKey, RevisionRootPage> getRevisionRootPageCache();
 
   Cache<RBIndexKey, Node> getIndexCache();
 
   Cache<NamesCacheKey, Names> getNamesCache();
 
-  Cache<Integer, PathSummaryData> getPathSummaryCache();
+  Cache<PathSummaryCacheKey, PathSummaryData> getPathSummaryCache();
 
   void clearAllCaches();
 }

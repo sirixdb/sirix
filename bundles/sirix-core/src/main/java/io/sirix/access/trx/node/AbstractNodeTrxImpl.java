@@ -545,7 +545,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   @Override
-  public synchronized void close() {
+  public void close() {
     runLocked(() -> {
       if (!isClosed()) {
         // Make sure to commit all dirty data.

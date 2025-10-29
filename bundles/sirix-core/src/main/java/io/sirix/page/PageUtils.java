@@ -5,6 +5,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.TransactionIntentLog;
+import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.utils.OS;
 import io.sirix.index.IndexType;
 import io.sirix.node.SirixDeweyID;
@@ -75,7 +76,7 @@ public final class PageUtils {
     
     // Direct allocation (no pool)
     final MemorySegmentAllocator allocator = OS.isWindows() 
-        ? LinuxMemorySegmentAllocator.getInstance()  // TODO: Should be WindowsMemorySegmentAllocator
+        ? WindowsMemorySegmentAllocator.getInstance()
         : LinuxMemorySegmentAllocator.getInstance();
     
     final KeyValueLeafPage recordPage = new KeyValueLeafPage(
@@ -93,5 +94,37 @@ public final class PageUtils {
     recordPage.setRecord(databaseType.getDocumentNode(id));
 
     log.put(reference, PageContainer.getInstance(recordPage, recordPage));
+  }
+
+  /**
+   * Fix up PageReferences in a loaded page by setting database and resource IDs.
+   * This follows the PostgreSQL pattern where BufferTag components (tablespace_oid, database_oid, 
+   * relation_oid) from the read context are combined with on-disk block numbers to create full
+   * cache keys. Pages store only page numbers; the database/resource context comes from the caller.
+   *
+   * @param page the page to fix up
+   * @param databaseId the database ID to set
+   * @param resourceId the resource ID to set
+   */
+  public static void fixupPageReferenceIds(Page page, long databaseId, long resourceId) {
+    if (page == null) {
+      return;
+    }
+    
+    // Some page types (like UberPage) don't have PageReferences to fix up
+    try {
+      var references = page.getReferences();
+      if (references != null) {
+        for (PageReference ref : references) {
+          if (ref != null) {
+            ref.setDatabaseId(databaseId);
+            ref.setResourceId(resourceId);
+          }
+        }
+      }
+    } catch (UnsupportedOperationException e) {
+      // This is expected for page types that don't have references (e.g., UberPage, KeyValueLeafPage)
+      // Just skip the fixup for these pages
+    }
   }
 }

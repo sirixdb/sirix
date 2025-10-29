@@ -112,6 +112,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
    */
   private LinuxMemorySegmentAllocator() {
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+      System.err.println("\n>>> SHUTDOWN HOOK running at " + System.currentTimeMillis());
       LOGGER.info("Shutting down LinuxMemorySegmentAllocator...");
       
       // Report page leak statistics before shutdown
@@ -164,6 +165,94 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           System.err.println("  Pinned leaks (pinCount > 0): " + pinnedLeaks);
           System.err.println("  Unpinned leaks (pinCount = 0): " + unpinnedLeaks);
           System.err.println("  Pin count breakdown: " + pinCountBreakdown);
+          
+          // Show which transaction IDs leaked PATH_SUMMARY pins
+          if (pinnedLeaks > 0) {
+            System.err.println("\nPinned Pages - Which Transactions:");
+            for (var page : livePages) {
+              if (page.getPinCount() > 0) {
+                System.err.println("  Page " + page.getPageKey() + 
+                                   " (" + page.getIndexType() + ")" +
+                                   " revision=" + page.getRevision() +
+                                   " pinned by transactions: " + page.getPinCountByTransaction());
+              }
+            }
+          }
+          
+          // Show details of unpinned leaks (first 10) and check if they're in cache
+          if (unpinnedLeaks > 0) {
+            System.err.println("\nUnpinned Leak Details (these should have been closed!):");
+            
+            // Check if global buffer manager exists to search caches
+            int inRecordCache = 0;
+            int inFragmentCache = 0;
+            int inPageCache = 0;
+            int notInAnyCache = 0;
+            
+            try {
+              var bufferMgr = io.sirix.access.Databases.getGlobalBufferManager();
+              
+              for (var page : livePages) {
+                if (page.getPinCount() == 0) {
+                  boolean found = false;
+                  
+                  // Check if in RecordPageCache
+                  for (var entry : bufferMgr.getRecordPageCache().asMap().values()) {
+                    if (entry == page) {
+                      inRecordCache++;
+                      found = true;
+                      break;
+                    }
+                  }
+                  
+                  if (!found) {
+                    // Check if in RecordPageFragmentCache
+                    for (var entry : bufferMgr.getRecordPageFragmentCache().asMap().values()) {
+                      if (entry == page) {
+                        inFragmentCache++;
+                        found = true;
+                        break;
+                      }
+                    }
+                  }
+                  
+                  if (!found) {
+                    // Check if in PageCache
+                    for (var entry : bufferMgr.getPageCache().asMap().values()) {
+                      if (entry instanceof io.sirix.page.KeyValueLeafPage kvp && kvp == page) {
+                        inPageCache++;
+                        found = true;
+                        break;
+                      }
+                    }
+                  }
+                  
+                  if (!found) {
+                    notInAnyCache++;
+                  }
+                }
+              }
+              
+              System.err.println("  In RecordPageCache: " + inRecordCache);
+              System.err.println("  In RecordPageFragmentCache: " + inFragmentCache);
+              System.err.println("  In PageCache: " + inPageCache);
+              System.err.println("  NOT in any cache: " + notInAnyCache + " ← LEAKED, NOT TRACKED!");
+              
+            } catch (Exception e) {
+              // BufferManager might not exist
+            }
+            
+            // Show first few examples
+            int shown = 0;
+            for (var page : livePages) {
+              if (page.getPinCount() == 0 && shown < 5) {
+                System.err.println("  Example: Page " + page.getPageKey() + 
+                                   " (" + page.getIndexType() + ")" +
+                                   " revision=" + page.getRevision());
+                shown++;
+              }
+            }
+          }
         }
         System.err.println("===========================================\n");
       }

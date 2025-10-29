@@ -54,6 +54,20 @@ public interface PageReadOnlyTrx extends AutoCloseable {
   int getTrxId();
 
   /**
+   * Get the database ID for this transaction.
+   *
+   * @return the database ID
+   */
+  long getDatabaseId();
+
+  /**
+   * Get the resource ID for this transaction.
+   *
+   * @return the resource ID
+   */
+  long getResourceId();
+
+  /**
    * Get the commit message.
    *
    * @return The commit message.

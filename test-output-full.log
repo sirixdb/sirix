@@ -1,0 +1,146 @@
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/home/johannes/.gradle/wrapper/dists/gradle-9.1.0-bin/9agqghryom9wkf8r80qlhnts3/gradle-9.1.0/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+> Task :sirix-core:cleanTest
+> Task :sirix-core:compileJava UP-TO-DATE
+> Task :sirix-core:processResources UP-TO-DATE
+> Task :sirix-core:classes UP-TO-DATE
+> Task :sirix-core:compileTestJava UP-TO-DATE
+> Task :sirix-core:processTestResources UP-TO-DATE
+> Task :sirix-core:testClasses UP-TO-DATE
+WARNING: A restricted method in java.lang.foreign.Linker has been called
+WARNING: java.lang.foreign.Linker::downcallHandle has been called by io.sirix.cache.LinuxMemorySegmentAllocator in an unnamed module (file:/home/johannes/IdeaProjects/sirix/bundles/sirix-core/build/classes/java/main/)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by net.openhft.hashing.UnsafeAccess (file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/zero-allocation-hashing/0.16/ca252f328160ed5d027f100a4fe525d6d21daaf/zero-allocation-hashing-0.16.jar)
+WARNING: Please consider reporting this to the maintainers of class net.openhft.hashing.UnsafeAccess
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+
+> Task :sirix-core:test
+
+ConcurrentAxisTest > testSeriellOld() STANDARD_OUT
+    18:54:46.725 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - ========== Initializing UmbraDB-Style Memory Allocator ==========
+    18:54:46.727 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Physical memory limit: 2048 MB
+    18:54:46.729 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected base page size: 4096 bytes
+    18:54:46.729 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected huge page size: 2 MB
+    18:54:46.729 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Virtual address space required: 14 GB
+    18:54:46.730 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocating virtual memory regions...
+    18:54:46.730 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 0 (4096 bytes per segment)
+    18:54:46.755 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 0 initialized with 524288 pre-allocated segments
+    18:54:46.755 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 1 (8192 bytes per segment)
+    18:54:46.763 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 1 initialized with 262144 pre-allocated segments
+    18:54:46.763 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 2 (16384 bytes per segment)
+    18:54:46.767 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 2 initialized with 131072 pre-allocated segments
+    18:54:46.768 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 3 (32768 bytes per segment)
+    18:54:46.770 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 3 initialized with 65536 pre-allocated segments
+    18:54:46.770 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 4 (65536 bytes per segment)
+    18:54:46.771 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 4 initialized with 32768 pre-allocated segments
+    18:54:46.771 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 5 (131072 bytes per segment)
+    18:54:46.772 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 5 initialized with 16384 pre-allocated segments
+    18:54:46.772 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 6 (262144 bytes per segment)
+    18:54:46.772 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 6 initialized with 8192 pre-allocated segments
+    18:54:46.772 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    18:54:46.772 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Allocator initialized successfully:
+    18:54:46.772 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Base page size: 4096 bytes
+    18:54:46.772 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Huge page size: 2 MB (available)
+    18:54:46.772 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Virtual memory mapped: 14 GB (across 7 size classes)
+    18:54:46.772 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Physical memory limit: 2048 MB
+    18:54:46.773 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Segment size classes: [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+    18:54:46.773 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    18:54:46.785 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Cleaning up allocator (physical memory: 0 MB)
+    18:54:46.820 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator cleanup complete
+    18:54:46.823 [Test worker] INFO  i.s.service.xml.shredder.XmlShredder - Shredding '/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+    18:54:46.823 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - ========== Initializing UmbraDB-Style Memory Allocator ==========
+    18:54:46.823 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Physical memory limit: 2048 MB
+    18:54:46.823 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected base page size: 4096 bytes
+    18:54:46.824 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected huge page size: 2 MB
+    18:54:46.824 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Virtual address space required: 14 GB
+    18:54:46.824 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocating virtual memory regions...
+    18:54:46.824 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 0 (4096 bytes per segment)
+    18:54:46.841 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 0 initialized with 524288 pre-allocated segments
+    18:54:46.841 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 1 (8192 bytes per segment)
+    18:54:46.850 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 1 initialized with 262144 pre-allocated segments
+    18:54:46.850 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 2 (16384 bytes per segment)
+    18:54:46.854 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 2 initialized with 131072 pre-allocated segments
+    18:54:46.855 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 3 (32768 bytes per segment)
+    18:54:46.857 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 3 initialized with 65536 pre-allocated segments
+    18:54:46.857 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 4 (65536 bytes per segment)
+    18:54:46.858 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 4 initialized with 32768 pre-allocated segments
+    18:54:46.858 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 5 (131072 bytes per segment)
+    18:54:46.859 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 5 initialized with 16384 pre-allocated segments
+    18:54:46.859 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 6 (262144 bytes per segment)
+    18:54:46.859 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 6 initialized with 8192 pre-allocated segments
+    18:54:46.859 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    18:54:46.860 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Allocator initialized successfully:
+    18:54:46.860 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Base page size: 4096 bytes
+    18:54:46.860 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Huge page size: 2 MB (available)
+    18:54:46.860 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Virtual memory mapped: 14 GB (across 7 size classes)
+    18:54:46.860 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Physical memory limit: 2048 MB
+    18:54:46.860 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Segment size classes: [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+    18:54:46.860 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+
+ConcurrentAxisTest > testSeriellOld() STANDARD_ERROR
+    [DiagnosticLogger] Initializing... LOG_FILE=/home/johannes/IdeaProjects/sirix/memory-leak-diagnostic.log
+    [DiagnosticLogger] user.home=/home/johannes
+    [DiagnosticLogger] Parent dirs created/exist: false
+    [DiagnosticLogger] SUCCESS: Logging initialized at /home/johannes/IdeaProjects/sirix/memory-leak-diagnostic.log
+
+ConcurrentAxisTest > testSeriellOld() STANDARD_OUT
+    [DiagnosticLogger] Log file: /home/johannes/IdeaProjects/sirix/memory-leak-diagnostic.log
+    18:54:48.878 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Cleaning up allocator (physical memory: 1 MB)
+    18:54:48.911 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator cleanup complete
+    18:54:48.913 [Test worker] INFO  i.s.service.xml.shredder.XmlShredder -  done [2089 ms].
+    18:54:48.914 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - ========== Initializing UmbraDB-Style Memory Allocator ==========
+    18:54:48.914 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Physical memory limit: 2048 MB
+    18:54:48.914 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected base page size: 4096 bytes
+    18:54:48.915 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected huge page size: 2 MB
+    18:54:48.915 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Virtual address space required: 14 GB
+    18:54:48.915 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocating virtual memory regions...
+    18:54:48.915 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 0 (4096 bytes per segment)
+    18:54:48.943 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 0 initialized with 524288 pre-allocated segments
+    18:54:48.943 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 1 (8192 bytes per segment)
+    18:54:49.041 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 1 initialized with 262144 pre-allocated segments
+    18:54:49.041 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 2 (16384 bytes per segment)
+    18:54:49.043 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 2 initialized with 131072 pre-allocated segments
+    18:54:49.043 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 3 (32768 bytes per segment)
+    18:54:49.045 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 3 initialized with 65536 pre-allocated segments
+    18:54:49.045 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 4 (65536 bytes per segment)
+    18:54:49.045 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 4 initialized with 32768 pre-allocated segments
+    18:54:49.046 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 5 (131072 bytes per segment)
+    18:54:49.046 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 5 initialized with 16384 pre-allocated segments
+    18:54:49.046 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 6 (262144 bytes per segment)
+    18:54:49.046 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 6 initialized with 8192 pre-allocated segments
+    18:54:49.046 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    18:54:49.046 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Allocator initialized successfully:
+    18:54:49.046 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Base page size: 4096 bytes
+    18:54:49.046 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Huge page size: 2 MB (available)
+    18:54:49.047 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Virtual memory mapped: 14 GB (across 7 size classes)
+    18:54:49.047 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Physical memory limit: 2048 MB
+    18:54:49.047 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Segment size classes: [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+    18:54:49.047 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    18:54:49.372 [ForkJoinPool.commonPool-worker-2] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 100 SIZE evictions, 11 EXPLICIT skipped
+    18:54:49.465 [ForkJoinPool.commonPool-worker-1] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 200 SIZE evictions, 11 EXPLICIT skipped
+    18:54:49.529 [ForkJoinPool.commonPool-worker-2] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 300 SIZE evictions, 11 EXPLICIT skipped
+    18:54:49.626 [ForkJoinPool.commonPool-worker-7] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 400 SIZE evictions, 11 EXPLICIT skipped
+    18:54:49.693 [ForkJoinPool.commonPool-worker-7] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 500 SIZE evictions, 11 EXPLICIT skipped
+    18:54:49.727 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Cleaning up allocator (physical memory: 0 MB)
+    18:54:49.761 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator cleanup complete
+
+18:54:49.773 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - Shutting down LinuxMemorySegmentAllocator...
+18:54:49.773 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator shutdown complete.
+
+[Incubating] Problems report is available at: file:///home/johannes/IdeaProjects/sirix/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 4s
+6 actionable tasks: 2 executed, 4 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.1.0/userguide/configuration_cache_enabling.html

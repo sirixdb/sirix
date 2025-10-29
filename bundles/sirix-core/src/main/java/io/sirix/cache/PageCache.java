@@ -3,7 +3,6 @@ package io.sirix.cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
-import com.github.benmanes.caffeine.cache.Scheduler;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
@@ -51,7 +50,8 @@ public final class PageCache implements Cache<PageReference, Page> {
                         return 1000; // Other page types use fixed weight
                       }
                     })
-                    .evictionListener(removalListener)
+                    .removalListener(removalListener) // FIXED: Use removalListener for ALL removals
+                    .recordStats() // Enable statistics for diagnostics
                     .build();
   }
 
@@ -84,7 +84,14 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public void put(PageReference key, Page value) {
-    assert !(value instanceof KeyValueLeafPage) || !value.isClosed();
+    assert !(value instanceof KeyValueLeafPage);
+    
+    // PageCache is for metadata/indirect pages ONLY, not KeyValueLeafPages
+    // KeyValueLeafPages should go in RecordPageCache or RecordPageFragmentCache
+    if (value instanceof KeyValueLeafPage) {
+      throw new IllegalArgumentException("KeyValueLeafPages must not be stored in PageCache! Use RecordPageCache instead.");
+    }
+    
     if (!(value instanceof RevisionRootPage) && !(value instanceof PathSummaryPage) && !(value instanceof PathPage)
         && !(value instanceof CASPage) && !(value instanceof NamePage)) {
       assert key.getKey() != Constants.NULL_ID_LONG;
@@ -114,5 +121,72 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public void close() {
+  }
+  
+  /**
+   * Get cache statistics for diagnostics.
+   */
+  public CacheStatistics getStatistics() {
+    com.github.benmanes.caffeine.cache.stats.CacheStats caffeineStats = cache.stats();
+    
+    int totalPages = 0;
+    int pinnedPages = 0;
+    long totalWeight = 0;
+    long pinnedWeight = 0;
+    
+    for (Page page : cache.asMap().values()) {
+      if (page instanceof KeyValueLeafPage kvPage) {
+        totalPages++;
+        long weight = kvPage.getActualMemorySize();
+        totalWeight += weight;
+        
+        if (kvPage.getPinCount() > 0) {
+          pinnedPages++;
+          pinnedWeight += weight;
+        }
+      }
+    }
+    
+    return new CacheStatistics(
+        totalPages,
+        pinnedPages,
+        totalPages - pinnedPages,
+        totalWeight,
+        pinnedWeight,
+        totalWeight - pinnedWeight,
+        caffeineStats.hitCount(),
+        caffeineStats.missCount(),
+        caffeineStats.evictionCount()
+    );
+  }
+  
+  /**
+   * Cache statistics for diagnostics.
+   */
+  public record CacheStatistics(
+      int totalPages,
+      int pinnedPages,
+      int unpinnedPages,
+      long totalWeightBytes,
+      long pinnedWeightBytes,
+      long unpinnedWeightBytes,
+      long hitCount,
+      long missCount,
+      long evictionCount
+  ) {
+    @Override
+    public String toString() {
+      return String.format(
+          "CacheStats[pages=%d (pinned=%d, unpinned=%d), " +
+          "weight=%.2fMB (pinned=%.2fMB, unpinned=%.2fMB), " +
+          "hits=%d, misses=%d, evictions=%d, hit-rate=%.1f%%]",
+          totalPages, pinnedPages, unpinnedPages,
+          totalWeightBytes / (1024.0 * 1024.0),
+          pinnedWeightBytes / (1024.0 * 1024.0),
+          unpinnedWeightBytes / (1024.0 * 1024.0),
+          hitCount, missCount, evictionCount,
+          (hitCount + missCount) > 0 ? 100.0 * hitCount / (hitCount + missCount) : 0.0
+      );
+    }
   }
 }

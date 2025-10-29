@@ -35,15 +35,22 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
           key.setPage(null);
           assert page != null;
           
-          // For EXPLICIT removal, only skip if page is pinned (still in use)
-          // Unpinned pages can be safely closed even on explicit removal
+          // CRITICAL FIX: For EXPLICIT removal, check if page is pinned
+          // - Pinned pages: Skip closing (still in use by transaction)
+          // - Unpinned pages: MUST close (being removed from cache, won't be closed elsewhere)
           if (cause == RemovalCause.EXPLICIT || cause == RemovalCause.REPLACED) {
+            if (page.getPinCount() > 0) {
+              // Still pinned - don't close, transaction will handle it
               SKIPPED_EXPLICIT.incrementAndGet();
-              LOGGER.trace("Fragment {} removed but NOT closed (cause={}, pinned)", key.getKey(), cause);
-              return;  // Still in use, don't close
+              LOGGER.trace("Fragment {} removed but NOT closed (cause={}, pinCount={})", 
+                          key.getKey(), cause, page.getPinCount());
+              return;
+            }
+            // Unpinned - close it now, this is the last chance
+            LOGGER.trace("Fragment {} removed and closing (cause={}, unpinned)", key.getKey(), cause);
           }
           
-          // Only evictions/expirations should close fragments
+          // All removals (SIZE eviction, EXPLICIT if unpinned) should close
           assert page.getPinCount() == 0 : "Fragment page must not be pinned: " + page.getPinCount() 
               + " (pins by transaction: " + page.getPinCountByTransaction() + ")";
           
@@ -52,7 +59,7 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
           
           // Log every 100th eviction
           if (evictions % 100 == 0) {
-            LOGGER.info("RecordPageFragmentCache: {} SIZE evictions, {} EXPLICIT skipped", 
+            LOGGER.info("RecordPageFragmentCache: {} SIZE evictions, {} EXPLICIT skipped (pinned)", 
                         evictions, SKIPPED_EXPLICIT.get());
           }
           

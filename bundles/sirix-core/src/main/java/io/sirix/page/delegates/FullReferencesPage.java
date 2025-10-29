@@ -88,6 +88,8 @@ public final class FullReferencesPage implements Page {
         pageReference.setPage(pageReferenceToClone.getPage());
         pageReference.setKey(pageReferenceToClone.getKey());
         pageReference.setLogKey(pageReferenceToClone.getLogKey());
+        pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
+        pageReference.setResourceId(pageReferenceToClone.getResourceId());
         pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
       }
 
@@ -152,8 +154,7 @@ public final class FullReferencesPage implements Page {
   }
 
   @Override
-  public Page clear() {
+  public void close() {
     Arrays.fill(references, null);
-    return Page.super.clear();
   }
 }
