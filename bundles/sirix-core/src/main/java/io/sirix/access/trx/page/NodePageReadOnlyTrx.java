@@ -129,12 +129,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private final long resourceId;
 
   /**
-   * Track all pages pinned by this transaction for guaranteed cleanup.
-   * Maps page instance to pin count for this transaction.
-   */
-  private final java.util.Map<KeyValueLeafPage, Integer> pinnedPagesByThisTrx = new java.util.concurrent.ConcurrentHashMap<>();
-
-  /**
    * Cached name page of this revision.
    */
   private final RevisionRootPage rootPage;
@@ -709,13 +703,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       unpinPageFragments(pageReferenceToRecordPage, pages);
     }
   }
-
-  // Package-private for NodePageTrx to call
-  void unpinPageFragmentsPublic(PageReference pageReference, List<KeyValuePage<DataRecord>> pages) {
-    unpinPageFragments(pageReference, pages);
-  }
   
-  private void unpinPageFragments(PageReference pageReference, List<KeyValuePage<DataRecord>> pages) {
+  public void unpinPageFragments(PageReference pageReference, List<KeyValuePage<DataRecord>> pages) {
     if (pages.isEmpty()) {
         return;
     }

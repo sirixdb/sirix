@@ -76,15 +76,12 @@ public final class BufferManagerImpl implements BufferManager {
   public void clearAllCaches() {
     // Force-unpin all pages before clearing (pin count leak fix)
     // At this point all transactions should be closed, so any remaining pins are leaks
-    int unpinnedPages = 0;
-    int closedPages = 0;
     
     // First pass: force-unpin all pinned pages
     for (var entry : recordPageCache.asMap().entrySet()) {
       var page = entry.getValue();
       if (page.getPinCount() > 0) {
         forceUnpinAll(page);
-        unpinnedPages++;
       }
     }
     
@@ -92,14 +89,12 @@ public final class BufferManagerImpl implements BufferManager {
       var page = entry.getValue();
       if (page.getPinCount() > 0) {
         forceUnpinAll(page);
-        unpinnedPages++;
       }
     }
     
     for (var entry : pageCache.asMap().entrySet()) {
       if (entry.getValue() instanceof KeyValueLeafPage kvPage && kvPage.getPinCount() > 0) {
         forceUnpinAll(kvPage);
-        unpinnedPages++;
       }
     }
     
