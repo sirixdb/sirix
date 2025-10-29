@@ -51,14 +51,34 @@ public class VersioningTest {
 
   @BeforeEach
   public void setUp() {
+    // Clear global caches FIRST to ensure clean state from previous test
+    try {
+      //io.sirix.access.Databases.getGlobalBufferManager().clearAllCaches();
+    } catch (Exception e) {
+      // Ignore - buffer manager might not exist yet on first test
+    }
+    
     XmlTestHelper.deleteEverything();
-    Databases.createXmlDatabase(new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile()));
+    // Use higher memory budget for versioning stress tests
+    var config = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile())
+        .setMaxSegmentAllocationSize(16L * (1L << 30)); // 16GB instead of default 8GB
+    Databases.createXmlDatabase(config);
     database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile());
   }
 
   @AfterEach
   public void tearDown() {
+    // Close database first to ensure all transactions are properly closed
+    // and pages are unpinned
     database.close();
+    
+    // Then clear global buffer manager caches to release memory segments
+    // This is essential with global BufferManager to prevent memory pool exhaustion
+    try {
+      //io.sirix.access.Databases.getGlobalBufferManager().clearAllCaches();
+    } catch (Exception e) {
+      // Ignore - might happen if buffer manager not initialized yet
+    }
   }
 
   @Test

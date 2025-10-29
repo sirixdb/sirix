@@ -75,9 +75,10 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private static final long[] SEGMENT_SIZES =
       { FOUR_KB, EIGHT_KB, SIXTEEN_KB, THIRTYTWO_KB, SIXTYFOUR_KB, ONE_TWENTYEIGHT_KB, TWO_FIFTYSIX_KB };
 
-  // Virtual memory region size per size class: 2 GB  
-  // (10GB would be 70GB total virtual, which can cause issues in test environments)
-  private static final long VIRTUAL_REGION_SIZE = 2L * 1024 * 1024 * 1024;
+  // Virtual memory region size per size class: 4 GB
+  // With global BufferManager serving all databases/resources, we need larger virtual regions.
+  // Total virtual: 4GB * 7 size classes = 28GB (virtual, not physical - maps to 8GB default physical budget)
+  private static final long VIRTUAL_REGION_SIZE = 4L * 1024 * 1024 * 1024;
 
   // Singleton instance
   private static final LinuxMemorySegmentAllocator INSTANCE = new LinuxMemorySegmentAllocator();
@@ -112,6 +113,61 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private LinuxMemorySegmentAllocator() {
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
       LOGGER.info("Shutting down LinuxMemorySegmentAllocator...");
+      
+      // Report page leak statistics before shutdown
+      long finalized = io.sirix.page.KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
+      long created = io.sirix.page.KeyValueLeafPage.PAGES_CREATED.get();
+      long closed = io.sirix.page.KeyValueLeafPage.PAGES_CLOSED.get();
+      var livePages = io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES;
+      
+      if (finalized > 0 || created > 0 || closed > 0 || !livePages.isEmpty()) {
+        System.err.println("\n========== PAGE LEAK DIAGNOSTICS ==========");
+        System.err.println("Pages Created: " + created);
+        System.err.println("Pages Closed: " + closed);
+        System.err.println("Pages Leaked (caught by finalizer): " + finalized);
+        System.err.println("Pages Still Live: " + livePages.size());
+        
+        // Show breakdown by page key
+        var pageKeyCount = new java.util.HashMap<Long, Integer>();
+        var indexTypeCount = new java.util.HashMap<io.sirix.index.IndexType, Integer>();
+        for (var page : livePages) {
+          pageKeyCount.merge(page.getPageKey(), 1, Integer::sum);
+          indexTypeCount.merge(page.getIndexType(), 1, Integer::sum);
+        }
+        
+        if (!pageKeyCount.isEmpty()) {
+          System.err.println("\nLive Pages by Page Key:");
+          pageKeyCount.entrySet().stream()
+              .sorted(java.util.Map.Entry.<Long, Integer>comparingByValue().reversed())
+              .limit(10)
+              .forEach(e -> System.err.println("  Page " + e.getKey() + ": " + e.getValue() + " instances"));
+          
+          System.err.println("\nLive Pages by Index Type:");
+          indexTypeCount.forEach((type, count) -> 
+              System.err.println("  " + type + ": " + count + " instances"));
+          
+          // Check pin counts of leaked pages
+          int pinnedLeaks = 0;
+          int unpinnedLeaks = 0;
+          var pinCountBreakdown = new java.util.HashMap<Integer, Integer>();
+          for (var page : livePages) {
+            int pinCount = page.getPinCount();
+            if (pinCount > 0) {
+              pinnedLeaks++;
+            } else {
+              unpinnedLeaks++;
+            }
+            pinCountBreakdown.merge(pinCount, 1, Integer::sum);
+          }
+          
+          System.err.println("\nPin Count Analysis:");
+          System.err.println("  Pinned leaks (pinCount > 0): " + pinnedLeaks);
+          System.err.println("  Unpinned leaks (pinCount = 0): " + unpinnedLeaks);
+          System.err.println("  Pin count breakdown: " + pinCountBreakdown);
+        }
+        System.err.println("===========================================\n");
+      }
+      
       free();
       LOGGER.info("LinuxMemorySegmentAllocator shutdown complete.");
     }));
@@ -485,10 +541,19 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     releasePhysicalMemory(segment, segment.byteSize());
   }
 
+  private static final java.util.concurrent.atomic.AtomicLong releaseCallCount = new java.util.concurrent.atomic.AtomicLong(0);
+  private static final java.util.concurrent.atomic.AtomicLong doubleReleaseCount = new java.util.concurrent.atomic.AtomicLong(0);
+  
   @Override
   public void release(MemorySegment segment) {
     if (segment == null) {
       return; // Already released/nulled
+    }
+    
+    long callNum = releaseCallCount.incrementAndGet();
+    if (callNum % 1000 == 0) {
+      System.err.println("⚙️  Allocator: " + callNum + " segments released (" + doubleReleaseCount.get() + " double-releases), physical: " + 
+                         (physicalMemoryBytes.get() / (1024 * 1024)) + " MB, pool sizes: " + java.util.Arrays.toString(getPoolSizes()));
     }
 
     long size = segment.byteSize();
@@ -503,8 +568,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     
     // Check if this segment was actually borrowed
     if (!borrowedSegments.contains(address)) {
-      LOGGER.warn("Attempting to release segment that was never borrowed or already released: address={}",
-                  address);
+      doubleReleaseCount.incrementAndGet();
+      LOGGER.warn("Attempting to release segment that was never borrowed or already released: address={}, size={}",
+                  address, size);
       return; // Prevent double-release
     }
 
@@ -523,11 +589,15 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                        newPhysical / (1024 * 1024));
           physicalMemoryBytes.set(0);
         }
+        
+        // CRITICAL: Remove from borrowed set so next allocation properly tracks physical memory
+        // Without this, subsequent borrows don't increment physical counter, causing accounting errors
+        borrowedSegments.remove(address);
       } else {
         LOGGER.warn("madvise MADV_DONTNEED failed for address {}, size {} (error code: {}). " +
                     "Physical memory may not be released.",
                     address, size, result);
-        // Still return the segment to pool even if madvise failed
+        // Don't remove from borrowedSegments if madvise failed - memory not actually released
       }
     } catch (Throwable t) {
       LOGGER.error("madvise invocation failed for address {}, size {}", address, size, t);
