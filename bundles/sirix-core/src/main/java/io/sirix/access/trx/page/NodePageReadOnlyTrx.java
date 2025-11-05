@@ -512,6 +512,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                            ", revision=" + kvp.getRevision());
       }
 
+      // CRITICAL: Handle case where page doesn't exist (e.g., temporal queries accessing non-existent revisions)
+      if (page == null) {
+        // Page doesn't exist for this revision/index - this can happen with temporal queries
+        // Return null to signal page not found (caller should handle gracefully)
+        return null;
+      }
+      
       assert page instanceof KeyValueLeafPage;
       setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, (KeyValueLeafPage) page);
       return new PageReferenceToPage(pageReferenceToRecordPage, page);
