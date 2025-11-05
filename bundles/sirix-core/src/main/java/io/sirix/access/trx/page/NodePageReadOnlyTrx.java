@@ -554,7 +554,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   /**
-   * Unpin a record page when it's evicted from the cache.
+   * Unpin a record page when it's evicted from the local cache.
+   * 
+   * Note: Pages in the local cache might be closed or not pinned by this transaction.
+   * We only unpin pages that this transaction actually pinned.
    */
   private void unpinRecordPage(RecordPage recordPage) {
     if (recordPage == null) {
@@ -562,12 +565,15 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
     
     var page = recordPage.page;
+    
+    // Skip if already closed (might have been closed by another transaction or cache eviction)
     if (page.isClosed()) {
       return;
     }
     
     // CRITICAL FIX: Only unpin if this transaction actually pinned the page
     // Pages can be in the local cache without being pinned by this transaction
+    // (e.g., pages loaded by previous transactions that reused this PageReadOnlyTrx)
     if (page.getPinCountByTransaction().getOrDefault(trxId, 0) == 0) {
       // This transaction never pinned this page - skip unpinning
       return;
@@ -625,7 +631,16 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
             }
           }
           
-          assert value == null || !value.isClosed();
+          // CRITICAL: If page is closed but still in cache, remove it and reload
+          if (value != null && value.isClosed()) {
+            System.err.println("⚠️  WARNING: Closed page found in RecordPageCache! " + 
+                "PageKey=" + value.getPageKey() + ", IndexType=" + value.getIndexType() + 
+                ", Revision=" + value.getRevision() + ", PinCount=" + value.getPinCount());
+            // Remove closed page from cache and reload from disk
+            resourceBufferManager.getRecordPageCache().remove(pageReferenceToRecordPage);
+            value = null;
+          }
+          
           var kvPage = value;
           if (value == null) {
             kvPage =
