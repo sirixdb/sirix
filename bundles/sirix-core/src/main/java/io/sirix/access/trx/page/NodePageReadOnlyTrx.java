@@ -788,12 +788,19 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       pageReferenceToRecordPage.setPage(completePage);
       assert !completePage.isClosed();
       
-      // DIAGNOSTIC: Track combined Page 0 creation with stack trace
-      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && completePage instanceof KeyValueLeafPage kvp && kvp.getPageKey() == 0) {
-        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
-        String caller = stack.length > 6 ? stack[6].getMethodName() : "unknown";
-        io.sirix.cache.DiagnosticLogger.log("COMBINED PAGE 0 created: " + kvp.getIndexType() + " rev=" + kvp.getRevision() + 
-            " by " + caller + " (instance=" + System.identityHashCode(kvp) + ")");
+      // CRITICAL FIX: Pin combined page immediately to ensure it's tracked
+      // Combined pages MUST be pinned so they'll be unpinned and closed later
+      // Without this, combined pages can leak when PageReference is GC'd
+      if (completePage instanceof KeyValueLeafPage kvPage) {
+        kvPage.incrementPinCount(trxId);
+        
+        // DIAGNOSTIC: Track combined page creation
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
+          StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+          String caller = stack.length > 6 ? stack[6].getMethodName() : "unknown";
+          io.sirix.cache.DiagnosticLogger.log("COMBINED PAGE 0 created and PINNED: " + kvPage.getIndexType() + " rev=" + kvPage.getRevision() + 
+              " by " + caller + " (instance=" + System.identityHashCode(kvPage) + ", pinCount=" + kvPage.getPinCount() + ")");
+        }
       }
       
       return completePage;
