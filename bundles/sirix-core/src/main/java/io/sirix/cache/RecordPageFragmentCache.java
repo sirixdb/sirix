@@ -63,6 +63,13 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
                         evictions, SKIPPED_EXPLICIT.get());
           }
           
+          // DIAGNOSTIC: Track Page 0 closes from removal listener
+          if (page.getPageKey() == 0 && KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+            io.sirix.cache.DiagnosticLogger.log("RecordPageFragmentCache RemovalListener closing Page 0: " + 
+                page.getIndexType() + " rev=" + page.getRevision() + " cause=" + cause + 
+                " instance=" + System.identityHashCode(page));
+          }
+          
           page.close();
         };
 
@@ -70,18 +77,60 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
                     .maximumWeight(maxWeight)
                     .weigher((PageReference _, KeyValueLeafPage value) -> {
                       if (value.getPinCount() > 0) {
-                        return 0; // Pinned fragments have zero weight
+                        return 0; // Pinned fragments have zero weight (won't be evicted)
                       }
                       return (int) value.getActualMemorySize();
                     })
-                    .scheduler(Scheduler.systemScheduler()) // Async eviction for automatic cleanup
-                    .removalListener(removalListener)  // Synchronous for clear() operations
+                    .scheduler(Scheduler.systemScheduler())
+                    .removalListener(removalListener)
                     .build();
   }
 
   @Override
   public void clear() {
+    long sizeBefore = cache.estimatedSize();
+    
+    // CRITICAL: Force all pending async evictions to complete synchronously
+    // cleanUp() processes the pending maintenance queue
+    cache.cleanUp();
+    
+    // Then invalidate all remaining entries - this is synchronous
     cache.invalidateAll();
+    
+    // Final cleanup to ensure all removal listeners completed
+    cache.cleanUp();
+    
+    if (sizeBefore > 0) {
+      LOGGER.info("RecordPageFragmentCache.clear(): {} entries cleared", sizeBefore);
+    }
+  }
+  
+  /**
+   * Atomically unpin a page and update its weight in the cache.
+   * This prevents race conditions where another transaction could pin/access the page
+   * between unpinning and putting back.
+   * 
+   * @param key the page reference
+   * @param trxId the transaction ID doing the unpin
+   */
+  public void unpinAndUpdateWeight(PageReference key, int trxId) {
+    cache.asMap().computeIfPresent(key, (k, page) -> {
+      page.decrementPinCount(trxId);
+      return page; // Returning same instance triggers weight recalculation
+    });
+  }
+  
+  /**
+   * Atomically pin a page and update its weight in the cache.
+   * 
+   * @param key the page reference  
+   * @param trxId the transaction ID doing the pin
+   */
+  public void pinAndUpdateWeight(PageReference key, int trxId) {
+    cache.asMap().computeIfPresent(key, (k, page) -> {
+      page.incrementPinCount(trxId);
+      return page; // Put back triggers weight recalculation
+    });
   }
 
   @Override

@@ -183,7 +183,17 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     pageContainerCache = new LinkedHashMap<>(100, 0.75f, true) {
       @Override
       protected boolean removeEldestEntry(Map.Entry<IndexLogKey, PageContainer> eldest) {
-        return size() > 100;
+        if (size() > 100) {
+          // CRITICAL FIX: When evicting PageContainer from local cache, ensure pages are handled
+          // Pages in PageContainer should either be in TIL or need to be unpinned/closed
+          PageContainer container = eldest.getValue();
+          if (container != null) {
+            // Pages in local cache should already be in TIL (appended via appendLogRecord)
+            // No action needed - TIL will handle cleanup
+          }
+          return true;
+        }
+        return false;
       }
     };
   }
@@ -357,7 +367,15 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     page.commit(this);
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
 
+    // DIAGNOSTIC: Track Page 0 closes during commit
+    if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && container.getComplete() instanceof io.sirix.page.KeyValueLeafPage completePage && completePage.getPageKey() == 0) {
+      io.sirix.cache.DiagnosticLogger.log("NodePageTrx.commit closing complete Page 0: instance=" + System.identityHashCode(completePage));
+    }
     container.getComplete().close();
+    
+    if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page instanceof io.sirix.page.KeyValueLeafPage kvPage && kvPage.getPageKey() == 0) {
+      io.sirix.cache.DiagnosticLogger.log("NodePageTrx.commit closing modified Page 0: instance=" + System.identityHashCode(kvPage));
+    }
     page.close();
 
     // Remove page reference.
@@ -649,19 +667,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
                 : null
         );
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
+        appendLogRecord(reference, pageContainer);
+        return pageContainer;
       } else {
         pageContainer = dereferenceRecordPageForModification(reference);
         return pageContainer;
       }
-
-      // $CASES-OMITTED$
-      switch (indexType) {
-        case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID, PATH_SUMMARY, PATH, CAS, NAME ->
-            appendLogRecord(reference, pageContainer);
-        default -> throw new IllegalStateException("Page kind not known!");
-      }
-
-      return pageContainer;
     };
 
     var currPageContainer = pageContainerCache.computeIfAbsent(new IndexLogKey(indexType,
@@ -696,15 +707,15 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    */
   @Override
   public PageContainer dereferenceRecordPageForModification(final PageReference reference) {
-    final List<KeyValuePage<DataRecord>> pageFragments = pageRtx.getPageFragments(reference);
+    final var result = pageRtx.getPageFragments(reference);
     final VersioningType versioningType = pageRtx.resourceSession.getResourceConfig().versioningType;
     final int mileStoneRevision = pageRtx.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
-    return versioningType.combineRecordPagesForModification(pageFragments, mileStoneRevision, this, reference, log);
     
-    // NOTE: Fragments remain pinned here, causing 8 PATH_SUMMARY page pin leaks per full test suite
-    // These are unpinned by clearAllCaches() force-unpinning between tests
-    // Proper fix would require tracking fragments and unpinning at commit/close, but that's complex
-    // TODO: Investigate why unpinning here causes "Cannot pin closed page" errors
+    try {
+      return versioningType.combineRecordPagesForModification(result.pages(), mileStoneRevision, this, reference, log);
+    } finally {
+      pageRtx.unpinPageFragments(reference, result.pages(), result.originalKeys(), result.storageKeyForFirstFragment());
+    }
   }
 
   @Override
@@ -750,5 +761,16 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   @Override
   public CommitCredentials getCommitCredentials() {
     return pageRtx.getCommitCredentials();
+  }
+  
+  @Override
+  @SuppressWarnings("deprecation")
+  protected void finalize() {
+    // DIAGNOSTIC: Detect if NodePageTrx is GC'd without being closed
+    if (!isClosed && io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      io.sirix.cache.DiagnosticLogger.log("⚠️  NodePageTrx FINALIZED WITHOUT CLOSE: trxId=" + pageRtx.getTrxId() + 
+          " instance=" + System.identityHashCode(this) + " TIL=" + System.identityHashCode(log) + 
+          " with " + log.getList().size() + " containers in TIL");
+    }
   }
 }

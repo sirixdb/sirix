@@ -12,3 +12,7 @@ package io.sirix.cache;
 public record RevisionRootPageCacheKey(long databaseId, long resourceId, int revision) {
 }
 
+
+
+
+

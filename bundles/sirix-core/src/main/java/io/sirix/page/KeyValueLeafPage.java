@@ -66,11 +66,28 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     new java.util.concurrent.ConcurrentHashMap<>();
   
   // TRACK ALL LIVE PAGES - for leak detection (use object identity, not recordPageKey)
+  // CRITICAL: Use IdentityHashMap to track by object identity, not equals/hashCode
   public static final java.util.Set<KeyValueLeafPage> ALL_LIVE_PAGES = 
-    java.util.concurrent.ConcurrentHashMap.newKeySet();
+    java.util.Collections.synchronizedSet(
+      java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())
+    );
   
   // LEAK DETECTION: Track finalized pages
   public static final java.util.concurrent.atomic.AtomicLong PAGES_FINALIZED_WITHOUT_CLOSE = new java.util.concurrent.atomic.AtomicLong(0);
+  
+  // Track finalized pages by type and pageKey for diagnostics
+  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> FINALIZED_BY_TYPE = 
+    new java.util.concurrent.ConcurrentHashMap<>();
+  public static final java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.atomic.AtomicLong> FINALIZED_BY_PAGE_KEY = 
+    new java.util.concurrent.ConcurrentHashMap<>();
+    
+  // Track all Page 0 instances for explicit cleanup
+  // CRITICAL: Use synchronized IdentityHashSet to track by object identity, not equals/hashCode
+  // (Multiple Page 0 instances with same recordPageKey/revision would collide in regular Set)
+  public static final java.util.Set<KeyValueLeafPage> ALL_PAGE_0_INSTANCES = 
+    java.util.Collections.synchronizedSet(
+      java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())
+    );
   
   /**
    * Track pin counts per transaction ID (PostgreSQL PrivateRefCount pattern).
@@ -208,6 +225,30 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       PAGES_CREATED.incrementAndGet();
       PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
       ALL_LIVE_PAGES.add(this);
+      
+      // Track Page 0 creation source and register for cleanup
+      if (recordPageKey == 0) {
+        boolean wasAdded = ALL_PAGE_0_INSTANCES.add(this); // Register for explicit cleanup
+        
+        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+        String source = "UNKNOWN";
+        for (int i = 0; i < Math.min(stack.length, 10); i++) {
+          if (stack[i].getMethodName().equals("createTree")) {
+            source = "TIL_CREATE";
+            break;
+          } else if (stack[i].getMethodName().equals("deserializePage") || stack[i].getMethodName().equals("read")) {
+            source = "DISK_LOAD";
+            break;
+          } else if (stack[i].getMethodName().equals("newInstance")) {
+            source = "COMBINED";
+            break;
+          }
+        }
+        
+        String addStatus = wasAdded ? "ADDED" : "DUPLICATE";
+        io.sirix.cache.DiagnosticLogger.log("Page 0 CREATED from " + source + " (" + addStatus + "): " + indexType + 
+            " rev=" + revisionNumber + " instance=" + System.identityHashCode(this));
+      }
     }
   }
 
@@ -257,6 +298,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       PAGES_CREATED.incrementAndGet();
       PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
       ALL_LIVE_PAGES.add(this);
+      
+      // Track Page 0 creation source and register for cleanup
+      if (recordPageKey == 0) {
+        ALL_PAGE_0_INSTANCES.add(this); // Register for explicit cleanup
+        io.sirix.cache.DiagnosticLogger.log("Page 0 CREATED from DISK_LOAD: " + indexType + " rev=" + revision + 
+            " instance=" + System.identityHashCode(this));
+      }
     }
   }
 
@@ -1007,10 +1055,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return count;
   }
 
-
-
-
-
   @Override
   public boolean isClosed() {
     return isClosed;
@@ -1021,7 +1065,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   protected void finalize() {
     if (!isClosed) {
       PAGES_FINALIZED_WITHOUT_CLOSE.incrementAndGet();
-      io.sirix.cache.DiagnosticLogger.log("FINALIZER LEAK CAUGHT: Page " + recordPageKey + " (" + indexType + ") - not closed explicitly!");
+      
+      // Track by type and pageKey for detailed leak analysis
+      if (indexType != null) {
+        FINALIZED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      }
+      FINALIZED_BY_PAGE_KEY.computeIfAbsent(recordPageKey, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      
+      io.sirix.cache.DiagnosticLogger.log("FINALIZER LEAK CAUGHT: Page " + recordPageKey + " (" + indexType + ") revision=" + revision + 
+          " (instance=" + System.identityHashCode(this) + ") - not closed explicitly!");
       
       // NOTE: We don't call close() from finalizer because:
       // 1. Finalizer runs on GC thread - race conditions with main threads
@@ -1038,11 +1090,77 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     if (!isClosed) {
       isClosed = true;
       
+      // DIAGNOSTIC: Verify isClosed was actually set
+      if (DEBUG_MEMORY_LEAKS && !isClosed) {
+        io.sirix.cache.DiagnosticLogger.log("⚠️⚠️⚠️ CRITICAL: isClosed still false after setting to true! " +
+            indexType + " rev=" + revision + " instance=" + System.identityHashCode(this));
+      }
+      
       // DIAGNOSTIC
       if (DEBUG_MEMORY_LEAKS) {
         PAGES_CLOSED.incrementAndGet();
         PAGES_CLOSED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
         ALL_LIVE_PAGES.remove(this);
+        
+        // Extra tracking for Page 0
+        if (recordPageKey == 0) {
+          // Check if in set BEFORE trying to remove
+          boolean wasInSet = ALL_PAGE_0_INSTANCES.contains(this);
+          boolean wasRemoved = ALL_PAGE_0_INSTANCES.remove(this); // Unregister when properly closed
+          
+          // DIAGNOSTIC: Track if removal failed
+          if (!wasRemoved) {
+            io.sirix.cache.DiagnosticLogger.log("⚠️  FAILED to remove Page 0 from ALL_PAGE_0_INSTANCES: " + indexType + 
+                " rev=" + revision + " instance=" + System.identityHashCode(this) + 
+                " wasInSet=" + wasInSet + " setSize=" + ALL_PAGE_0_INSTANCES.size());
+          } else if (wasInSet && wasRemoved) {
+            // Successfully removed
+            io.sirix.cache.DiagnosticLogger.log("✅ Removed Page 0 from ALL_PAGE_0_INSTANCES: " + indexType + 
+                " rev=" + revision + " instance=" + System.identityHashCode(this) + " setSize=" + ALL_PAGE_0_INSTANCES.size());
+          }
+          
+          // Stack trace logging - show full trace for NAME rev=2 pages
+          StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+          String caller = "UNKNOWN";
+          StringBuilder fullTrace = new StringBuilder();
+          // Look for meaningful caller (skip close(), look for what called close)
+          for (int i = 2; i < Math.min(stack.length, 20); i++) {
+            String className = stack[i].getClassName();
+            String method = stack[i].getMethodName();
+            
+            // Build full trace for debugging
+            if (i < 10 && indexType.toString().equals("NAME") && revision == 2) {
+              fullTrace.append("\n    ").append(i-2).append(": ").append(className).append(".").append(method);
+            }
+            
+            if (className.contains("RemovalListener") || className.contains("BoundedLocalCache")) {
+              caller = "RemovalListener(" + method + ")";
+              break;
+            } else if (method.equals("commit") && className.contains("NodePageTrx")) {
+              caller = "NodePageTrx.commit";
+              break;
+            } else if (method.equals("clear") && className.contains("TransactionIntentLog")) {
+              caller = "TIL.clear";
+              break;
+            } else if (method.equals("close") && className.contains("TransactionIntentLog")) {
+              caller = "TIL.close";
+              break;
+            } else if (method.equals("unpinAndUpdateWeight")) {
+              caller = "unpinAndUpdateWeight";
+              break;
+            } else if (className.contains("VersioningType")) {
+              caller = "VersioningType." + method;
+              break;
+            }
+          }
+          
+          String logMessage = "CLOSE: Page 0 (" + indexType + ") rev=" + revision + 
+              " instance=" + System.identityHashCode(this) + " from " + caller;
+          if (fullTrace.length() > 0) {
+            logMessage += fullTrace.toString();
+          }
+          io.sirix.cache.DiagnosticLogger.log(logMessage);
+        }
       }
       
       // Release segments back to allocator
@@ -1199,3 +1317,4 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     } // Confined arena automatically closes here, freeing all temporary buffers
   }
 }
+

@@ -32,10 +32,7 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
           // - REPLACED (cache update): Skip if pinned (new version being cached)
           // - SIZE (eviction): Must be unpinned, always close
           // - COLLECTED (GC): Page key was GC'd, page might already be unreachable
-          if (cause == RemovalCause.COLLECTED) {
-            // Key was garbage collected - page might be unreachable, still try to close
-            LOGGER.trace("RecordPage {} key collected by GC, closing page", key.getKey());
-          } else if (cause == RemovalCause.EXPLICIT || cause == RemovalCause.REPLACED) {
+          if (cause == RemovalCause.EXPLICIT || cause == RemovalCause.REPLACED) {
             if (page.getPinCount() > 0) {
               // Page still pinned - don't close, will be handled by transaction/TIL
               LOGGER.trace("RecordPage {} removed but NOT closed (cause={}, pinCount={})", 
@@ -53,6 +50,14 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
           LOGGER.trace("Closing page {} and releasing segments, cause={}", 
                       key.getKey(), cause);
           DiagnosticLogger.log("RecordPageCache EVICT: closing page " + page.getPageKey() + ", cause=" + cause);
+          
+          // DIAGNOSTIC: Track Page 0 closes from removal listener
+          if (page.getPageKey() == 0 && KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+            io.sirix.cache.DiagnosticLogger.log("RecordPageCache RemovalListener closing Page 0: " + 
+                page.getIndexType() + " rev=" + page.getRevision() + " cause=" + cause + 
+                " instance=" + System.identityHashCode(page));
+          }
+          
           page.close();
         };
 
@@ -72,7 +77,40 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
 
   @Override
   public void clear() {
+    // CRITICAL: Force pending async evictions to complete
+    cache.cleanUp();
+    
+    // Invalidate all remaining entries
     cache.invalidateAll();
+    
+    // Final cleanup
+    cache.cleanUp();
+  }
+  
+  /**
+   * Atomically unpin a page and update its weight in the cache.
+   * 
+   * @param key the page reference
+   * @param trxId the transaction ID doing the unpin
+   */
+  public void unpinAndUpdateWeight(PageReference key, int trxId) {
+    cache.asMap().computeIfPresent(key, (k, page) -> {
+      page.decrementPinCount(trxId);
+      return page; // Returning same instance triggers weight recalculation
+    });
+  }
+  
+  /**
+   * Atomically pin a page and update its weight in the cache.
+   * 
+   * @param key the page reference
+   * @param trxId the transaction ID doing the pin
+   */
+  public void pinAndUpdateWeight(PageReference key, int trxId) {
+    cache.asMap().computeIfPresent(key, (k, page) -> {
+      page.incrementPinCount(trxId);
+      return page; // Put back triggers weight recalculation
+    });
   }
 
   @Override

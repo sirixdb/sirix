@@ -12,3 +12,7 @@ package io.sirix.cache;
 public record PathSummaryCacheKey(long databaseId, long resourceId, int pathNodeKey) {
 }
 
+
+
+
+

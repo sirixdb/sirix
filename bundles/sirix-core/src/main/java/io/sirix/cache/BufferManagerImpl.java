@@ -23,10 +23,11 @@ public final class BufferManagerImpl implements BufferManager {
   private final PathSummaryCache pathSummaryCache;
 
   public BufferManagerImpl(int maxPageCachWeight, int maxRecordPageCacheWeight,
-      int maxRevisionRootPageCache, int maxRBTreeNodeCache, int maxNamesCacheSize, int maxPathSummaryCacheSize) {
+      int maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxRBTreeNodeCache, 
+      int maxNamesCacheSize, int maxPathSummaryCacheSize) {
     pageCache = new PageCache(maxPageCachWeight);
     recordPageCache = new RecordPageCache(maxRecordPageCacheWeight);
-    recordPageFragmentCache = new RecordPageFragmentCache(maxRecordPageCacheWeight / 2); // Half the size of recordPageCache
+    recordPageFragmentCache = new RecordPageFragmentCache(maxRecordPageFragmentCacheWeight);
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
     namesCache = new NamesCache(maxNamesCacheSize);
@@ -77,9 +78,16 @@ public final class BufferManagerImpl implements BufferManager {
     // Force-unpin all pages before clearing (pin count leak fix)
     // At this point all transactions should be closed, so any remaining pins are leaks
     
+    // DIAGNOSTIC: Count pages in caches
+    int recordCacheSize = recordPageCache.asMap().size();
+    int fragmentCacheSize = recordPageFragmentCache.asMap().size();
+    int pageCacheSize = pageCache.asMap().size();
+    int page0InCaches = 0;
+    
     // First pass: force-unpin all pinned pages
     for (var entry : recordPageCache.asMap().entrySet()) {
       var page = entry.getValue();
+      if (page.getPageKey() == 0) page0InCaches++;
       if (page.getPinCount() > 0) {
         forceUnpinAll(page);
       }
@@ -87,17 +95,27 @@ public final class BufferManagerImpl implements BufferManager {
     
     for (var entry : recordPageFragmentCache.asMap().entrySet()) {
       var page = entry.getValue();
+      if (page.getPageKey() == 0) page0InCaches++;
       if (page.getPinCount() > 0) {
         forceUnpinAll(page);
       }
     }
     
     for (var entry : pageCache.asMap().entrySet()) {
-      if (entry.getValue() instanceof KeyValueLeafPage kvPage && kvPage.getPinCount() > 0) {
-        forceUnpinAll(kvPage);
+      if (entry.getValue() instanceof KeyValueLeafPage kvPage) {
+        if (kvPage.getPageKey() == 0) page0InCaches++;
+        if (kvPage.getPinCount() > 0) {
+          forceUnpinAll(kvPage);
+        }
       }
     }
     
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      int totalPage0s = KeyValueLeafPage.ALL_PAGE_0_INSTANCES.size();
+      System.err.println("🧹 clearAllCaches(): RecordCache=" + recordCacheSize + ", FragmentCache=" + fragmentCacheSize + 
+                        ", PageCache=" + pageCacheSize + ", Page0InCaches=" + page0InCaches + 
+                        ", TotalPage0s=" + totalPage0s);
+    }
     
     // DON'T explicitly close pages - let the cache removal listener do it
     // Explicitly closing leaves closed pages in cache which causes "assert !isClosed()" failures
@@ -124,6 +142,12 @@ public final class BufferManagerImpl implements BufferManager {
       for (int i = 0; i < pinCount; i++) {
         page.decrementPinCount(trxId);
       }
+    }
+    
+    // CRITICAL: Verify the page is actually unpinned
+    if (page.getPinCount() > 0) {
+      throw new IllegalStateException("Page " + page.getPageKey() + " still has pinCount=" + 
+          page.getPinCount() + " after force-unpin! Pins by trx: " + page.getPinCountByTransaction());
     }
   }
 }

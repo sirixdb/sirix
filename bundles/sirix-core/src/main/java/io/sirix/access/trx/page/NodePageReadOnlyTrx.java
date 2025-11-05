@@ -618,6 +618,17 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                          ", requestedRevision=" + indexLogKey.getRevisionNumber());
     }
     
+    // First check if we have a closed page in cache - if so, remove and reload
+    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
+    if (cachedPage != null && cachedPage.isClosed()) {
+      System.err.println("⚠️  WARNING: Closed page found in RecordPageCache! " + 
+          "PageKey=" + cachedPage.getPageKey() + ", IndexType=" + cachedPage.getIndexType() + 
+          ", Revision=" + cachedPage.getRevision() + ", PinCount=" + cachedPage.getPinCount());
+      // Remove closed page from cache - will reload below
+      resourceBufferManager.getRecordPageCache().remove(pageReferenceToRecordPage);
+      cachedPage = null;
+    }
+    
     final KeyValueLeafPage recordPageFromBuffer =
         resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage, (_, value) -> {
           if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
@@ -629,16 +640,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
             } else {
               System.err.println("[PATH_SUMMARY-CACHE-LOOKUP]   -> Cache MISS, loading from disk");
             }
-          }
-          
-          // CRITICAL: If page is closed but still in cache, remove it and reload
-          if (value != null && value.isClosed()) {
-            System.err.println("⚠️  WARNING: Closed page found in RecordPageCache! " + 
-                "PageKey=" + value.getPageKey() + ", IndexType=" + value.getIndexType() + 
-                ", Revision=" + value.getRevision() + ", PinCount=" + value.getPinCount());
-            // Remove closed page from cache and reload from disk
-            resourceBufferManager.getRecordPageCache().remove(pageReferenceToRecordPage);
-            value = null;
           }
           
           var kvPage = value;

@@ -366,6 +366,7 @@ public final class Databases {
       GLOBAL_BUFFER_MANAGER = new BufferManagerImpl(
           maxPageCacheWeight,
           maxRecordPageCacheWeight,
+          maxRecordPageFragmentCacheWeight,
           maxRevisionRootPageCache,
           maxRBTreeNodeCache,
           maxNamesCacheSize,

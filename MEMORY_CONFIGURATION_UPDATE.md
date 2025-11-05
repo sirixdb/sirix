@@ -172,3 +172,7 @@ dbConfig.setMaxSegmentAllocationSize(32L * (1L << 30));  // 32GB
 **Default Virtual:** 28GB (up from 14GB)
 **Rationale:** Global pool serves all databases/resources, needs larger budget
 
+
+
+
+

@@ -237,3 +237,7 @@ The global BufferManager is successfully implemented and SirixDB now uses the sa
 *Implementation Complete: October 28, 2025*  
 *All Objectives Met ✅*
 
+
+
+
+

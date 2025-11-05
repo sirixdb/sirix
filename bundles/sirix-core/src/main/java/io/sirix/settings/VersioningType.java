@@ -172,14 +172,22 @@ public enum VersioningType {
       final long recordPageKey = firstPage.getPageKey();
       final int revision = pageReadTrx.getUberPage().getRevisionNumber();
 
-      reference.setPageFragments(List.of(new PageFragmentKeyImpl(
+      // Update pageFragments on original reference
+      final List<io.sirix.page.interfaces.PageFragmentKey> pageFragmentKeys = List.of(new PageFragmentKeyImpl(
           firstPage.getRevision(), 
           reference.getKey(),
           (int) pageReadTrx.getDatabaseId(),
-          (int) pageReadTrx.getResourceId())));
+          (int) pageReadTrx.getResourceId()));
+      reference.setPageFragments(pageFragmentKeys);
 
       final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
       final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
+
+      // DIAGNOSTIC
+      if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
+        io.sirix.cache.DiagnosticLogger.log("FULL combineForMod created: complete=" + System.identityHashCode(completePage) +
+            ", modified=" + System.identityHashCode(modifiedPage));
+      }
 
       @SuppressWarnings("UnnecessaryLocalVariable") final T latest = firstPage;
       T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
@@ -245,7 +253,7 @@ public enum VersioningType {
       }
 
       final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
-      log.put(reference, pageContainer);
+      log.put(reference, pageContainer);  // TIL will remove from caches before mutating
       return pageContainer;
     }
 
@@ -321,7 +329,7 @@ public enum VersioningType {
 
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
+        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, PageReference reference,
         final TransactionIntentLog log) {
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
@@ -336,11 +344,18 @@ public enum VersioningType {
         previousPageFragmentKeys.add(reference.getPageFragments().get(i));
       }
 
+      // Update pageFragments on original reference
       reference.setPageFragments(previousPageFragmentKeys);
 
       final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
       final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
       final boolean isFullDump = pages.size() == revToRestore;
+      
+      // DIAGNOSTIC
+      if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
+        io.sirix.cache.DiagnosticLogger.log("DIFFERENTIAL combineForMod created: complete=" + System.identityHashCode(completePage) +
+            ", modified=" + System.identityHashCode(modifiedPage));
+      }
 
       boolean filledPage = false;
       for (final T page : pages) {
@@ -400,7 +415,7 @@ public enum VersioningType {
       }
 
       final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
-      log.put(reference, pageContainer);
+      log.put(reference, pageContainer);  // TIL will remove from caches before mutating
       return pageContainer;
     }
 
@@ -502,6 +517,7 @@ public enum VersioningType {
         previousPageFragmentKeys.add(reference.getPageFragments().get(i));
       }
 
+      // Update pageFragments on original reference
       reference.setPageFragments(previousPageFragmentKeys);
 
       final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
@@ -509,6 +525,12 @@ public enum VersioningType {
 
       final T pageWithRecordsInSlidingWindow =
           firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
+          
+      // DIAGNOSTIC
+      if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
+        io.sirix.cache.DiagnosticLogger.log("combineForMod created 3 pages: complete=" + System.identityHashCode(completePage) +
+            ", modifying=" + System.identityHashCode(modifyingPage) + ", temp=" + System.identityHashCode(pageWithRecordsInSlidingWindow));
+      }
 
       boolean filledPage = false;
       for (int i = 0; i < pages.size() && !filledPage; i++) {
@@ -578,12 +600,16 @@ public enum VersioningType {
       // CRITICAL FIX: Close temporary page to prevent memory leak
       if (pageWithRecordsInSlidingWindow instanceof io.sirix.page.KeyValueLeafPage tempPage) {
         if (!tempPage.isClosed()) {
+          if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && tempPage.getPageKey() == 0) {
+            io.sirix.cache.DiagnosticLogger.log("CLOSING temp page: Page 0 " + tempPage.getIndexType() + 
+                " rev=" + tempPage.getRevision() + " instance=" + System.identityHashCode(tempPage));
+          }
           tempPage.close();
         }
       }
 
       final var pageContainer = PageContainer.getInstance(completePage, modifyingPage);
-      log.put(reference, pageContainer);
+      log.put(reference, pageContainer);  // TIL will remove from caches before mutating
       return pageContainer;
     }
 

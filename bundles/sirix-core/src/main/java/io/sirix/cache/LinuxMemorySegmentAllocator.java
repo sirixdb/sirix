@@ -128,6 +128,20 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         System.err.println("Pages Leaked (caught by finalizer): " + finalized);
         System.err.println("Pages Still Live: " + livePages.size());
         
+        // Show finalized pages breakdown
+        if (finalized > 0) {
+          System.err.println("\nFinalized Pages (NOT closed properly) by Type:");
+          io.sirix.page.KeyValueLeafPage.FINALIZED_BY_TYPE.forEach((type, count) -> 
+              System.err.println("  " + type + ": " + count.get() + " pages"));
+          
+          System.err.println("\nFinalized Pages (NOT closed properly) by Page Key (top 15):");
+          io.sirix.page.KeyValueLeafPage.FINALIZED_BY_PAGE_KEY.entrySet().stream()
+              .sorted(java.util.Map.Entry.<Long, java.util.concurrent.atomic.AtomicLong>comparingByValue(
+                  (a, b) -> Long.compare(b.get(), a.get())).reversed())
+              .limit(15)
+              .forEach(e -> System.err.println("  Page " + e.getKey() + ": " + e.getValue().get() + " times"));
+        }
+        
         // Show breakdown by page key
         var pageKeyCount = new java.util.HashMap<Long, Integer>();
         var indexTypeCount = new java.util.HashMap<io.sirix.index.IndexType, Integer>();
