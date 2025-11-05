@@ -143,9 +143,11 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         }
         
         // Show breakdown by page key
+        // CRITICAL: Create snapshot to avoid ConcurrentModificationException during iteration
+        var livePageSnapshot = new java.util.ArrayList<>(livePages);
         var pageKeyCount = new java.util.HashMap<Long, Integer>();
         var indexTypeCount = new java.util.HashMap<io.sirix.index.IndexType, Integer>();
-        for (var page : livePages) {
+        for (var page : livePageSnapshot) {
           pageKeyCount.merge(page.getPageKey(), 1, Integer::sum);
           indexTypeCount.merge(page.getIndexType(), 1, Integer::sum);
         }
