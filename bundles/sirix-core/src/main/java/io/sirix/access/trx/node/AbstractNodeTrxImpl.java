@@ -556,6 +556,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         // Release all state immediately.
         final int trxId = getId();
         nodeReadOnlyTrx.close();
+        
+        // CRITICAL FIX: Close PageTrx to trigger TIL.close() and clean up uncommitted pages
+        // Without this, TIL instances with uncommitted pages leak
+        if (pageTrx != null && !pageTrx.isClosed()) {
+          pageTrx.close();
+        }
+        
         resourceSession.closeWriteTransaction(trxId);
         removeCommitFile();
 
