@@ -475,8 +475,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     var cachedPage = recordPageCache.get(cacheKey);
     if (cachedPage != null) {
       var page = cachedPage.page();
-      assert !page.isClosed();
-      return new PageReferenceToPage(cachedPage.pageReference, page);
+      // CRITICAL: Handle closed pages in local cache
+      if (page.isClosed()) {
+        // Page was closed (e.g., by cache eviction) - remove from local cache
+        recordPageCache.remove(cacheKey);
+        cachedPage = null;
+      } else {
+        return new PageReferenceToPage(cachedPage.pageReference, page);
+      }
     }
 
     // Second: Traverse trie.

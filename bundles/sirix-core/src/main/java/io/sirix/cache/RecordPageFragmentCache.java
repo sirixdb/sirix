@@ -115,7 +115,12 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
    */
   public void unpinAndUpdateWeight(PageReference key, int trxId) {
     cache.asMap().computeIfPresent(key, (k, page) -> {
-      page.decrementPinCount(trxId);
+      // CRITICAL FIX: Only unpin if this transaction actually pinned the page
+      // Pages can be shared across transactions, but unpinning should only
+      // happen if the transaction actually pinned it
+      if (page.getPinCountByTransaction().getOrDefault(trxId, 0) > 0) {
+        page.decrementPinCount(trxId);
+      }
       return page; // Returning same instance triggers weight recalculation
     });
   }
