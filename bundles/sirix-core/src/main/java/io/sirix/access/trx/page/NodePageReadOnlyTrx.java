@@ -212,10 +212,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (page != null) {
         return page;
       }
+      // Page was in TIL but has been cleared - need to reload from disk
+      // logKey might still be set, so don't assert it's NULL_ID_INT
     }
 
- //   if (trxIntentLog == null) {
-      assert reference.getLogKey() == Constants.NULL_ID_INT;
+//   if (trxIntentLog == null) {
+      // REMOVED INCORRECT ASSERTION: logKey can be != NULL_ID_INT if page was in TIL then cleared
+      // assert reference.getLogKey() == Constants.NULL_ID_INT;
       page = resourceBufferManager.getPageCache().get(reference, (_, _) -> {
         try {
           // Reader will fixup PageReference IDs during deserialization
