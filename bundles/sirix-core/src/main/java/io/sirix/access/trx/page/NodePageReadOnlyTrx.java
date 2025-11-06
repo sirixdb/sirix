@@ -666,11 +666,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     // Read-only transaction - safe to use cache.get() with compute function
     final KeyValueLeafPage recordPageFromBuffer =
         resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage, (_, value) -> {
-          // CRITICAL: If page is closed, treat it as cache miss and reload
-          // DO NOT remove from cache here - that would null the PageReference!
+          // CRITICAL: Even for read-only transactions, check for closed pages
+          // This can happen when pages are closed by clearAllCaches() between tests
           if (value != null && value.isClosed()) {
             if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-              System.err.println("⚠️  WARNING: Closed page found in RecordPageCache! " + 
+              System.err.println("⚠️  WARNING: Closed page found in RecordPageCache (read-only trx)! " + 
                   "PageKey=" + value.getPageKey() + ", IndexType=" + value.getIndexType() + 
                   ", Revision=" + value.getRevision() + " - reloading from disk");
             }
