@@ -631,39 +631,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                          ", requestedRevision=" + indexLogKey.getRevisionNumber());
     }
     
-    // CRITICAL FIX: For write transactions, don't use cache.get() with compute function
-    // because it would re-add pages to cache that were removed by TIL.put()
-    // This causes pages in TIL to end up back in cache, then TIL.clear() closes them,
-    // leaving closed pages in cache!
-    if (trxIntentLog != null) {
-      // Write transaction - check cache without compute function
-      KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
-      if (cachedPage != null) {
-        // Found in cache - use it
-        if (!cachedPage.isClosed()) {
-          cachedPage.incrementPinCount(trxId);
-          pageReferenceToRecordPage.setPage(cachedPage);
-          return cachedPage;
-        } else {
-          // Closed page in cache - this shouldn't happen but handle it gracefully
-          if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-            System.err.println("⚠️  UNEXPECTED: Closed page in RecordPageCache during write trx! " + 
-                "PageKey=" + cachedPage.getPageKey() + ", IndexType=" + cachedPage.getIndexType());
-          }
-          return null;
-        }
-      }
-      
-      // Not in cache - load from disk but DON'T cache it (it might go into TIL later)
-      var loadedPage = (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(pageReferenceToRecordPage);
-      if (loadedPage != null) {
-        loadedPage.incrementPinCount(trxId);
-        pageReferenceToRecordPage.setPage(loadedPage);
-      }
-      return loadedPage;
-    }
-    
-    // Read-only transaction - safe to use cache.get() with compute function
+    // Use cache.get() with compute function for all transactions
+    // PATH_SUMMARY has its own bypass logic (see getRecordPage() lines 533-560)
     final KeyValueLeafPage recordPageFromBuffer =
         resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage, (_, value) -> {
           // CRITICAL: Check for closed pages even in read-only transactions
