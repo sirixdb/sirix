@@ -187,6 +187,9 @@ public final class TransactionIntentLog implements AutoCloseable {
         }
         
         if (!completePage.isClosed()) {
+          // CRITICAL: Pages in TIL were already removed from cache in TIL.put()
+          // They should NEVER be in cache here. If they are, that's a separate bug.
+          // We must close them here since they won't be closed by cache RemovalListener.
           forceUnpinAll(completePage);
           completePage.close();
           closedComplete++;
@@ -203,6 +206,7 @@ public final class TransactionIntentLog implements AutoCloseable {
         if (isPage0) page0Modified++;
         
         if (!modifiedPage.isClosed()) {
+          // Same logic - pages in TIL must be closed here
           forceUnpinAll(modifiedPage);
           modifiedPage.close();
           closedModified++;

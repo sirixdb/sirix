@@ -631,19 +631,52 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                          ", requestedRevision=" + indexLogKey.getRevisionNumber());
     }
     
-    // First check if we have a closed page in cache - if so, remove and reload
-    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
-    if (cachedPage != null && cachedPage.isClosed()) {
-      System.err.println("⚠️  WARNING: Closed page found in RecordPageCache! " + 
-          "PageKey=" + cachedPage.getPageKey() + ", IndexType=" + cachedPage.getIndexType() + 
-          ", Revision=" + cachedPage.getRevision() + ", PinCount=" + cachedPage.getPinCount());
-      // Remove closed page from cache - will reload below
-      resourceBufferManager.getRecordPageCache().remove(pageReferenceToRecordPage);
-      cachedPage = null;
+    // CRITICAL FIX: For write transactions, don't use cache.get() with compute function
+    // because it would re-add pages to cache that were removed by TIL.put()
+    // This causes pages in TIL to end up back in cache, then TIL.clear() closes them,
+    // leaving closed pages in cache!
+    if (trxIntentLog != null) {
+      // Write transaction - check cache without compute function
+      KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
+      if (cachedPage != null) {
+        // Found in cache - use it
+        if (!cachedPage.isClosed()) {
+          cachedPage.incrementPinCount(trxId);
+          pageReferenceToRecordPage.setPage(cachedPage);
+          return cachedPage;
+        } else {
+          // Closed page in cache - this shouldn't happen but handle it gracefully
+          if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+            System.err.println("⚠️  UNEXPECTED: Closed page in RecordPageCache during write trx! " + 
+                "PageKey=" + cachedPage.getPageKey() + ", IndexType=" + cachedPage.getIndexType());
+          }
+          return null;
+        }
+      }
+      
+      // Not in cache - load from disk but DON'T cache it (it might go into TIL later)
+      var loadedPage = (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(pageReferenceToRecordPage);
+      if (loadedPage != null) {
+        loadedPage.incrementPinCount(trxId);
+        pageReferenceToRecordPage.setPage(loadedPage);
+      }
+      return loadedPage;
     }
     
+    // Read-only transaction - safe to use cache.get() with compute function
     final KeyValueLeafPage recordPageFromBuffer =
         resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage, (_, value) -> {
+          // CRITICAL: If page is closed, treat it as cache miss and reload
+          // DO NOT remove from cache here - that would null the PageReference!
+          if (value != null && value.isClosed()) {
+            if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+              System.err.println("⚠️  WARNING: Closed page found in RecordPageCache! " + 
+                  "PageKey=" + value.getPageKey() + ", IndexType=" + value.getIndexType() + 
+                  ", Revision=" + value.getRevision() + " - reloading from disk");
+            }
+            value = null; // Treat as cache miss - will reload below
+          }
+          
           if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
             if (value != null) {
               System.err.println("[PATH_SUMMARY-CACHE-LOOKUP]   -> Cache HIT: " +
@@ -788,19 +821,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       pageReferenceToRecordPage.setPage(completePage);
       assert !completePage.isClosed();
       
-      // CRITICAL FIX: Pin combined page immediately to ensure it's tracked
-      // Combined pages MUST be pinned so they'll be unpinned and closed later
-      // Without this, combined pages can leak when PageReference is GC'd
-      if (completePage instanceof KeyValueLeafPage kvPage) {
-        kvPage.incrementPinCount(trxId);
-        
-        // DIAGNOSTIC: Track combined page creation
-        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
-          StackTraceElement[] stack = Thread.currentThread().getStackTrace();
-          String caller = stack.length > 6 ? stack[6].getMethodName() : "unknown";
-          io.sirix.cache.DiagnosticLogger.log("COMBINED PAGE 0 created and PINNED: " + kvPage.getIndexType() + " rev=" + kvPage.getRevision() + 
-              " by " + caller + " (instance=" + System.identityHashCode(kvPage) + ", pinCount=" + kvPage.getPinCount() + ")");
-        }
+      // DIAGNOSTIC: Track combined Page 0 creation with stack trace
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && completePage instanceof KeyValueLeafPage kvp && kvp.getPageKey() == 0) {
+        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+        String caller = stack.length > 6 ? stack[6].getMethodName() : "unknown";
+        io.sirix.cache.DiagnosticLogger.log("COMBINED PAGE 0 created: " + kvp.getIndexType() + " rev=" + kvp.getRevision() + 
+            " by " + caller + " (instance=" + System.identityHashCode(kvp) + ")");
       }
       
       return completePage;
