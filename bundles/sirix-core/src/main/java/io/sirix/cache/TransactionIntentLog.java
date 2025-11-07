@@ -107,8 +107,12 @@ public final class TransactionIntentLog implements AutoCloseable {
      }
    }
 
+    // CRITICAL FIX: Don't null the page!
+    // Some PageReferences (e.g., from RevisionRootPage) are shared and still needed
+    // Only null the storage key to prevent reload attempts
     key.setKey(Constants.NULL_ID_LONG);
-    key.setPage(null);
+    // DON'T null page - it might still be accessed via this PageReference!
+    // key.setPage(null);
     key.setLogKey(logKey);
 
     list.add(value);
