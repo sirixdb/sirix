@@ -638,11 +638,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     // PATH_SUMMARY has its own bypass logic (see getRecordPage() lines 533-560)
     final KeyValueLeafPage recordPageFromBuffer =
         resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage, (_, value) -> {
-          // CRITICAL: Check for closed pages even in read-only transactions
-          // This can happen due to Caffeine's async RemovalListener callbacks:
-          // - clearAllCaches() triggers invalidateAll()
-          // - RemovalListener callbacks may still be executing when next test starts
-          // - A page can be closed by delayed callback while being accessed
+          // CRITICAL: Handle closed pages gracefully instead of asserting
+          // TIL pages can be re-cached by cache.get() compute function,
+          // then closed by TIL.clear(), leaving closed pages in cache temporarily
           if (value != null && value.isClosed()) {
             value = null; // Treat as cache miss - will reload below
           }
