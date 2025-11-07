@@ -74,9 +74,13 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         ? NamePageHash.generateHashForString(name.getLocalName())
         : -1;
 
+    // CRITICAL FIX: Use accessor method instead of direct .getPage() call
+    // After TIL.put(), PageReference.getPage() returns null
+    // Must use pageTrx.getPathSummaryPage() which handles TIL lookups
+    final PathSummaryPage pathSummaryPage = pageTrx.getPathSummaryPage(pageTrx.getActualRevisionRootPage());
     final NodeDelegate nodeDel = new NodeDelegate(
-        ((PathSummaryPage) pageTrx.getActualRevisionRootPage().getPathSummaryPageReference().getPage()).getMaxNodeKey(0)
-            + 1, parentKey, hashFunction, Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
+        pathSummaryPage.getMaxNodeKey(0) + 1, 
+        parentKey, hashFunction, Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
