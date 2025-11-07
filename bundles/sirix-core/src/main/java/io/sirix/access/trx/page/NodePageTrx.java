@@ -260,20 +260,22 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       case CHANGED_NODES -> newRevisionRootPage.incrementAndGetMaxNodeKeyInChangedNodesIndex();
       case RECORD_TO_REVISIONS -> newRevisionRootPage.incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
       case PATH_SUMMARY -> {
-        final PathSummaryPage pathSummaryPage =
-            ((PathSummaryPage) newRevisionRootPage.getPathSummaryPageReference().getPage());
+        // CRITICAL FIX: Use accessor method instead of direct .getPage() call
+        // PageReference.getPage() can return null after TIL.put() nulls it
+        // Accessor methods use loadPage() which handles TIL lookups
+        final PathSummaryPage pathSummaryPage = pageRtx.getPathSummaryPage(newRevisionRootPage);
         yield pathSummaryPage.incrementAndGetMaxNodeKey(index);
       }
       case CAS -> {
-        final CASPage casPage = ((CASPage) newRevisionRootPage.getCASPageReference().getPage());
+        final CASPage casPage = pageRtx.getCASPage(newRevisionRootPage);
         yield casPage.incrementAndGetMaxNodeKey(index);
       }
       case PATH -> {
-        final PathPage pathPage = ((PathPage) newRevisionRootPage.getPathPageReference().getPage());
+        final PathPage pathPage = pageRtx.getPathPage(newRevisionRootPage);
         yield pathPage.incrementAndGetMaxNodeKey(index);
       }
       case NAME -> {
-        final NamePage namePage = ((NamePage) newRevisionRootPage.getNamePageReference().getPage());
+        final NamePage namePage = pageRtx.getNamePage(newRevisionRootPage);
         yield namePage.incrementAndGetMaxNodeKey(index);
       }
       default -> throw new IllegalStateException();
