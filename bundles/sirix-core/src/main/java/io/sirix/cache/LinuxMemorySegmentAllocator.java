@@ -463,11 +463,29 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   }
 
   @Override
-  public void init(long maxBufferSize) {
-    if (!isInitialized.compareAndSet(false, true)) {
-      LOGGER.debug("Allocator already initialized");
+  public synchronized void init(long maxBufferSize) {
+    if (isInitialized.get()) {
+      // Already initialized - reset accounting state to ensure clean start
+      // This handles cases where previous test didn't fully clean up
+      LOGGER.debug("Allocator already initialized - resetting accounting state for clean start");
+      
+      // CRITICAL: Reset accounting to prevent stale state from previous tests
+      long oldPhysical = physicalMemoryBytes.getAndSet(0);
+      int oldBorrowed = borrowedSegments.size();
+      borrowedSegments.clear();
+      
+      if (oldPhysical > 0 || oldBorrowed > 0) {
+        LOGGER.warn("Allocator re-init: Cleared {} bytes physical memory and {} borrowed segments from previous state",
+                    oldPhysical, oldBorrowed);
+      }
+      
+      // Update max buffer size in case it changed
+      this.maxBufferSize.set(maxBufferSize);
       return;
     }
+    
+    // First initialization - set the flag
+    isInitialized.set(true);
 
     LOGGER.info("========== Initializing UmbraDB-Style Memory Allocator ==========");
     LOGGER.info("Physical memory limit: {} MB", maxBufferSize / (1024 * 1024));
