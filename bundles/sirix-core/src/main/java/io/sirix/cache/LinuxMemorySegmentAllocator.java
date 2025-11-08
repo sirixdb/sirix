@@ -579,6 +579,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
   @Override
   public synchronized MemorySegment allocate(long size) {
+    long callNum = allocateCallCount.incrementAndGet();
+    
     int index = SegmentAllocators.getIndexForSize(size);
 
     if (index < 0 || index >= segmentPools.length) {
@@ -617,7 +619,15 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     if (isFirstBorrow) {
       // First time borrowing - physical pages will be committed on first access
       // Always increment physical memory for first borrow
+      long oldPhysical = physicalMemoryBytes.get();
       long newPhysical = physicalMemoryBytes.addAndGet(size);
+      
+      // DIAGNOSTIC: Log every increment to track accounting
+      if (callNum % 100 == 0) {
+        LOGGER.debug("Allocate {}: physical {} → {} MB (+ {} bytes, borrowed count: {})",
+                    callNum, oldPhysical / (1024 * 1024), newPhysical / (1024 * 1024),
+                    size, borrowedSegments.size());
+      }
       
       if (newPhysical > maxBufferSize.get() * 0.9) {
         double percentUsed = (newPhysical * 100.0) / maxBufferSize.get();
@@ -627,16 +637,24 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                     maxBufferSize.get() / (1024 * 1024));
       }
     } else {
-      // Re-borrowing a segment that's still in borrowedSegments - this is a BUG!
+      // Re-borrowing a segment that's still in borrowedSegments - THIS IS THE BUG!
       // Segments should be removed from borrowedSegments in release() before returning to pool
-      // If this happens, it means either:
-      // 1. madvise failed and segment was added back to borrowedSegments but also to pool (bug)
-      // 2. Accounting is corrupted from a previous error
-      LOGGER.error("CRITICAL: Re-borrowing segment {} (size={}) that's still in borrowed set! " +
-                   "This will cause accounting errors. Current physical: {} MB",
-                   address, size, physicalMemoryBytes.get() / (1024 * 1024));
-      // Don't increment physical memory - it's already counted (or accounting is corrupted)
-      // But this will cause accounting errors on next release!
+      LOGGER.error("🔴 ROOT CAUSE FOUND: Re-borrowing segment {} (size={}) that's still in borrowed set! " +
+                   "This causes UNTRACKED ALLOCATION. Physical: {} MB, Borrowed count: {}",
+                   address, size, physicalMemoryBytes.get() / (1024 * 1024), borrowedSegments.size());
+      
+      // Print stack trace to see WHERE this is being allocated from
+      StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+      StringBuilder stackStr = new StringBuilder("\n  Re-borrow stack trace:");
+      for (int i = 2; i < Math.min(stack.length, 10); i++) {
+        stackStr.append(String.format("\n    %s.%s(%s:%d)",
+            stack[i].getClassName(), stack[i].getMethodName(),
+            stack[i].getFileName(), stack[i].getLineNumber()));
+      }
+      LOGGER.error(stackStr.toString());
+      
+      // Don't increment physical memory - it's already counted
+      // This WILL cause accounting errors on next release!
     }
 
     // Decrement pool counter
@@ -713,6 +731,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     releasePhysicalMemory(segment, segment.byteSize());
   }
 
+  private static final java.util.concurrent.atomic.AtomicLong allocateCallCount = new java.util.concurrent.atomic.AtomicLong(0);
   private static final java.util.concurrent.atomic.AtomicLong releaseCallCount = new java.util.concurrent.atomic.AtomicLong(0);
   private static final java.util.concurrent.atomic.AtomicLong doubleReleaseCount = new java.util.concurrent.atomic.AtomicLong(0);
   
@@ -768,24 +787,33 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           currentPhysical = physicalMemoryBytes.get();
           
           if (currentPhysical < size) {
-            // Counter would go negative - this is an accounting bug from earlier
-            // DON'T reset to 0 (causes cascade failures). Instead set to 0 and continue.
-            // This is best-effort recovery - accounting is corrupted but keep going.
-            LOGGER.error("Physical memory accounting error: trying to release {} bytes but only {} bytes tracked. " +
-                        "This indicates UNTRACKED ALLOCATION (allocated without tracking). " + 
-                        "Setting counter to 0 and continuing. Segment will be returned to pool.",
-                        size, currentPhysical);
+            // Counter would go negative - this is an accounting bug
+            // Report detailed diagnostics to find root cause
+            LOGGER.error("🔴 Physical memory accounting error at release #{}: " +
+                        "trying to release {} bytes but only {} bytes tracked. " +
+                        "Total allocate calls: {}, total release calls: {}, " +
+                        "borrowed segments: {}, double-releases: {}. " +
+                        "Setting counter to 0 and continuing.",
+                        callNum, size, currentPhysical,
+                        allocateCallCount.get(), releaseCallCount.get(),
+                        borrowedSegments.size(), doubleReleaseCount.get());
             
             // Set to 0 using CAS (another thread might have changed it)
             physicalMemoryBytes.compareAndSet(currentPhysical, 0);
             
-            // Continue with release - don't cascade failures
-            // Segment is returned to pool so it can be reused normally
+            // Continue with release - segment is returned to pool
             break; // Exit CAS loop, continue to return segment
           }
           
           newPhysical = currentPhysical - size;
         } while (!physicalMemoryBytes.compareAndSet(currentPhysical, newPhysical));
+        
+        // DIAGNOSTIC: Log every decrement to track accounting
+        if (callNum % 100 == 0) {
+          LOGGER.debug("Release {}: physical {} → {} MB (- {} bytes, borrowed count: {})",
+                      callNum, currentPhysical / (1024 * 1024), newPhysical / (1024 * 1024),
+                      size, borrowedSegments.size());
+        }
         
         madviseSucceeded = true;
         // Note: Already removed from borrowedSegments above (atomically)
