@@ -782,7 +782,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       if (result == 0) {
         // Successfully released physical memory - decrement counter using CAS to prevent going negative
         long currentPhysical;
-        long newPhysical;
+        long newPhysical = 0; // Initialize to avoid compilation error
+        boolean hadAccountingError = false;
+        
         do {
           currentPhysical = physicalMemoryBytes.get();
           
@@ -800,6 +802,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
             
             // Set to 0 using CAS (another thread might have changed it)
             physicalMemoryBytes.compareAndSet(currentPhysical, 0);
+            hadAccountingError = true;
             
             // Continue with release - segment is returned to pool
             break; // Exit CAS loop, continue to return segment
@@ -808,8 +811,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           newPhysical = currentPhysical - size;
         } while (!physicalMemoryBytes.compareAndSet(currentPhysical, newPhysical));
         
-        // DIAGNOSTIC: Log every decrement to track accounting
-        if (callNum % 100 == 0) {
+        // DIAGNOSTIC: Log every decrement to track accounting (skip if had error - newPhysical not meaningful)
+        if (!hadAccountingError && callNum % 100 == 0) {
           LOGGER.debug("Release {}: physical {} → {} MB (- {} bytes, borrowed count: {})",
                       callNum, currentPhysical / (1024 * 1024), newPhysical / (1024 * 1024),
                       size, borrowedSegments.size());
