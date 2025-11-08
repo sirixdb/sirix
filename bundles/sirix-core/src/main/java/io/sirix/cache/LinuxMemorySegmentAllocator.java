@@ -465,22 +465,22 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   @Override
   public synchronized void init(long maxBufferSize) {
     if (isInitialized.get()) {
-      // Already initialized - reset accounting state to ensure clean start
-      // This handles cases where previous test didn't fully clean up
-      LOGGER.debug("Allocator already initialized - resetting accounting state for clean start");
-      
-      // CRITICAL: Reset accounting to prevent stale state from previous tests
-      long oldPhysical = physicalMemoryBytes.getAndSet(0);
-      int oldBorrowed = borrowedSegments.size();
-      borrowedSegments.clear();
-      
-      if (oldPhysical > 0 || oldBorrowed > 0) {
-        LOGGER.warn("Allocator re-init: Cleared {} bytes physical memory and {} borrowed segments from previous state",
-                    oldPhysical, oldBorrowed);
+      // Already initialized - just update max buffer size if needed
+      // CRITICAL: DO NOT reset borrowedSegments or physicalMemoryBytes!
+      // Live pages from previous tests may still hold segments - if we clear tracking,
+      // their release() calls will fail with "UNTRACKED ALLOCATION" errors
+      long currentBufferSize = this.maxBufferSize.get();
+      if (currentBufferSize != maxBufferSize) {
+        LOGGER.debug("Allocator already initialized - updating max buffer size from {} to {} MB",
+                    currentBufferSize / (1024 * 1024), maxBufferSize / (1024 * 1024));
+        this.maxBufferSize.set(maxBufferSize);
       }
       
-      // Update max buffer size in case it changed
-      this.maxBufferSize.set(maxBufferSize);
+      // Log current state for diagnostics
+      if (LOGGER.isDebugEnabled()) {
+        LOGGER.debug("Allocator re-init: {} borrowed segments, {} MB physical memory tracked",
+                    borrowedSegments.size(), physicalMemoryBytes.get() / (1024 * 1024));
+      }
       return;
     }
     
