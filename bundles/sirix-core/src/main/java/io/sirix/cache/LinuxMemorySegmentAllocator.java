@@ -560,7 +560,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   }
 
   @Override
-  public MemorySegment allocate(long size) {
+  public synchronized MemorySegment allocate(long size) {
     int index = SegmentAllocators.getIndexForSize(size);
 
     if (index < 0 || index >= segmentPools.length) {
@@ -694,7 +694,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private static final java.util.concurrent.atomic.AtomicLong doubleReleaseCount = new java.util.concurrent.atomic.AtomicLong(0);
   
   @Override
-  public void release(MemorySegment segment) {
+  public synchronized void release(MemorySegment segment) {
     if (segment == null) {
       return; // Already released/nulled
     }
