@@ -113,25 +113,16 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
    * @param trxId the transaction ID doing the unpin
    */
   public void unpinAndUpdateWeight(PageReference key, int trxId) {
+    // CRITICAL: Use computeIfPresent for atomic operation
+    // The decrementPinCount() method is now synchronized, so it's safe from races
     cache.asMap().computeIfPresent(key, (k, page) -> {
-      // CRITICAL FIX: Skip if page is closed to prevent assertions
-      if (page.isClosed()) {
-        return page;  // Return as-is, don't try to unpin
-      }
+      // decrementPinCount() is now synchronized and handles closed pages gracefully
+      // It will return silently if the page is already closed or transaction never pinned it
+      page.decrementPinCount(trxId);
       
-      // CRITICAL FIX: Only unpin if this transaction actually pinned the page
-      // Must check using the ConcurrentHashMap to avoid race conditions
-      var pinCountMap = page.getPinCountByTransaction();
-      var counter = pinCountMap.get(trxId);
-      if (counter != null && counter > 0) {
-        try {
-          page.decrementPinCount(trxId);
-        } catch (IllegalStateException e) {
-          // Race condition: page was unpinned by another thread between check and decrement
-          // This is safe to ignore - page is already unpinned
-        }
-      }
-      return page; // Returning same instance triggers weight recalculation
+      // Return same instance to trigger weight recalculation
+      // Caffeine will call the weigher which checks pin count
+      return page;
     });
   }
   
@@ -142,9 +133,21 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
    * @param trxId the transaction ID doing the pin
    */
   public void pinAndUpdateWeight(PageReference key, int trxId) {
+    // CRITICAL: Use computeIfPresent for atomic operation
+    // The incrementPinCount() method is now synchronized and will throw if page is closed
     cache.asMap().computeIfPresent(key, (k, page) -> {
-      page.incrementPinCount(trxId);
-      return page; // Put back triggers weight recalculation
+      try {
+        page.incrementPinCount(trxId);
+      } catch (IllegalStateException e) {
+        // Page was closed - this can happen if eviction occurred between get and pin
+        // Return null to remove from cache (page is invalid)
+        LOGGER.debug("Attempted to pin closed page {} - removing from cache", key.getKey());
+        return null;
+      }
+      
+      // Return same instance to trigger weight recalculation
+      // Caffeine will call the weigher which checks pin count
+      return page;
     });
   }
 

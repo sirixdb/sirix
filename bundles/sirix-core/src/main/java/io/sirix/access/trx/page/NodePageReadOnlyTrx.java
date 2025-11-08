@@ -1317,7 +1317,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     int page0InRecordCache = 0;
     int page0PinnedByThisTrx = 0;
 
-    // Scan RecordPageCache
+    // CRITICAL FIX: Collect snapshot of pages to unpin first to avoid ConcurrentModificationException
+    // Cache can be modified by other threads (eviction, other transactions) while we iterate
+    record PageToUnpin(PageReference pageRef, KeyValueLeafPage page, int pinCount) {}
+    var recordCacheSnapshot = new java.util.ArrayList<PageToUnpin>();
+    
+    // Scan RecordPageCache - collect snapshot
     for (var entry : resourceBufferManager.getRecordPageCache().asMap().entrySet()) {
       var pageRef = entry.getKey();
       var page = entry.getValue();
@@ -1335,21 +1340,26 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       Integer pinCount = pinsByTrx.get(transactionId);
 
       if (pinCount != null && pinCount > 0) {
-        // CRITICAL: Use unpinAndUpdateWeight to atomically unpin and update weight
-        if (resourceBufferManager.getRecordPageCache() instanceof RecordPageCache cache) {
-          for (int i = 0; i < pinCount; i++) {
-            cache.unpinAndUpdateWeight(pageRef, transactionId);
-          }
-        } else {
-          for (int i = 0; i < pinCount; i++) {
-            page.decrementPinCount(transactionId);
-          }
+        recordCacheSnapshot.add(new PageToUnpin(pageRef, page, pinCount));
+      }
+    }
+    
+    // Now unpin all pages from snapshot (safe from concurrent modification)
+    for (var pageToUnpin : recordCacheSnapshot) {
+      // CRITICAL: Use unpinAndUpdateWeight to atomically unpin and update weight
+      if (resourceBufferManager.getRecordPageCache() instanceof RecordPageCache cache) {
+        for (int i = 0; i < pageToUnpin.pinCount; i++) {
+          cache.unpinAndUpdateWeight(pageToUnpin.pageRef, transactionId);
         }
+      } else {
+        for (int i = 0; i < pageToUnpin.pinCount; i++) {
+          pageToUnpin.page.decrementPinCount(transactionId);
+        }
+      }
 
-        unpinnedInRecordCache++;
-        if (page.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
-          pathSummaryUnpinned++;
-        }
+      unpinnedInRecordCache++;
+      if (pageToUnpin.page.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
+        pathSummaryUnpinned++;
       }
     }
 
@@ -1359,6 +1369,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     int page0FragmentsInCache = 0;
     int page0FragmentsPinnedByThisTrx = 0;
 
+    // CRITICAL FIX: Collect snapshot first to avoid ConcurrentModificationException
+    var fragmentCacheSnapshot = new java.util.ArrayList<PageToUnpin>();
+    
     for (var entry : resourceBufferManager.getRecordPageFragmentCache().asMap().entrySet()) {
       var pageRef = entry.getKey();
       var page = entry.getValue();
@@ -1382,22 +1395,26 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         if (page.getPageKey() == 0) {
           page0FragmentsPinnedByThisTrx++;
         }
-
-        // CRITICAL: Atomic unpin+put to prevent races
-        if (resourceBufferManager.getRecordPageFragmentCache() instanceof io.sirix.cache.RecordPageFragmentCache cache) {
-          for (int i = 0; i < pinCount; i++) {
-            cache.unpinAndUpdateWeight(pageRef, transactionId);
-          }
-        } else {
-          for (int i = 0; i < pinCount; i++) {
-            page.decrementPinCount(transactionId);
-          }
-          resourceBufferManager.getRecordPageFragmentCache().put(pageRef, page);
+        fragmentCacheSnapshot.add(new PageToUnpin(pageRef, page, pinCount));
+      }
+    }
+    
+    // Now unpin all fragments from snapshot (safe from concurrent modification)
+    for (var pageToUnpin : fragmentCacheSnapshot) {
+      // CRITICAL: Atomic unpin+put to prevent races
+      if (resourceBufferManager.getRecordPageFragmentCache() instanceof io.sirix.cache.RecordPageFragmentCache cache) {
+        for (int i = 0; i < pageToUnpin.pinCount; i++) {
+          cache.unpinAndUpdateWeight(pageToUnpin.pageRef, transactionId);
         }
-        unpinnedInFragmentCache++;
-        if (page.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
-          pathSummaryUnpinned++;
+      } else {
+        for (int i = 0; i < pageToUnpin.pinCount; i++) {
+          pageToUnpin.page.decrementPinCount(transactionId);
         }
+        resourceBufferManager.getRecordPageFragmentCache().put(pageToUnpin.pageRef, pageToUnpin.page);
+      }
+      unpinnedInFragmentCache++;
+      if (pageToUnpin.page.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
+        pathSummaryUnpinned++;
       }
     }
 
@@ -1438,6 +1455,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     // CRITICAL: Also scan PageCache in case KeyValueLeafPages accidentally ended up there
     // (they shouldn't be in PageCache, but we check to be safe)
+    // CRITICAL FIX: Collect snapshot first to avoid ConcurrentModificationException
+    record PageCachePageToUnpin(KeyValueLeafPage page, int pinCount) {}
+    var pageCacheSnapshot = new java.util.ArrayList<PageCachePageToUnpin>();
+    
     for (var entry : resourceBufferManager.getPageCache().asMap().entrySet()) {
       var page = entry.getValue();
 
@@ -1446,17 +1467,22 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         Integer pinCount = pinsByTrx.get(transactionId);
 
         if (pinCount != null && pinCount > 0) {
-          // Unpin all pins from this transaction
-          for (int i = 0; i < pinCount; i++) {
-            kvPage.decrementPinCount(transactionId);
-          }
-          // DON'T put back into PageCache - KeyValueLeafPages shouldn't be there!
-          // Just unpin so the removal listener can close them
-          unpinnedInPageCache++;
-          if (kvPage.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
-            pathSummaryUnpinned++;
-          }
+          pageCacheSnapshot.add(new PageCachePageToUnpin(kvPage, pinCount));
         }
+      }
+    }
+    
+    // Now unpin all pages from snapshot (safe from concurrent modification)
+    for (var pageToUnpin : pageCacheSnapshot) {
+      // Unpin all pins from this transaction
+      for (int i = 0; i < pageToUnpin.pinCount; i++) {
+        pageToUnpin.page.decrementPinCount(transactionId);
+      }
+      // DON'T put back into PageCache - KeyValueLeafPages shouldn't be there!
+      // Just unpin so the removal listener can close them
+      unpinnedInPageCache++;
+      if (pageToUnpin.page.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
+        pathSummaryUnpinned++;
       }
     }
 
