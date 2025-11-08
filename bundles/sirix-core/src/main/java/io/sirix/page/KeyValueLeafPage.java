@@ -97,6 +97,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private final AtomicInteger cachedTotalPinCount = new AtomicInteger(0);  // Cached sum for O(1) weigher
 
   /**
+   * DIAGNOSTIC: Stack trace of where this page was created (only captured when DEBUG_MEMORY_LEAKS=true).
+   * Used to trace where leaked pages come from.
+   */
+  private final StackTraceElement[] creationStackTrace;
+
+  /**
    * The current revision.
    */
   private int revision;
@@ -220,8 +226,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.slotMemory = slotMemory;
     this.deweyIdMemory = deweyIdMemory;
     
-    // DIAGNOSTIC
+    // DIAGNOSTIC: Capture creation stack trace for leak tracing
     if (DEBUG_MEMORY_LEAKS) {
+      this.creationStackTrace = Thread.currentThread().getStackTrace();
       PAGES_CREATED.incrementAndGet();
       PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
       ALL_LIVE_PAGES.add(this);
@@ -249,6 +256,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         LOGGER.debug("Page 0 CREATED from {} ({}): {} rev={} instance={}", 
             source, addStatus, indexType, revisionNumber, System.identityHashCode(this));
       }
+    } else {
+      this.creationStackTrace = null;
     }
   }
 
@@ -293,8 +302,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       this.lastDeweyIdIndex = -1;
     }
     
-    // DIAGNOSTIC
+    // DIAGNOSTIC: Capture creation stack trace for leak tracing
     if (DEBUG_MEMORY_LEAKS) {
+      this.creationStackTrace = Thread.currentThread().getStackTrace();
       PAGES_CREATED.incrementAndGet();
       PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
       ALL_LIVE_PAGES.add(this);
@@ -305,6 +315,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         LOGGER.debug("Page 0 CREATED from DISK_LOAD: {} rev={} instance={}", 
             indexType, revision, System.identityHashCode(this));
       }
+    } else {
+      this.creationStackTrace = null;
     }
   }
 
@@ -1052,8 +1064,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
       FINALIZED_BY_PAGE_KEY.computeIfAbsent(recordPageKey, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
       
-      LOGGER.warn("FINALIZER LEAK CAUGHT: Page {} ({}) revision={} (instance={}) - not closed explicitly!", 
-          recordPageKey, indexType, revision, System.identityHashCode(this));
+      // Print leak information with creation stack trace
+      StringBuilder leakMsg = new StringBuilder();
+      leakMsg.append(String.format("FINALIZER LEAK CAUGHT: Page %d (%s) revision=%d (instance=%d) - not closed explicitly!",
+          recordPageKey, indexType, revision, System.identityHashCode(this)));
+      
+      if (creationStackTrace != null) {
+        leakMsg.append("\n  Created at:");
+        // Skip first 2 frames (getStackTrace, constructor), show next 8 frames
+        for (int i = 2; i < Math.min(creationStackTrace.length, 10); i++) {
+          StackTraceElement frame = creationStackTrace[i];
+          leakMsg.append(String.format("\n    %s.%s(%s:%d)",
+              frame.getClassName(), frame.getMethodName(),
+              frame.getFileName(), frame.getLineNumber()));
+        }
+      }
+      
+      LOGGER.warn(leakMsg.toString());
       
       // NOTE: We don't call close() from finalizer because:
       // 1. Finalizer runs on GC thread - race conditions with main threads
