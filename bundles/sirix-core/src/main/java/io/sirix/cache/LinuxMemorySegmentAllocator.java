@@ -716,11 +716,17 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
     long address = segment.address();
     
-    // Check if this segment was actually borrowed
-    if (!borrowedSegments.contains(address)) {
+    // CRITICAL: Atomically check-and-remove to prevent TOCTOU race
+    // Multiple threads can call release() simultaneously on same segment address
+    // (e.g., cache removalListener + manual close racing on ForkJoinPool threads)
+    boolean wasRemoved = borrowedSegments.remove(address);
+    if (!wasRemoved) {
+      // Segment was never borrowed OR already released by another thread
       doubleReleaseCount.incrementAndGet();
-      LOGGER.warn("Attempting to release segment that was never borrowed or already released: address={}, size={}",
-                  address, size);
+      if (callNum % 100 == 0) {
+        LOGGER.warn("Attempting to release segment that was never borrowed or already released: address={}, size={} (call #{})",
+                    address, size, callNum);
+      }
       return; // Prevent double-release
     }
 
@@ -739,27 +745,28 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           newPhysical = Math.max(0, currentPhysical - size);
           
           if (currentPhysical < size) {
-            // Counter would go negative - this is a bug, but don't let it propagate
+            // Counter would go negative - this shouldn't happen now that we have atomic check-and-remove
+            // If it does, it means there's an untracked allocation bug
             LOGGER.error("Physical memory accounting error: trying to release {} bytes but only {} bytes tracked. " +
-                        "This indicates double-release or untracked allocation. Resetting counter to 0.",
+                        "This indicates UNTRACKED ALLOCATION (allocated without tracking). Resetting counter to 0.",
                         size, currentPhysical);
             newPhysical = 0;
             break;
           }
         } while (!physicalMemoryBytes.compareAndSet(currentPhysical, newPhysical));
         
-        // CRITICAL: Remove from borrowed set so next allocation properly tracks physical memory
-        // Without this, subsequent borrows don't increment physical counter, causing accounting errors
-        borrowedSegments.remove(address);
+        // Note: Already removed from borrowedSegments above (atomically)
       } else {
+        // madvise failed - add back to borrowed set since memory not actually released
+        borrowedSegments.add(address);
         LOGGER.warn("madvise MADV_DONTNEED failed for address {}, size {} (error code: {}). " +
                     "Physical memory may not be released.",
                     address, size, result);
-        // Don't remove from borrowedSegments if madvise failed - memory not actually released
       }
     } catch (Throwable t) {
+      // madvise invocation failed - add back to borrowed set since memory not actually released
+      borrowedSegments.add(address);
       LOGGER.error("madvise invocation failed for address {}, size {}", address, size, t);
-      // Continue with returning segment to pool
     }
 
     // Return segment to pool for reuse
