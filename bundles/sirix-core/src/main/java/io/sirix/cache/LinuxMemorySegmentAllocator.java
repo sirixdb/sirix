@@ -609,11 +609,16 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                     maxBufferSize.get() / (1024 * 1024));
       }
     } else {
-      // Re-borrowing a segment that was returned but not yet released from tracking
-      // This can happen in concurrent scenarios - just log for diagnostics
-      if (LOGGER.isDebugEnabled()) {
-        LOGGER.debug("Re-borrowing segment {} (size={}) that's still in borrowed set", address, size);
-      }
+      // Re-borrowing a segment that's still in borrowedSegments - this is a BUG!
+      // Segments should be removed from borrowedSegments in release() before returning to pool
+      // If this happens, it means either:
+      // 1. madvise failed and segment was added back to borrowedSegments but also to pool (bug)
+      // 2. Accounting is corrupted from a previous error
+      LOGGER.error("CRITICAL: Re-borrowing segment {} (size={}) that's still in borrowed set! " +
+                   "This will cause accounting errors. Current physical: {} MB",
+                   address, size, physicalMemoryBytes.get() / (1024 * 1024));
+      // Don't increment physical memory - it's already counted (or accounting is corrupted)
+      // But this will cause accounting errors on next release!
     }
 
     // Decrement pool counter
@@ -734,6 +739,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     totalReturns[index].incrementAndGet();
 
     // Use madvise to release physical memory while keeping virtual mapping
+    boolean madviseSucceeded = false;
     try {
       int result = (int) MADVISE.invokeExact(segment, size, MADV_DONTNEED);
       if (result == 0) {
@@ -742,36 +748,48 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         long newPhysical;
         do {
           currentPhysical = physicalMemoryBytes.get();
-          newPhysical = Math.max(0, currentPhysical - size);
           
           if (currentPhysical < size) {
-            // Counter would go negative - this shouldn't happen now that we have atomic check-and-remove
-            // If it does, it means there's an untracked allocation bug
+            // Counter would go negative - this is an accounting bug
+            // Don't return segment to pool because physical memory state is unknown
             LOGGER.error("Physical memory accounting error: trying to release {} bytes but only {} bytes tracked. " +
-                        "This indicates UNTRACKED ALLOCATION (allocated without tracking). Resetting counter to 0.",
+                        "This indicates UNTRACKED ALLOCATION (allocated without tracking). " + 
+                        "Resetting counter to 0. Segment NOT returned to pool.",
                         size, currentPhysical);
-            newPhysical = 0;
-            break;
+            physicalMemoryBytes.set(0);
+            // Add back to borrowed set - segment still holds physical memory
+            borrowedSegments.add(address);
+            return; // Don't return to pool
           }
+          
+          newPhysical = currentPhysical - size;
         } while (!physicalMemoryBytes.compareAndSet(currentPhysical, newPhysical));
         
+        madviseSucceeded = true;
         // Note: Already removed from borrowedSegments above (atomically)
       } else {
         // madvise failed - add back to borrowed set since memory not actually released
         borrowedSegments.add(address);
         LOGGER.warn("madvise MADV_DONTNEED failed for address {}, size {} (error code: {}). " +
-                    "Physical memory may not be released.",
+                    "Physical memory may not be released. Segment NOT returned to pool.",
                     address, size, result);
+        // DO NOT return to pool - segment still holds physical memory
+        return;
       }
     } catch (Throwable t) {
       // madvise invocation failed - add back to borrowed set since memory not actually released
       borrowedSegments.add(address);
-      LOGGER.error("madvise invocation failed for address {}, size {}", address, size, t);
+      LOGGER.error("madvise invocation failed for address {}, size {}. Segment NOT returned to pool.", address, size, t);
+      // DO NOT return to pool - we don't know the state of physical memory
+      return;
     }
 
-    // Return segment to pool for reuse
-    segmentPools[index].offer(segment);
-    poolSizes[index].incrementAndGet();
+    // Only return segment to pool if madvise succeeded
+    // This prevents accounting errors from re-borrowing segments with unreleased physical memory
+    if (madviseSucceeded) {
+      segmentPools[index].offer(segment);
+      poolSizes[index].incrementAndGet();
+    }
   }
 
   @Override
