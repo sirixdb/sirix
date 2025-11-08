@@ -488,14 +488,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         rtx.close();
       }
 
-      // CRITICAL: Clear BufferManager caches for this resource to prevent page leaks
-      // Pages from this resource should not remain in global caches after session closes
-      if (bufferManager != null) {
-        long databaseId = resourceConfig.getDatabaseId();
-        long resourceId = resourceConfig.getID();
-        bufferManager.clearCachesForResource(databaseId, resourceId);
-      }
-
+      // NOTE: Don't clear BufferManager caches here - other sessions might be using same resource!
+      // Pages will be evicted by normal cache LRU policy or cleaned up at database close
+      // PostgreSQL-style: buffers released when ALL sessions release them, not when one closes
+      
       // Immediately release all ressources.
       nodeTrxMap.clear();
       pageTrxMap.clear();

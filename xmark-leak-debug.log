@@ -1,0 +1,41 @@
+Kotlin does not yet support 25 JDK target, falling back to Kotlin JVM_24 JVM target
+Kotlin does not yet support 25 JDK target, falling back to Kotlin JVM_24 JVM target
+> Task :sirix-query:cleanTest
+> Task :sirix-core:compileJava UP-TO-DATE
+> Task :sirix-query:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :sirix-query:compileKotlin NO-SOURCE
+> Task :sirix-query:compileJava UP-TO-DATE
+> Task :sirix-query:processResources UP-TO-DATE
+> Task :sirix-query:classes UP-TO-DATE
+> Task :sirix-query:generatePomFileForMavenPublication
+> Task :sirix-query:jar UP-TO-DATE
+> Task :sirix-core:processResources UP-TO-DATE
+> Task :sirix-core:classes UP-TO-DATE
+> Task :sirix-core:generatePomFileForMavenPublication
+> Task :sirix-core:jar UP-TO-DATE
+> Task :sirix-core:compileTestJava UP-TO-DATE
+> Task :sirix-core:processTestResources UP-TO-DATE
+> Task :sirix-core:testClasses UP-TO-DATE
+> Task :sirix-core:testsJar UP-TO-DATE
+> Task :sirix-query:compileTestKotlin NO-SOURCE
+> Task :sirix-query:compileTestJava UP-TO-DATE
+> Task :sirix-query:processTestResources UP-TO-DATE
+> Task :sirix-query:testClasses UP-TO-DATE
+[1,795s][info   ][gc      ] GC(0) Major Collection (Metadata GC Threshold)
+[1,832s][info   ][gc      ] GC(0) Major Collection (Metadata GC Threshold) 110M(1%)->56M(0%) 0,037s
+
+> Task :sirix-query:test
+[0.002s][warning][pagesize] UseLargePages disabled, no large pages configured and available on the system.
+[1.098s][info   ][gc      ] Using The Z Garbage Collector
+
+[Incubating] Problems report is available at: file:///home/johannes/IdeaProjects/sirix/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 4s
+15 actionable tasks: 4 executed, 11 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.1.0/userguide/configuration_cache_enabling.html

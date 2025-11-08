@@ -1,0 +1,57 @@
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/home/johannes/.gradle/wrapper/dists/gradle-9.1.0-bin/9agqghryom9wkf8r80qlhnts3/gradle-9.1.0/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+Kotlin does not yet support 25 JDK target, falling back to Kotlin JVM_24 JVM target
+Kotlin does not yet support 25 JDK target, falling back to Kotlin JVM_24 JVM target
+> Task :sirix-query:cleanTest UP-TO-DATE
+
+> Task :sirix-core:compileJava FAILED
+/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/cache/LinuxMemorySegmentAllocator.java:814: error: variable newPhysical might not have been initialized
+                      callNum, currentPhysical / (1024 * 1024), newPhysical / (1024 * 1024),
+                                                                ^
+/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodePageTrx.java:774: warning: [removal] finalize() in Object has been deprecated and marked for removal
+  protected void finalize() {
+                 ^
+/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/page/KeyValueLeafPage.java:1066: warning: [removal] finalize() in Object has been deprecated and marked for removal
+  protected void finalize() {
+                 ^
+Note: /home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodePageTrx.java uses unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+1 error
+2 warnings
+
+[Incubating] Problems report is available at: file:///home/johannes/IdeaProjects/sirix/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':sirix-core:compileJava'.
+> Compilation failed; see the compiler output below.
+  /home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/cache/LinuxMemorySegmentAllocator.java:814: error: variable newPhysical might not have been initialized
+                        callNum, currentPhysical / (1024 * 1024), newPhysical / (1024 * 1024),
+                                                                  ^
+  Note: /home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodePageTrx.java uses unchecked or unsafe operations.
+  Note: Recompile with -Xlint:unchecked for details.
+  /home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodePageTrx.java:774: warning: [removal] finalize() in Object has been deprecated and marked for removal
+    protected void finalize() {
+                   ^
+  /home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/page/KeyValueLeafPage.java:1066: warning: [removal] finalize() in Object has been deprecated and marked for removal
+    protected void finalize() {
+                   ^
+  1 error
+  2 warnings
+
+* Try:
+> Check your code and dependencies to fix the compilation error(s)
+> Run with --scan to generate a Build Scan (Powered by Develocity).
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 864ms
+2 actionable tasks: 1 executed, 1 up-to-date
