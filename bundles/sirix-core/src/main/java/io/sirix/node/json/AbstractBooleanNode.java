@@ -28,20 +28,25 @@
 
 package io.sirix.node.json;
 
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.MemorySegmentUtils;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
-import io.sirix.settings.Fixed;
-import net.openhft.chronicle.bytes.Bytes;
-
 import io.sirix.node.xml.AbstractStructForwardingNode;
+import io.sirix.settings.Fixed;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
-import java.nio.ByteBuffer;
+import java.lang.foreign.MemorySegment;
 
 public abstract class AbstractBooleanNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
   private final StructNodeDelegate structNodeDelegate;
+
+  private MemorySegment memorySegment;
+
+  private boolean useMemorySegment;
 
   private boolean boolValue;
 
@@ -50,10 +55,17 @@ public abstract class AbstractBooleanNode extends AbstractStructForwardingNode i
   public AbstractBooleanNode(StructNodeDelegate structNodeDelegate, final boolean boolValue) {
     this.structNodeDelegate = structNodeDelegate;
     this.boolValue = boolValue;
+    this.useMemorySegment = false;
+  }
+
+  public AbstractBooleanNode(StructNodeDelegate structNodeDelegate, final MemorySegment segment) {
+    this.structNodeDelegate = structNodeDelegate;
+    this.memorySegment = segment;
+    this.useMemorySegment = true;
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
     bytes.clear();
@@ -74,10 +86,7 @@ public abstract class AbstractBooleanNode extends AbstractStructForwardingNode i
 
     bytes.writeBoolean(boolValue);
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
-
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
+    return nodeDelegate.getHashFunction().hashBytes(bytes.toByteArray());
   }
 
   @Override
@@ -88,23 +97,28 @@ public abstract class AbstractBooleanNode extends AbstractStructForwardingNode i
   @Override
   public long getHash() {
     if (hashCode == 0L) {
-      hashCode = computeHash(Bytes.elasticHeapByteBuffer());
+      hashCode = computeHash(Bytes.elasticOffHeapByteBuffer());
     }
     return hashCode;
   }
 
   public void setValue(final boolean value) {
+    useMemorySegment = false;
     hashCode = 0L;
     boolValue = value;
   }
 
   public boolean getValue() {
+    if (useMemorySegment) {
+      useMemorySegment = false;
+      boolValue = MemorySegmentUtils.readBoolean(memorySegment, 0);
+    }
     return boolValue;
   }
 
   @Override
   public StructNodeDelegate getStructNodeDelegate() {
-    return structNodeDelegate;
+    return structDelegate();
   }
 
   @Override

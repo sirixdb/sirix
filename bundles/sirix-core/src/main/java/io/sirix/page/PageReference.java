@@ -49,6 +49,12 @@ public final class PageReference {
   /** Log key. */
   private int logKey = Constants.NULL_ID_INT;
 
+  /** Unique database ID to distinguish pages from different databases in global BufferManager. */
+  private long databaseId = Constants.NULL_ID_LONG;
+
+  /** Unique resource ID to distinguish pages from different resources in global BufferManager. */
+  private long resourceId = Constants.NULL_ID_LONG;
+
   /** The hash in bytes, generated from the referenced page-fragment. */
   private byte[] hashInBytes;
 
@@ -72,6 +78,8 @@ public final class PageReference {
     logKey = reference.logKey;
     page = reference.page;
     key = reference.key;
+    databaseId = reference.databaseId;
+    resourceId = reference.resourceId;
     hashInBytes = reference.hashInBytes;
     pageFragments = reference.pageFragments;
     hash = reference.hash;
@@ -164,9 +172,53 @@ public final class PageReference {
     return this;
   }
 
+  /**
+   * Get the unique database ID.
+   *
+   * @return database ID
+   */
+  public long getDatabaseId() {
+    return databaseId;
+  }
+
+  /**
+   * Set the unique database ID.
+   *
+   * @param databaseId the database ID
+   * @return this instance
+   */
+  public PageReference setDatabaseId(final long databaseId) {
+    hash = 0;
+    this.databaseId = databaseId;
+    return this;
+  }
+
+  /**
+   * Get the unique resource ID.
+   *
+   * @return resource ID
+   */
+  public long getResourceId() {
+    return resourceId;
+  }
+
+  /**
+   * Set the unique resource ID.
+   *
+   * @param resourceId the resource ID
+   * @return this instance
+   */
+  public PageReference setResourceId(final long resourceId) {
+    hash = 0;
+    this.resourceId = resourceId;
+    return this;
+  }
+
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
+                      .add("databaseId", databaseId)
+                      .add("resourceId", resourceId)
                       .add("logKey", logKey)
                       .add("key", key)
                       .add("page", page)
@@ -177,7 +229,7 @@ public final class PageReference {
   @Override
   public int hashCode() {
     if (hash == 0) {
-      hash = Objects.hash(logKey, key);
+      hash = Objects.hash(databaseId, resourceId, logKey, key);
     }
     return hash;
   }
@@ -185,7 +237,10 @@ public final class PageReference {
   @Override
   public boolean equals(final @Nullable Object other) {
     if (other instanceof PageReference otherPageRef) {
-      return otherPageRef.logKey == logKey && otherPageRef.key == key;
+      return otherPageRef.databaseId == databaseId 
+          && otherPageRef.resourceId == resourceId
+          && otherPageRef.logKey == logKey 
+          && otherPageRef.key == key;
     }
     return false;
   }

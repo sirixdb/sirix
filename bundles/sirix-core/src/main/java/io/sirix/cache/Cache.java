@@ -22,10 +22,14 @@
 package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Scheduler;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.PageReference;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.PolyNull;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 /**
@@ -48,10 +52,10 @@ public interface Cache<K, V> {
     }
   }
 
-  default V get(K key, Function<? super K, ? extends @PolyNull V> mappingFunction) {
+  default V get(K key, BiFunction<? super K, ? super V, ? extends V> mappingFunction) {
     V value = get(key);
     if (value == null) {
-      value = mappingFunction.apply(key);
+      value = asMap().compute(key, mappingFunction);
       if (value != null) {
         put(key, value);
       }
@@ -92,6 +96,10 @@ public interface Cache<K, V> {
    */
   void toSecondCache();
 
+  default ConcurrentMap<K, V> asMap() {
+    throw new UnsupportedOperationException();
+  }
+
   /**
    * Get all entries corresponding to the keys.
    *
@@ -106,6 +114,16 @@ public interface Cache<K, V> {
    * @param key key to remove
    */
   void remove(K key);
+
+  /**
+   * Force synchronous completion of pending maintenance operations.
+   * For Caffeine caches, this processes the async removal listener queue.
+   * Critical for preventing race conditions when pages are removed from cache
+   * and immediately closed by TIL.
+   */
+  default void cleanUp() {
+    // Default: no-op for caches that don't need it
+  }
 
   /** Close a cache, might be a file handle for persistent caches. */
   void close();

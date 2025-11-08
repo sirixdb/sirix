@@ -1,0 +1,62 @@
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/home/johannes/.gradle/wrapper/dists/gradle-9.1.0-bin/9agqghryom9wkf8r80qlhnts3/gradle-9.1.0/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+Kotlin does not yet support 25 JDK target, falling back to Kotlin JVM_24 JVM target
+Kotlin does not yet support 25 JDK target, falling back to Kotlin JVM_24 JVM target
+> Task :sirix-query:cleanTest
+
+> Task :sirix-core:compileJava
+/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodePageTrx.java:774: warning: [removal] finalize() in Object has been deprecated and marked for removal
+  protected void finalize() {
+                 ^
+/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/page/KeyValueLeafPage.java:1066: warning: [removal] finalize() in Object has been deprecated and marked for removal
+  protected void finalize() {
+                 ^
+Note: /home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodePageTrx.java uses unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+2 warnings
+
+> Task :sirix-query:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :sirix-query:compileKotlin NO-SOURCE
+> Task :sirix-query:compileJava UP-TO-DATE
+> Task :sirix-query:processResources UP-TO-DATE
+> Task :sirix-query:classes UP-TO-DATE
+> Task :sirix-query:generatePomFileForMavenPublication
+> Task :sirix-query:jar UP-TO-DATE
+> Task :sirix-core:processResources UP-TO-DATE
+> Task :sirix-core:classes
+> Task :sirix-core:generatePomFileForMavenPublication
+> Task :sirix-core:jar
+> Task :sirix-core:compileTestJava UP-TO-DATE
+> Task :sirix-core:processTestResources UP-TO-DATE
+> Task :sirix-core:testClasses UP-TO-DATE
+> Task :sirix-core:testsJar UP-TO-DATE
+> Task :sirix-query:compileTestKotlin NO-SOURCE
+> Task :sirix-query:compileTestJava UP-TO-DATE
+> Task :sirix-query:processTestResources UP-TO-DATE
+> Task :sirix-query:testClasses UP-TO-DATE
+[1,826s][info   ][gc      ] GC(0) Major Collection (Metadata GC Threshold)
+[1,866s][info   ][gc      ] GC(0) Major Collection (Metadata GC Threshold) 110M(1%)->60M(0%) 0,040s
+
+> Task :sirix-query:test
+[0.004s][warning][pagesize] UseLargePages disabled, no large pages configured and available on the system.
+[1.143s][info   ][gc      ] Using The Z Garbage Collector
+
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by net.openhft.hashing.UnsafeAccess (file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/zero-allocation-hashing/0.16/ca252f328160ed5d027f100a4fe525d6d21daaf/zero-allocation-hashing-0.16.jar)
+WARNING: Please consider reporting this to the maintainers of class net.openhft.hashing.UnsafeAccess
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+
+[Incubating] Problems report is available at: file:///home/johannes/IdeaProjects/sirix/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 5s
+15 actionable tasks: 6 executed, 9 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.1.0/userguide/configuration_cache_enabling.html

@@ -93,7 +93,7 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default long getId() {
+  default int getId() {
     return nodeReadOnlyTrxDelegate().getId();
   }
 

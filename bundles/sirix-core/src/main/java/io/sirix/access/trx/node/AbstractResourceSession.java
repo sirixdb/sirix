@@ -1,11 +1,7 @@
 package io.sirix.access.trx.node;
 
 import cn.danielw.fop.*;
-import io.sirix.api.*;
 import io.brackit.query.jdm.DocumentException;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.ResourceStore;
@@ -15,6 +11,7 @@ import io.sirix.access.trx.page.NodePageReadOnlyTrx;
 import io.sirix.access.trx.page.PageTrxFactory;
 import io.sirix.access.trx.page.PageTrxReadOnlyFactory;
 import io.sirix.access.trx.page.RevisionRootPageReader;
+import io.sirix.api.*;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.cache.BufferManager;
@@ -32,6 +29,9 @@ import io.sirix.io.Writer;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.UberPage;
 import io.sirix.settings.Fixed;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,7 +46,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -73,17 +73,17 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Remember all running node transactions (both read and write).
    */
-  final ConcurrentMap<Long, R> nodeTrxMap;
+  final ConcurrentMap<Integer, R> nodeTrxMap;
 
   /**
    * Remember all running page transactions (both read and write).
    */
-  final ConcurrentMap<Long, PageReadOnlyTrx> pageTrxMap;
+  final ConcurrentMap<Integer, PageReadOnlyTrx> pageTrxMap;
 
   /**
    * Remember the write seperately because of the concurrent writes.
    */
-  final ConcurrentMap<Long, PageTrx> nodePageTrxMap;
+  final ConcurrentMap<Integer, PageTrx> nodePageTrxMap;
 
   /**
    * Lock for blocking the commit.
@@ -103,12 +103,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Atomic counter for concurrent generation of node transaction id.
    */
-  private final AtomicLong nodeTrxIDCounter;
+  private final AtomicInteger nodeTrxIDCounter;
 
   /**
    * Atomic counter for concurrent generation of page transaction id.
    */
-  final AtomicLong pageTrxIDCounter;
+  final AtomicInteger pageTrxIDCounter;
 
   private final AtomicReference<ObjectPool<PageReadOnlyTrx>> pool;
 
@@ -169,8 +169,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     pageTrxMap = new ConcurrentHashMap<>();
     nodePageTrxMap = new ConcurrentHashMap<>();
 
-    nodeTrxIDCounter = new AtomicLong();
-    pageTrxIDCounter = new AtomicLong();
+    nodeTrxIDCounter = new AtomicInteger();
+    pageTrxIDCounter = new AtomicInteger();
     commitLock = new ReentrantLock(false);
 
     this.writeLock = requireNonNull(writeLock);
@@ -234,7 +234,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @return a new {@link PageTrx} instance
    */
   @Override
-  public PageTrx createPageTransaction(final @NonNegative long id, final @NonNegative int representRevision,
+  public PageTrx createPageTransaction(final @NonNegative int id, final @NonNegative int representRevision,
       final @NonNegative int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
@@ -363,9 +363,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return reader;
   }
 
-  public abstract R createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode);
+  public abstract R createNodeReadOnlyTrx(int nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode);
 
-  public abstract W createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, Duration autoCommitDelay,
+  public abstract W createNodeReadWriteTrx(int nodeTrxId, PageTrx pageTrx, int maxNodeCount, Duration autoCommitDelay,
       Node documentNode, AfterCommitState afterCommitState);
 
   static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
@@ -447,7 +447,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     LOGGER.trace("Lock: lock acquired (beginNodeTrx)");
 
     // Create new page write transaction (shares the same ID with the node write trx).
-    final long nodeTrxId = nodeTrxIDCounter.incrementAndGet();
+    final int nodeTrxId = nodeTrxIDCounter.incrementAndGet();
     final int lastRev = getMostRecentRevisionNumber();
     final PageTrx pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
 
@@ -488,6 +488,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         rtx.close();
       }
 
+      // NOTE: Don't clear BufferManager caches here - other sessions might be using same resource!
+      // Pages will be evicted by normal cache LRU policy or cleaned up at database close
+      // PostgreSQL-style: buffers released when ALL sessions release them, not when one closes
+      
       // Immediately release all ressources.
       nodeTrxMap.clear();
       pageTrxMap.clear();
@@ -552,7 +556,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param pageTrx       page write trx
    */
   @Override
-  public void setNodePageWriteTransaction(final @NonNegative long transactionID, @NonNull final PageTrx pageTrx) {
+  public void setNodePageWriteTransaction(final @NonNegative int transactionID, @NonNull final PageTrx pageTrx) {
     assertNotClosed();
     nodePageTrxMap.put(transactionID, pageTrx);
   }
@@ -564,7 +568,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @throws SirixIOException if an I/O error occurs
    */
   @Override
-  public void closeNodePageWriteTransaction(final @NonNegative long transactionID) {
+  public void closeNodePageWriteTransaction(final @NonNegative int transactionID) {
     assertNotClosed();
     final PageReadOnlyTrx pageRtx = nodePageTrxMap.remove(transactionID);
     if (pageRtx != null) {
@@ -578,7 +582,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID write transaction ID
    */
   @Override
-  public void closeWriteTransaction(final @NonNegative long transactionID) {
+  public void closeWriteTransaction(final @NonNegative int transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -595,7 +599,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID read transaction ID
    */
   @Override
-  public void closeReadTransaction(final @NonNegative long transactionID) {
+  public void closeReadTransaction(final @NonNegative int transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -608,7 +612,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID write transaction ID
    */
   @Override
-  public void closePageWriteTransaction(final @NonNegative Long transactionID) {
+  public void closePageWriteTransaction(final @NonNegative Integer transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -625,7 +629,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID read transaction ID
    */
   @Override
-  public void closePageReadTransaction(final @NonNegative Long transactionID) {
+  public void closePageReadTransaction(final @NonNegative Integer transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -637,7 +641,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    *
    * @param transactionID transaction ID to remove
    */
-  private void removeFromPageMapping(final @NonNegative Long transactionID) {
+  private void removeFromPageMapping(final @NonNegative Integer transactionID) {
     assertNotClosed();
 
     // Purge transaction from internal state.
@@ -720,7 +724,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public PageReadOnlyTrx beginPageReadOnlyTrx(final @NonNegative int revision) {
     assertAccess(revision);
 
-    final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
+    final int currentPageTrxID = pageTrxIDCounter.incrementAndGet();
     final NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
                                                                     this,
                                                                     lastCommittedUberPage.get(),
@@ -752,7 +756,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     LOGGER.debug("Lock: lock acquired (beginPageTrx)");
 
-    final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
+    final int currentPageTrxID = pageTrxIDCounter.incrementAndGet();
     final int lastRev = getMostRecentRevisionNumber();
     final PageTrx pageTrx = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
 
@@ -765,7 +769,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public Optional<R> getNodeReadTrxByTrxId(final Long ID) {
+  public Optional<R> getNodeReadTrxByTrxId(final Integer ID) {
     assertNotClosed();
 
     return Optional.ofNullable(nodeTrxMap.get(ID));

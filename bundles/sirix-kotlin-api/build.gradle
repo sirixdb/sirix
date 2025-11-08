@@ -5,7 +5,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.10"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.20"
     }
 }
 
@@ -35,5 +35,5 @@ dependencies {
 description = 'Kotlin API for SirixDB.'
 
 kotlin {
-    jvmToolchain(22)
+    jvmToolchain(25)
 }

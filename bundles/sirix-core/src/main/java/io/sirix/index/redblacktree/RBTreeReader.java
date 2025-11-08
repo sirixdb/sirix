@@ -140,7 +140,14 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
       for (RBNodeIterator it = new RBNodeIterator(0); it.hasNext(); ) {
         RBNodeKey<K> node = it.next();
         assert node.getNodeKey() != 0;
-        this.cache.put(new RBIndexKey(node.getNodeKey(), revisionNumber, indexType, indexNumber), getCurrentNodeAsRBNodeKey());
+        final var cacheKey = new RBIndexKey(
+            pageReadOnlyTrx.getDatabaseId(),
+            pageReadOnlyTrx.getResourceId(),
+            node.getNodeKey(),
+            revisionNumber,
+            indexType,
+            indexNumber);
+        this.cache.put(cacheKey, getCurrentNodeAsRBNodeKey());
       }
       setCurrentNode(currentNode);
     }
@@ -260,10 +267,13 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
         } else if (node.hasLeftChild()) {
           node = pageReadOnlyTrx instanceof PageTrx
               ? null
-              : (RBNodeKey<K>) cache.get(new RBIndexKey(node.getLeftChildKey(),
-                                                           revisionNumber,
-                                                           indexType,
-                                                           indexNumber));
+              : (RBNodeKey<K>) cache.get(new RBIndexKey(
+                  pageReadOnlyTrx.getDatabaseId(),
+                  pageReadOnlyTrx.getResourceId(),
+                  node.getLeftChildKey(),
+                  revisionNumber,
+                  indexType,
+                  indexNumber));
 
           if (node == null) {
             moved = moveToFirstChild();
@@ -285,10 +295,13 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
         } else if (node.hasRightChild()) {
           node = pageReadOnlyTrx instanceof PageTrx
               ? null
-              : (RBNodeKey<K>) cache.get(new RBIndexKey(node.getRightChildKey(),
-                                                           revisionNumber,
-                                                           indexType,
-                                                           indexNumber));
+              : (RBNodeKey<K>) cache.get(new RBIndexKey(
+                  pageReadOnlyTrx.getDatabaseId(),
+                  pageReadOnlyTrx.getResourceId(),
+                  node.getRightChildKey(),
+                  revisionNumber,
+                  indexType,
+                  indexNumber));
 
           if (node == null) {
             moved = moveToLastChild();

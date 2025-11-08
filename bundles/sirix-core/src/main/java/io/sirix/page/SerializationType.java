@@ -29,8 +29,8 @@ package io.sirix.page;
 
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
-import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.BytesOut;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.magicwerk.brownies.collections.GapList;
@@ -203,7 +203,9 @@ public enum SerializationType {
       for (int i = 0; i < keysSize; i++) {
         final var revision = in.readInt();
         final var key = in.readLong();
-        reference.addPageFragment(new PageFragmentKeyImpl(revision, key));
+        // Note: Database and resource IDs will be set by Reader.fixupPageReferenceIds()
+        // after the page is fully deserialized. This matches PostgreSQL pattern.
+        reference.addPageFragment(new PageFragmentKeyImpl(revision, key, 0, 0));
       }
     }
     final long key = in.readLong();

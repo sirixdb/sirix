@@ -32,9 +32,9 @@ import io.sirix.api.ResourceSession;
 import io.sirix.cache.*;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
-import io.sirix.io.BytesUtils;
 import io.sirix.io.Reader;
 import io.sirix.node.DeletedNode;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.*;
@@ -44,12 +44,13 @@ import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.settings.VersioningType;
-import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.nio.ByteBuffer;
+import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -66,9 +67,14 @@ import static java.util.Objects.requireNonNull;
  */
 public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
-  private record RecordPage(int index, IndexType indexType, long recordPageKey, int revision, Page page) {
-  }
+  private static final Logger LOGGER = LoggerFactory.getLogger(NodePageReadOnlyTrx.class);
 
+  // DEBUG FLAG: Enable with -Dsirix.debug.path.summary=true
+  private static final boolean DEBUG_PATH_SUMMARY = Boolean.getBoolean("sirix.debug.path.summary");
+
+  private record RecordPage(int index, IndexType indexType, long recordPageKey, int revision,
+                            PageReference pageReference, KeyValueLeafPage page) {
+  }
   /**
    * Page reader exclusively assigned to this transaction.
    */
@@ -112,7 +118,17 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   /**
    * The transaction-ID.
    */
-  private final long trxId;
+  private final int trxId;
+
+  /**
+   * The unique database ID for this transaction.
+   */
+  private final long databaseId;
+
+  /**
+   * The unique resource ID for this transaction.
+   */
+  private final long resourceId;
 
   /**
    * Cached name page of this revision.
@@ -125,18 +141,18 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private final NamePage namePage;
 
   /**
-   * Caches the most recently read record page.
+   * Most recently read pages by type and index.
+   * Using specific fields instead of generic cache for clear ownership and lifecycle.
+   * Index-aware: NAME/PATH/CAS can have multiple indexes (0-3).
    */
-  private RecordPage mostRecentlyReadRecordPage;
-
-  /**
-   * Caches the second most recently read record page.
-   */
-  private RecordPage secondMostRecentlyReadRecordPage;
-
+  private RecordPage mostRecentDocumentPage;
+  private RecordPage mostRecentChangedNodesPage;
+  private RecordPage mostRecentRecordToRevisionsPage;
   private RecordPage pathSummaryRecordPage;
-
-  private final Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticHeapByteBuffer(40);
+  private final RecordPage[] mostRecentPathPages = new RecordPage[4];
+  private final RecordPage[] mostRecentCasPages = new RecordPage[4];
+  private final RecordPage[] mostRecentNamePages = new RecordPage[4];
+  private RecordPage mostRecentDeweyIdPage;
 
   /**
    * Standard constructor.
@@ -150,7 +166,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @param trxIntentLog          the transaction intent log (can be {@code null})
    * @throws SirixIOException if reading of the persistent storage fails
    */
-  public NodePageReadOnlyTrx(final long trxId,
+  public NodePageReadOnlyTrx(final int trxId,
       final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession,
       final UberPage uberPage, final @NonNegative int revision, final Reader reader,
       final BufferManager resourceBufferManager, final @NonNull RevisionRootPageReader revisionRootPageReader,
@@ -164,6 +180,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     this.pageReader = requireNonNull(reader);
     this.uberPage = requireNonNull(uberPage);
     this.trxIntentLog = trxIntentLog;
+
+    // Extract database and resource IDs for use in composite cache keys
+    this.databaseId = resourceConfig.getDatabaseId();
+    this.resourceId = resourceConfig.getID();
+    // No initialization needed - using specific fields for most recent pages
+    // (mostRecentDocumentPage, mostRecentNamePages[], etc. initialized to null)
 
     revisionNumber = revision;
     rootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
@@ -181,39 +203,36 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (page != null) {
         return page;
       }
+      // Page was in TIL but has been cleared - need to reload from disk
+      // logKey might still be set, so don't assert it's NULL_ID_INT
     }
 
-    if (trxIntentLog == null) {
-      assert reference.getLogKey() == Constants.NULL_ID_INT;
-      page = resourceBufferManager.getPageCache().get(reference, pageReference -> {
-        try {
-          return pageReader.read(pageReference, resourceSession.getResourceConfig());
-        } catch (final SirixIOException e) {
-          throw new IllegalStateException(e);
-        }
-      });
-      if (page != null) {
-        reference.setPage(page);
+    //   if (trxIntentLog == null) {
+    // REMOVED INCORRECT ASSERTION: logKey can be != NULL_ID_INT if page was in TIL then cleared
+    // assert reference.getLogKey() == Constants.NULL_ID_INT;
+    page = resourceBufferManager.getPageCache().get(reference, (_, _) -> {
+      try {
+        // Reader will fixup PageReference IDs during deserialization
+        return pageReader.read(reference, resourceSession.getResourceConfig());
+      } catch (final SirixIOException e) {
+        throw new IllegalStateException(e);
       }
-      return page;
-    }
-
-    if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
-      page = pageReader.read(reference, resourceSession.getResourceConfig());
-    }
-
+    });
     if (page != null) {
-      putIntoPageCache(reference, page);
       reference.setPage(page);
     }
     return page;
-  }
+    //    }
 
-  private void putIntoPageCache(PageReference reference, Page page) {
-    if (!(page instanceof UberPage)) {
-      // Put page into buffer manager.
-      resourceBufferManager.getPageCache().putIfAbsent(reference, page);
-    }
+    //    if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
+    //      page = pageReader.read(reference, resourceSession.getResourceConfig());
+    //    }
+    //
+    //    if (page != null) {
+    //      putIntoPageCache(reference, page);
+    //      reference.setPage(page);
+    //    }
+    //    return page;
   }
 
   @Override
@@ -229,9 +248,21 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public long getTrxId() {
+  public int getTrxId() {
     assertNotClosed();
     return trxId;
+  }
+
+  @Override
+  public long getDatabaseId() {
+    assertNotClosed();
+    return databaseId;
+  }
+
+  @Override
+  public long getResourceId() {
+    assertNotClosed();
+    return resourceId;
   }
 
   @Override
@@ -262,16 +293,16 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     var indexLogKey = new IndexLogKey(indexType, recordPageKey, index, revisionNumber);
 
     // $CASES-OMITTED$
-    final Page page = switch (indexType) {
+    final PageReferenceToPage pageReferenceToPage = switch (indexType) {
       case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(indexLogKey);
       default -> throw new IllegalStateException();
     };
 
-    if (page == null) {
+    if (pageReferenceToPage == null || pageReferenceToPage.page == null) {
       return null;
     }
 
-    final var dataRecord = getValue(((KeyValueLeafPage) page), recordKey);
+    final var dataRecord = getValue(((KeyValueLeafPage) pageReferenceToPage.page), recordKey);
 
     //noinspection unchecked
     return (V) checkItemIfDeleted(dataRecord);
@@ -282,7 +313,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final var offset = PageReadOnlyTrx.recordPageOffset(nodeKey);
     DataRecord record = page.getRecord(offset);
     if (record == null) {
-      byte[] data = page.getSlot(offset);
+      var data = page.getSlot(offset);
       if (data != null) {
         record = getDataRecord(nodeKey, offset, data, page);
       }
@@ -304,12 +335,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return record;
   }
 
-  private DataRecord getDataRecord(long key, int offset, byte[] data, KeyValueLeafPage page) {
-    byteBufferForRecords.clear();
-    BytesUtils.doWrite(byteBufferForRecords, data);
-    var record =
-        resourceConfig.recordPersister.deserialize(byteBufferForRecords, key, page.getDeweyId(offset), resourceConfig);
-    byteBufferForRecords.clear();
+  private DataRecord getDataRecord(long key, int offset, MemorySegment data, KeyValueLeafPage page) {
+    var record = resourceConfig.recordPersister.deserialize(new MemorySegmentBytesIn(data),
+                                                            key,
+                                                            page.getDeweyIdAsByteArray(offset),
+                                                            resourceConfig);
     page.setRecord(record);
     return record;
   }
@@ -351,13 +381,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   public RevisionRootPage loadRevRoot(@NonNegative final int revisionKey) {
     assert revisionKey <= resourceSession.getMostRecentRevisionNumber();
     if (trxIntentLog == null) {
-      final Cache<Integer, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
-      RevisionRootPage revisionRootPage = cache.get(revisionKey);
-      if (revisionRootPage == null) {
-        revisionRootPage = pageReader.readRevisionRootPage(revisionKey, resourceConfig);
-        cache.put(revisionKey, revisionRootPage);
-      }
-      return revisionRootPage;
+      final Cache<RevisionRootPageCacheKey, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
+      final var cacheKey = new RevisionRootPageCacheKey(databaseId, resourceId, revisionKey);
+      return cache.get(cacheKey, (_, _) -> pageReader.readRevisionRootPage(revisionKey, resourceConfig));
     } else {
       if (revisionKey == 0 && uberPage.getRevisionRootReference() != null) {
         final var revisionRootPageReference = uberPage.getRevisionRootReference();
@@ -422,20 +448,36 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return uberPage;
   }
 
+  public record PageReferenceToPage(PageReference reference, Page page) {
+  }
+
   @Override
-  public Page getRecordPage(@NonNull IndexLogKey indexLogKey) {
+  public PageReferenceToPage getRecordPage(@NonNull IndexLogKey indexLogKey) {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
 
-    // First: Check most recent pages.
+    // First: Check cached pages.
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && isMostRecentlyReadPathSummaryPage(indexLogKey)) {
-      return pathSummaryRecordPage.page();
+      var page = pathSummaryRecordPage.page();
+      assert !page.isClosed();
+      return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
     }
-    if (isMostRecentlyReadPage(indexLogKey)) {
-      return mostRecentlyReadRecordPage.page();
-    }
-    if (isSecondMostRecentlyReadPage(indexLogKey)) {
-      return secondMostRecentlyReadRecordPage.page();
+
+    // Check the most recent page for this type/index
+    var cachedPage = getMostRecentPage(indexLogKey.getIndexType(),
+                                       indexLogKey.getIndexNumber(),
+                                       indexLogKey.getRecordPageKey(),
+                                       indexLogKey.getRevisionNumber());
+    if (cachedPage != null) {
+      var page = cachedPage.page();
+      // CRITICAL: Handle closed pages
+      if (page.isClosed()) {
+        // Page was closed - clear the field
+        setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), null);
+        cachedPage = null;
+      } else {
+        return new PageReferenceToPage(cachedPage.pageReference, page);
+      }
     }
 
     // Second: Traverse trie.
@@ -449,16 +491,69 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     // Third: Try to get in-memory instance.
     var page = getInMemoryPageInstance(indexLogKey, pageReferenceToRecordPage);
-    if (page != null) {
-      return page;
+    if (page != null && !page.isClosed()) {
+      assert page instanceof KeyValueLeafPage;
+      setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, (KeyValueLeafPage) page);
+      return new PageReferenceToPage(pageReferenceToRecordPage, page);
     }
 
     // Fourth: Try to get from resource buffer manager.
     if (trxIntentLog == null || indexLogKey.getIndexType() != IndexType.PATH_SUMMARY) {
-      return getFromBufferManager(indexLogKey, pageReferenceToRecordPage);
+      if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+        System.err.println("\n[PATH_SUMMARY-DECISION] Using normal cache (read-only trx):");
+        System.err.println("  - recordPageKey: " + indexLogKey.getRecordPageKey());
+        System.err.println("  - revision: " + indexLogKey.getRevisionNumber());
+      }
+
+      page = getFromBufferManager(indexLogKey, pageReferenceToRecordPage);
+
+      if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY
+          && page instanceof KeyValueLeafPage kvp) {
+        System.err.println(
+            "[PATH_SUMMARY-NORMAL]   -> Got page from cache: " + "pageKey=" + kvp.getPageKey() + ", revision="
+                + kvp.getRevision());
+      }
+
+      // CRITICAL: Handle case where page doesn't exist (e.g., temporal queries accessing non-existent revisions)
+      if (page == null) {
+        // Page doesn't exist for this revision/index - this can happen with temporal queries
+        // Return null to signal page not found (caller should handle gracefully)
+        return null;
+      }
+
+      assert page instanceof KeyValueLeafPage;
+      setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, (KeyValueLeafPage) page);
+      return new PageReferenceToPage(pageReferenceToRecordPage, page);
     }
 
-    return loadDataPageFromDurableStorageAndCombinePageFragments(indexLogKey, pageReferenceToRecordPage);
+    // PATH_SUMMARY bypass for write transactions - REQUIRED due to cache key limitations
+    // RecordPageCache uses PageReference (key + logKey) as cache key, which doesn't include revision.
+    // Different revisions of the same page can have the same PageReference → cache returns wrong revision.
+    // Bypass loads directly from disk to avoid stale cached pages.
+    if (DEBUG_PATH_SUMMARY) {
+      System.err.println("\n[PATH_SUMMARY-DECISION] Using bypass (write trx):");
+      System.err.println("  - recordPageKey: " + indexLogKey.getRecordPageKey());
+      System.err.println("  - revision: " + indexLogKey.getRevisionNumber());
+    }
+
+    var loadedPage =
+        (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(pageReferenceToRecordPage);
+
+    if (loadedPage != null) {
+      // CRITICAL FIX: Pin and add bypassed page to cache for proper lifecycle management
+      // Without this, bypassed pages are never explicitly closed and leak via finalizer
+      loadedPage.incrementPinCount(trxId);
+      resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, loadedPage);
+
+      if (DEBUG_PATH_SUMMARY) {
+        System.err.println(
+            "[PATH_SUMMARY-BYPASS]   -> Loaded from disk and cached: " + "pageKey=" + loadedPage.getPageKey()
+                + ", revision=" + loadedPage.getRevision() + ", pinCount=" + loadedPage.getPinCount());
+      }
+    }
+
+    setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, loadedPage);
+    return new PageReferenceToPage(pageReferenceToRecordPage, loadedPage);
   }
 
   private boolean isMostRecentlyReadPathSummaryPage(IndexLogKey indexLogKey) {
@@ -467,78 +562,430 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         && pathSummaryRecordPage.revision == indexLogKey.getRevisionNumber();
   }
 
-  private boolean isMostRecentlyReadPage(IndexLogKey indexLogKey) {
-    return mostRecentlyReadRecordPage != null
-        && mostRecentlyReadRecordPage.recordPageKey == indexLogKey.getRecordPageKey()
-        && mostRecentlyReadRecordPage.index == indexLogKey.getIndexNumber()
-        && mostRecentlyReadRecordPage.indexType == indexLogKey.getIndexType()
-        && mostRecentlyReadRecordPage.revision == indexLogKey.getRevisionNumber();
+  /**
+   * Get the most recent page for a given index type and index number.
+   */
+  @Nullable
+  private RecordPage getMostRecentPage(IndexType indexType, int index, long recordPageKey, int revision) {
+    RecordPage candidate = switch (indexType) {
+      case DOCUMENT -> mostRecentDocumentPage;
+      case CHANGED_NODES -> mostRecentChangedNodesPage;
+      case RECORD_TO_REVISIONS -> mostRecentRecordToRevisionsPage;
+      case PATH_SUMMARY -> pathSummaryRecordPage;
+      case PATH -> index < mostRecentPathPages.length ? mostRecentPathPages[index] : null;
+      case CAS -> index < mostRecentCasPages.length ? mostRecentCasPages[index] : null;
+      case NAME -> index < mostRecentNamePages.length ? mostRecentNamePages[index] : null;
+      case DEWEYID_TO_RECORDID -> mostRecentDeweyIdPage;
+      default -> null;
+    };
+    
+    // Verify it matches the requested page
+    if (candidate != null && candidate.recordPageKey == recordPageKey && candidate.revision == revision) {
+      return candidate;
+    }
+    return null;
+  }
+  
+  /**
+   * Set the most recent page for a given index type and index number.
+   */
+  private void setMostRecentPage(IndexType indexType, int index, RecordPage page) {
+    // Unpin and close the previous page if it exists and is not in global cache
+    RecordPage previous = switch (indexType) {
+      case DOCUMENT -> {
+        RecordPage old = mostRecentDocumentPage;
+        mostRecentDocumentPage = page;
+        yield old;
+      }
+      case CHANGED_NODES -> {
+        RecordPage old = mostRecentChangedNodesPage;
+        mostRecentChangedNodesPage = page;
+        yield old;
+      }
+      case RECORD_TO_REVISIONS -> {
+        RecordPage old = mostRecentRecordToRevisionsPage;
+        mostRecentRecordToRevisionsPage = page;
+        yield old;
+      }
+      case PATH_SUMMARY -> {
+        RecordPage old = pathSummaryRecordPage;
+        pathSummaryRecordPage = page;
+        yield old;
+      }
+      case PATH -> {
+        RecordPage old = index < mostRecentPathPages.length ? mostRecentPathPages[index] : null;
+        if (index < mostRecentPathPages.length) {
+          mostRecentPathPages[index] = page;
+        }
+        yield old;
+      }
+      case CAS -> {
+        RecordPage old = index < mostRecentCasPages.length ? mostRecentCasPages[index] : null;
+        if (index < mostRecentCasPages.length) {
+          mostRecentCasPages[index] = page;
+        }
+        yield old;
+      }
+      case NAME -> {
+        RecordPage old = index < mostRecentNamePages.length ? mostRecentNamePages[index] : null;
+        if (index < mostRecentNamePages.length) {
+          mostRecentNamePages[index] = page;
+        }
+        yield old;
+      }
+      case DEWEYID_TO_RECORDID -> {
+        RecordPage old = mostRecentDeweyIdPage;
+        mostRecentDeweyIdPage = page;
+        yield old;
+      }
+      default -> null;
+    };
+    
+    // Unpin and potentially close the replaced page
+    if (previous != null && previous != page) {
+      unpinRecordPage(previous);
+    }
   }
 
-  private boolean isSecondMostRecentlyReadPage(IndexLogKey indexLogKey) {
-    return secondMostRecentlyReadRecordPage != null
-        && secondMostRecentlyReadRecordPage.recordPageKey == indexLogKey.getRecordPageKey()
-        && secondMostRecentlyReadRecordPage.index == indexLogKey.getIndexNumber()
-        && secondMostRecentlyReadRecordPage.indexType == indexLogKey.getIndexType()
-        && secondMostRecentlyReadRecordPage.revision == indexLogKey.getRevisionNumber();
+  /**
+   * Unpin a record page when it's replaced by a newer page.
+   * <p>
+   * Note: Pages in the local cache might be closed or not pinned by this transaction.
+   * We only unpin pages that this transaction actually pinned.
+   */
+  private void unpinRecordPage(RecordPage recordPage) {
+    if (recordPage == null) {
+      return;
+    }
+
+    var page = recordPage.page;
+
+    // Skip if already closed (might have been closed by another transaction or cache eviction)
+    if (page.isClosed()) {
+      return;
+    }
+
+    // Check if this transaction pinned the page
+    boolean thisTrxPinnedPage = page.getPinCountByTransaction().getOrDefault(trxId, 0) > 0;
+
+    // Check if page is still in the global cache
+    boolean inGlobalCache = resourceBufferManager.getRecordPageCache().get(recordPage.pageReference) != null;
+    
+    if (inGlobalCache) {
+      // Page is in global cache
+      if (thisTrxPinnedPage) {
+        // Unpin it using atomic method
+        if (resourceBufferManager.getRecordPageCache() instanceof RecordPageCache cache) {
+          cache.unpinAndUpdateWeight(recordPage.pageReference, trxId);
+        } else {
+          page.decrementPinCount(trxId);
+        }
+      }
+      // If in global cache, cache owns lifecycle - don't close here
+    } else {
+      // Page NOT in global cache - we must close it (local cache owns it)
+      // CRITICAL FIX: Close even if this transaction never pinned it
+      // Pages can be in local cache from previous transactions using this PageReadOnlyTrx
+      
+      if (thisTrxPinnedPage) {
+        // Unpin if this transaction pinned it
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+          System.err.println("[LOCAL-CACHE-UNPIN] Trx" + trxId + " unpinning Page 0 " + page.getIndexType() + " rev="
+                                 + page.getRevision() + " NOT in global cache, pinCount=" + page.getPinCount());
+        }
+        page.decrementPinCount(trxId);
+      }
+      
+      // Close the page regardless of whether THIS transaction pinned it
+      // If it's in local cache but not global cache, local cache must close it
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+        System.err.println("[LOCAL-CACHE-CLOSE] Trx" + trxId + " closing Page 0 " + page.getIndexType() + " rev="
+                               + page.getRevision() + " (not in global cache, pinCount=" + page.getPinCount() + ", thisTrxPinned=" + thisTrxPinnedPage + ")");
+      }
+      page.close();
+    }
   }
 
   @Nullable
   private Page getFromBufferManager(@NonNull IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
-    final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache()
-                                                           .get(pageReferenceToRecordPage,
-                                                                _ -> (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(
-                                                                    indexLogKey,
-                                                                    pageReferenceToRecordPage));
+    if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+      System.err.println(
+          "[PATH_SUMMARY-CACHE-LOOKUP] Looking up in cache: " + "PageRef(key=" + pageReferenceToRecordPage.getKey()
+              + ", logKey=" + pageReferenceToRecordPage.getLogKey() + ")" + ", requestedRevision="
+              + indexLogKey.getRevisionNumber());
+    }
+
+    // Use cache.get() with compute function for all transactions
+    // PATH_SUMMARY has its own bypass logic (see getRecordPage() lines 533-560)
+    final KeyValueLeafPage recordPageFromBuffer =
+        resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage, (_, value) -> {
+          // CRITICAL: Handle closed pages gracefully instead of asserting
+          // TIL pages can be re-cached by cache.get() compute function,
+          // then closed by TIL.clear(), leaving closed pages in cache temporarily
+          if (value != null && value.isClosed()) {
+            value = null; // Treat as cache miss - will reload below
+          }
+
+          if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+            if (value != null) {
+              System.err.println(
+                  "[PATH_SUMMARY-CACHE-LOOKUP]   -> Cache HIT: " + "pageKey=" + value.getPageKey() + ", revision="
+                      + value.getRevision() + ", pinCount=" + value.getPinCount());
+            } else {
+              System.err.println("[PATH_SUMMARY-CACHE-LOOKUP]   -> Cache MISS, loading from disk");
+            }
+          }
+
+          var kvPage = value;
+          if (value == null) {
+            kvPage =
+                (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(pageReferenceToRecordPage);
+
+            if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && kvPage != null) {
+              System.err.println(
+                  "[PATH_SUMMARY-CACHE-LOOKUP]   -> Loaded from disk: " + "pageKey=" + kvPage.getPageKey()
+                      + ", revision=" + kvPage.getRevision());
+            }
+          }
+          if (kvPage != null) {
+            kvPage.incrementPinCount(trxId);
+
+            // DIAGNOSTIC: Track if Page 0 is being cached - show PageReference key and which trx pinned it!
+            if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
+              LOGGER.debug("Page 0 added to RecordPageCache: {} rev={} instance={}",
+                           kvPage.getIndexType(),
+                           kvPage.getRevision(),
+                           " PageRef(key=" + pageReferenceToRecordPage.getKey() + ", logKey="
+                               + pageReferenceToRecordPage.getLogKey() + ", db="
+                               + pageReferenceToRecordPage.getDatabaseId() + ", res="
+                               + pageReferenceToRecordPage.getResourceId() + ")" + " pinnedBy=Trx" + trxId
+                               + " (instance=" + System.identityHashCode(kvPage) + ")");
+            }
+          }
+          return kvPage;
+        });
 
     if (recordPageFromBuffer != null) {
-      setMostRecentlyReadRecordPage(indexLogKey, recordPageFromBuffer);
       pageReferenceToRecordPage.setPage(recordPageFromBuffer);
+      assert !recordPageFromBuffer.isClosed();
       return recordPageFromBuffer;
     }
 
     return null;
   }
 
-  private void setMostRecentlyReadRecordPage(@NonNull IndexLogKey indexLogKey, Page recordPageFromBuffer) {
+  private void setMostRecentlyReadRecordPage(@NonNull IndexLogKey indexLogKey, @NonNull PageReference pageReference,
+      KeyValueLeafPage recordPage) {
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+      if (pathSummaryRecordPage != null) {
+        if (DEBUG_PATH_SUMMARY) {
+          System.err.println("[PATH_SUMMARY-REPLACE] Replacing old pathSummaryRecordPage: " + "oldPageKey="
+                                 + pathSummaryRecordPage.page.getPageKey() + ", newPageKey=" + recordPage.getPageKey()
+                                 + ", trxIntentLog=" + (trxIntentLog != null));
+        }
+
+        if (trxIntentLog == null) {
+          if (resourceBufferManager.getRecordPageCache().get(pathSummaryRecordPage.pageReference) != null) {
+            assert !pathSummaryRecordPage.page.isClosed();
+
+            // CRITICAL: Use unpinAndUpdateWeight to atomically unpin and update cache weight
+            if (resourceBufferManager.getRecordPageCache() instanceof RecordPageCache cache) {
+              cache.unpinAndUpdateWeight(pathSummaryRecordPage.pageReference, trxId);
+            } else {
+              pathSummaryRecordPage.page.decrementPinCount(trxId);
+            }
+
+            if (DEBUG_PATH_SUMMARY) {
+              System.err.println("[PATH_SUMMARY-REPLACE]   -> Read-only: Unpinned old page (pins="
+                                     + pathSummaryRecordPage.page.getPinCount() + ")");
+            }
+          }
+        } else {
+          // Write transaction: Bypassed PATH_SUMMARY pages should NOT be in cache
+          // But if bypass is disabled for testing, they might be cached
+          // Remove from cache before closing to prevent "closed page in cache" errors
+          pathSummaryRecordPage.pageReference.setPage(null);
+          resourceBufferManager.getRecordPageCache().remove(pathSummaryRecordPage.pageReference);
+
+          if (!pathSummaryRecordPage.page.isClosed()) {
+            if (DEBUG_PATH_SUMMARY) {
+              System.err.println("[PATH_SUMMARY-REPLACE]   -> Write trx: Unpinning and closing page " + "pageKey="
+                                     + pathSummaryRecordPage.page.getPageKey() + ", revision="
+                                     + pathSummaryRecordPage.page.getRevision() + ", pinCount="
+                                     + pathSummaryRecordPage.page.getPinCount());
+            }
+            // CRITICAL: Must unpin before closing!
+            if (pathSummaryRecordPage.page.getPinCount() > 0) {
+              pathSummaryRecordPage.page.decrementPinCount(trxId);
+            }
+            pathSummaryRecordPage.page.close();
+          }
+        }
+      }
+
       pathSummaryRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
                                              indexLogKey.getIndexType(),
                                              indexLogKey.getRecordPageKey(),
                                              indexLogKey.getRevisionNumber(),
-                                             recordPageFromBuffer);
+                                             pageReference,
+                                             recordPage);
     } else {
-      secondMostRecentlyReadRecordPage = mostRecentlyReadRecordPage;
-      mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
-                                                  indexLogKey.getIndexType(),
-                                                  indexLogKey.getRecordPageKey(),
-                                                  indexLogKey.getRevisionNumber(),
-                                                  recordPageFromBuffer);
+      // Set as most recent page for this type/index (auto-unpins previous)
+      var newRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
+                                         indexLogKey.getIndexType(),
+                                         indexLogKey.getRecordPageKey(),
+                                         indexLogKey.getRevisionNumber(),
+                                         pageReference,
+                                         recordPage);
+      setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), newRecordPage);
     }
   }
 
   @Nullable
-  private Page loadDataPageFromDurableStorageAndCombinePageFragments(@NonNull IndexLogKey indexLogKey,
-      PageReference pageReferenceToRecordPage) {
+  private Page loadDataPageFromDurableStorageAndCombinePageFragments(PageReference pageReferenceToRecordPage) {
     if (pageReferenceToRecordPage.getKey() == Constants.NULL_ID_LONG) {
       // No persistent key set to load page from durable storage.
       return null;
     }
 
     // Load list of page "fragments" from persistent storage.
-    final List<KeyValuePage<DataRecord>> pages = getPageFragments(pageReferenceToRecordPage);
+    final var result = getPageFragments(pageReferenceToRecordPage);
 
-    if (pages.isEmpty()) {
+    if (result.pages().isEmpty()) {
       return null;
     }
 
     final int maxRevisionsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
     final VersioningType versioningApproach = resourceConfig.versioningType;
-    final Page completePage = versioningApproach.combineRecordPages(pages, maxRevisionsToRestore, this);
 
-    pageReferenceToRecordPage.setPage(completePage);
-    setMostRecentlyReadRecordPage(indexLogKey, completePage);
-    return completePage;
+    for (var page : result.pages()) {
+      assert page.getPinCount() > 0;
+      assert !page.isClosed();
+    }
+
+    // CRITICAL: Use try-finally to ensure page fragments are ALWAYS unpinned
+    // even if combineRecordPages() throws an exception. Without this, pinned
+    // fragments leak and their segments are never returned to the allocator.
+    try {
+      final Page completePage = versioningApproach.combineRecordPages(result.pages(), maxRevisionsToRestore, this);
+      pageReferenceToRecordPage.setPage(completePage);
+      assert !completePage.isClosed();
+
+      // DIAGNOSTIC: Track combined Page 0 creation with stack trace
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && completePage instanceof KeyValueLeafPage kvp
+          && kvp.getPageKey() == 0) {
+        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+        String caller = stack.length > 6 ? stack[6].getMethodName() : "unknown";
+        LOGGER.debug("COMBINED PAGE 0 created: " + kvp.getIndexType() + " rev=" + kvp.getRevision() + " by " + caller
+                         + " (instance=" + System.identityHashCode(kvp) + ")");
+      }
+
+      return completePage;
+    } finally {
+      // ALWAYS unpin fragments, even on exception
+      unpinPageFragments(pageReferenceToRecordPage,
+                         result.pages(),
+                         result.originalKeys(),
+                         result.storageKeyForFirstFragment());
+    }
+  }
+
+  public void unpinPageFragments(PageReference pageReference, List<KeyValuePage<DataRecord>> pages,
+      List<PageFragmentKey> originalPageFragmentKeys, long storageKeyForFirstFragment) {
+    if (pages.isEmpty()) {
+      return;
+    }
+
+    // DIAGNOSTIC: Check for duplicate instances in pages list
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      var instanceCounts = new java.util.HashMap<Integer, Integer>();
+      for (var page : pages) {
+        if (((KeyValueLeafPage) page).getPageKey() == 0) {
+          int hash = System.identityHashCode(page);
+          instanceCounts.merge(hash, 1, Integer::sum);
+        }
+      }
+      for (var entry : instanceCounts.entrySet()) {
+        if (entry.getValue() > 1) {
+          LOGGER.debug("WARNING: Fragment instance " + entry.getKey() + " appears " + entry.getValue()
+                           + " times in pages list!");
+        }
+      }
+    }
+
+    LOGGER.debug("unpinPageFragments: " + pages.size() + " fragments, trxIntentLog=" + (trxIntentLog != null));
+
+    // Track which unique page instances we've unpinned to avoid unpinning duplicates
+    var unpinnedPages = new java.util.HashSet<KeyValueLeafPage>();
+
+    var mostRecentPageFragment = (KeyValueLeafPage) pages.getFirst();
+
+    // CRITICAL: Unpin the page first, then update cache weight if still cached
+    // Must unpin directly on page object (not via cache) to handle evicted pages
+    mostRecentPageFragment.decrementPinCount(trxId);
+
+    final var fragmentRef0 =
+        new PageReference().setKey(storageKeyForFirstFragment).setDatabaseId(databaseId).setResourceId(resourceId);
+
+    var existing = resourceBufferManager.getRecordPageFragmentCache().get(fragmentRef0);
+    if (existing != null && existing == mostRecentPageFragment) {
+      // Fragment still in cache - put back to trigger weight recalculation
+      resourceBufferManager.getRecordPageFragmentCache().put(fragmentRef0, mostRecentPageFragment);
+    } else if (mostRecentPageFragment.getPinCount() == 0) {
+      // Fragment not in cache and fully unpinned - close it
+      // It was either: (a) evicted and closed by removalListener (close is no-op), OR
+      //                (b) never added to cache (needs closing now)
+      mostRecentPageFragment.close();
+    }
+    
+    LOGGER.debug("  Fragment 0 unpinned (pins=" + mostRecentPageFragment.getPinCount() + ")");
+
+    // Cache older fragments using their ORIGINAL storage keys (file offsets)
+    for (int i = 1; i < pages.size(); i++) {
+      var pageFragment = (KeyValueLeafPage) pages.get(i);
+
+      // DIAGNOSTIC
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && pageFragment.getPageKey() == 0) {
+        LOGGER.debug(
+            "  Older fragment " + i + ": Page 0 " + pageFragment.getIndexType() + " rev=" + pageFragment.getRevision()
+                + " pins=" + pageFragment.getPinCount() + " instance=" + System.identityHashCode(pageFragment)
+                + " hasOriginalKey=" + (i - 1 < originalPageFragmentKeys.size()));
+      }
+
+      // Only unpin ONCE per unique page instance (decrement by 1, not all)
+      if (unpinnedPages.add(pageFragment)) {
+        // CRITICAL: Unpin the page first, then update cache weight if still cached
+        pageFragment.decrementPinCount(trxId);
+        
+        // Check if in cache and update weight
+        if (i - 1 < originalPageFragmentKeys.size()) {
+          var originalFragmentKey = originalPageFragmentKeys.get(i - 1);
+          final var olderFragmentRef =
+              new PageReference().setKey(originalFragmentKey.key()).setDatabaseId(databaseId).setResourceId(resourceId);
+
+          var existingOlder = resourceBufferManager.getRecordPageFragmentCache().get(olderFragmentRef);
+          if (existingOlder != null && existingOlder == pageFragment) {
+            // Fragment still in cache - put back to update weight
+            resourceBufferManager.getRecordPageFragmentCache().put(olderFragmentRef, pageFragment);
+          } else if (pageFragment.getPinCount() == 0) {
+            // Fragment not in cache and fully unpinned - close it
+            // It was either: (a) evicted and closed by removalListener (close is no-op), OR
+            //                (b) never added to cache (needs closing now)
+            pageFragment.close();
+          }
+        } else if (pageFragment.getPinCount() == 0) {
+          // No original key - never cached, close if fully unpinned
+          pageFragment.close();
+        }
+        
+        LOGGER.debug("  Fragment " + i + " unpinned (pins=" + pageFragment.getPinCount() + ", rev="
+                         + pageFragment.getRevision() + ")");
+      } else {
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && pageFragment.getPageKey() == 0) {
+          LOGGER.debug("  Fragment " + i + " SKIPPED (already unpinned this instance)");
+        }
+      }
+    }
   }
 
   @Nullable
@@ -547,7 +994,23 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     Page page = pageReferenceToRecordPage.getPage();
 
     if (page != null) {
-      setMostRecentlyReadRecordPage(indexLogKey, page);
+      // Don't cache PATH_SUMMARY pages from write transactions (bypassed pages)
+      // Reason: Different revisions share same PageReference → cache collisions
+      if (trxIntentLog == null || indexLogKey.getIndexType() != IndexType.PATH_SUMMARY) {
+        var kvLeafPage = ((KeyValueLeafPage) page);
+        if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+          System.err.println(
+              "[PATH_SUMMARY-SWIZZLED] Found swizzled page: " + "pageKey=" + kvLeafPage.getPageKey() + ", revision="
+                  + kvLeafPage.getRevision() + ", currentPinCount=" + kvLeafPage.getPinCount()
+                  + " -> Incrementing pin");
+        }
+        // CRITICAL: Use pinAndUpdateWeight to atomically pin and update weight
+        if (resourceBufferManager.getRecordPageCache() instanceof RecordPageCache cache) {
+          cache.pinAndUpdateWeight(pageReferenceToRecordPage, trxId);
+        } else {
+          kvLeafPage.incrementPinCount(trxId);
+        }
+      }
       return page;
     }
 
@@ -566,45 +1029,69 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   /**
+   * Result of loading page fragments, including pages, original fragment keys, and storage key for pages[0].
+   */
+  record PageFragmentsResult(List<KeyValuePage<DataRecord>> pages, List<PageFragmentKey> originalKeys,
+                             long storageKeyForFirstFragment) {
+  }
+
+  /**
    * Dereference key/value page reference and get all leaves, the {@link KeyValuePage}s from the
    * revision-trees.
    *
    * @param pageReference optional page reference pointing to the first page
-   * @return dereferenced pages
+   * @return dereferenced pages and their original fragment keys
    * @throws SirixIOException if an I/O-error occurs within the creation process
    */
-  @SuppressWarnings("unchecked")
-  List<KeyValuePage<DataRecord>> getPageFragments(final PageReference pageReference) {
+  PageFragmentsResult getPageFragments(final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceSession.getResourceConfig();
     final int revsToRestore = config.maxNumberOfRevisionsToRestore;
     final int[] revisionsToRead = config.versioningType.getRevisionRoots(rootPage.getRevision(), revsToRestore);
     final List<KeyValuePage<DataRecord>> pages = new ArrayList<>(revisionsToRead.length);
 
-    final var pageFragments = pageReference.getPageFragments();
-    final var pageReferenceWithKey = new PageReference().setKey(pageReference.getKey());
+    // CRITICAL: Save original pageFragments AND storage key before mutation
+    final var originalPageFragments = new ArrayList<>(pageReference.getPageFragments());
+    final long originalStorageKey = pageReference.getKey(); // Storage key for pages[0]
+    final var pageReferenceWithKey =
+        new PageReference().setKey(originalStorageKey).setDatabaseId(databaseId).setResourceId(resourceId);
 
     KeyValuePage<DataRecord> page;
 
-    if (trxIntentLog == null) {
-      page = (KeyValuePage<DataRecord>) resourceBufferManager.getPageCache()
-                                                             .get(pageReferenceWithKey,
-                                                                  _ -> pageReader.read(pageReferenceWithKey,
-                                                                                       resourceSession.getResourceConfig()));
-    } else {
-      page = (KeyValuePage<DataRecord>) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
-    }
+    //    if (trxIntentLog == null) {
+    page = resourceBufferManager.getRecordPageFragmentCache().get(pageReferenceWithKey, (_, value) -> {
+      var kvPage = (value != null)
+          ? value
+          : (KeyValueLeafPage) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
+
+      // Pin for this transaction (fragments are unpinned after combineRecordPages)
+      kvPage.incrementPinCount(trxId);
+
+      // DIAGNOSTIC: Track Page 0 fragments loaded and their pin state AFTER pinning
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
+        LOGGER.debug("FRAGMENT Page 0 loaded: " + kvPage.getIndexType() + " rev=" + kvPage.getRevision() + " (instance="
+                         + System.identityHashCode(kvPage) + ", fromCache=" + (value != null) + ", pinsAfterLoad="
+                         + kvPage.getPinCount() + ")");
+      }
+
+      return kvPage;
+    });
+    assert !page.isClosed();
+    //    } else {
+    //      page = (KeyValuePage<DataRecord>) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
+    //      page.incrementPinCount(trxId);
+    //    }
     pages.add(page);
 
-    if (pageFragments.isEmpty() || page.size() == Constants.NDP_NODE_COUNT) {
-      return pages;
+    if (originalPageFragments.isEmpty() || page.size() == Constants.NDP_NODE_COUNT) {
+      return new PageFragmentsResult(pages, originalPageFragments, originalStorageKey);
     }
 
-    final List<PageFragmentKey> pageFragmentKeys = new ArrayList<>(pageFragments.size() + 1);
-    pageFragmentKeys.addAll(pageFragments);
+    final List<PageFragmentKey> pageFragmentKeys = new ArrayList<>(originalPageFragments.size() + 1);
+    pageFragmentKeys.addAll(originalPageFragments);
     pages.addAll(getPreviousPageFragments(pageFragmentKeys));
 
-    return pages;
+    return new PageFragmentsResult(pages, originalPageFragments, originalStorageKey);
   }
 
   private List<KeyValuePage<DataRecord>> getPreviousPageFragments(final List<PageFragmentKey> pageFragments) {
@@ -618,28 +1105,63 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   @SuppressWarnings("unchecked")
   private CompletableFuture<KeyValuePage<DataRecord>> readPage(final PageFragmentKey pageFragmentKey) {
-    final var pageReference = new PageReference().setKey(pageFragmentKey.key());
-    if (trxIntentLog == null) {
-      final var pageFromBufferManager = resourceBufferManager.getPageCache().get(pageReference);
-      if (pageFromBufferManager != null) {
-        assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) pageFromBufferManager).getRevision();
-        return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) pageFromBufferManager);
-      }
+    final var pageReference =
+        new PageReference().setKey(pageFragmentKey.key()).setDatabaseId(databaseId).setResourceId(resourceId);
+
+    //if (trxIntentLog == null) {
+    // Try to get from cache using compute function (handles both hit and miss)
+    final var pageFromCache =
+        resourceBufferManager.getRecordPageFragmentCache().get(pageReference, (key, existingPage) -> {
+          if (existingPage != null && !existingPage.isClosed()) {
+            // Cache HIT: Just pin it (cache will handle the return)
+            assert
+                pageFragmentKey.revision() == existingPage.getRevision() :
+                "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + existingPage.getRevision();
+            existingPage.incrementPinCount(trxId);
+            return existingPage;
+          }
+          // Cache MISS: Return null, we'll load async below
+          return null;
+        });
+
+    if (pageFromCache != null) {
+      return CompletableFuture.completedFuture(pageFromCache);
     }
+    //}
+
+    // Cache miss - load async and add to cache when complete
     final var reader = resourceSession.createReader();
     return (CompletableFuture<KeyValuePage<DataRecord>>) reader.readAsync(pageReference,
                                                                           resourceSession.getResourceConfig())
                                                                .whenComplete((page, _) -> {
                                                                  reader.close();
-                                                                 if (trxIntentLog == null) {
-                                                                   assert pageFragmentKey.revision()
-                                                                       == ((KeyValuePage<DataRecord>) page).getRevision();
-                                                                   synchronized (resourceBufferManager.getPageCache()) {
-                                                                     resourceBufferManager.getPageCache()
-                                                                                          .putIfAbsent(pageReference,
-                                                                                                       page);
-                                                                   }
-                                                                 }
+                                                                 //if (trxIntentLog == null) {
+                                                                 assert pageFragmentKey.revision()
+                                                                     == ((KeyValuePage<DataRecord>) page).getRevision() :
+                                                                     "Revision mismatch: key="
+                                                                         + pageFragmentKey.revision() + ", page="
+                                                                         + ((KeyValuePage<DataRecord>) page).getRevision();
+                                                                 // Add to cache using compute to handle race conditions
+                                                                 resourceBufferManager.getRecordPageFragmentCache()
+                                                                                      .get(pageReference,
+                                                                                           (key, existingPage) -> {
+                                                                                             if (existingPage != null
+                                                                                                 && !existingPage.isClosed()) {
+                                                                                               // Another thread loaded it - pin the existing one
+                                                                                               existingPage.incrementPinCount(
+                                                                                                   trxId);
+                                                                                               return existingPage;
+                                                                                             }
+                                                                                             // We're first - pin and cache our loaded page
+                                                                                             var kvPage =
+                                                                                                 (KeyValueLeafPage) page;
+                                                                                             kvPage.incrementPinCount(
+                                                                                                 trxId);
+                                                                                             return kvPage;
+                                                                                           });
+                                                                 //} else {
+                                                                 //  ((KeyValuePage<DataRecord>) page).incrementPinCount(trxId);
+                                                                 //}
                                                                });
   }
 
@@ -783,8 +1305,205 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                       .toString();
   }
 
+  /**
+   * Unpin all pages that are still pinned by this transaction.
+   * This ensures we don't leak pins for pages that were accessed but not in the mostRecent slots.
+   */
+  private void unpinAllPagesForTransaction(int transactionId) {
+    int unpinnedInRecordCache = 0;
+    int unpinnedInFragmentCache = 0;
+    int unpinnedInPageCache = 0;
+    int pathSummaryUnpinned = 0;
+    int page0InRecordCache = 0;
+    int page0PinnedByThisTrx = 0;
+
+    // CRITICAL FIX: Collect snapshot of pages to unpin first to avoid ConcurrentModificationException
+    // Cache can be modified by other threads (eviction, other transactions) while we iterate
+    record PageToUnpin(PageReference pageRef, KeyValueLeafPage page, int pinCount) {}
+    var recordCacheSnapshot = new java.util.ArrayList<PageToUnpin>();
+    
+    // Scan RecordPageCache - collect snapshot
+    for (var entry : resourceBufferManager.getRecordPageCache().asMap().entrySet()) {
+      var pageRef = entry.getKey();
+      var page = entry.getValue();
+
+      if (page.getPageKey() == 0) {
+        page0InRecordCache++;
+        var pins = page.getPinCountByTransaction().get(transactionId);
+        if (pins != null && pins > 0) {
+          page0PinnedByThisTrx++;
+        }
+      }
+
+      // Get this transaction's pin count
+      var pinsByTrx = page.getPinCountByTransaction();
+      Integer pinCount = pinsByTrx.get(transactionId);
+
+      if (pinCount != null && pinCount > 0) {
+        recordCacheSnapshot.add(new PageToUnpin(pageRef, page, pinCount));
+      }
+    }
+    
+    // Now unpin all pages from snapshot (safe from concurrent modification)
+    for (var pageToUnpin : recordCacheSnapshot) {
+      // CRITICAL: Use unpinAndUpdateWeight to atomically unpin and update weight
+      if (resourceBufferManager.getRecordPageCache() instanceof RecordPageCache cache) {
+        for (int i = 0; i < pageToUnpin.pinCount; i++) {
+          cache.unpinAndUpdateWeight(pageToUnpin.pageRef, transactionId);
+        }
+      } else {
+        for (int i = 0; i < pageToUnpin.pinCount; i++) {
+          pageToUnpin.page.decrementPinCount(transactionId);
+        }
+      }
+
+      unpinnedInRecordCache++;
+      if (pageToUnpin.page.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
+        pathSummaryUnpinned++;
+      }
+    }
+
+    // Scan RecordPageFragmentCache  
+    int pathSummaryFragmentsInCache = 0;
+    int pathSummaryFragmentsPinnedByThisTrx = 0;
+    int page0FragmentsInCache = 0;
+    int page0FragmentsPinnedByThisTrx = 0;
+
+    // CRITICAL FIX: Collect snapshot first to avoid ConcurrentModificationException
+    var fragmentCacheSnapshot = new java.util.ArrayList<PageToUnpin>();
+    
+    for (var entry : resourceBufferManager.getRecordPageFragmentCache().asMap().entrySet()) {
+      var pageRef = entry.getKey();
+      var page = entry.getValue();
+
+      if (page.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
+        pathSummaryFragmentsInCache++;
+      }
+
+      if (page.getPageKey() == 0) {
+        page0FragmentsInCache++;
+      }
+
+      // Get this transaction's pin count
+      var pinsByTrx = page.getPinCountByTransaction();
+      Integer pinCount = pinsByTrx.get(transactionId);
+
+      if (pinCount != null && pinCount > 0) {
+        if (page.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
+          pathSummaryFragmentsPinnedByThisTrx++;
+        }
+        if (page.getPageKey() == 0) {
+          page0FragmentsPinnedByThisTrx++;
+        }
+        fragmentCacheSnapshot.add(new PageToUnpin(pageRef, page, pinCount));
+      }
+    }
+    
+    // Now unpin all fragments from snapshot (safe from concurrent modification)
+    for (var pageToUnpin : fragmentCacheSnapshot) {
+      // CRITICAL: Atomic unpin+put to prevent races
+      if (resourceBufferManager.getRecordPageFragmentCache() instanceof io.sirix.cache.RecordPageFragmentCache cache) {
+        for (int i = 0; i < pageToUnpin.pinCount; i++) {
+          cache.unpinAndUpdateWeight(pageToUnpin.pageRef, transactionId);
+        }
+      } else {
+        for (int i = 0; i < pageToUnpin.pinCount; i++) {
+          pageToUnpin.page.decrementPinCount(transactionId);
+        }
+        resourceBufferManager.getRecordPageFragmentCache().put(pageToUnpin.pageRef, pageToUnpin.page);
+      }
+      unpinnedInFragmentCache++;
+      if (pageToUnpin.page.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
+        pathSummaryUnpinned++;
+      }
+    }
+
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && transactionId == 20) {
+      System.err.println(
+          "Trx " + transactionId + " closing: FragmentCache has " + page0FragmentsInCache + " Page0 total, "
+              + page0FragmentsPinnedByThisTrx + " pinned by this trx, will remove " + page0FragmentsPinnedByThisTrx
+              + " when unpinned");
+    }
+
+    if (transactionId >= 3 && transactionId <= 10) {
+      // Show details of PATH_SUMMARY pages in cache
+      var pathSummaryDetails = new StringBuilder();
+      for (var entry : resourceBufferManager.getRecordPageFragmentCache().asMap().entrySet()) {
+        var page = entry.getValue();
+        if (page.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
+          var pinsByTrx = page.getPinCountByTransaction();
+          Integer pinByThis = pinsByTrx.get(transactionId);
+          if (pinByThis != null && pinByThis > 0) {
+            pathSummaryDetails.append("Page")
+                              .append(page.getPageKey())
+                              .append("(rev")
+                              .append(page.getRevision())
+                              .append(",pin")
+                              .append(pinByThis)
+                              .append(") ");
+          }
+        }
+      }
+
+      System.err.println(
+          "🔍 Trx " + transactionId + " FragmentCache scan: " + pathSummaryFragmentsInCache + " PATH_SUMMARY total, "
+              + pathSummaryFragmentsPinnedByThisTrx + " pinned by this trx" + (pathSummaryFragmentsPinnedByThisTrx > 0 ?
+              " [" + pathSummaryDetails + "]" : ""));
+    }
+
+    int totalUnpinned = unpinnedInRecordCache + unpinnedInFragmentCache;
+
+    // CRITICAL: Also scan PageCache in case KeyValueLeafPages accidentally ended up there
+    // (they shouldn't be in PageCache, but we check to be safe)
+    // CRITICAL FIX: Collect snapshot first to avoid ConcurrentModificationException
+    record PageCachePageToUnpin(KeyValueLeafPage page, int pinCount) {}
+    var pageCacheSnapshot = new java.util.ArrayList<PageCachePageToUnpin>();
+    
+    for (var entry : resourceBufferManager.getPageCache().asMap().entrySet()) {
+      var page = entry.getValue();
+
+      if (page instanceof KeyValueLeafPage kvPage) {
+        var pinsByTrx = kvPage.getPinCountByTransaction();
+        Integer pinCount = pinsByTrx.get(transactionId);
+
+        if (pinCount != null && pinCount > 0) {
+          pageCacheSnapshot.add(new PageCachePageToUnpin(kvPage, pinCount));
+        }
+      }
+    }
+    
+    // Now unpin all pages from snapshot (safe from concurrent modification)
+    for (var pageToUnpin : pageCacheSnapshot) {
+      // Unpin all pins from this transaction
+      for (int i = 0; i < pageToUnpin.pinCount; i++) {
+        pageToUnpin.page.decrementPinCount(transactionId);
+      }
+      // DON'T put back into PageCache - KeyValueLeafPages shouldn't be there!
+      // Just unpin so the removal listener can close them
+      unpinnedInPageCache++;
+      if (pageToUnpin.page.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
+        pathSummaryUnpinned++;
+      }
+    }
+
+    totalUnpinned += unpinnedInPageCache;
+
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page0PinnedByThisTrx > 0) {
+      System.err.println(
+          "Trx " + transactionId + " closing: RecordPageCache has " + page0InRecordCache + " Page0 total, "
+              + page0PinnedByThisTrx + " pinned by this trx, unpinned " + unpinnedInRecordCache);
+    }
+
+    if (totalUnpinned > 0 && (trxId % 5 == 0)) {
+      System.err.println(
+          "🔓 Trx " + trxId + " unpinned " + totalUnpinned + " pages (" + pathSummaryUnpinned + " PATH_SUMMARY): "
+              + "RecordCache=" + unpinnedInRecordCache + ", " + "FragmentCache=" + unpinnedInFragmentCache + ", "
+              + "PageCache=" + unpinnedInPageCache);
+    }
+  }
+
   @Override
-  public synchronized void close() {
+  public void close() {
     if (!isClosed) {
       if (trxIntentLog == null) {
         pageReader.close();
@@ -793,6 +1512,39 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (resourceSession.getNodeReadTrxByTrxId(trxId).isEmpty()) {
         resourceSession.closePageReadTransaction(trxId);
       }
+
+      // CRITICAL: Unpin all most recent pages (clear ownership)
+      unpinRecordPage(mostRecentDocumentPage);
+      unpinRecordPage(mostRecentChangedNodesPage);
+      unpinRecordPage(mostRecentRecordToRevisionsPage);
+      unpinRecordPage(mostRecentDeweyIdPage);
+      for (RecordPage page : mostRecentPathPages) {
+        unpinRecordPage(page);
+      }
+      for (RecordPage page : mostRecentCasPages) {
+        unpinRecordPage(page);
+      }
+      for (RecordPage page : mostRecentNamePages) {
+        unpinRecordPage(page);
+      }
+      // PATH_SUMMARY handled separately below (has special bypass logic)
+
+      // CRITICAL FIX: Unpin ALL pages still pinned by this transaction in global caches
+      unpinAllPagesForTransaction(trxId);
+
+      // Handle PATH_SUMMARY bypassed pages for write transactions (they're not in cache)
+      if (pathSummaryRecordPage != null && trxIntentLog != null) {
+        if (!pathSummaryRecordPage.page.isClosed()) {
+          // CRITICAL: Must unpin before closing, otherwise pin count prevents segment release
+          if (pathSummaryRecordPage.page.getPinCount() > 0) {
+            pathSummaryRecordPage.page.decrementPinCount(trxId);
+          }
+          pathSummaryRecordPage.page.close();
+        }
+      }
+
+      // DIAGNOSTIC: Check for leaked pins after closing
+      io.sirix.cache.PinCountDiagnostics.warnOnTransactionClose(resourceBufferManager, trxId);
 
       isClosed = true;
     }

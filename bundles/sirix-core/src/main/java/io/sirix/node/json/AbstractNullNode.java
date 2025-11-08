@@ -32,7 +32,8 @@ import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Fixed;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.xml.AbstractStructForwardingNode;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -43,12 +44,12 @@ public abstract class AbstractNullNode extends AbstractStructForwardingNode impl
 
   private long hashCode;
 
-  public AbstractNullNode(StructNodeDelegate mStructNodeDel) {
-    this.structNodeDelegate = mStructNodeDel;
+  public AbstractNullNode(StructNodeDelegate structNodeDelegate) {
+    this.structNodeDelegate = structNodeDelegate;
   }
 
   @Override
-  public long computeHash(final Bytes<ByteBuffer> bytes) {
+  public long computeHash(final BytesOut<?> bytes) {
     final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
     bytes.clear();
@@ -67,10 +68,7 @@ public abstract class AbstractNullNode extends AbstractStructForwardingNode impl
       bytes.writeLong(structNodeDelegate.getLastChildKey());
     }
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
-
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
+    return nodeDelegate.getHashFunction().hashBytes(bytes.toByteArray());
   }
 
   @Override
@@ -81,7 +79,7 @@ public abstract class AbstractNullNode extends AbstractStructForwardingNode impl
   @Override
   public long getHash() {
     if (hashCode == 0L) {
-      hashCode = computeHash(Bytes.elasticHeapByteBuffer());
+      hashCode = computeHash(Bytes.elasticOffHeapByteBuffer());
     }
     return hashCode;
   }
