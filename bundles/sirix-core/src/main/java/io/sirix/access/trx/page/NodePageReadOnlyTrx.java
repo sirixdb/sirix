@@ -610,24 +610,26 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         // Fallback for non-RecordPageCache implementations
         page.decrementPinCount(trxId);
       }
-    } else if (page.getPinCount() > 0) {
-      // Page not in cache but still pinned - unpin it directly
-      // DIAGNOSTIC: Track this case - page in local cache but not global cache
-      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-        System.err.println("[LOCAL-CACHE-UNPIN] Trx" + trxId + " unpinning Page 0 " + page.getIndexType() + " rev="
-                               + page.getRevision() + " NOT in global cache, pinCount=" + page.getPinCount()
-                               + " (will close if pinCount becomes 0)");
-      }
-      page.decrementPinCount(trxId);
-      if (page.getPinCount() == 0) {
-        // Fully unpinned - close it
-        // DIAGNOSTIC: This might be premature if page is in TIL!
+    } else {
+      // Page NOT in global cache - we must close it
+      // CRITICAL FIX: Close even if already unpinned (pinCount=0)
+      // These are pages in local cache that were never added to global cache
+      
+      // Unpin if still pinned by this transaction
+      if (page.getPinCount() > 0) {
         if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-          System.err.println("[LOCAL-CACHE-CLOSE] Trx" + trxId + " closing Page 0 " + page.getIndexType() + " rev="
-                                 + page.getRevision() + " (not in global cache, pinCount=0)");
+          System.err.println("[LOCAL-CACHE-UNPIN] Trx" + trxId + " unpinning Page 0 " + page.getIndexType() + " rev="
+                                 + page.getRevision() + " NOT in global cache, pinCount=" + page.getPinCount());
         }
-        page.close();
+        page.decrementPinCount(trxId);
       }
+      
+      // Close the page (even if already unpinned)
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+        System.err.println("[LOCAL-CACHE-CLOSE] Trx" + trxId + " closing Page 0 " + page.getIndexType() + " rev="
+                               + page.getRevision() + " (not in global cache, pinCount=" + page.getPinCount() + ")");
+      }
+      page.close();
     }
   }
 
