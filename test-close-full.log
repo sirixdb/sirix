@@ -1,0 +1,707 @@
+> Task :sirix-core:cleanTest
+> Task :sirix-core:compileJava UP-TO-DATE
+> Task :sirix-core:processResources UP-TO-DATE
+> Task :sirix-core:classes UP-TO-DATE
+> Task :sirix-core:compileTestJava UP-TO-DATE
+> Task :sirix-core:processTestResources UP-TO-DATE
+> Task :sirix-core:testClasses UP-TO-DATE
+
+> Task :sirix-core:test
+
+VersioningTest > testFull1() STANDARD_OUT
+    11:16:54.823 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - ========== Initializing UmbraDB-Style Memory Allocator ==========
+    11:16:54.826 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Physical memory limit: 16384 MB
+    11:16:54.829 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected base page size: 4096 bytes
+    11:16:54.830 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected huge page size: 2 MB
+    11:16:54.830 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Virtual address space required: 28 GB
+    11:16:54.830 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocating virtual memory regions...
+    11:16:54.831 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 0 (4096 bytes per segment)
+    11:16:54.868 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 0 initialized with 1048576 pre-allocated segments
+    11:16:54.868 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 1 (8192 bytes per segment)
+    11:16:54.884 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 1 initialized with 524288 pre-allocated segments
+    11:16:54.884 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 2 (16384 bytes per segment)
+    11:16:54.892 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 2 initialized with 262144 pre-allocated segments
+    11:16:54.893 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 3 (32768 bytes per segment)
+    11:16:54.897 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 3 initialized with 131072 pre-allocated segments
+    11:16:54.897 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 4 (65536 bytes per segment)
+    11:16:54.899 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 4 initialized with 65536 pre-allocated segments
+    11:16:54.900 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 5 (131072 bytes per segment)
+    11:16:54.901 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 5 initialized with 32768 pre-allocated segments
+    11:16:54.901 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 6 (262144 bytes per segment)
+    11:16:54.901 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 6 initialized with 16384 pre-allocated segments
+    11:16:54.901 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    11:16:54.901 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Allocator initialized successfully:
+    11:16:54.901 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Base page size: 4096 bytes
+    11:16:54.901 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Huge page size: 2 MB (available)
+    11:16:54.902 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Virtual memory mapped: 28 GB (across 7 size classes)
+    11:16:54.902 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Physical memory limit: 16384 MB
+    11:16:54.902 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Segment size classes: [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+    11:16:54.902 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    11:16:54.902 [Test worker] INFO  io.sirix.access.Databases - Initializing global BufferManager with memory budget: 16 GB
+    11:16:54.902 [Test worker] INFO  io.sirix.access.Databases -   - RecordPageCache weight: 104857600 (scaled 16x)
+    11:16:54.902 [Test worker] INFO  io.sirix.access.Databases -   - RecordPageFragmentCache weight: 52428800 (scaled 16x)
+    11:16:54.903 [Test worker] INFO  io.sirix.access.Databases -   - PageCache weight: 500000 (fixed)
+    11:16:54.903 [Test worker] INFO  io.sirix.access.Databases -   - RevisionRootPageCache size: 5000 (fixed)
+    11:16:54.903 [Test worker] INFO  io.sirix.access.Databases -   - RBTreeNodeCache size: 50000 (fixed)
+    11:16:54.903 [Test worker] INFO  io.sirix.access.Databases -   - NamesCache size: 500 (fixed)
+    11:16:54.903 [Test worker] INFO  io.sirix.access.Databases -   - PathSummaryCache size: 20 (fixed)
+
+VersioningTest > testFull1() STANDARD_ERROR
+    [CLOSE] Page 0 (DOCUMENT) rev=0 instance=1869177530 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (CHANGED_NODES) rev=0 instance=106113013 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (RECORD_TO_REVISIONS) rev=0 instance=807239968 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=0 instance=1226298219 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=0 instance=755759908 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=0 instance=205496410 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=0 instance=2068100669 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=0 instance=1248435962 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (DEWEYID_TO_RECORDID) rev=0 instance=1225114731 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (DOCUMENT) rev=0 instance=1554118033 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (DOCUMENT) rev=1 instance=78816013 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (DOCUMENT) rev=1 instance=841483227 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=1 instance=838627755 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=1 instance=1899567935 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=1 instance=923360749 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=1 instance=783785150 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=1 instance=1457148583 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=1 instance=602830277 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=1 instance=2032399795 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=1 instance=1801704517 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=1 instance=809520570 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=1 instance=1615873578 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx1 unpinning Page 0 DOCUMENT rev=0 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx1 closing Page 0 DOCUMENT rev=0 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (DOCUMENT) rev=0 instance=1618326227 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx1 unpinning Page 0 NAME rev=0 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx1 closing Page 0 NAME rev=0 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=0 instance=1393112209 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx1 unpinning Page 0 NAME rev=0 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx1 closing Page 0 NAME rev=0 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=0 instance=70788844 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx1 unpinning Page 0 NAME rev=0 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx1 closing Page 0 NAME rev=0 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=0 instance=817018735 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx1 unpinning Page 0 NAME rev=0 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx1 closing Page 0 NAME rev=0 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=0 instance=873168630 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=0 instance=589016913 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=1 instance=1956060889 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=1 instance=1962826086 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=214768579 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=142103421 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=1292570580 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=128077491 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=808653065 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=628164202 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=1736150547 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=1251247808 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx1 unpinning Page 0 NAME rev=1 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx1 closing Page 0 NAME rev=1 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=1 instance=320850799 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx1 unpinning Page 0 NAME rev=1 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx1 closing Page 0 NAME rev=1 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=1 instance=634638280 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx1 unpinning Page 0 NAME rev=1 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx1 closing Page 0 NAME rev=1 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=1 instance=1340634558 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx1 unpinning Page 0 NAME rev=1 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx1 closing Page 0 NAME rev=1 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=1 instance=704387627 wasInLivePages=true pinCount=0
+    Trx 1 closing: RecordPageCache has 1 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=1 instance=1089341986 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=1 instance=65982709 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (DOCUMENT) rev=1 instance=10001825 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=1 instance=1277678493 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (DOCUMENT) rev=2 instance=960004592 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (DOCUMENT) rev=2 instance=1257532915 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=183995527 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=2000530216 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=540206885 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=1294139740 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=1438178266 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=995531141 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=1726515679 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=1145391264 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=1044965465 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=836621476 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx2 unpinning Page 0 NAME rev=1 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx2 closing Page 0 NAME rev=1 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=1 instance=1677921169 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx2 unpinning Page 0 NAME rev=1 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx2 closing Page 0 NAME rev=1 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=1 instance=2000421523 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx2 unpinning Page 0 NAME rev=1 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx2 closing Page 0 NAME rev=1 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=1 instance=767393855 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx2 unpinning Page 0 NAME rev=1 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx2 closing Page 0 NAME rev=1 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=1 instance=652007616 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx2 unpinning Page 0 DOCUMENT rev=1 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx2 closing Page 0 DOCUMENT rev=1 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (DOCUMENT) rev=1 instance=835426017 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=1 instance=442465916 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=1048903970 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=1048903970 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=1523034648 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=1523034648 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=78377968 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=78377968 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=691854979 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=604602011 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=1589214445 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=2058174333 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=1868987089 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=734971558 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=2007138812 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=1985869725 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=353580491 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx2 unpinning Page 0 NAME rev=2 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx2 closing Page 0 NAME rev=2 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=2 instance=254692047 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx2 unpinning Page 0 NAME rev=2 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx2 closing Page 0 NAME rev=2 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=2 instance=948650013 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx2 unpinning Page 0 NAME rev=2 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx2 closing Page 0 NAME rev=2 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=2 instance=737935282 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx2 unpinning Page 0 NAME rev=2 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx2 closing Page 0 NAME rev=2 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=2 instance=356476647 wasInLivePages=true pinCount=0
+    Trx 2 closing: RecordPageCache has 1 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=964981922 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=2 instance=1374432753 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=2141932519 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=2141932519 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=1299497914 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=1299497914 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=1679002380 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=1679002380 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=199000084 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=199000084 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=844872102 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=487764004 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=88335763 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=1315081042 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=739703515 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=613281005 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=368727462 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=1326998608 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx3 unpinning Page 0 NAME rev=2 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx3 closing Page 0 NAME rev=2 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=2 instance=1198442960 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx3 unpinning Page 0 NAME rev=2 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx3 closing Page 0 NAME rev=2 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=2 instance=513279161 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx3 unpinning Page 0 NAME rev=2 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx3 closing Page 0 NAME rev=2 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=2 instance=261052089 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx3 unpinning Page 0 NAME rev=2 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx3 closing Page 0 NAME rev=2 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=2 instance=1139801481 wasInLivePages=true pinCount=0
+    🔍 Trx 3 FragmentCache scan: 2 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 3 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=142261320 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=70386506 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=1774795940 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=1625111587 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=521973283 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=559559860 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=903064416 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=903064416 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=1904676263 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=1904676263 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=1165568071 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=1165568071 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=101601906 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=2104842259 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=389247924 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=1087440001 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=1586779822 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=380216561 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=9983638 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=1540219992 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx3 unpinning Page 0 NAME rev=3 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx3 closing Page 0 NAME rev=3 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=3 instance=2027837674 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx3 unpinning Page 0 NAME rev=3 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx3 closing Page 0 NAME rev=3 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=3 instance=1387671967 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx3 unpinning Page 0 NAME rev=3 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx3 closing Page 0 NAME rev=3 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=3 instance=2084920982 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx3 unpinning Page 0 NAME rev=3 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx3 closing Page 0 NAME rev=3 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=3 instance=1675239551 wasInLivePages=true pinCount=0
+    🔍 Trx 3 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 3 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=425107133 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=839161014 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=3 instance=1205321651 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=730583371 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=1596997325 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=631717345 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=1998434604 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=62309924 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=514793058 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=352083264 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=1373646877 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=1465179762 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=837719796 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=32206364 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=1373361892 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx4 unpinning Page 0 NAME rev=3 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx4 closing Page 0 NAME rev=3 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=3 instance=775423528 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx4 unpinning Page 0 NAME rev=3 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx4 closing Page 0 NAME rev=3 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=3 instance=1697298649 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx4 unpinning Page 0 NAME rev=3 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx4 closing Page 0 NAME rev=3 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=3 instance=1997224928 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx4 unpinning Page 0 NAME rev=3 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx4 closing Page 0 NAME rev=3 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=3 instance=1659282412 wasInLivePages=true pinCount=0
+    🔍 Trx 4 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 4 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=3 instance=697145861 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=408909888 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=45795770 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=1541232265 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=1541232265 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=1940601516 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=1940601516 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=1705904476 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=2122256138 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=2126876651 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1676428380 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=822359325 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=2071674587 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1799831668 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1788698111 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=990442552 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx4 unpinning Page 0 NAME rev=4 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx4 closing Page 0 NAME rev=4 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=4 instance=510445648 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx4 unpinning Page 0 NAME rev=4 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx4 closing Page 0 NAME rev=4 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=4 instance=2050247525 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx4 unpinning Page 0 NAME rev=4 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx4 closing Page 0 NAME rev=4 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=4 instance=1219637204 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx4 unpinning Page 0 NAME rev=4 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx4 closing Page 0 NAME rev=4 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=4 instance=1701646500 wasInLivePages=true pinCount=0
+    🔍 Trx 4 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 4 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=1066582857 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=1442342557 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=1893736577 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=4 instance=708350323 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=2036324408 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=2036324408 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=337545117 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=386201215 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=386201215 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=1846508205 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=1846508205 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1111710616 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1723498053 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1970528559 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1370597622 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1360332263 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1684541910 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1269339945 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=394424498 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx5 unpinning Page 0 NAME rev=4 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx5 closing Page 0 NAME rev=4 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=4 instance=1809995046 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx5 unpinning Page 0 NAME rev=4 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx5 closing Page 0 NAME rev=4 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=4 instance=212924259 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx5 unpinning Page 0 NAME rev=4 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx5 closing Page 0 NAME rev=4 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=4 instance=557342904 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx5 unpinning Page 0 NAME rev=4 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx5 closing Page 0 NAME rev=4 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=4 instance=164757726 wasInLivePages=true pinCount=0
+    🔍 Trx 5 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 5 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=4 instance=1220747354 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1711105800 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=1916720513 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=1916720513 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=2036360618 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=741370455 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=741370455 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=227100877 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=227100877 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=546886525 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=2008666311 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=310350177 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=737756161 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=1781459498 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=194408994 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=113416412 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=1048444228 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx5 unpinning Page 0 NAME rev=5 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx5 closing Page 0 NAME rev=5 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=5 instance=182678201 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx5 unpinning Page 0 NAME rev=5 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx5 closing Page 0 NAME rev=5 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=5 instance=70555476 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx5 unpinning Page 0 NAME rev=5 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx5 closing Page 0 NAME rev=5 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=5 instance=463494712 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx5 unpinning Page 0 NAME rev=5 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx5 closing Page 0 NAME rev=5 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=5 instance=1956296628 wasInLivePages=true pinCount=0
+    🔍 Trx 5 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 5 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=115939475 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1445222369 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=5 instance=1986676021 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=2049837144 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=2049837144 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=32737623 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=32737623 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=655713354 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=655713354 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=1368193098 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=439720255 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=1527906606 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=350413251 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=726107869 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=2096194236 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=924915581 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=1661803311 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=1953175805 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx6 unpinning Page 0 NAME rev=5 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx6 closing Page 0 NAME rev=5 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=5 instance=1414934182 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx6 unpinning Page 0 NAME rev=5 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx6 closing Page 0 NAME rev=5 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=5 instance=1668385683 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx6 unpinning Page 0 NAME rev=5 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx6 closing Page 0 NAME rev=5 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=5 instance=1625428489 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx6 unpinning Page 0 NAME rev=5 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx6 closing Page 0 NAME rev=5 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=5 instance=1245439653 wasInLivePages=true pinCount=0
+    🔍 Trx 6 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 6 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=5 instance=1311315651 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=4015102 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=1605834811 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=36883680 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=36883680 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=892237946 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=892237946 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=22790969 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=22790969 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=945747249 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=945747249 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=1735390128 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=905940937 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=1602288195 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=382252989 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=1035357140 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=1846568576 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=1519100796 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=935520971 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx6 unpinning Page 0 NAME rev=6 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx6 closing Page 0 NAME rev=6 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=6 instance=1957530885 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx6 unpinning Page 0 NAME rev=6 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx6 closing Page 0 NAME rev=6 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=6 instance=1706883010 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx6 unpinning Page 0 NAME rev=6 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx6 closing Page 0 NAME rev=6 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=6 instance=1441577726 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx6 unpinning Page 0 NAME rev=6 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx6 closing Page 0 NAME rev=6 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=6 instance=1198158701 wasInLivePages=true pinCount=0
+    🔍 Trx 6 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 6 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=1847410999 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=698676628 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=679442449 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=388436342 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=6 instance=525527919 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=1875108260 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=761229698 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=761229698 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=703232177 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=703232177 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=2075093711 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=1395105902 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=645476639 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=775174220 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=810672306 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=727018418 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=1154172430 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=1479100519 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=1740797856 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx7 unpinning Page 0 NAME rev=6 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx7 closing Page 0 NAME rev=6 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=6 instance=1471633238 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx7 unpinning Page 0 NAME rev=6 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx7 closing Page 0 NAME rev=6 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=6 instance=775741122 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx7 unpinning Page 0 NAME rev=6 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx7 closing Page 0 NAME rev=6 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=6 instance=1473313929 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx7 unpinning Page 0 NAME rev=6 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx7 closing Page 0 NAME rev=6 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=6 instance=1159694255 wasInLivePages=true pinCount=0
+    🔍 Trx 7 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 7 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=6 instance=44771088 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=30563356 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=2060799061 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=2060799061 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=1793580716 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=1793580716 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=440295203 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=911561694 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=1539995236 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=274426173 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=1123862502 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=153443333 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=1558460059 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=2139266166 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=26418585 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=1788432625 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx7 unpinning Page 0 NAME rev=7 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx7 closing Page 0 NAME rev=7 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=7 instance=233343686 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx7 unpinning Page 0 NAME rev=7 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx7 closing Page 0 NAME rev=7 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=7 instance=2021854618 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx7 unpinning Page 0 NAME rev=7 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx7 closing Page 0 NAME rev=7 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=7 instance=2084486251 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx7 unpinning Page 0 NAME rev=7 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx7 closing Page 0 NAME rev=7 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=7 instance=1242427797 wasInLivePages=true pinCount=0
+    🔍 Trx 7 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 7 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=164733543 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=7 instance=246014273 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=1551139176 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=137659163 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=1531782631 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=1531782631 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=499310212 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=499310212 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=889753223 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=1215023524 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=305651902 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=1385140107 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=1331946439 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=1498621286 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=869005911 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=496425074 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx8 unpinning Page 0 NAME rev=7 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx8 closing Page 0 NAME rev=7 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=7 instance=827248723 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx8 unpinning Page 0 NAME rev=7 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx8 closing Page 0 NAME rev=7 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=7 instance=1109020385 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx8 unpinning Page 0 NAME rev=7 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx8 closing Page 0 NAME rev=7 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=7 instance=508873523 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx8 unpinning Page 0 NAME rev=7 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx8 closing Page 0 NAME rev=7 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=7 instance=1055800875 wasInLivePages=true pinCount=0
+    🔍 Trx 8 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 8 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=7 instance=809968973 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=564555077 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=1727420902 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=543409470 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=2009832657 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=2009832657 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=895705623 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=895705623 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=1045397707 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=380494131 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=380494131 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=1677590477 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=1948835427 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=1181191753 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=1955502880 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=1358169683 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=1352913142 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=1779090574 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=618696025 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx8 unpinning Page 0 NAME rev=8 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx8 closing Page 0 NAME rev=8 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=8 instance=529949842 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx8 unpinning Page 0 NAME rev=8 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx8 closing Page 0 NAME rev=8 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=8 instance=714850447 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx8 unpinning Page 0 NAME rev=8 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx8 closing Page 0 NAME rev=8 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=8 instance=448569108 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx8 unpinning Page 0 NAME rev=8 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx8 closing Page 0 NAME rev=8 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=8 instance=1248334686 wasInLivePages=true pinCount=0
+    🔍 Trx 8 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 8 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=555136651 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=1634411546 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=1145165159 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=8 instance=1206678562 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=447320069 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=1860754643 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=1558133170 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=1020632821 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=523794808 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=2092066079 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=1628305283 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=255839577 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=1656318404 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=231498257 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=2003305136 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=105663489 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx9 unpinning Page 0 NAME rev=8 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx9 closing Page 0 NAME rev=8 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=8 instance=193864812 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx9 unpinning Page 0 NAME rev=8 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx9 closing Page 0 NAME rev=8 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=8 instance=1213419524 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx9 unpinning Page 0 NAME rev=8 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx9 closing Page 0 NAME rev=8 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=8 instance=2044150758 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx9 unpinning Page 0 NAME rev=8 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx9 closing Page 0 NAME rev=8 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=8 instance=1041638599 wasInLivePages=true pinCount=0
+    🔍 Trx 9 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 9 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=8 instance=727818265 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=1775897362 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=2041611826 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=196717412 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=9 instance=66231846 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=9 instance=1133730108 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=9 instance=651698411 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=9 instance=167692593 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=688581408 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1940737740 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1497983329 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1082886058 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1794068152 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1992630936 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=450420562 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1171713907 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx9 unpinning Page 0 NAME rev=9 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx9 closing Page 0 NAME rev=9 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=9 instance=1022251996 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx9 unpinning Page 0 NAME rev=9 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx9 closing Page 0 NAME rev=9 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=9 instance=2021601975 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx9 unpinning Page 0 NAME rev=9 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx9 closing Page 0 NAME rev=9 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=9 instance=173197870 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx9 unpinning Page 0 NAME rev=9 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx9 closing Page 0 NAME rev=9 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=9 instance=660915526 wasInLivePages=true pinCount=0
+    🔍 Trx 9 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 9 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=9 instance=1063723524 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=741191984 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=754978432 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=1294605731 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=9 instance=1433568941 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=9 instance=1061913613 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=9 instance=2139501486 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=9 instance=197195067 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=9 instance=1182985125 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=881662115 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1818592781 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=871989809 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1210600718 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=551994588 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1618180899 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1946636596 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=2118984327 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx10 unpinning Page 0 NAME rev=9 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx10 closing Page 0 NAME rev=9 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=9 instance=847018986 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx10 unpinning Page 0 NAME rev=9 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx10 closing Page 0 NAME rev=9 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=9 instance=623862380 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx10 unpinning Page 0 NAME rev=9 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx10 closing Page 0 NAME rev=9 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=9 instance=185639533 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx10 unpinning Page 0 NAME rev=9 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx10 closing Page 0 NAME rev=9 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=9 instance=2096268257 wasInLivePages=true pinCount=0
+    🔍 Trx 10 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 10 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=9 instance=146799499 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1801878707 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1689717017 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=847839957 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=971404566 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=10 instance=418299920 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=10 instance=749072877 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=10 instance=42158278 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=10 instance=42158278 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=10 instance=1850301256 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=11 instance=1642319693 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=11 instance=1022130643 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=11 instance=827843776 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=11 instance=1856643544 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=11 instance=2081952435 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=11 instance=1124288521 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=11 instance=1269826537 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=11 instance=313149846 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx10 unpinning Page 0 NAME rev=10 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx10 closing Page 0 NAME rev=10 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=10 instance=1865982601 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx10 unpinning Page 0 NAME rev=10 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx10 closing Page 0 NAME rev=10 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=10 instance=1927776715 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx10 unpinning Page 0 NAME rev=10 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx10 closing Page 0 NAME rev=10 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=10 instance=1996556848 wasInLivePages=true pinCount=0
+    [LOCAL-CACHE-UNPIN] Trx10 unpinning Page 0 NAME rev=10 NOT in global cache, pinCount=1
+    [LOCAL-CACHE-CLOSE] Trx10 closing Page 0 NAME rev=10 (not in global cache, pinCount=0, thisTrxPinned=true)
+    [CLOSE] Page 0 (NAME) rev=10 instance=1311884268 wasInLivePages=true pinCount=0
+    🔍 Trx 10 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+    Trx 10 closing: RecordPageCache has 2 Page0 total, 1 pinned by this trx, unpinned 1
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=10 instance=1607020784 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=194402391 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1553646796 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (DOCUMENT) rev=2 instance=2025955363 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1183572822 wasInLivePages=true pinCount=0
+
+VersioningTest > testFull1() STANDARD_OUT
+    11:16:56.304 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 14 entries cleared
+
+VersioningTest > testFull1() STANDARD_ERROR
+    [CLOSE] Page 0 (DOCUMENT) rev=2 instance=1890318768 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (NAME) rev=10 instance=1910492961 wasInLivePages=true pinCount=0
+    [CLOSE] Page 0 (PATH_SUMMARY) rev=2 instance=1249337777 wasInLivePages=true pinCount=0
+
+11:16:56.316 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - Shutting down LinuxMemorySegmentAllocator...
+11:16:56.320 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - Cleaning up allocator (physical memory: 0 MB)
+11:16:56.401 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator cleanup complete
+11:16:56.401 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator shutdown complete.
+
+[Incubating] Problems report is available at: file:///home/johannes/IdeaProjects/sirix/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 3s
+6 actionable tasks: 2 executed, 4 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.1.0/userguide/configuration_cache_enabling.html

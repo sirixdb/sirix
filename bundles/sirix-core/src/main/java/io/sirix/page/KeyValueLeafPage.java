@@ -229,9 +229,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // DIAGNOSTIC: Capture creation stack trace for leak tracing
     if (DEBUG_MEMORY_LEAKS) {
       this.creationStackTrace = Thread.currentThread().getStackTrace();
-      PAGES_CREATED.incrementAndGet();
+      long created = PAGES_CREATED.incrementAndGet();
       PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
-      ALL_LIVE_PAGES.add(this);
+      boolean addedToLivePages = ALL_LIVE_PAGES.add(this);
+      if (!addedToLivePages) {
+        System.err.println("⚠️  DUPLICATE ADD to ALL_LIVE_PAGES: Page " + recordPageKey + " (" + indexType + ") rev=" + 
+            revisionNumber + " instance=" + System.identityHashCode(this) + " totalCreated=" + created);
+      }
       
       // Track Page 0 creation source and register for cleanup
       if (recordPageKey == 0) {
@@ -253,8 +257,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         }
         
         String addStatus = wasAdded ? "ADDED" : "DUPLICATE";
-        LOGGER.debug("Page 0 CREATED from {} ({}): {} rev={} instance={}", 
-            source, addStatus, indexType, revisionNumber, System.identityHashCode(this));
+        System.err.println("[CREATE] Page 0 from " + source + " (" + addStatus + "): " + indexType + " rev=" + 
+            revisionNumber + " instance=" + System.identityHashCode(this) + " totalCreated=" + created);
       }
     } else {
       this.creationStackTrace = null;
@@ -305,15 +309,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // DIAGNOSTIC: Capture creation stack trace for leak tracing
     if (DEBUG_MEMORY_LEAKS) {
       this.creationStackTrace = Thread.currentThread().getStackTrace();
-      PAGES_CREATED.incrementAndGet();
+      long created = PAGES_CREATED.incrementAndGet();
       PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
-      ALL_LIVE_PAGES.add(this);
+      boolean addedToLivePages = ALL_LIVE_PAGES.add(this);
+      if (!addedToLivePages) {
+        System.err.println("⚠️  DUPLICATE ADD to ALL_LIVE_PAGES: Page " + recordPageKey + " (" + indexType + ") rev=" + 
+            revision + " instance=" + System.identityHashCode(this) + " totalCreated=" + created);
+      }
       
       // Track Page 0 creation source and register for cleanup
       if (recordPageKey == 0) {
-        ALL_PAGE_0_INSTANCES.add(this); // Register for explicit cleanup
-        LOGGER.debug("Page 0 CREATED from DISK_LOAD: {} rev={} instance={}", 
-            indexType, revision, System.identityHashCode(this));
+        boolean wasAdded = ALL_PAGE_0_INSTANCES.add(this); // Register for explicit cleanup
+        String addStatus = wasAdded ? "ADDED" : "DUPLICATE";
+        System.err.println("[CREATE] Page 0 from DISK_LOAD (" + addStatus + "): " + indexType + " rev=" + 
+            revision + " instance=" + System.identityHashCode(this) + " totalCreated=" + created);
       }
     } else {
       this.creationStackTrace = null;
@@ -1095,6 +1104,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public void close() {
     if (!isClosed) {
+      if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
+        boolean wasInLivePages = ALL_LIVE_PAGES.contains(this);
+        System.err.println("[CLOSE] Page 0 (" + indexType + ") rev=" + revision + " instance=" + System.identityHashCode(this) + 
+            " wasInLivePages=" + wasInLivePages + " pinCount=" + getPinCount());
+      }
+      
       isClosed = true;
       
       // DIAGNOSTIC: Verify isClosed was actually set
@@ -1105,9 +1120,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       
       // DIAGNOSTIC
       if (DEBUG_MEMORY_LEAKS) {
-        PAGES_CLOSED.incrementAndGet();
+        long closedCount = PAGES_CLOSED.incrementAndGet();
         PAGES_CLOSED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
-        ALL_LIVE_PAGES.remove(this);
+        boolean removed = ALL_LIVE_PAGES.remove(this);
+        
+        if (!removed) {
+          LOGGER.warn("⚠️  Page {} ({}) rev={} instance={} was NOT in ALL_LIVE_PAGES when closing! closedCount={}",
+              recordPageKey, indexType, revision, System.identityHashCode(this), closedCount);
+        }
         
         // Maintain Page 0 tracking for tests/debugging
         if (recordPageKey == 0) {

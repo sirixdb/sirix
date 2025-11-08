@@ -593,30 +593,30 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       return;
     }
 
-    // CRITICAL FIX: Only unpin if this transaction actually pinned the page
-    // Pages can be in the local cache without being pinned by this transaction
-    // (e.g., pages loaded by previous transactions that reused this PageReadOnlyTrx)
-    if (page.getPinCountByTransaction().getOrDefault(trxId, 0) == 0) {
-      // This transaction never pinned this page - skip unpinning
-      return;
-    }
+    // Check if this transaction pinned the page
+    boolean thisTrxPinnedPage = page.getPinCountByTransaction().getOrDefault(trxId, 0) > 0;
 
     // Check if page is still in the global cache
-    if (resourceBufferManager.getRecordPageCache().get(recordPage.pageReference) != null) {
-      // Page is in cache - use unpinAndUpdateWeight to atomically unpin and update weight
-      if (resourceBufferManager.getRecordPageCache() instanceof RecordPageCache cache) {
-        cache.unpinAndUpdateWeight(recordPage.pageReference, trxId);
-      } else {
-        // Fallback for non-RecordPageCache implementations
-        page.decrementPinCount(trxId);
+    boolean inGlobalCache = resourceBufferManager.getRecordPageCache().get(recordPage.pageReference) != null;
+    
+    if (inGlobalCache) {
+      // Page is in global cache
+      if (thisTrxPinnedPage) {
+        // Unpin it using atomic method
+        if (resourceBufferManager.getRecordPageCache() instanceof RecordPageCache cache) {
+          cache.unpinAndUpdateWeight(recordPage.pageReference, trxId);
+        } else {
+          page.decrementPinCount(trxId);
+        }
       }
+      // If in global cache, cache owns lifecycle - don't close here
     } else {
-      // Page NOT in global cache - we must close it
-      // CRITICAL FIX: Close even if already unpinned (pinCount=0)
-      // These are pages in local cache that were never added to global cache
+      // Page NOT in global cache - we must close it (local cache owns it)
+      // CRITICAL FIX: Close even if this transaction never pinned it
+      // Pages can be in local cache from previous transactions using this PageReadOnlyTrx
       
-      // Unpin if still pinned by this transaction
-      if (page.getPinCount() > 0) {
+      if (thisTrxPinnedPage) {
+        // Unpin if this transaction pinned it
         if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
           System.err.println("[LOCAL-CACHE-UNPIN] Trx" + trxId + " unpinning Page 0 " + page.getIndexType() + " rev="
                                  + page.getRevision() + " NOT in global cache, pinCount=" + page.getPinCount());
@@ -624,10 +624,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         page.decrementPinCount(trxId);
       }
       
-      // Close the page (even if already unpinned)
+      // Close the page regardless of whether THIS transaction pinned it
+      // If it's in local cache but not global cache, local cache must close it
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
         System.err.println("[LOCAL-CACHE-CLOSE] Trx" + trxId + " closing Page 0 " + page.getIndexType() + " rev="
-                               + page.getRevision() + " (not in global cache, pinCount=" + page.getPinCount() + ")");
+                               + page.getRevision() + " (not in global cache, pinCount=" + page.getPinCount() + ", thisTrxPinned=" + thisTrxPinnedPage + ")");
       }
       page.close();
     }
@@ -862,8 +863,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     if (existing != null && existing == mostRecentPageFragment) {
       // Fragment still in cache - put back to trigger weight recalculation
       resourceBufferManager.getRecordPageFragmentCache().put(fragmentRef0, mostRecentPageFragment);
+    } else if (mostRecentPageFragment.getPinCount() == 0) {
+      // Fragment not in cache and fully unpinned - close it
+      // It was either: (a) evicted and closed by removalListener (close is no-op), OR
+      //                (b) never added to cache (needs closing now)
+      mostRecentPageFragment.close();
     }
-    // If not in cache: was evicted and closed by removalListener, nothing more to do
     
     LOGGER.debug("  Fragment 0 unpinned (pins=" + mostRecentPageFragment.getPinCount() + ")");
 
@@ -894,8 +899,15 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
           if (existingOlder != null && existingOlder == pageFragment) {
             // Fragment still in cache - put back to update weight
             resourceBufferManager.getRecordPageFragmentCache().put(olderFragmentRef, pageFragment);
+          } else if (pageFragment.getPinCount() == 0) {
+            // Fragment not in cache and fully unpinned - close it
+            // It was either: (a) evicted and closed by removalListener (close is no-op), OR
+            //                (b) never added to cache (needs closing now)
+            pageFragment.close();
           }
-          // If not in cache: was evicted and closed by removalListener, nothing more to do
+        } else if (pageFragment.getPinCount() == 0) {
+          // No original key - never cached, close if fully unpinned
+          pageFragment.close();
         }
         
         LOGGER.debug("  Fragment " + i + " unpinned (pins=" + pageFragment.getPinCount() + ", rev="
