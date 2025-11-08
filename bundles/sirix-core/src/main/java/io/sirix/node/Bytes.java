@@ -21,7 +21,7 @@ public final class Bytes {
      * @param initialCapacity the initial capacity
      * @return a new BytesOut instance that must be closed after use
      */
-    public static BytesOut<MemorySegment> elasticHeapByteBuffer(int initialCapacity) {
+    public static BytesOut<MemorySegment> elasticOffHeapByteBuffer(int initialCapacity) {
         return new MemorySegmentBytesOut(initialCapacity);
     }
     
@@ -31,8 +31,25 @@ public final class Bytes {
      * The returned BytesOut should be used with try-with-resources to ensure proper cleanup.
      * @return a new BytesOut instance with default capacity that must be closed after use
      */
-    public static BytesOut<MemorySegment> elasticHeapByteBuffer() {
+    public static BytesOut<MemorySegment> elasticOffHeapByteBuffer() {
         return new MemorySegmentBytesOut();
+    }
+    
+    /**
+     * Alias for elasticOffHeapByteBuffer for backward compatibility.
+     * @param initialCapacity the initial capacity
+     * @return a new BytesOut instance that must be closed after use
+     */
+    public static BytesOut<MemorySegment> elasticHeapByteBuffer(int initialCapacity) {
+        return elasticOffHeapByteBuffer(initialCapacity);
+    }
+    
+    /**
+     * Alias for elasticOffHeapByteBuffer for backward compatibility.
+     * @return a new BytesOut instance with default capacity that must be closed after use
+     */
+    public static BytesOut<MemorySegment> elasticHeapByteBuffer() {
+        return elasticOffHeapByteBuffer();
     }
     
     /**

@@ -191,7 +191,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   @Override
   public long getHash() {
     if (hash == 0L) {
-      hash = computeHash(Bytes.elasticHeapByteBuffer());
+      hash = computeHash(Bytes.elasticOffHeapByteBuffer());
     }
     return hash;
   }

@@ -78,7 +78,7 @@ public class AttributeNodeTest {
     final byte[] value = { (byte) 17, (byte) 18 };
 
     // Create MemorySegment with all fields in correct order matching AttributeNode.CORE_LAYOUT
-    final BytesOut<?> nodeData = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> nodeData = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     nodeData.writeLong(13);                             // parentKey - offset 0
@@ -94,14 +94,14 @@ public class AttributeNodeTest {
     var segment = (java.lang.foreign.MemorySegment) nodeData.asBytesIn().getUnderlying();
     final AttributeNode node = new AttributeNode(segment, 99L, SirixDeweyID.newRootID(), 
                                                  value, false, new QNm("ns", "a", "p"));
-    var hashBytes = Bytes.elasticHeapByteBuffer();
+    var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
 
     // Create empty node.
     check(node);
 
     // Serialize and deserialize node.
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     data.writeByte(NodeKind.ATTRIBUTE.getId()); // Write NodeKind byte
     node.getKind().serialize(data, node, pageReadOnlyTrx.getResourceSession().getResourceConfig());
     var bytesIn = data.asBytesIn();

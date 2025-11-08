@@ -62,7 +62,7 @@ public class ObjectNumberNodeTest {
     
     // Create data in the correct serialization format with size prefix and padding
     // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + optional fields + value][end padding]
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     final var config = pageTrx.getResourceSession().getResourceConfig();
     
     long sizePos = NodeTestHelper.writeHeader(data, NodeKind.OBJECT_NUMBER_VALUE);
@@ -97,7 +97,7 @@ public class ObjectNumberNodeTest {
     assertEquals(NodeKind.OBJECT_NUMBER_VALUE, node.getKind());
 
     // Serialize and deserialize node
-    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
     data2.writeByte(NodeKind.OBJECT_NUMBER_VALUE.getId()); // Write NodeKind to ensure proper alignment
     node.getKind().serialize(data2, node, pageTrx.getResourceSession().getResourceConfig());
     var bytesIn2 = data2.asBytesIn();

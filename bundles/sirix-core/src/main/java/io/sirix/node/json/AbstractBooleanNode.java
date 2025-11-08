@@ -97,7 +97,7 @@ public abstract class AbstractBooleanNode extends AbstractStructForwardingNode i
   @Override
   public long getHash() {
     if (hashCode == 0L) {
-      hashCode = computeHash(Bytes.elasticHeapByteBuffer());
+      hashCode = computeHash(Bytes.elasticOffHeapByteBuffer());
     }
     return hashCode;
   }

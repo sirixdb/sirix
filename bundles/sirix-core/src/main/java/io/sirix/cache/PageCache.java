@@ -31,7 +31,7 @@ public final class PageCache implements Cache<PageReference, Page> {
         // Page handles its own cleanup
         LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}", 
                     key.getKey(), cause);
-        DiagnosticLogger.log("PageCache EVICT: closing page " + keyValueLeafPage.getPageKey() + ", cause=" + cause);
+        LOGGER.debug("PageCache EVICT: closing page {} cause={}", keyValueLeafPage.getPageKey(), cause);
         keyValueLeafPage.close();
       }
     };

@@ -5,6 +5,8 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.settings.Constants;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,6 +17,8 @@ import java.util.List;
  * @author Johannes Lichtenberger
  */
 public final class TransactionIntentLog implements AutoCloseable {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(TransactionIntentLog.class);
 
   /**
    * The collection to hold the maps.
@@ -42,8 +46,8 @@ public final class TransactionIntentLog implements AutoCloseable {
     list = new ArrayList<>(maxInMemoryCapacity);
     
     // DIAGNOSTIC: Track TIL creation
-    if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      io.sirix.cache.DiagnosticLogger.log("TIL CREATED: instance=" + System.identityHashCode(this) + " (maxCapacity=" + maxInMemoryCapacity + ")");
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("TIL CREATED: instance={} (maxCapacity={})", System.identityHashCode(this), maxInMemoryCapacity);
     }
   }
 
@@ -70,19 +74,6 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @param value a value to be associated with the specified key
    */
   public void put(final PageReference key, final PageContainer value) {
-    // DIAGNOSTIC: Track PATH_SUMMARY pages being added to TIL
-    boolean isPathSummary = false;
-    if (Boolean.getBoolean("sirix.debug.path.summary")) {
-      Page page = value.getComplete() != null ? value.getComplete() : value.getModified();
-      if (page instanceof KeyValueLeafPage kvp && kvp.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
-        isPathSummary = true;
-        System.err.println("[TIL-PUT] Adding PATH_SUMMARY page to TIL: " +
-                           "pageKey=" + kvp.getPageKey() +
-                           ", revision=" + kvp.getRevision() +
-                           ", logKey=" + logKey);
-      }
-    }
-    
     // Remove from cache (pages must stay OPEN in TIL for serialization)
     // CRITICAL: Only remove if the page in cache is actually the one we're putting in TIL!
     // Otherwise we'd orphan a different page instance that happens to have the same PageReference
@@ -107,32 +98,23 @@ public final class TransactionIntentLog implements AutoCloseable {
      }
    }
 
-    // CRITICAL FIX: Don't null the page!
-    // Some PageReferences (e.g., from RevisionRootPage) are shared and still needed
-    // Only null the storage key to prevent reload attempts
     key.setKey(Constants.NULL_ID_LONG);
-    // DON'T null page - it might still be accessed via this PageReference!
-    // key.setPage(null);
+    key.setPage(null);
     key.setLogKey(logKey);
 
     list.add(value);
     logKey++;
     
-    // DIAGNOSTIC: Track Page 0 additions to TIL
-    if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      if (value.getComplete() instanceof io.sirix.page.KeyValueLeafPage completePage && completePage.getPageKey() == 0) {
-        io.sirix.cache.DiagnosticLogger.log("TIL.put Page 0: complete=" + System.identityHashCode(completePage) +
-            " type=" + completePage.getIndexType() + " rev=" + completePage.getRevision());
+    // Diagnostic logging for leak detection
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      if (value.getComplete() instanceof KeyValueLeafPage completePage) {
+        LOGGER.debug("TIL.put: complete page {} type={} rev={}", 
+            completePage.getPageKey(), completePage.getIndexType(), completePage.getRevision());
       }
-      if (value.getModified() instanceof io.sirix.page.KeyValueLeafPage modifiedPage && 
-          modifiedPage != value.getComplete() && modifiedPage.getPageKey() == 0) {
-        io.sirix.cache.DiagnosticLogger.log("TIL.put Page 0: modified=" + System.identityHashCode(modifiedPage) +
-            " type=" + modifiedPage.getIndexType() + " rev=" + modifiedPage.getRevision());
+      if (value.getModified() instanceof KeyValueLeafPage modifiedPage && modifiedPage != value.getComplete()) {
+        LOGGER.debug("TIL.put: modified page {} type={} rev={}", 
+            modifiedPage.getPageKey(), modifiedPage.getIndexType(), modifiedPage.getRevision());
       }
-    }
-    
-    if (isPathSummary && Boolean.getBoolean("sirix.debug.path.summary")) {
-      System.err.println("[TIL-PUT]   -> PATH_SUMMARY page added at logKey=" + (logKey - 1));
     }
   }
 
@@ -159,13 +141,9 @@ public final class TransactionIntentLog implements AutoCloseable {
     int closedComplete = 0;
     int closedModified = 0;
     int skippedAlreadyClosed = 0;
-    int page0Complete = 0;
-    int page0Modified = 0;
-    int page0SkippedClosed = 0;
-    int page0ActuallyClosed = 0;
     
-    if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      io.sirix.cache.DiagnosticLogger.log("TIL.clear() starting with " + list.size() + " containers");
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("TIL.clear() starting with {} containers", list.size());
     }
     
     logKey = 0;
@@ -181,14 +159,6 @@ public final class TransactionIntentLog implements AutoCloseable {
       
       if (complete instanceof KeyValueLeafPage completePage) {
         kvLeafContainers++;
-        boolean isPage0 = completePage.getPageKey() == 0;
-        if (isPage0) {
-          page0Complete++;
-          if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-            io.sirix.cache.DiagnosticLogger.log("TIL.clear checking complete Page 0: instance=" + 
-                System.identityHashCode(completePage) + " isClosed=" + completePage.isClosed());
-          }
-        }
         
         if (!completePage.isClosed()) {
           // CRITICAL: Pages in TIL were already removed from cache in TIL.put()
@@ -196,38 +166,27 @@ public final class TransactionIntentLog implements AutoCloseable {
           forceUnpinAll(completePage);
           completePage.close();
           closedComplete++;
-          if (isPage0) page0ActuallyClosed++;
         } else {
           skippedAlreadyClosed++;
-          if (isPage0) page0SkippedClosed++;
         }
       }
       
       // Check if modified is a different instance before closing
       if (modified instanceof KeyValueLeafPage modifiedPage && modified != complete) {
-        boolean isPage0 = modifiedPage.getPageKey() == 0;
-        if (isPage0) page0Modified++;
-        
         if (!modifiedPage.isClosed()) {
           // Same logic - pages in TIL must be closed here
           forceUnpinAll(modifiedPage);
           modifiedPage.close();
           closedModified++;
-          if (isPage0) page0ActuallyClosed++;
         } else {
           skippedAlreadyClosed++;
-          if (isPage0) page0SkippedClosed++;
         }
       }
     }
     list.clear();
     
-    if (page0Complete > 0 || page0Modified > 0 || closedComplete + closedModified > 10) {
-      System.err.println("TIL.clear() " + totalContainers + " containers (" + kvLeafContainers + " KVLeaf), Page0: " + 
-          page0Complete + " complete + " + page0Modified + 
-          " modified, closed " + page0ActuallyClosed + ", skipped " + page0SkippedClosed + " already closed" +
-          " (total closed: " + closedComplete + "+" + closedModified + ", skipped: " + skippedAlreadyClosed + ")");
-    }
+    LOGGER.debug("TIL.clear() processed {} containers ({} KeyValueLeafPages), closed {} complete + {} modified pages, skipped {} already closed",
+        totalContainers, kvLeafContainers, closedComplete, closedModified, skippedAlreadyClosed);
   }
 
   /**
@@ -241,10 +200,9 @@ public final class TransactionIntentLog implements AutoCloseable {
 
   @Override
   public void close() {
-    // DIAGNOSTIC: Track TIL.close() calls (always log, even if empty)
     int initialSize = list.size();
-    if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      io.sirix.cache.DiagnosticLogger.log("TIL.close() starting with " + initialSize + " containers");
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("TIL.close() starting with {} containers", initialSize);
     }
     
     // Close pages to release segments
@@ -274,8 +232,9 @@ public final class TransactionIntentLog implements AutoCloseable {
       }
     }
     
-    if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      io.sirix.cache.DiagnosticLogger.log("TIL.close() closed " + closedComplete + " complete + " + closedModified + " modified pages (from " + initialSize + " containers)");
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("TIL.close() closed {} complete + {} modified pages (from {} containers)", 
+          closedComplete, closedModified, initialSize);
     }
     
     logKey = 0;
@@ -286,9 +245,9 @@ public final class TransactionIntentLog implements AutoCloseable {
   @SuppressWarnings("deprecation")
   protected void finalize() {
     // DIAGNOSTIC: Detect if TIL is GC'd without being closed
-    if (!list.isEmpty() && io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      io.sirix.cache.DiagnosticLogger.log("⚠️  TIL FINALIZED WITHOUT CLEAR: instance=" + System.identityHashCode(this) + 
-          " with " + list.size() + " containers still in list!");
+    if (!list.isEmpty() && KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      LOGGER.warn("⚠️  TIL FINALIZED WITHOUT CLEAR: instance={} with {} containers still in list!", 
+          System.identityHashCode(this), list.size());
     }
   }
 }

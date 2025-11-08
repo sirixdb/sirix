@@ -54,6 +54,8 @@ import io.sirix.node.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -85,7 +87,9 @@ import static java.util.Objects.requireNonNull;
  */
 final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements PageTrx {
 
-  private BytesOut<?> bufferBytes = Bytes.elasticHeapByteBuffer(Writer.FLUSH_SIZE);
+  private static final Logger LOGGER = LoggerFactory.getLogger(NodePageTrx.class);
+
+  private BytesOut<?> bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
 
   /**
    * Page writer to serialize.
@@ -200,7 +204,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
   @Override
   public BytesOut<?> newBufferedBytesInstance() {
-    bufferBytes = Bytes.elasticHeapByteBuffer(Writer.FLUSH_SIZE);
+    bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
     return bufferBytes;
   }
 
@@ -371,12 +375,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     // DIAGNOSTIC: Track Page 0 closes during commit
     if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && container.getComplete() instanceof io.sirix.page.KeyValueLeafPage completePage && completePage.getPageKey() == 0) {
-      io.sirix.cache.DiagnosticLogger.log("NodePageTrx.commit closing complete Page 0: instance=" + System.identityHashCode(completePage));
+      LOGGER.debug("NodePageTrx.commit closing complete Page 0: instance={}", System.identityHashCode(completePage));
     }
     container.getComplete().close();
     
     if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page instanceof io.sirix.page.KeyValueLeafPage kvPage && kvPage.getPageKey() == 0) {
-      io.sirix.cache.DiagnosticLogger.log("NodePageTrx.commit closing modified Page 0: instance=" + System.identityHashCode(kvPage));
+      LOGGER.debug("NodePageTrx.commit closing modified Page 0: instance={}", System.identityHashCode(kvPage));
     }
     page.close();
 
@@ -478,7 +482,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
        .filter(page -> page instanceof KeyValueLeafPage)
        .forEach(page -> {
          try {
-           final var bytes = Bytes.elasticHeapByteBuffer(60_000);
+           final var bytes = Bytes.elasticOffHeapByteBuffer(60_000);
            PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
          } catch (final Exception e) {
            throw new SirixIOException(e);
@@ -770,9 +774,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   protected void finalize() {
     // DIAGNOSTIC: Detect if NodePageTrx is GC'd without being closed
     if (!isClosed && io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      io.sirix.cache.DiagnosticLogger.log("⚠️  NodePageTrx FINALIZED WITHOUT CLOSE: trxId=" + pageRtx.getTrxId() + 
-          " instance=" + System.identityHashCode(this) + " TIL=" + System.identityHashCode(log) + 
-          " with " + log.getList().size() + " containers in TIL");
+      LOGGER.warn("⚠️  NodePageTrx FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL", 
+          pageRtx.getTrxId(), System.identityHashCode(this), System.identityHashCode(log), log.getList().size());
     }
   }
 }

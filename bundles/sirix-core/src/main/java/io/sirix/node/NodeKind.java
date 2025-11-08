@@ -93,7 +93,7 @@ public enum NodeKind implements DeweyIdSerializer {
       int totalSize = JsonNodeSerializer.readSizePrefix(source);
       
       // Read all core fields directly into a buffer
-      final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+      final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
       var config = resourceConfiguration;
       
       // Read NodeDelegate fields (16 bytes)
@@ -211,7 +211,7 @@ public enum NodeKind implements DeweyIdSerializer {
       int totalSize = JsonNodeSerializer.readSizePrefix(source);
       
       // Read all core fields directly into a buffer
-      final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+      final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
       
       // Read NodeDelegate fields (16 bytes)
       data.writeLong(source.readLong());  // parentKey
@@ -282,7 +282,7 @@ public enum NodeKind implements DeweyIdSerializer {
       int totalSize = JsonNodeSerializer.readSizePrefix(source);
       
       // Read all core fields directly into a buffer
-      final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+      final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
       
       // Read NodeDelegate fields (16 bytes)
       data.writeLong(source.readLong());  // parentKey
@@ -339,7 +339,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read all core fields directly into a buffer
-      final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+      final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
       
       // Read NodeDelegate fields (16 bytes)
       data.writeLong(source.readLong());  // parentKey
@@ -391,7 +391,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read all core fields directly into a buffer
-      final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+      final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
       var config = resourceConfiguration;
       
       // Read NodeDelegate fields (16 bytes)
@@ -478,7 +478,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       // Read all core fields directly into a buffer
-      final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+      final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
       
       // Read NodeDelegate fields (16 bytes)
       data.writeLong(source.readLong());  // parentKey

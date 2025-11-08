@@ -69,7 +69,7 @@ public class NullNodeTest {
     
     // Create data in the correct serialization format with size prefix and padding
     // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + siblings][end padding]
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     long sizePos = NodeTestHelper.writeHeader(data, NodeKind.NULL_VALUE);
     long startPos = data.writePosition();
@@ -91,7 +91,7 @@ public class NullNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
     data2.writeByte(NodeKind.NULL_VALUE.getId()); // Write NodeKind to ensure proper alignment
     node.getKind().serialize(data2, node, config);
     var bytesIn2 = data2.asBytesIn();

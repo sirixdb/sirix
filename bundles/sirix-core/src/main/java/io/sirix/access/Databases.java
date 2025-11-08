@@ -174,9 +174,14 @@ public final class Databases {
         }
       }
 
-      // Note: With global BufferManager, we don't clear caches here.
-      // Caches will be cleared when last database is closed (see freeAllocatedMemory).
-      // This allows pages to remain cached if database is quickly reopened.
+      // CRITICAL FIX: Clear caches for this database to prevent cache pollution
+      // Without this, pages from removed databases can pollute caches and cause test failures
+      if (GLOBAL_BUFFER_MANAGER != null && DatabaseConfiguration.DatabasePaths.compareStructure(dbFile) == 0) {
+        final var dbConfig = DatabaseConfiguration.deserialize(dbFile);
+        long databaseId = dbConfig.getDatabaseId();
+        GLOBAL_BUFFER_MANAGER.clearCachesForDatabase(databaseId);
+      }
+      
       SirixFiles.recursiveRemove(dbFile);
 
       freeAllocatedMemory();

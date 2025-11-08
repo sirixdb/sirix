@@ -93,7 +93,7 @@ public final class SerializationDeserializationTest {
     expectedData[15] = newData;
 
     // Serialize the page
-    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
+    BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, originalPage, type);
 
@@ -156,7 +156,7 @@ public final class SerializationDeserializationTest {
     }
 
     // Serialize the page
-    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
+    BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, originalPage, type);
 
@@ -186,7 +186,7 @@ public final class SerializationDeserializationTest {
                                                          -1,
                                                          -1);
 
-    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
+    BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, originalPage, type);
 
@@ -217,7 +217,7 @@ public final class SerializationDeserializationTest {
     originalPage.setSlot(new byte[] { 4, 5, 6 }, 10);
     originalPage.setSlot(new byte[] { 7, 8, 9 }, 100);
 
-    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
+    BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, originalPage, type);
 
@@ -248,7 +248,7 @@ public final class SerializationDeserializationTest {
     originalPage.setDeweyId(new byte[] { 0, 1, 2 }, 2);
     originalPage.setDeweyId(new byte[] { 3, 4, 5 }, 4);
 
-    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
+    BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(configWithDeweyIDs, sink, originalPage, type);
 
@@ -275,7 +275,7 @@ public final class SerializationDeserializationTest {
                                                          -1,
                                                          -1);
 
-    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
+    BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, originalPage, type);
 
@@ -307,7 +307,7 @@ public final class SerializationDeserializationTest {
       originalPage.setSlot(new byte[] { (byte) i }, i);
     }
 
-    BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
+    BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     SerializationType type = SerializationType.DATA;
     PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, originalPage, type);
 

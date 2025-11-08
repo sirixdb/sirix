@@ -55,7 +55,7 @@ public class ObjectNullNodeTest {
   public void test() throws IOException {
     // Create data in the correct serialization format with size prefix and padding
     // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate][end padding]
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     long sizePos = NodeTestHelper.writeHeader(data, NodeKind.OBJECT_NULL_VALUE);
     long startPos = data.writePosition();
@@ -75,7 +75,7 @@ public class ObjectNullNodeTest {
     check(node);
 
     // Serialize and deserialize node.
-    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
     data2.writeByte(NodeKind.OBJECT_NULL_VALUE.getId()); // Write NodeKind to ensure proper alignment
     node.getKind().serialize(data2, node, pageTrx.getResourceSession().getResourceConfig());
     var bytesIn2 = data2.asBytesIn();

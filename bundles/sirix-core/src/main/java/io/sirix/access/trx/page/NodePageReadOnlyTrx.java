@@ -47,6 +47,8 @@ import io.sirix.settings.VersioningType;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
@@ -64,6 +66,8 @@ import static java.util.Objects.requireNonNull;
  * access to this transaction.
  */
 public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(NodePageReadOnlyTrx.class);
 
   // DEBUG FLAG: Enable with -Dsirix.debug.path.summary=true
   private static final boolean DEBUG_PATH_SUMMARY = 
@@ -672,7 +676,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
             
             // DIAGNOSTIC: Track if Page 0 is being cached - show PageReference key and which trx pinned it!
             if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
-              io.sirix.cache.DiagnosticLogger.log("Page 0 added to RecordPageCache: " + kvPage.getIndexType() + " rev=" + kvPage.getRevision() + 
+              LOGGER.debug("Page 0 added to RecordPageCache: {} rev={} instance={}",
+                  kvPage.getIndexType(), kvPage.getRevision(), 
                   " PageRef(key=" + pageReferenceToRecordPage.getKey() + ", logKey=" + pageReferenceToRecordPage.getLogKey() + 
                   ", db=" + pageReferenceToRecordPage.getDatabaseId() + ", res=" + pageReferenceToRecordPage.getResourceId() + ")" +
                   " pinnedBy=Trx" + trxId + " (instance=" + System.identityHashCode(kvPage) + ")");
@@ -793,7 +798,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && completePage instanceof KeyValueLeafPage kvp && kvp.getPageKey() == 0) {
         StackTraceElement[] stack = Thread.currentThread().getStackTrace();
         String caller = stack.length > 6 ? stack[6].getMethodName() : "unknown";
-        io.sirix.cache.DiagnosticLogger.log("COMBINED PAGE 0 created: " + kvp.getIndexType() + " rev=" + kvp.getRevision() + 
+        LOGGER.debug("COMBINED PAGE 0 created: " + kvp.getIndexType() + " rev=" + kvp.getRevision() + 
             " by " + caller + " (instance=" + System.identityHashCode(kvp) + ")");
       }
       
@@ -821,13 +826,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
       for (var entry : instanceCounts.entrySet()) {
         if (entry.getValue() > 1) {
-          io.sirix.cache.DiagnosticLogger.log("WARNING: Fragment instance " + entry.getKey() + 
+          LOGGER.debug("WARNING: Fragment instance " + entry.getKey() + 
               " appears " + entry.getValue() + " times in pages list!");
         }
       }
     }
 
-    io.sirix.cache.DiagnosticLogger.log("unpinPageFragments: " + pages.size() + " fragments, trxIntentLog=" + (trxIntentLog != null));
+    LOGGER.debug("unpinPageFragments: " + pages.size() + " fragments, trxIntentLog=" + (trxIntentLog != null));
     
     int pathSummaryFragments = 0;
     for (var page : pages) {
@@ -855,14 +860,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (existing != null && existing == mostRecentPageFragment) {
         // Fragment still in cache - put back to trigger weight recalculation
         resourceBufferManager.getRecordPageFragmentCache().put(fragmentRef, mostRecentPageFragment);
-        io.sirix.cache.DiagnosticLogger.log("  Fragment 0 unpinned (pins=" + mostRecentPageFragment.getPinCount() + ", inCache=true)");
+        LOGGER.debug("  Fragment 0 unpinned (pins=" + mostRecentPageFragment.getPinCount() + ", inCache=true)");
       } else {
         // Fragment removed from cache - if fully unpinned, close it now
         if (mostRecentPageFragment.getPinCount() == 0) {
           mostRecentPageFragment.close();
-          io.sirix.cache.DiagnosticLogger.log("  Fragment 0 unpinned and CLOSED (not in cache, pins=0)");
+          LOGGER.debug("  Fragment 0 unpinned and CLOSED (not in cache, pins=0)");
         } else {
-          io.sirix.cache.DiagnosticLogger.log("  Fragment 0 unpinned (not in cache, pins=" + mostRecentPageFragment.getPinCount() + ")");
+          LOGGER.debug("  Fragment 0 unpinned (not in cache, pins=" + mostRecentPageFragment.getPinCount() + ")");
         }
       }
     }
@@ -873,7 +878,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         
         // DIAGNOSTIC
         if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && pageFragment.getPageKey() == 0) {
-          io.sirix.cache.DiagnosticLogger.log("  Older fragment " + i + ": Page 0 " + pageFragment.getIndexType() + 
+          LOGGER.debug("  Older fragment " + i + ": Page 0 " + pageFragment.getIndexType() + 
               " rev=" + pageFragment.getRevision() + " pins=" + pageFragment.getPinCount() + 
               " instance=" + System.identityHashCode(pageFragment) + " hasOriginalKey=" + (i - 1 < originalPageFragmentKeys.size()));
         }
@@ -895,15 +900,15 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
             if (existing != null && existing == pageFragment) {
               // Fragment still in cache - put back to update weight
               resourceBufferManager.getRecordPageFragmentCache().put(fragmentRef, pageFragment);
-              io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " unpinned (pins=" + pageFragment.getPinCount() + 
+              LOGGER.debug("  Fragment " + i + " unpinned (pins=" + pageFragment.getPinCount() + 
                   ", rev=" + pageFragment.getRevision() + ", inCache=true)");
             } else {
               // Fragment not in cache - if fully unpinned, close it
               if (pageFragment.getPinCount() == 0) {
                 pageFragment.close();
-                io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " unpinned and CLOSED (not in cache, rev=" + pageFragment.getRevision() + ")");
+                LOGGER.debug("  Fragment " + i + " unpinned and CLOSED (not in cache, rev=" + pageFragment.getRevision() + ")");
               } else {
-                io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " unpinned (not in cache, pins=" + pageFragment.getPinCount() + 
+                LOGGER.debug("  Fragment " + i + " unpinned (not in cache, pins=" + pageFragment.getPinCount() + 
                     ", rev=" + pageFragment.getRevision() + ")");
               }
             }
@@ -911,15 +916,15 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
             // No original key - close if fully unpinned
             if (pageFragment.getPinCount() == 0) {
               pageFragment.close();
-              io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " unpinned and CLOSED (no key, rev=" + pageFragment.getRevision() + ")");
+              LOGGER.debug("  Fragment " + i + " unpinned and CLOSED (no key, rev=" + pageFragment.getRevision() + ")");
             } else {
-              io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " unpinned (no key, pins=" + pageFragment.getPinCount() + 
+              LOGGER.debug("  Fragment " + i + " unpinned (no key, pins=" + pageFragment.getPinCount() + 
                   ", rev=" + pageFragment.getRevision() + ")");
             }
           }
         } else {
           if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && pageFragment.getPageKey() == 0) {
-            io.sirix.cache.DiagnosticLogger.log("  Fragment " + i + " SKIPPED (already unpinned this instance)");
+            LOGGER.debug("  Fragment " + i + " SKIPPED (already unpinned this instance)");
           }
         }
     }
@@ -1021,7 +1026,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         
         // DIAGNOSTIC: Track Page 0 fragments loaded and their pin state AFTER pinning
         if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
-          io.sirix.cache.DiagnosticLogger.log("FRAGMENT Page 0 loaded: " + kvPage.getIndexType() + " rev=" + kvPage.getRevision() + 
+          LOGGER.debug("FRAGMENT Page 0 loaded: " + kvPage.getIndexType() + " rev=" + kvPage.getRevision() + 
               " (instance=" + System.identityHashCode(kvPage) + ", fromCache=" + (value != null) + 
               ", pinsAfterLoad=" + kvPage.getPinCount() + ")");
         }

@@ -112,7 +112,6 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
    */
   private LinuxMemorySegmentAllocator() {
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-      System.err.println("\n>>> SHUTDOWN HOOK running at " + System.currentTimeMillis());
       LOGGER.info("Shutting down LinuxMemorySegmentAllocator...");
       
       // Report page leak statistics before shutdown
@@ -657,8 +656,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     
     long callNum = releaseCallCount.incrementAndGet();
     if (callNum % 1000 == 0) {
-      System.err.println("⚙️  Allocator: " + callNum + " segments released (" + doubleReleaseCount.get() + " double-releases), physical: " + 
-                         (physicalMemoryBytes.get() / (1024 * 1024)) + " MB, pool sizes: " + java.util.Arrays.toString(getPoolSizes()));
+      LOGGER.debug("Allocator: {} segments released ({} double-releases), physical: {} MB, pool sizes: {}", 
+                   callNum, doubleReleaseCount.get(), physicalMemoryBytes.get() / (1024 * 1024), 
+                   java.util.Arrays.toString(getPoolSizes()));
     }
 
     long size = segment.byteSize();

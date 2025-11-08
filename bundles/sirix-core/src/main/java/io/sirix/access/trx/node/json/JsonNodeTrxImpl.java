@@ -100,7 +100,7 @@ final class JsonNodeTrxImpl extends
     AbstractNodeTrxImpl<JsonNodeReadOnlyTrx, JsonNodeTrx, JsonNodeFactory, ImmutableNode, InternalJsonNodeReadOnlyTrx>
     implements InternalJsonNodeTrx, ForwardingJsonNodeReadOnlyTrx {
 
-  private final BytesOut<?> bytes = Bytes.elasticHeapByteBuffer();
+  private final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer();
 
   /**
    * A factory that creates new {@link PageTrx} instances.

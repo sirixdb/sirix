@@ -84,7 +84,7 @@ public class ElementNodeTest {
 
     // Create data in the correct serialization format with size prefix and padding
     // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + StructNode + NameNode fields + attributes + namespaces][end padding]
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     long sizePos = NodeTestHelper.writeHeader(data, NodeKind.ELEMENT);
     long startPos = data.writePosition();
@@ -135,13 +135,13 @@ public class ElementNodeTest {
         bytesIn, 13L, SirixDeweyID.newRootID().toBytes(), config);
     
     // Compute and set hash
-    var hashBytes = Bytes.elasticHeapByteBuffer();
+    var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
     
     check(node);
 
     // Serialize and deserialize node.
-    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
     data2.writeByte(NodeKind.ELEMENT.getId()); // Write NodeKind to ensure proper alignment
     node.getKind().serialize(data2, node, config);
     var bytesIn2 = data2.asBytesIn();

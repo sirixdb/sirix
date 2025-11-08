@@ -106,7 +106,7 @@ public abstract class AbstractNumberNode extends AbstractStructForwardingNode im
   @Override
   public long getHash() {
     if (hashCode == 0L) {
-      hashCode = computeHash(Bytes.elasticHeapByteBuffer());
+      hashCode = computeHash(Bytes.elasticOffHeapByteBuffer());
     }
     return hashCode;
   }

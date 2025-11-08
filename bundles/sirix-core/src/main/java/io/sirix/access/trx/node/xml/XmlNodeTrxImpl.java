@@ -90,7 +90,7 @@ import static java.util.Objects.requireNonNull;
 final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNodeTrx, XmlNodeFactory, ImmutableXmlNode, InternalXmlNodeReadOnlyTrx>
     implements InternalXmlNodeTrx, ForwardingXmlNodeReadOnlyTrx {
 
-  private final BytesOut<?> bytes = Bytes.elasticHeapByteBuffer();
+  private final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer();
 
   /**
    * The deweyID manager.

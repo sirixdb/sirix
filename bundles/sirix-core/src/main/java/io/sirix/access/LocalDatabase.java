@@ -267,14 +267,25 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     // If file is existing and folder is a Sirix-dataplace, delete it.
     if (Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
+      // CRITICAL FIX: Clear BufferManager caches for this resource BEFORE deletion
+      // This prevents cache pollution when resource is removed and recreated with same IDs
+      try {
+        final var resourceConfig = ResourceConfiguration.deserialize(resourceFile);
+        long databaseId = dbConfig.getDatabaseId();
+        long resourceId = resourceConfig.getID();
+        
+        if (bufferManager != null) {
+          bufferManager.clearCachesForResource(databaseId, resourceId);
+        }
+      } catch (Exception e) {
+        // If deserialization fails, resource config might be corrupt - continue with deletion
+        logger.warn("Could not deserialize resource config for cache clearing: {}", e.getMessage());
+      }
+      
       // Instantiate the database for deletion.
       SirixFiles.recursiveRemove(resourceFile);
 
       this.writeLocks.removeWriteLock(resourceFile);
-
-      // Note: With global BufferManager, we don't remove it per-resource.
-      // Caches are cleared when last database is closed.
-      // Individual pages for this resource will naturally be evicted by LRU.
 
       final var cache = StorageType.CACHE_REPOSITORY.remove(resourceFile);
       if (cache != null) {

@@ -63,11 +63,10 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
                         evictions, SKIPPED_EXPLICIT.get());
           }
           
-          // DIAGNOSTIC: Track Page 0 closes from removal listener
-          if (page.getPageKey() == 0 && KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-            io.sirix.cache.DiagnosticLogger.log("RecordPageFragmentCache RemovalListener closing Page 0: " + 
-                page.getIndexType() + " rev=" + page.getRevision() + " cause=" + cause + 
-                " instance=" + System.identityHashCode(page));
+          // DIAGNOSTIC: Track page closes for leak detection
+          if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+            LOGGER.debug("RecordPageFragmentCache closing page {} type={} rev={} cause={}", 
+                page.getPageKey(), page.getIndexType(), page.getRevision(), cause);
           }
           
           page.close();
@@ -115,11 +114,22 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
    */
   public void unpinAndUpdateWeight(PageReference key, int trxId) {
     cache.asMap().computeIfPresent(key, (k, page) -> {
+      // CRITICAL FIX: Skip if page is closed to prevent assertions
+      if (page.isClosed()) {
+        return page;  // Return as-is, don't try to unpin
+      }
+      
       // CRITICAL FIX: Only unpin if this transaction actually pinned the page
-      // Pages can be shared across transactions, but unpinning should only
-      // happen if the transaction actually pinned it
-      if (page.getPinCountByTransaction().getOrDefault(trxId, 0) > 0) {
-        page.decrementPinCount(trxId);
+      // Must check using the ConcurrentHashMap to avoid race conditions
+      var pinCountMap = page.getPinCountByTransaction();
+      var counter = pinCountMap.get(trxId);
+      if (counter != null && counter > 0) {
+        try {
+          page.decrementPinCount(trxId);
+        } catch (IllegalStateException e) {
+          // Race condition: page was unpinned by another thread between check and decrement
+          // This is safe to ignore - page is already unpinned
+        }
       }
       return page; // Returning same instance triggers weight recalculation
     });

@@ -197,7 +197,7 @@ public interface BytesOut<T> extends AutoCloseable {
      * @return a new BytesOut instance
      */
     static BytesOut<MemorySegment> elasticHeapByteBuffer(int initialCapacity) {
-      return Bytes.elasticHeapByteBuffer(initialCapacity);
+      return Bytes.elasticOffHeapByteBuffer(initialCapacity);
     }
     
     /**

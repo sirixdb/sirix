@@ -217,7 +217,7 @@ public class JsonNodeFactoryImplTest {
     final long nodeKey = node1.getNodeKey();
     
     // Serialize with NodeKind byte for proper alignment
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     data.writeByte(NodeKind.OBJECT_NULL_VALUE.getId());
     node1.getKind().serialize(data, node1, resourceConfig);
     
@@ -247,7 +247,7 @@ public class JsonNodeFactoryImplTest {
     final long nodeKey = node1.getNodeKey();
     
     // Serialize with NodeKind byte for proper alignment
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     data.writeByte(NodeKind.OBJECT_STRING_VALUE.getId());
     node1.getKind().serialize(data, node1, resourceConfig);
     
@@ -276,7 +276,7 @@ public class JsonNodeFactoryImplTest {
     final long nodeKey = node1.getNodeKey();
     
     // Serialize with NodeKind byte for proper alignment
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     data.writeByte(NodeKind.OBJECT_BOOLEAN_VALUE.getId());
     node1.getKind().serialize(data, node1, resourceConfig);
     
@@ -307,7 +307,7 @@ public class JsonNodeFactoryImplTest {
     final long nodeKey = node1.getNodeKey();
     
     // Serialize with NodeKind byte for proper alignment
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     data.writeByte(NodeKind.OBJECT_NUMBER_VALUE.getId());
     node1.getKind().serialize(data, node1, resourceConfig);
     

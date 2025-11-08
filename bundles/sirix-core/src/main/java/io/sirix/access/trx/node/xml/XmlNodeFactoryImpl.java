@@ -105,7 +105,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
 
     // Allocate MemorySegment and write all fields matching ElementNode.CORE_LAYOUT order
     final var config = pageTrx.getResourceSession().getResourceConfig();
-    final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+    final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);                      // offset 0
@@ -150,7 +150,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final byte[] compressedValue = compression ? Compression.compress(value, Deflater.HUFFMAN_ONLY) : value;
     
     // Allocate MemorySegment and write all fields matching TextNode.CORE_LAYOUT order
-    final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+    final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);                      // offset 0
@@ -179,7 +179,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
 
     // Allocate MemorySegment and write all fields matching AttributeNode.CORE_LAYOUT order
-    final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+    final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);                      // offset 0
@@ -210,7 +210,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
 
     // Allocate MemorySegment and write all fields matching NamespaceNode.CORE_LAYOUT order
-    final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+    final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);                      // offset 0
@@ -245,7 +245,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
 
     // Allocate MemorySegment and write all fields matching PINode.CORE_LAYOUT order
     final var config = pageTrx.getResourceSession().getResourceConfig();
-    final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+    final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);                      // offset 0
@@ -286,7 +286,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
     
     // Allocate MemorySegment and write all fields matching CommentNode.CORE_LAYOUT order
-    final var data = io.sirix.node.Bytes.elasticHeapByteBuffer();
+    final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);                      // offset 0

@@ -81,7 +81,7 @@ public class PINodeTest {
     final var config = pageReadTrx.getResourceSession().getResourceConfig();
     
     // Create node with MemorySegment
-    final var data = Bytes.elasticHeapByteBuffer();
+    final var data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(13);                              // parentKey - offset 0
@@ -112,14 +112,14 @@ public class PINodeTest {
     var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
     final PINode node = new PINode(segment, 99L, SirixDeweyID.newRootID(), 
                                    config, LongHashFunction.xx3(), value, false);
-    var hashBytes = Bytes.elasticHeapByteBuffer();
+    var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
 
     // Create empty node.
     check(node);
 
     // Serialize and deserialize node.
-    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
     node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
     final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(data2.asBytesIn(),
                                                                               node.getNodeKey(),

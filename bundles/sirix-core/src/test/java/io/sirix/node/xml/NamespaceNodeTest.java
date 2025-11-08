@@ -70,7 +70,7 @@ public class NamespaceNodeTest {
   @Test
   public void testNamespaceNode() {
     // Create data in the correct serialization format with size prefix and padding
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     long sizePos = NodeTestHelper.writeHeader(data, NodeKind.NAMESPACE);
     long startPos = data.writePosition();
@@ -97,13 +97,13 @@ public class NamespaceNodeTest {
         pageReadTrx.getResourceSession().getResourceConfig());
     
     // Compute and set hash
-    var hashBytes = Bytes.elasticHeapByteBuffer();
+    var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
     
     check(node);
 
     // Serialize and deserialize node again
-    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
     data2.writeByte(NodeKind.NAMESPACE.getId()); // Write NodeKind to ensure proper alignment
     node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
     var bytesIn2 = data2.asBytesIn();

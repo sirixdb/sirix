@@ -94,7 +94,7 @@ public final class NodePageTest {
     final var config = pageReadTrx.getResourceSession().getResourceConfig();
     
     // Create MemorySegment with all fields in correct order matching ElementNode.CORE_LAYOUT
-    final BytesOut<?> nodeData = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> nodeData = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     nodeData.writeLong(1);                              // parentKey - offset 0
@@ -136,13 +136,13 @@ public final class NodePageTest {
                                                new QNm("a", "b", "c"));
     
     // Compute and set hash
-    var bytes = Bytes.elasticHeapByteBuffer();
+    var bytes = Bytes.elasticOffHeapByteBuffer();
     node1.setHash(node1.computeHash(bytes));
     
     assertEquals(0L, node1.getNodeKey());
     page1.setRecord(node1);
 
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     final PagePersister pagePersister = new PagePersister();
     pagePersister.serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
                                 data,

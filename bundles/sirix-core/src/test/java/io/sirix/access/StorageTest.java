@@ -81,7 +81,7 @@ public final class StorageTest {
     for (final IOStorage handler : storages) {
       assertFalse("empty storage should not return true on exists", handler.exists());
 
-      final BytesOut<?> bytes = Bytes.elasticHeapByteBuffer();
+      final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer();
 
       try (final Writer writer = handler.createWriter()) {
         var ref = new PageReference();
@@ -106,7 +106,7 @@ public final class StorageTest {
         final UberPage page1 = new UberPage();
         pageRef1.setPage(page1);
 
-        final BytesOut<?> bytes = Bytes.elasticHeapByteBuffer();
+        final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer();
 
         // same instance check
         final PageReference pageRef2;

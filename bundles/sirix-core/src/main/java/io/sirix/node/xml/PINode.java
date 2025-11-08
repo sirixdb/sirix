@@ -278,7 +278,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     if (hashOffset >= 0) {
       long hash = segment.get(ValueLayout.JAVA_LONG_UNALIGNED, hashOffset);
       if (hash == 0L) {
-        hash = computeHash(Bytes.elasticHeapByteBuffer());
+        hash = computeHash(Bytes.elasticOffHeapByteBuffer());
         setHash(hash);
       }
       return hash;

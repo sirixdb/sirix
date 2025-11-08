@@ -247,7 +247,7 @@ public class GrowingMemorySegmentMemoryLeakTest {
         // Simulate creating many nodes (the actual usage pattern)
         List<MemorySegment> storedSegments = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
-            BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+            BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
             
             // Write node data
             data.writeLong(i);  // parentKey

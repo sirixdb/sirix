@@ -223,7 +223,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     // Value nodes don't store hash in MemorySegment, but cache it in memory
     // If hash is 0 and hashing is enabled, compute it on-demand
     if (cachedHash == 0 && resourceConfig.hashType != HashType.NONE) {
-      cachedHash = computeHash(Bytes.elasticHeapByteBuffer());
+      cachedHash = computeHash(Bytes.elasticOffHeapByteBuffer());
     }
     return cachedHash;
   }

@@ -100,7 +100,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     
     // Allocate MemorySegment and write all fields
     final var config = pageTrx.getResourceSession().getResourceConfig();
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);
@@ -137,7 +137,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     
     // Allocate MemorySegment and write all fields
     final var config = pageTrx.getResourceSession().getResourceConfig();
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields
     data.writeLong(parentKey);
@@ -172,7 +172,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final var config = pageTrx.getResourceSession().getResourceConfig();
     
     // Allocate MemorySegment and write all fields
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields
     data.writeLong(parentKey);
@@ -198,7 +198,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     
     // Allocate MemorySegment and write all fields
     final var config = pageTrx.getResourceSession().getResourceConfig();
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);
@@ -237,7 +237,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final var config = pageTrx.getResourceSession().getResourceConfig();
     
     // Allocate MemorySegment and write all fields
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);
@@ -271,7 +271,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final var config = pageTrx.getResourceSession().getResourceConfig();
     
     // Allocate MemorySegment and write all fields
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields
     data.writeLong(parentKey);
@@ -299,7 +299,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final var config = pageTrx.getResourceSession().getResourceConfig();
     
     // Allocate MemorySegment and write all fields
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);
@@ -331,7 +331,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final var config = pageTrx.getResourceSession().getResourceConfig();
     
     // Allocate MemorySegment and write fields
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields only (16 bytes)
     // Object* value nodes are leaf nodes - no siblings, children, childCount, or hash
@@ -355,7 +355,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final var config = pageTrx.getResourceSession().getResourceConfig();
     
     // Allocate MemorySegment and write fields
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);
@@ -384,7 +384,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final var config = pageTrx.getResourceSession().getResourceConfig();
     
     // Allocate MemorySegment and write fields
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields only (16 bytes)
     // Object* value nodes are leaf nodes - no siblings, children, childCount, or hash
@@ -408,7 +408,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final var config = pageTrx.getResourceSession().getResourceConfig();
     
     // Allocate MemorySegment and write fields
-    final BytesOut<?> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(parentKey);

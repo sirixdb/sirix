@@ -75,7 +75,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   private boolean isFirstUberPage;
 
-  private final BytesOut<?> byteBufferBytes = Bytes.elasticHeapByteBuffer(1_000);
+  private final BytesOut<?> byteBufferBytes = Bytes.elasticOffHeapByteBuffer(1_000);
 
   /**
    * Constructor.

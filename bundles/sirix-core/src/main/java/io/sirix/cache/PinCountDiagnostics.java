@@ -3,6 +3,8 @@ package io.sirix.cache;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.PageReference;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentMap;
@@ -12,6 +14,8 @@ import java.util.concurrent.ConcurrentMap;
  * Used to identify memory leaks caused by pinning bugs vs cache eviction bugs.
  */
 public class PinCountDiagnostics {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(PinCountDiagnostics.class);
 
   /**
    * Result of pin count analysis across all cached pages.
@@ -185,12 +189,11 @@ public class PinCountDiagnostics {
   }
   
   /**
-   * Print diagnostic report to System.err if debug flag is enabled.
+   * Print diagnostic report to logger if debug flag is enabled.
    */
   public static void printIfEnabled(String label, DiagnosticReport report) {
     if (Boolean.getBoolean("sirix.debug.pin.counts")) {
-      System.err.println("\n" + label);
-      System.err.println(report.toString());
+      LOGGER.info("\n{}\n{}", label, report.toString());
     }
   }
   
@@ -266,16 +269,19 @@ public class PinCountDiagnostics {
     
     List<PagePinInfo> leakedPins = checkTransactionPins(bufferManager, trxId);
     if (!leakedPins.isEmpty()) {
-      System.err.println("\n⚠️  WARNING: Transaction " + trxId + " closing with " + leakedPins.size() + " pinned pages!");
       long totalMemory = leakedPins.stream().mapToLong(p -> p.memoryBytes).sum();
-      System.err.println("    Total leaked memory: " + (totalMemory / 1024.0 / 1024.0) + " MB");
+      StringBuilder warning = new StringBuilder();
+      warning.append("\n⚠️  WARNING: Transaction ").append(trxId).append(" closing with ")
+             .append(leakedPins.size()).append(" pinned pages!\n");
+      warning.append("    Total leaked memory: ").append(totalMemory / 1024.0 / 1024.0).append(" MB\n");
       leakedPins.stream()
           .limit(10)
-          .forEach(p -> System.err.println(String.format("    - Page %d (rev %d, type %s): pinCount=%d",
+          .forEach(p -> warning.append(String.format("    - Page %d (rev %d, type %s): pinCount=%d\n",
               p.pageKey, p.revision, p.indexType, p.totalPinCount)));
       if (leakedPins.size() > 10) {
-        System.err.println("    ... and " + (leakedPins.size() - 10) + " more");
+        warning.append("    ... and ").append(leakedPins.size() - 10).append(" more\n");
       }
+      LOGGER.warn(warning.toString());
     }
   }
 }

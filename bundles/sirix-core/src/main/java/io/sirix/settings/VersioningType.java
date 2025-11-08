@@ -30,6 +30,8 @@ import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.PageFragmentKey;
 import org.checkerframework.checker.index.qual.NonNegative;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -185,7 +187,7 @@ public enum VersioningType {
 
       // DIAGNOSTIC
       if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-        io.sirix.cache.DiagnosticLogger.log("FULL combineForMod created: complete=" + System.identityHashCode(completePage) +
+        LOGGER.debug("FULL combineForMod created: complete=" + System.identityHashCode(completePage) +
             ", modified=" + System.identityHashCode(modifiedPage));
       }
 
@@ -353,7 +355,7 @@ public enum VersioningType {
       
       // DIAGNOSTIC
       if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-        io.sirix.cache.DiagnosticLogger.log("DIFFERENTIAL combineForMod created: complete=" + System.identityHashCode(completePage) +
+        LOGGER.debug("DIFFERENTIAL combineForMod created: complete=" + System.identityHashCode(completePage) +
             ", modified=" + System.identityHashCode(modifiedPage));
       }
 
@@ -528,7 +530,7 @@ public enum VersioningType {
           
       // DIAGNOSTIC
       if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-        io.sirix.cache.DiagnosticLogger.log("combineForMod created 3 pages: complete=" + System.identityHashCode(completePage) +
+        LOGGER.debug("combineForMod created 3 pages: complete=" + System.identityHashCode(completePage) +
             ", modifying=" + System.identityHashCode(modifyingPage) + ", temp=" + System.identityHashCode(pageWithRecordsInSlidingWindow));
       }
 
@@ -601,7 +603,7 @@ public enum VersioningType {
       if (pageWithRecordsInSlidingWindow instanceof io.sirix.page.KeyValueLeafPage tempPage) {
         if (!tempPage.isClosed()) {
           if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && tempPage.getPageKey() == 0) {
-            io.sirix.cache.DiagnosticLogger.log("CLOSING temp page: Page 0 " + tempPage.getIndexType() + 
+            LOGGER.debug("CLOSING temp page: Page 0 " + tempPage.getIndexType() + 
                 " rev=" + tempPage.getRevision() + " instance=" + System.identityHashCode(tempPage));
           }
           tempPage.close();
@@ -633,6 +635,8 @@ public enum VersioningType {
       return retVal;
     }
   };
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(VersioningType.class);
 
   public static VersioningType fromString(String versioningType) {
     for (final var type : values()) {

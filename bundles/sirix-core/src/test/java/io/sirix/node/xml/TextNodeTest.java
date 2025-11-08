@@ -79,7 +79,7 @@ public class TextNodeTest {
     final byte[] value = { (byte) 17, (byte) 18 };
     
     // Create node with MemorySegment
-    final var data = Bytes.elasticHeapByteBuffer();
+    final var data = Bytes.elasticOffHeapByteBuffer();
     
     // Write NodeDelegate fields (16 bytes)
     data.writeLong(14);                              // parentKey - offset 0
@@ -93,12 +93,12 @@ public class TextNodeTest {
     var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
     final TextNode node = new TextNode(segment, 13L, SirixDeweyID.newRootID(), 
                                        LongHashFunction.xx3(), value, false);
-    var hashBytes = Bytes.elasticHeapByteBuffer();
+    var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
     check(node);
 
     // Serialize and deserialize node.
-    final BytesOut<?> data2 = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
     node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
     final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(data2.asBytesIn(),
                                                                 node.getNodeKey(),

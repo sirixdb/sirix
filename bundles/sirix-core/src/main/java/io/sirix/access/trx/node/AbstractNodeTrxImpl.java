@@ -19,6 +19,8 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.page.UberPage;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -41,6 +43,8 @@ import static java.util.concurrent.Executors.newScheduledThreadPool;
  */
 public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor, NF extends NodeFactory, N extends ImmutableNode, IN extends InternalNodeReadOnlyTrx<N>>
     implements NodeReadOnlyTrx, InternalNodeTrx<W>, NodeCursor {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(AbstractNodeTrxImpl.class);
 
   /**
    * Maximum number of node modifications before auto commit.
@@ -331,9 +335,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
     if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
-      io.sirix.cache.DiagnosticLogger.log("AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
+      LOGGER.debug("AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
       commit("autoCommit");
-      io.sirix.cache.DiagnosticLogger.log("AUTO-COMMIT completed");
+      LOGGER.debug("AUTO-COMMIT completed");
     }
   }
 

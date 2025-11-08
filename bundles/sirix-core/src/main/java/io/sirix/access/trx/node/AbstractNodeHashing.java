@@ -44,7 +44,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
 
   private boolean autoCommit;
 
-  private final BytesOut<?> bytes = Bytes.elasticHeapByteBuffer();
+  private final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer();
 
   /**
    * Constructor.

@@ -69,4 +69,14 @@ public final class EmptyBufferManager implements BufferManager {
   @Override
   public void clearAllCaches() {
   }
+  
+  @Override
+  public void clearCachesForDatabase(long databaseId) {
+    // No-op for empty buffer manager
+  }
+  
+  @Override
+  public void clearCachesForResource(long databaseId, long resourceId) {
+    // No-op for empty buffer manager
+  }
 }

@@ -5,8 +5,12 @@ import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class BufferManagerImpl implements BufferManager {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(BufferManagerImpl.class);
 
   private final PageCache pageCache;
 
@@ -82,12 +86,10 @@ public final class BufferManagerImpl implements BufferManager {
     int recordCacheSize = recordPageCache.asMap().size();
     int fragmentCacheSize = recordPageFragmentCache.asMap().size();
     int pageCacheSize = pageCache.asMap().size();
-    int page0InCaches = 0;
     
     // First pass: force-unpin all pinned pages
     for (var entry : recordPageCache.asMap().entrySet()) {
       var page = entry.getValue();
-      if (page.getPageKey() == 0) page0InCaches++;
       if (page.getPinCount() > 0) {
         forceUnpinAll(page);
       }
@@ -95,7 +97,6 @@ public final class BufferManagerImpl implements BufferManager {
     
     for (var entry : recordPageFragmentCache.asMap().entrySet()) {
       var page = entry.getValue();
-      if (page.getPageKey() == 0) page0InCaches++;
       if (page.getPinCount() > 0) {
         forceUnpinAll(page);
       }
@@ -103,7 +104,6 @@ public final class BufferManagerImpl implements BufferManager {
     
     for (var entry : pageCache.asMap().entrySet()) {
       if (entry.getValue() instanceof KeyValueLeafPage kvPage) {
-        if (kvPage.getPageKey() == 0) page0InCaches++;
         if (kvPage.getPinCount() > 0) {
           forceUnpinAll(kvPage);
         }
@@ -111,10 +111,8 @@ public final class BufferManagerImpl implements BufferManager {
     }
     
     if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      int totalPage0s = KeyValueLeafPage.ALL_PAGE_0_INSTANCES.size();
-      System.err.println("🧹 clearAllCaches(): RecordCache=" + recordCacheSize + ", FragmentCache=" + fragmentCacheSize + 
-                        ", PageCache=" + pageCacheSize + ", Page0InCaches=" + page0InCaches + 
-                        ", TotalPage0s=" + totalPage0s);
+      LOGGER.debug("clearAllCaches(): RecordCache={}, FragmentCache={}, PageCache={}", 
+          recordCacheSize, fragmentCacheSize, pageCacheSize);
     }
     
     // DON'T explicitly close pages - let the cache removal listener do it
@@ -135,6 +133,11 @@ public final class BufferManagerImpl implements BufferManager {
    * so any remaining pins are leaks that need to be cleaned up.
    */
   private void forceUnpinAll(KeyValueLeafPage page) {
+    // CRITICAL FIX: Skip if page is already closed
+    if (page.isClosed()) {
+      return;  // Page is closed, no need to unpin
+    }
+    
     var pinsByTrx = new java.util.HashMap<>(page.getPinCountByTransaction());
     for (var entry : pinsByTrx.entrySet()) {
       int trxId = entry.getKey();
@@ -148,6 +151,162 @@ public final class BufferManagerImpl implements BufferManager {
     if (page.getPinCount() > 0) {
       throw new IllegalStateException("Page " + page.getPageKey() + " still has pinCount=" + 
           page.getPinCount() + " after force-unpin! Pins by trx: " + page.getPinCountByTransaction());
+    }
+  }
+  
+  @Override
+  public void clearCachesForDatabase(long databaseId) {
+    // CRITICAL FIX: Remove all pages belonging to this database from global caches
+    // This prevents cache pollution when database is removed and recreated with same ID
+    // THREAD-SAFE: Collect keys first, then remove atomically to avoid concurrent modification
+    
+    int removedFromRecordCache = 0;
+    int removedFromFragmentCache = 0;
+    int removedFromPageCache = 0;
+    int removedFromRevisionCache = 0;
+    
+    // Clear RecordPageCache - collect keys then remove atomically
+    var recordKeysToRemove = new java.util.ArrayList<PageReference>();
+    for (var entry : recordPageCache.asMap().entrySet()) {
+      if (entry.getKey().getDatabaseId() == databaseId) {
+        recordKeysToRemove.add(entry.getKey());
+      }
+    }
+    for (var key : recordKeysToRemove) {
+      // Use computeIfPresent for atomic force-unpin and removal
+      recordPageCache.asMap().computeIfPresent(key, (k, page) -> {
+        if (page.getPinCount() > 0) {
+          forceUnpinAll(page);
+        }
+        return null;  // Returning null removes the entry atomically
+      });
+      removedFromRecordCache++;
+    }
+    
+    // Clear RecordPageFragmentCache
+    var fragmentKeysToRemove = new java.util.ArrayList<PageReference>();
+    for (var entry : recordPageFragmentCache.asMap().entrySet()) {
+      if (entry.getKey().getDatabaseId() == databaseId) {
+        fragmentKeysToRemove.add(entry.getKey());
+      }
+    }
+    for (var key : fragmentKeysToRemove) {
+      recordPageFragmentCache.asMap().computeIfPresent(key, (k, page) -> {
+        if (page.getPinCount() > 0) {
+          forceUnpinAll(page);
+        }
+        return null;  // Atomic removal
+      });
+      removedFromFragmentCache++;
+    }
+    
+    // Clear PageCache
+    var pageKeysToRemove = new java.util.ArrayList<PageReference>();
+    for (var entry : pageCache.asMap().entrySet()) {
+      if (entry.getKey().getDatabaseId() == databaseId) {
+        pageKeysToRemove.add(entry.getKey());
+      }
+    }
+    for (var key : pageKeysToRemove) {
+      pageCache.remove(key);  // Cache.remove() is thread-safe
+      removedFromPageCache++;
+    }
+    
+    // Clear RevisionRootPageCache
+    var revisionKeysToRemove = new java.util.ArrayList<RevisionRootPageCacheKey>();
+    for (var entry : revisionRootPageCache.asMap().entrySet()) {
+      if (entry.getKey().databaseId() == databaseId) {  // Record field access
+        revisionKeysToRemove.add(entry.getKey());
+      }
+    }
+    for (var key : revisionKeysToRemove) {
+      revisionRootPageCache.remove(key);  // Thread-safe
+      removedFromRevisionCache++;
+    }
+    
+    if (removedFromRecordCache + removedFromFragmentCache + removedFromPageCache + removedFromRevisionCache > 0) {
+      LOGGER.debug("Cleared caches for database {}: RecordCache={}, FragmentCache={}, PageCache={}, RevisionCache={}",
+          databaseId, removedFromRecordCache, removedFromFragmentCache, removedFromPageCache, removedFromRevisionCache);
+    }
+  }
+  
+  @Override
+  public void clearCachesForResource(long databaseId, long resourceId) {
+    // CRITICAL FIX: Remove all pages belonging to this resource from global caches
+    // This prevents cache pollution when resource is closed and recreated with same IDs
+    // THREAD-SAFE: Collect keys first, then remove atomically to avoid concurrent modification
+    
+    int removedFromRecordCache = 0;
+    int removedFromFragmentCache = 0;
+    int removedFromPageCache = 0;
+    int removedFromRevisionCache = 0;
+    
+    // Clear RecordPageCache - collect keys then remove atomically
+    var recordKeysToRemove = new java.util.ArrayList<PageReference>();
+    for (var entry : recordPageCache.asMap().entrySet()) {
+      var key = entry.getKey();
+      if (key.getDatabaseId() == databaseId && key.getResourceId() == resourceId) {
+        recordKeysToRemove.add(key);
+      }
+    }
+    for (var key : recordKeysToRemove) {
+      // Use computeIfPresent for atomic force-unpin and removal
+      recordPageCache.asMap().computeIfPresent(key, (k, page) -> {
+        if (page.getPinCount() > 0) {
+          forceUnpinAll(page);
+        }
+        return null;  // Returning null removes the entry atomically
+      });
+      removedFromRecordCache++;
+    }
+    
+    // Clear RecordPageFragmentCache
+    var fragmentKeysToRemove = new java.util.ArrayList<PageReference>();
+    for (var entry : recordPageFragmentCache.asMap().entrySet()) {
+      var key = entry.getKey();
+      if (key.getDatabaseId() == databaseId && key.getResourceId() == resourceId) {
+        fragmentKeysToRemove.add(key);
+      }
+    }
+    for (var key : fragmentKeysToRemove) {
+      recordPageFragmentCache.asMap().computeIfPresent(key, (k, page) -> {
+        if (page.getPinCount() > 0) {
+          forceUnpinAll(page);
+        }
+        return null;  // Atomic removal
+      });
+      removedFromFragmentCache++;
+    }
+    
+    // Clear PageCache
+    var pageKeysToRemove = new java.util.ArrayList<PageReference>();
+    for (var entry : pageCache.asMap().entrySet()) {
+      var key = entry.getKey();
+      if (key.getDatabaseId() == databaseId && key.getResourceId() == resourceId) {
+        pageKeysToRemove.add(key);
+      }
+    }
+    for (var key : pageKeysToRemove) {
+      pageCache.remove(key);  // Cache.remove() is thread-safe
+      removedFromPageCache++;
+    }
+    
+    // Clear RevisionRootPageCache
+    var revisionKeysToRemove = new java.util.ArrayList<RevisionRootPageCacheKey>();
+    for (var entry : revisionRootPageCache.asMap().entrySet()) {
+      var key = entry.getKey();
+      if (key.databaseId() == databaseId && key.resourceId() == resourceId) {
+        revisionKeysToRemove.add(key);
+      }
+    }
+    for (var key : revisionKeysToRemove) {
+      revisionRootPageCache.remove(key);  // Thread-safe
+      removedFromRevisionCache++;
+    }
+    
+    if (removedFromRecordCache + removedFromFragmentCache + removedFromPageCache + removedFromRevisionCache > 0) {
+      LOGGER.debug("Cleared caches for resource (db={}, res={}): RecordCache={}, FragmentCache={}, PageCache={}, RevisionCache={}",
+          databaseId, resourceId, removedFromRecordCache, removedFromFragmentCache, removedFromPageCache, removedFromRevisionCache);
     }
   }
 }
