@@ -750,16 +750,20 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           currentPhysical = physicalMemoryBytes.get();
           
           if (currentPhysical < size) {
-            // Counter would go negative - this is an accounting bug
-            // Don't return segment to pool because physical memory state is unknown
+            // Counter would go negative - this is an accounting bug from earlier
+            // DON'T reset to 0 (causes cascade failures). Instead set to 0 and continue.
+            // This is best-effort recovery - accounting is corrupted but keep going.
             LOGGER.error("Physical memory accounting error: trying to release {} bytes but only {} bytes tracked. " +
                         "This indicates UNTRACKED ALLOCATION (allocated without tracking). " + 
-                        "Resetting counter to 0. Segment NOT returned to pool.",
+                        "Setting counter to 0 and continuing. Segment will be returned to pool.",
                         size, currentPhysical);
-            physicalMemoryBytes.set(0);
-            // Add back to borrowed set - segment still holds physical memory
-            borrowedSegments.add(address);
-            return; // Don't return to pool
+            
+            // Set to 0 using CAS (another thread might have changed it)
+            physicalMemoryBytes.compareAndSet(currentPhysical, 0);
+            
+            // Continue with release - don't cascade failures
+            // Segment is returned to pool so it can be reused normally
+            break; // Exit CAS loop, continue to return segment
           }
           
           newPhysical = currentPhysical - size;
