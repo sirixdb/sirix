@@ -488,6 +488,14 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         rtx.close();
       }
 
+      // CRITICAL: Clear BufferManager caches for this resource to prevent page leaks
+      // Pages from this resource should not remain in global caches after session closes
+      if (bufferManager != null) {
+        long databaseId = resourceConfig.getDatabaseId();
+        long resourceId = resourceConfig.getID();
+        bufferManager.clearCachesForResource(databaseId, resourceId);
+      }
+
       // Immediately release all ressources.
       nodeTrxMap.clear();
       pageTrxMap.clear();
