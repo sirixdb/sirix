@@ -267,14 +267,31 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                 shown++;
               }
             }
-            
-            // CRITICAL: Force-close any remaining unpinned pages as final cleanup
-            // After all fixes, there should be 0-5 pages here (99.9%+ leak-free)
-            System.err.println("\nForce-closing any remaining unpinned pages...");
+          }
+          
+          // CRITICAL: Force-unpin and close any remaining pages as final cleanup
+          // After all fixes, there should be 0-5 pages here (99.9%+ leak-free)
+          // Handle BOTH pinned and unpinned leaks
+          if (!livePages.isEmpty()) {
+            System.err.println("\nForce-closing any remaining pages...");
+            int forceUnpinnedCount = 0;
             int forceClosedCount = 0;
             for (var page : new java.util.ArrayList<>(livePages)) {
-              if (page.getPinCount() == 0 && !page.isClosed()) {
+              if (!page.isClosed()) {
                 try {
+                  // Force-unpin if still pinned
+                  if (page.getPinCount() > 0) {
+                    var pinsByTrx = new java.util.HashMap<>(page.getPinCountByTransaction());
+                    for (var entry : pinsByTrx.entrySet()) {
+                      int trxId = entry.getKey();
+                      int pins = entry.getValue();
+                      for (int i = 0; i < pins; i++) {
+                        page.decrementPinCount(trxId);
+                        forceUnpinnedCount++;
+                      }
+                    }
+                  }
+                  // Now close it
                   page.close();
                   forceClosedCount++;
                 } catch (Exception e) {
@@ -284,7 +301,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
               }
             }
             if (forceClosedCount > 0) {
-              System.err.println("Force-closed " + forceClosedCount + " unpinned pages.");
+              System.err.println("Force-unpinned " + forceUnpinnedCount + " pins, closed " + forceClosedCount + " pages.");
             } else {
               System.err.println("✅ Perfect: No leaked pages to force-close!");
             }

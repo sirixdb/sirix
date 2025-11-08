@@ -75,13 +75,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private record RecordPage(int index, IndexType indexType, long recordPageKey, int revision,
                             PageReference pageReference, KeyValueLeafPage page) {
   }
-
-  /**
-   * Key for the record page cache.
-   */
-  private record RecordPageCacheKey(int index, IndexType indexType, long recordPageKey, int revision) {
-  }
-
   /**
    * Page reader exclusively assigned to this transaction.
    */
@@ -148,12 +141,18 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private final NamePage namePage;
 
   /**
-   * LRU cache for recently read record pages.
-   * For NAME index we have 4 indexes, so cache size is 8 to accommodate multiple types.
+   * Most recently read pages by type and index.
+   * Using specific fields instead of generic cache for clear ownership and lifecycle.
+   * Index-aware: NAME/PATH/CAS can have multiple indexes (0-3).
    */
-  private final java.util.LinkedHashMap<RecordPageCacheKey, RecordPage> recordPageCache;
-
+  private RecordPage mostRecentDocumentPage;
+  private RecordPage mostRecentChangedNodesPage;
+  private RecordPage mostRecentRecordToRevisionsPage;
   private RecordPage pathSummaryRecordPage;
+  private final RecordPage[] mostRecentPathPages = new RecordPage[4];
+  private final RecordPage[] mostRecentCasPages = new RecordPage[4];
+  private final RecordPage[] mostRecentNamePages = new RecordPage[4];
+  private RecordPage mostRecentDeweyIdPage;
 
   /**
    * Standard constructor.
@@ -185,19 +184,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     // Extract database and resource IDs for use in composite cache keys
     this.databaseId = resourceConfig.getDatabaseId();
     this.resourceId = resourceConfig.getID();
-
-    // Initialize LRU cache for record pages (access-order, max 8 entries)
-    this.recordPageCache = new java.util.LinkedHashMap<>(8, 0.75f, true) {
-      @Override
-      protected boolean removeEldestEntry(java.util.Map.Entry<RecordPageCacheKey, RecordPage> eldest) {
-        if (size() > 8) {
-          // Unpin the evicted page
-          unpinRecordPage(eldest.getValue());
-          return true;
-        }
-        return false;
-      }
-    };
+    // No initialization needed - using specific fields for most recent pages
+    // (mostRecentDocumentPage, mostRecentNamePages[], etc. initialized to null)
 
     revisionNumber = revision;
     rootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
@@ -475,18 +463,17 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
     }
 
-    // Check the LRU cache
-    var cacheKey = new RecordPageCacheKey(indexLogKey.getIndexNumber(),
-                                          indexLogKey.getIndexType(),
-                                          indexLogKey.getRecordPageKey(),
-                                          indexLogKey.getRevisionNumber());
-    var cachedPage = recordPageCache.get(cacheKey);
+    // Check the most recent page for this type/index
+    var cachedPage = getMostRecentPage(indexLogKey.getIndexType(),
+                                       indexLogKey.getIndexNumber(),
+                                       indexLogKey.getRecordPageKey(),
+                                       indexLogKey.getRevisionNumber());
     if (cachedPage != null) {
       var page = cachedPage.page();
-      // CRITICAL: Handle closed pages in local cache
+      // CRITICAL: Handle closed pages
       if (page.isClosed()) {
-        // Page was closed (e.g., by cache eviction) - remove from local cache
-        recordPageCache.remove(cacheKey);
+        // Page was closed - clear the field
+        setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), null);
         cachedPage = null;
       } else {
         return new PageReferenceToPage(cachedPage.pageReference, page);
@@ -576,7 +563,92 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   /**
-   * Unpin a record page when it's evicted from the local cache.
+   * Get the most recent page for a given index type and index number.
+   */
+  @Nullable
+  private RecordPage getMostRecentPage(IndexType indexType, int index, long recordPageKey, int revision) {
+    RecordPage candidate = switch (indexType) {
+      case DOCUMENT -> mostRecentDocumentPage;
+      case CHANGED_NODES -> mostRecentChangedNodesPage;
+      case RECORD_TO_REVISIONS -> mostRecentRecordToRevisionsPage;
+      case PATH_SUMMARY -> pathSummaryRecordPage;
+      case PATH -> index < mostRecentPathPages.length ? mostRecentPathPages[index] : null;
+      case CAS -> index < mostRecentCasPages.length ? mostRecentCasPages[index] : null;
+      case NAME -> index < mostRecentNamePages.length ? mostRecentNamePages[index] : null;
+      case DEWEYID_TO_RECORDID -> mostRecentDeweyIdPage;
+      default -> null;
+    };
+    
+    // Verify it matches the requested page
+    if (candidate != null && candidate.recordPageKey == recordPageKey && candidate.revision == revision) {
+      return candidate;
+    }
+    return null;
+  }
+  
+  /**
+   * Set the most recent page for a given index type and index number.
+   */
+  private void setMostRecentPage(IndexType indexType, int index, RecordPage page) {
+    // Unpin and close the previous page if it exists and is not in global cache
+    RecordPage previous = switch (indexType) {
+      case DOCUMENT -> {
+        RecordPage old = mostRecentDocumentPage;
+        mostRecentDocumentPage = page;
+        yield old;
+      }
+      case CHANGED_NODES -> {
+        RecordPage old = mostRecentChangedNodesPage;
+        mostRecentChangedNodesPage = page;
+        yield old;
+      }
+      case RECORD_TO_REVISIONS -> {
+        RecordPage old = mostRecentRecordToRevisionsPage;
+        mostRecentRecordToRevisionsPage = page;
+        yield old;
+      }
+      case PATH_SUMMARY -> {
+        RecordPage old = pathSummaryRecordPage;
+        pathSummaryRecordPage = page;
+        yield old;
+      }
+      case PATH -> {
+        RecordPage old = index < mostRecentPathPages.length ? mostRecentPathPages[index] : null;
+        if (index < mostRecentPathPages.length) {
+          mostRecentPathPages[index] = page;
+        }
+        yield old;
+      }
+      case CAS -> {
+        RecordPage old = index < mostRecentCasPages.length ? mostRecentCasPages[index] : null;
+        if (index < mostRecentCasPages.length) {
+          mostRecentCasPages[index] = page;
+        }
+        yield old;
+      }
+      case NAME -> {
+        RecordPage old = index < mostRecentNamePages.length ? mostRecentNamePages[index] : null;
+        if (index < mostRecentNamePages.length) {
+          mostRecentNamePages[index] = page;
+        }
+        yield old;
+      }
+      case DEWEYID_TO_RECORDID -> {
+        RecordPage old = mostRecentDeweyIdPage;
+        mostRecentDeweyIdPage = page;
+        yield old;
+      }
+      default -> null;
+    };
+    
+    // Unpin and potentially close the replaced page
+    if (previous != null && previous != page) {
+      unpinRecordPage(previous);
+    }
+  }
+
+  /**
+   * Unpin a record page when it's replaced by a newer page.
    * <p>
    * Note: Pages in the local cache might be closed or not pinned by this transaction.
    * We only unpin pages that this transaction actually pinned.
@@ -758,18 +830,14 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                              pageReference,
                                              recordPage);
     } else {
-      // Add to LRU cache (will automatically evict oldest if cache is full)
-      var cacheKey = new RecordPageCacheKey(indexLogKey.getIndexNumber(),
-                                            indexLogKey.getIndexType(),
-                                            indexLogKey.getRecordPageKey(),
-                                            indexLogKey.getRevisionNumber());
+      // Set as most recent page for this type/index (auto-unpins previous)
       var newRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
                                          indexLogKey.getIndexType(),
                                          indexLogKey.getRecordPageKey(),
                                          indexLogKey.getRevisionNumber(),
                                          pageReference,
                                          recordPage);
-      recordPageCache.put(cacheKey, newRecordPage);
+      setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), newRecordPage);
     }
   }
 
@@ -1419,11 +1487,21 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         resourceSession.closePageReadTransaction(trxId);
       }
 
-      // CRITICAL: Unpin all pages in the local record page cache
-      for (var recordPage : recordPageCache.values()) {
-        unpinRecordPage(recordPage);
+      // CRITICAL: Unpin all most recent pages (clear ownership)
+      unpinRecordPage(mostRecentDocumentPage);
+      unpinRecordPage(mostRecentChangedNodesPage);
+      unpinRecordPage(mostRecentRecordToRevisionsPage);
+      unpinRecordPage(mostRecentDeweyIdPage);
+      for (RecordPage page : mostRecentPathPages) {
+        unpinRecordPage(page);
       }
-      recordPageCache.clear();
+      for (RecordPage page : mostRecentCasPages) {
+        unpinRecordPage(page);
+      }
+      for (RecordPage page : mostRecentNamePages) {
+        unpinRecordPage(page);
+      }
+      // PATH_SUMMARY handled separately below (has special bypass logic)
 
       // CRITICAL FIX: Unpin ALL pages still pinned by this transaction in global caches
       unpinAllPagesForTransaction(trxId);
