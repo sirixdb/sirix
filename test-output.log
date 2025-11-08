@@ -3,9 +3,25 @@ WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.i
 WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
 WARNING: Restricted methods will be blocked in a future release unless native access is enabled
 
-> Task :sirix-core:compileJava UP-TO-DATE
+
+> Task :sirix-core:compileJava
+/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/cache/TransactionIntentLog.java:246: warning: [removal] finalize() in Object has been deprecated and marked for removal
+  protected void finalize() {
+                 ^
+/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/page/KeyValueLeafPage.java:1045: warning: [removal] finalize() in Object has been deprecated and marked for removal
+  protected void finalize() {
+                 ^
+/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodePageTrx.java:774: warning: [removal] finalize() in Object has been deprecated and marked for removal
+  protected void finalize() {
+                 ^
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+3 warnings
+
 > Task :sirix-core:processResources UP-TO-DATE
-> Task :sirix-core:classes UP-TO-DATE
+> Task :sirix-core:classes
 > Task :sirix-core:compileTestJava UP-TO-DATE
 > Task :sirix-core:processTestResources UP-TO-DATE
 > Task :sirix-core:testClasses UP-TO-DATE
@@ -14,209 +30,251 @@ WARNING: java.lang.foreign.Linker::downcallHandle has been called by io.sirix.ca
 WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
 WARNING: Restricted methods will be blocked in a future release unless native access is enabled
 
+
+> Task :sirix-core:test
+
+VersioningTest > testFull1() STANDARD_OUT
+    02:12:52.115 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - ========== Initializing UmbraDB-Style Memory Allocator ==========
+    02:12:52.121 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Physical memory limit: 8192 MB
+    02:12:52.128 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected base page size: 4096 bytes
+    02:12:52.129 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected huge page size: 2 MB
+    02:12:52.129 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Virtual address space required: 28 GB
+    02:12:52.130 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocating virtual memory regions...
+    02:12:52.133 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 0 (4096 bytes per segment)
+    02:12:52.206 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 0 initialized with 1048576 pre-allocated segments
+    02:12:52.207 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 1 (8192 bytes per segment)
+    02:12:52.235 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 1 initialized with 524288 pre-allocated segments
+    02:12:52.235 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 2 (16384 bytes per segment)
+    02:12:52.250 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 2 initialized with 262144 pre-allocated segments
+    02:12:52.250 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 3 (32768 bytes per segment)
+    02:12:52.258 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 3 initialized with 131072 pre-allocated segments
+    02:12:52.258 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 4 (65536 bytes per segment)
+    02:12:52.262 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 4 initialized with 65536 pre-allocated segments
+    02:12:52.262 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 5 (131072 bytes per segment)
+    02:12:52.264 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 5 initialized with 32768 pre-allocated segments
+    02:12:52.264 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 6 (262144 bytes per segment)
+    02:12:52.265 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 6 initialized with 16384 pre-allocated segments
+    02:12:52.266 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    02:12:52.266 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Allocator initialized successfully:
+    02:12:52.266 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Base page size: 4096 bytes
+    02:12:52.266 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Huge page size: 2 MB (available)
+    02:12:52.266 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Virtual memory mapped: 28 GB (across 7 size classes)
+    02:12:52.266 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Physical memory limit: 8192 MB
+    02:12:52.266 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Segment size classes: [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+    02:12:52.266 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    02:12:52.266 [Test worker] INFO  io.sirix.access.Databases - Initializing global BufferManager with memory budget: 8 GB
+    02:12:52.267 [Test worker] INFO  io.sirix.access.Databases -   - RecordPageCache weight: 52428800 (scaled 8x)
+    02:12:52.267 [Test worker] INFO  io.sirix.access.Databases -   - RecordPageFragmentCache weight: 26214400 (scaled 8x)
+    02:12:52.267 [Test worker] INFO  io.sirix.access.Databases -   - PageCache weight: 500000 (fixed)
+    02:12:52.267 [Test worker] INFO  io.sirix.access.Databases -   - RevisionRootPageCache size: 5000 (fixed)
+    02:12:52.267 [Test worker] INFO  io.sirix.access.Databases -   - RBTreeNodeCache size: 50000 (fixed)
+    02:12:52.267 [Test worker] INFO  io.sirix.access.Databases -   - NamesCache size: 500 (fixed)
+    02:12:52.267 [Test worker] INFO  io.sirix.access.Databases -   - PathSummaryCache size: 20 (fixed)
+
 WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
 WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by net.openhft.hashing.UnsafeAccess (file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/zero-allocation-hashing/0.16/ca252f328160ed5d027f100a4fe525d6d21daaf/zero-allocation-hashing-0.16.jar)
 WARNING: Please consider reporting this to the maintainers of class net.openhft.hashing.UnsafeAccess
 WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
-> Task :sirix-core:test
-
-Java HotSpot(TM) 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
 
 > Task :sirix-core:test
 
-XPathAxisWideTest > testIterateFactbook FAILED
-    java.lang.AssertionError at XPathAxisWideTest.java:73
+VersioningTest > testFull1() STANDARD_ERROR
+    🔍 Trx 3 FragmentCache scan: 2 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 3 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 5 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 5 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 6 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 6 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 10 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 10 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
 
-VersioningTest > testSlidingSnapshot3 FAILED
-    java.lang.AssertionError at VersioningTest.java:223
+VersioningTest > testFull1() STANDARD_OUT
+    02:12:54.593 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 12 entries cleared
 
-VersioningTest > testIncremental1 FAILED
-    org.gradle.internal.exceptions.DefaultMultiCauseException at TestRun.java:196
-        Caused by: java.lang.AssertionError at VersioningTest.java:316
+VersioningTest > testFull2() STANDARD_OUT
+    02:12:54.642 [ForkJoinPool.commonPool-worker-14] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 100 SIZE evictions, 20 EXPLICIT skipped (pinned)
+    02:12:54.692 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 2 entries cleared
 
-VersioningTest > testIncremental2 FAILED
-    io.sirix.exception.SirixUsageException at VersioningTest.java:368
+VersioningTest > testFull3() STANDARD_ERROR
+    🔍 Trx 3 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 5 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 6 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
 
-VersioningTest > testIncremental FAILED
-    io.sirix.exception.SirixUsageException at VersioningTest.java:235
+VersioningTest > testFull3() STANDARD_OUT
+    02:12:55.118 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 4 entries cleared
 
-VersioningTest > testSlidingSnapshot FAILED
-    io.sirix.exception.SirixUsageException at VersioningTest.java:235
+VersioningTest > testFull() STANDARD_OUT
+    02:12:55.251 [ForkJoinPool.commonPool-worker-18] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 200 SIZE evictions, 30 EXPLICIT skipped (pinned)
+    02:12:55.619 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 22 entries cleared
 
-PathSummaryTest > testSecondMoveToFirstChild() FAILED
-    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+VersioningTest > testSlidingSnapshot1() STANDARD_ERROR
+    🔍 Trx 3 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 3 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 5 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 5 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 6 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
 
-PathSummaryTest > testSetQNmFourth() FAILED
-    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+VersioningTest > testSlidingSnapshot1() STANDARD_OUT
+    02:12:55.948 [ForkJoinPool.commonPool-worker-13] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 300 SIZE evictions, 44 EXPLICIT skipped (pinned)
 
-PathSummaryTest > testSetQNmSecond() FAILED
-    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+VersioningTest > testSlidingSnapshot1() STANDARD_ERROR
+    🔍 Trx 6 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 12 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 10 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 10 FragmentCache scan: 13 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
 
-PathSummaryTest > testFirstMoveToFirstChild() FAILED
-    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+VersioningTest > testSlidingSnapshot1() STANDARD_OUT
+    02:12:56.280 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 56 entries cleared
 
-PathSummaryTest > testSetQNmFirst() FAILED
-    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+VersioningTest > testSlidingSnapshot2() STANDARD_OUT
+    02:12:56.305 [ForkJoinPool.commonPool-worker-3] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 400 SIZE evictions, 52 EXPLICIT skipped (pinned)
+    02:12:56.348 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 32 entries cleared
 
-PathSummaryTest > testSetQNmThird() FAILED
-    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+VersioningTest > testSlidingSnapshot3() STANDARD_OUT
+    02:12:56.529 [ForkJoinPool.commonPool-worker-6] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 500 SIZE evictions, 53 EXPLICIT skipped (pinned)
 
-PathSummaryTest > testDelete() FAILED
-    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+VersioningTest > testSlidingSnapshot3() STANDARD_ERROR
+    🔍 Trx 3 FragmentCache scan: 14 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 14 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 5 FragmentCache scan: 14 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 6 FragmentCache scan: 14 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 14 PATH_SUMMARY total, 0 pinned by this trx
 
-PathSummaryTest > testInsert() FAILED
-    io.sirix.exception.SirixUsageException at PathSummaryTest.java:63
+VersioningTest > testSlidingSnapshot3() STANDARD_OUT
+    02:12:56.563 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 49 entries cleared
 
-ConcurrentAxisTest > testSeriellNew() FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:117
+VersioningTest > testDifferential1() STANDARD_ERROR
+    🔍 Trx 3 FragmentCache scan: 2 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 3 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
 
-ConcurrentAxisTest > testSeriellOld() FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:100
+VersioningTest > testDifferential1() STANDARD_OUT
+    02:12:56.853 [ForkJoinPool.commonPool-worker-10] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 600 SIZE evictions, 53 EXPLICIT skipped (pinned)
 
-ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 1 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+VersioningTest > testDifferential1() STANDARD_ERROR
+    🔍 Trx 5 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 5 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 6 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 6 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 10 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 10 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
 
-ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 2 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+VersioningTest > testDifferential1() STANDARD_OUT
+    02:12:57.214 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 52 entries cleared
 
-ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 3 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+VersioningTest > testDifferential() STANDARD_OUT
+    02:12:57.218 [ForkJoinPool.commonPool-worker-13] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 700 SIZE evictions, 53 EXPLICIT skipped (pinned)
+    02:12:57.474 [ForkJoinPool.commonPool-worker-15] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 800 SIZE evictions, 54 EXPLICIT skipped (pinned)
+    02:12:57.474 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 60 entries cleared
 
-ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 4 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+VersioningTest > testIncremental1() STANDARD_ERROR
+    🔍 Trx 3 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 3 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 5 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 5 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 6 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 6 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
 
-ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 5 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+VersioningTest > testIncremental1() STANDARD_OUT
+    02:12:58.080 [ForkJoinPool.commonPool-worker-12] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 900 SIZE evictions, 56 EXPLICIT skipped (pinned)
 
-ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 6 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+VersioningTest > testIncremental1() STANDARD_ERROR
+    🔍 Trx 8 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 12 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 10 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 10 FragmentCache scan: 13 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
 
-ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 7 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+VersioningTest > testIncremental1() STANDARD_OUT
+    02:12:58.817 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 56 entries cleared
 
-ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 8 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+VersioningTest > testIncremental2() STANDARD_OUT
+    02:12:58.901 [ForkJoinPool.commonPool-worker-3] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 1000 SIZE evictions, 63 EXPLICIT skipped (pinned)
+    02:12:58.929 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 32 entries cleared
 
-ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 9 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+VersioningTest > testIncremental() STANDARD_OUT
+    02:12:59.291 [ForkJoinPool.commonPool-worker-2] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 1100 SIZE evictions, 64 EXPLICIT skipped (pinned)
+    02:12:59.431 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 80 entries cleared
 
-ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 10 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:171
+VersioningTest > testSlidingSnapshot() STANDARD_OUT
+    02:12:59.466 [ForkJoinPool.commonPool-worker-14] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 1200 SIZE evictions, 66 EXPLICIT skipped (pinned)
+    02:12:59.657 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 80 entries cleared
+    02:12:59.657 [ForkJoinPool.commonPool-worker-19] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 1300 SIZE evictions, 67 EXPLICIT skipped (pinned)
 
-ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 1 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:197
 
-ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 2 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+========== PAGE LEAK DIAGNOSTICS ==========
+02:12:59.668 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - Shutting down LinuxMemorySegmentAllocator...
+Pages Created: 0
+Pages Closed: 0
+Pages Leaked (caught by finalizer): 64
+Pages Still Live: 0
 
-ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 3 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+Finalized Pages (NOT closed properly) by Type:
+  NAME: 51 pages
+  PATH_SUMMARY: 9 pages
+  DOCUMENT: 4 pages
 
-ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 4 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:197
+Finalized Pages (NOT closed properly) by Page Key (top 15):
+  Page 1: 1 times
+  Page 2: 1 times
+  Page 5: 1 times
+  Page 6: 1 times
+  Page 7: 1 times
+  Page 9: 1 times
+  Page 4: 2 times
+  Page 0: 56 times
+===========================================
 
-ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 5 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:197
-
-ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 6 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:197
-
-ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 7 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:197
-
-ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 8 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:197
-
-ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 9 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:197
-
-ConcurrentAxisTest > testPartConcurrentDescAxis2() > repetition 10 of 10 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:197
-
-ConcurrentAxisTest > testConcurrent() > repetition 1 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 2 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 3 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 4 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 5 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 6 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 7 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 8 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 9 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 10 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 11 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 12 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 13 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 14 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 15 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 16 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 17 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 18 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 19 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-ConcurrentAxisTest > testConcurrent() > repetition 20 of 20 FAILED
-    java.lang.NullPointerException at ConcurrentAxisTest.java:138
-
-09:16:29.713 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - Shutting down LinuxMemorySegmentAllocator...
-09:16:29.713 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator shutdown complete.
-
-> Task :sirix-core:test
-
-799 tests completed, 56 failed, 50 skipped
-
-> Task :sirix-core:test FAILED
+02:12:59.672 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - Cleaning up allocator (physical memory: 0 MB)
+02:12:59.809 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator cleanup complete
+02:12:59.809 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator shutdown complete.
 
 [Incubating] Problems report is available at: file:///home/johannes/IdeaProjects/sirix/build/reports/problems/problems-report.html
-
-FAILURE: Build failed with an exception.
-
-* What went wrong:
-Execution failed for task ':sirix-core:test'.
-> Test process encountered an unexpected problem.
-   > Could not complete execution for Gradle Test Executor 4.
-
-* Try:
-> Check common problems https://docs.gradle.org/9.1.0/userguide/java_testing.html#sec:java_testing_troubleshooting.
-> Run with --stacktrace option to get the stack trace.
-> Run with --info or --debug option to get more log output.
-> Run with --scan to generate a Build Scan (Powered by Develocity).
-> Get more help at https://help.gradle.org.
 
 Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
 
@@ -224,5 +282,6 @@ You can use '--warning-mode all' to show the individual deprecation warnings and
 
 For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
 
-BUILD FAILED in 12m 47s
-5 actionable tasks: 1 executed, 4 up-to-date
+BUILD SUCCESSFUL in 16s
+5 actionable tasks: 2 executed, 3 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.1.0/userguide/configuration_cache_enabling.html

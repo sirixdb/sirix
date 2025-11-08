@@ -172,6 +172,11 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
   }
 
   @Override
+  public void cleanUp() {
+    cache.cleanUp();
+  }
+
+  @Override
   public void close() {
   }
   

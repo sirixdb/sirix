@@ -115,6 +115,16 @@ public interface Cache<K, V> {
    */
   void remove(K key);
 
+  /**
+   * Force synchronous completion of pending maintenance operations.
+   * For Caffeine caches, this processes the async removal listener queue.
+   * Critical for preventing race conditions when pages are removed from cache
+   * and immediately closed by TIL.
+   */
+  default void cleanUp() {
+    // Default: no-op for caches that don't need it
+  }
+
   /** Close a cache, might be a file handle for persistent caches. */
   void close();
 }

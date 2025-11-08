@@ -195,6 +195,11 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
   }
 
   @Override
+  public void cleanUp() {
+    cache.cleanUp();
+  }
+
+  @Override
   public void close() {
   }
 

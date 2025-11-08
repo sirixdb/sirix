@@ -149,6 +149,13 @@ public final class TransactionIntentLog implements AutoCloseable {
     
     logKey = 0;
     
+    // CRITICAL: Force completion of ALL pending async removal listeners
+    // Pages were removed from caches in put() - we must wait for async listeners
+    // to finish before we close pages in TIL, otherwise double-close
+    bufferManager.getRecordPageCache().cleanUp();
+    bufferManager.getRecordPageFragmentCache().cleanUp();
+    bufferManager.getPageCache().cleanUp();
+    
     // Close all pages in TIL
     // CRITICAL: Must force-unpin before closing to release memory segments
     int totalContainers = list.size();
@@ -205,6 +212,13 @@ public final class TransactionIntentLog implements AutoCloseable {
     if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
       LOGGER.debug("TIL.close() starting with {} containers", initialSize);
     }
+    
+    // CRITICAL: Force completion of ALL pending async removal listeners
+    // Pages were removed from caches in put() - we must wait for async listeners
+    // to finish before we close pages in TIL, otherwise double-close
+    bufferManager.getRecordPageCache().cleanUp();
+    bufferManager.getRecordPageFragmentCache().cleanUp();
+    bufferManager.getPageCache().cleanUp();
     
     // Close pages to release segments
     // CRITICAL: Must force-unpin before closing to release memory segments

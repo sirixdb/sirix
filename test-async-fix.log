@@ -1,0 +1,280 @@
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:/home/johannes/.gradle/wrapper/dists/gradle-9.1.0-bin/9agqghryom9wkf8r80qlhnts3/gradle-9.1.0/lib/native-platform-0.22-milestone-28.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+
+> Task :sirix-core:compileJava
+/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/cache/TransactionIntentLog.java:255: warning: [removal] finalize() in Object has been deprecated and marked for removal
+  protected void finalize() {
+                 ^
+/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/page/KeyValueLeafPage.java:1045: warning: [removal] finalize() in Object has been deprecated and marked for removal
+  protected void finalize() {
+                 ^
+/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodePageTrx.java:774: warning: [removal] finalize() in Object has been deprecated and marked for removal
+  protected void finalize() {
+                 ^
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+3 warnings
+
+> Task :sirix-core:processResources UP-TO-DATE
+> Task :sirix-core:classes
+
+> Task :sirix-core:compileTestJava
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+
+> Task :sirix-core:processTestResources UP-TO-DATE
+> Task :sirix-core:testClasses
+WARNING: A restricted method in java.lang.foreign.Linker has been called
+WARNING: java.lang.foreign.Linker::downcallHandle has been called by io.sirix.cache.LinuxMemorySegmentAllocator in an unnamed module (file:/home/johannes/IdeaProjects/sirix/bundles/sirix-core/build/classes/java/main/)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by net.openhft.hashing.UnsafeAccess (file:/home/johannes/.gradle/caches/modules-2/files-2.1/net.openhft/zero-allocation-hashing/0.16/ca252f328160ed5d027f100a4fe525d6d21daaf/zero-allocation-hashing-0.16.jar)
+WARNING: Please consider reporting this to the maintainers of class net.openhft.hashing.UnsafeAccess
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+
+> Task :sirix-core:test
+
+VersioningTest > testFull1() STANDARD_OUT
+    10:18:59.515 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - ========== Initializing UmbraDB-Style Memory Allocator ==========
+    10:18:59.516 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Physical memory limit: 16384 MB
+    10:18:59.518 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected base page size: 4096 bytes
+    10:18:59.519 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected huge page size: 2 MB
+    10:18:59.519 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Virtual address space required: 28 GB
+    10:18:59.519 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocating virtual memory regions...
+    10:18:59.520 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 0 (4096 bytes per segment)
+    10:18:59.559 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 0 initialized with 1048576 pre-allocated segments
+    10:18:59.559 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 1 (8192 bytes per segment)
+    10:18:59.574 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 1 initialized with 524288 pre-allocated segments
+    10:18:59.574 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 2 (16384 bytes per segment)
+    10:18:59.583 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 2 initialized with 262144 pre-allocated segments
+    10:18:59.583 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 3 (32768 bytes per segment)
+    10:18:59.587 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 3 initialized with 131072 pre-allocated segments
+    10:18:59.587 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 4 (65536 bytes per segment)
+    10:18:59.589 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 4 initialized with 65536 pre-allocated segments
+    10:18:59.589 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 5 (131072 bytes per segment)
+    10:18:59.591 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 5 initialized with 32768 pre-allocated segments
+    10:18:59.591 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 4 GB virtual region for size class 6 (262144 bytes per segment)
+    10:18:59.592 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 6 initialized with 16384 pre-allocated segments
+    10:18:59.592 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    10:18:59.592 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Allocator initialized successfully:
+    10:18:59.592 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Base page size: 4096 bytes
+    10:18:59.592 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Huge page size: 2 MB (available)
+    10:18:59.592 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Virtual memory mapped: 28 GB (across 7 size classes)
+    10:18:59.592 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Physical memory limit: 16384 MB
+    10:18:59.592 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Segment size classes: [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+    10:18:59.592 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    10:18:59.592 [Test worker] INFO  io.sirix.access.Databases - Initializing global BufferManager with memory budget: 16 GB
+    10:18:59.592 [Test worker] INFO  io.sirix.access.Databases -   - RecordPageCache weight: 104857600 (scaled 16x)
+    10:18:59.592 [Test worker] INFO  io.sirix.access.Databases -   - RecordPageFragmentCache weight: 52428800 (scaled 16x)
+    10:18:59.593 [Test worker] INFO  io.sirix.access.Databases -   - PageCache weight: 500000 (fixed)
+    10:18:59.593 [Test worker] INFO  io.sirix.access.Databases -   - RevisionRootPageCache size: 5000 (fixed)
+    10:18:59.593 [Test worker] INFO  io.sirix.access.Databases -   - RBTreeNodeCache size: 50000 (fixed)
+    10:18:59.593 [Test worker] INFO  io.sirix.access.Databases -   - NamesCache size: 500 (fixed)
+    10:18:59.593 [Test worker] INFO  io.sirix.access.Databases -   - PathSummaryCache size: 20 (fixed)
+
+VersioningTest > testFull1() STANDARD_ERROR
+    🔍 Trx 3 FragmentCache scan: 2 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 3 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 5 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 5 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 6 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 6 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 10 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 10 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+
+VersioningTest > testFull1() STANDARD_OUT
+    10:19:00.906 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 14 entries cleared
+
+VersioningTest > testFull2() STANDARD_OUT
+    10:19:00.961 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 2 entries cleared
+
+VersioningTest > testFull3() STANDARD_ERROR
+    🔍 Trx 3 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 5 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 6 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+
+VersioningTest > testFull3() STANDARD_OUT
+    10:19:01.216 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 24 entries cleared
+
+VersioningTest > testFull() STANDARD_OUT
+    10:19:01.272 [ForkJoinPool.commonPool-worker-14] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 100 SIZE evictions, 145 EXPLICIT skipped (pinned)
+    10:19:01.511 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 22 entries cleared
+
+VersioningTest > testSlidingSnapshot1() STANDARD_ERROR
+    🔍 Trx 3 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 3 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 5 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 5 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 6 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 6 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 12 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 10 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 10 FragmentCache scan: 13 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+
+VersioningTest > testSlidingSnapshot1() STANDARD_OUT
+    10:19:01.892 [ForkJoinPool.commonPool-worker-7] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 200 SIZE evictions, 211 EXPLICIT skipped (pinned)
+    10:19:01.892 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 58 entries cleared
+
+VersioningTest > testSlidingSnapshot2() STANDARD_OUT
+    10:19:01.932 [ForkJoinPool.commonPool-worker-15] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 300 SIZE evictions, 226 EXPLICIT skipped (pinned)
+    10:19:01.932 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 32 entries cleared
+
+VersioningTest > testSlidingSnapshot3() STANDARD_ERROR
+    🔍 Trx 3 FragmentCache scan: 14 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 14 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 5 FragmentCache scan: 14 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 6 FragmentCache scan: 14 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 14 PATH_SUMMARY total, 0 pinned by this trx
+
+VersioningTest > testSlidingSnapshot3() STANDARD_OUT
+    10:19:02.051 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 52 entries cleared
+
+VersioningTest > testDifferential1() STANDARD_OUT
+    10:19:02.099 [ForkJoinPool.commonPool-worker-13] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 400 SIZE evictions, 255 EXPLICIT skipped (pinned)
+
+VersioningTest > testDifferential1() STANDARD_ERROR
+    🔍 Trx 3 FragmentCache scan: 2 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 3 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 3 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 5 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 5 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 6 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 6 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 10 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 10 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+
+VersioningTest > testDifferential1() STANDARD_OUT
+    10:19:02.457 [ForkJoinPool.commonPool-worker-8] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 500 SIZE evictions, 277 EXPLICIT skipped (pinned)
+    10:19:02.457 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 54 entries cleared
+
+VersioningTest > testDifferential() STANDARD_OUT
+    10:19:02.669 [ForkJoinPool.commonPool-worker-2] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 600 SIZE evictions, 281 EXPLICIT skipped (pinned)
+    10:19:02.669 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 60 entries cleared
+
+VersioningTest > testIncremental1() STANDARD_ERROR
+    🔍 Trx 3 FragmentCache scan: 4 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 3 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 5 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 4 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 5 FragmentCache scan: 6 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 5 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 5 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 6 FragmentCache scan: 7 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 6 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 8 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 7 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 9 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 8 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+
+VersioningTest > testIncremental1() STANDARD_OUT
+    10:19:02.940 [ForkJoinPool.commonPool-worker-7] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 700 SIZE evictions, 297 EXPLICIT skipped (pinned)
+
+VersioningTest > testIncremental1() STANDARD_ERROR
+    🔍 Trx 9 FragmentCache scan: 10 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 9 FragmentCache scan: 12 PATH_SUMMARY total, 0 pinned by this trx
+    🔍 Trx 10 FragmentCache scan: 11 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+    🔍 Trx 10 FragmentCache scan: 13 PATH_SUMMARY total, 0 pinned by this trx
+    🔓 Trx 10 unpinned 1 pages (1 PATH_SUMMARY): RecordCache=1, FragmentCache=0, PageCache=0
+
+VersioningTest > testIncremental1() STANDARD_OUT
+    10:19:03.069 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 58 entries cleared
+
+VersioningTest > testIncremental2() STANDARD_OUT
+    10:19:03.105 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 32 entries cleared
+    10:19:03.105 [ForkJoinPool.commonPool-worker-17] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 800 SIZE evictions, 314 EXPLICIT skipped (pinned)
+
+VersioningTest > testIncremental() STANDARD_OUT
+    10:19:03.336 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 80 entries cleared
+    10:19:03.336 [ForkJoinPool.commonPool-worker-12] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 900 SIZE evictions, 321 EXPLICIT skipped (pinned)
+
+VersioningTest > testSlidingSnapshot() STANDARD_OUT
+    10:19:03.416 [ForkJoinPool.commonPool-worker-11] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 1000 SIZE evictions, 325 EXPLICIT skipped (pinned)
+    10:19:03.484 [Test worker] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache.clear(): 80 entries cleared
+
+10:19:03.489 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - Shutting down LinuxMemorySegmentAllocator...
+
+========== PAGE LEAK DIAGNOSTICS ==========
+Pages Created: 0
+Pages Closed: 0
+Pages Leaked (caught by finalizer): 289
+Pages Still Live: 0
+
+Finalized Pages (NOT closed properly) by Type:
+  PATH_SUMMARY: 40 pages
+  DOCUMENT: 31 pages
+  NAME: 218 pages
+
+Finalized Pages (NOT closed properly) by Page Key (top 15):
+  Page 6: 2 times
+  Page 7: 2 times
+  Page 3: 3 times
+  Page 2: 4 times
+  Page 4: 4 times
+  Page 8: 4 times
+10:19:03.491 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - Cleaning up allocator (physical memory: 0 MB)
+  Page 5: 5 times
+  Page 1: 10 times
+  Page 0: 255 times
+===========================================
+
+10:19:03.572 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator cleanup complete
+10:19:03.572 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator shutdown complete.
+
+[Incubating] Problems report is available at: file:///home/johannes/IdeaProjects/sirix/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 9s
+5 actionable tasks: 3 executed, 2 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.1.0/userguide/configuration_cache_enabling.html

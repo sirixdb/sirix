@@ -120,6 +120,11 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   @Override
+  public void cleanUp() {
+    cache.cleanUp();
+  }
+
+  @Override
   public void close() {
   }
   

@@ -26,10 +26,9 @@ import io.sirix.XmlTestHelper;
 import io.sirix.XmlTestHelper.PATHS;
 import io.sirix.exception.SirixException;
 import io.sirix.service.xml.shredder.XmlShredder;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.perfidix.annotation.BenchClass;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -39,7 +38,6 @@ import java.nio.file.Paths;
  *
  * @author Tina Scherer
  */
-@BenchClass(runs = 1)
 public class XMarkTest {
 
   // XMark 1 MB
@@ -47,7 +45,7 @@ public class XMarkTest {
 
   private Holder holder;
 
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     XmlTestHelper.deleteEverything();
     // Build simple test tree.
@@ -56,7 +54,7 @@ public class XMarkTest {
     holder = Holder.generateRtx();
   }
 
-  @After
+  @AfterEach
   public void tearDown() throws SirixException {
     holder.close();
     XmlTestHelper.closeEverything();
