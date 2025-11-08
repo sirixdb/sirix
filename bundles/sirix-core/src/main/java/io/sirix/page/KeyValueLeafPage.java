@@ -311,18 +311,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public void incrementPinCount(int trxId) {
     assert !isClosed : "Cannot pin closed page " + recordPageKey;
-    int newPinCount = pinCountByTrx.computeIfAbsent(trxId, _ -> new AtomicInteger(0)).incrementAndGet();
+    pinCountByTrx.computeIfAbsent(trxId, _ -> new AtomicInteger(0)).incrementAndGet();
     cachedTotalPinCount.incrementAndGet();  // O(1) cache update
-    
-    // Track PATH_SUMMARY pins for transactions 3-10 to debug leak
-    if (indexType == io.sirix.index.IndexType.PATH_SUMMARY && 
-        trxId >= 3 && trxId <= 10 && 
-        recordPageKey >= 2 && recordPageKey <= 9 &&
-        revision >= 1 && revision <= 8) {
-      System.err.println("📌 PIN: Trx " + trxId + " pinned Page " + recordPageKey + 
-                         " (rev=" + revision + ") count=" + newPinCount +
-                         " at " + new Exception().getStackTrace()[1].getMethodName());
-    }
   }
 
   @Override
@@ -337,16 +327,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       throw new IllegalStateException("Pin count for trx " + trxId + " went negative on page " + recordPageKey);
     }
     cachedTotalPinCount.decrementAndGet();  // O(1) cache update
-    
-    // Track PATH_SUMMARY unpins for transactions 3-10 to debug leak
-    if (indexType == io.sirix.index.IndexType.PATH_SUMMARY && 
-        trxId >= 3 && trxId <= 10 && 
-        recordPageKey >= 2 && recordPageKey <= 9 &&
-        revision >= 1 && revision <= 8) {
-      System.err.println("📍 UNPIN: Trx " + trxId + " unpinned Page " + recordPageKey + 
-                         " (rev=" + revision + ") count=" + newCount +
-                         " at " + new Exception().getStackTrace()[1].getMethodName());
-    }
     
     if (newCount == 0) {
       pinCountByTrx.remove(trxId);  // Cleanup when transaction done with this page

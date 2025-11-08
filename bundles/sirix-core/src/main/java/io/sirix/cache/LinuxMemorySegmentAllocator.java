@@ -560,6 +560,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     
     if (isFirstBorrow) {
       // First time borrowing - physical pages will be committed on first access
+      // Always increment physical memory for first borrow
       long newPhysical = physicalMemoryBytes.addAndGet(size);
       
       if (newPhysical > maxBufferSize.get() * 0.9) {
@@ -568,6 +569,12 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                     percentUsed,
                     newPhysical / (1024 * 1024),
                     maxBufferSize.get() / (1024 * 1024));
+      }
+    } else {
+      // Re-borrowing a segment that was returned but not yet released from tracking
+      // This can happen in concurrent scenarios - just log for diagnostics
+      if (LOGGER.isDebugEnabled()) {
+        LOGGER.debug("Re-borrowing segment {} (size={}) that's still in borrowed set", address, size);
       }
     }
 
@@ -686,14 +693,22 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     try {
       int result = (int) MADVISE.invokeExact(segment, size, MADV_DONTNEED);
       if (result == 0) {
-        // Successfully released physical memory
-        long newPhysical = physicalMemoryBytes.addAndGet(-size);
-        
-        if (newPhysical < 0) {
-          LOGGER.error("Physical memory counter went negative: {} MB. Resetting to 0.", 
-                       newPhysical / (1024 * 1024));
-          physicalMemoryBytes.set(0);
-        }
+        // Successfully released physical memory - decrement counter using CAS to prevent going negative
+        long currentPhysical;
+        long newPhysical;
+        do {
+          currentPhysical = physicalMemoryBytes.get();
+          newPhysical = Math.max(0, currentPhysical - size);
+          
+          if (currentPhysical < size) {
+            // Counter would go negative - this is a bug, but don't let it propagate
+            LOGGER.error("Physical memory accounting error: trying to release {} bytes but only {} bytes tracked. " +
+                        "This indicates double-release or untracked allocation. Resetting counter to 0.",
+                        size, currentPhysical);
+            newPhysical = 0;
+            break;
+          }
+        } while (!physicalMemoryBytes.compareAndSet(currentPhysical, newPhysical));
         
         // CRITICAL: Remove from borrowed set so next allocation properly tracks physical memory
         // Without this, subsequent borrows don't increment physical counter, causing accounting errors

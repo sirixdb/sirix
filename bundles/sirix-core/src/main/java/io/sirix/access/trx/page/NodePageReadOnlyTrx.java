@@ -833,13 +833,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     }
 
     LOGGER.debug("unpinPageFragments: " + pages.size() + " fragments, trxIntentLog=" + (trxIntentLog != null));
-    
-    int pathSummaryFragments = 0;
-    for (var page : pages) {
-      if (((KeyValueLeafPage)page).getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
-        pathSummaryFragments++;
-      }
-    }
 
     // Track which unique page instances we've unpinned to avoid unpinning duplicates
     var unpinnedPages = new java.util.HashSet<KeyValueLeafPage>();
@@ -927,21 +920,6 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
             LOGGER.debug("  Fragment " + i + " SKIPPED (already unpinned this instance)");
           }
         }
-    }
-    
-    if (pathSummaryFragments > 0 && trxId >= 3 && trxId <= 10) {
-      var fragmentInfo = new StringBuilder();
-      for (var page : pages) {
-        var kvPage = (KeyValueLeafPage) page;
-        if (kvPage.getIndexType() == io.sirix.index.IndexType.PATH_SUMMARY) {
-          fragmentInfo.append("Page").append(kvPage.getPageKey())
-                      .append("(rev").append(kvPage.getRevision())
-                      .append(",pin").append(kvPage.getPinCountByTransaction().getOrDefault(trxId, 0))
-                      .append(") ");
-        }
-      }
-      System.err.println("📦 Trx " + trxId + " unpinned " + unpinnedPages.size() + " unique page instances" +
-                         " from " + pages.size() + " fragments: " + fragmentInfo);
     }
 }
 
