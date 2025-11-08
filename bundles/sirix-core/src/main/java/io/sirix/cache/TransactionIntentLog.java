@@ -74,29 +74,30 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @param value a value to be associated with the specified key
    */
   public void put(final PageReference key, final PageContainer value) {
-    // Remove from cache (pages must stay OPEN in TIL for serialization)
-    // CRITICAL: Only remove if the page in cache is actually the one we're putting in TIL!
-    // Otherwise we'd orphan a different page instance that happens to have the same PageReference
-    Page pageInCache = bufferManager.getRecordPageCache().get(key);
-    if (pageInCache == value.getComplete() || pageInCache == value.getModified()) {
-      bufferManager.getRecordPageCache().remove(key);
-    }
-    bufferManager.getPageCache().remove(key);
+    // CRITICAL: Remove from ALL caches BEFORE mutating the PageReference
+    // This prevents double-close: cache eviction → close(), then TIL.close() → close()
+    // Pages in TIL must NOT be in any cache - TIL owns them exclusively
     
-    // CRITICAL: Remove the key itself from RecordPageFragmentCache BEFORE mutating it  
+    // Remove from RecordPageCache (full pages)
+    bufferManager.getRecordPageCache().remove(key);
+    
+    // Remove from RecordPageFragmentCache (fragments)
     bufferManager.getRecordPageFragmentCache().remove(key);
 
-   // CRITICAL FIX: Also remove all page fragments from cache!
-   List<PageFragmentKey> pageFragments = key.getPageFragments();
-   if (pageFragments != null && !pageFragments.isEmpty()) {
-     for (PageFragmentKey fragmentKey : pageFragments) {
-       PageReference fragmentRef = new PageReference()
-           .setKey(fragmentKey.key())
-           .setDatabaseId(fragmentKey.databaseId())
-           .setResourceId(fragmentKey.resourceId());
-       bufferManager.getRecordPageFragmentCache().remove(fragmentRef);
-     }
-   }
+    // Remove all page fragments from cache
+    List<PageFragmentKey> pageFragments = key.getPageFragments();
+    if (pageFragments != null && !pageFragments.isEmpty()) {
+      for (PageFragmentKey fragmentKey : pageFragments) {
+        PageReference fragmentRef = new PageReference()
+            .setKey(fragmentKey.key())
+            .setDatabaseId(fragmentKey.databaseId())
+            .setResourceId(fragmentKey.resourceId());
+        bufferManager.getRecordPageFragmentCache().remove(fragmentRef);
+      }
+    }
+    
+    // Remove from PageCache (other page types)
+    bufferManager.getPageCache().remove(key);
 
     key.setKey(Constants.NULL_ID_LONG);
     key.setPage(null);
