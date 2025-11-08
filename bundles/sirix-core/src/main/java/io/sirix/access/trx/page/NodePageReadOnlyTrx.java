@@ -855,13 +855,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         resourceBufferManager.getRecordPageFragmentCache().put(fragmentRef, mostRecentPageFragment);
         LOGGER.debug("  Fragment 0 unpinned (pins=" + mostRecentPageFragment.getPinCount() + ", inCache=true)");
       } else {
-        // Fragment removed from cache - if fully unpinned, close it now
-        if (mostRecentPageFragment.getPinCount() == 0) {
-          mostRecentPageFragment.close();
-          LOGGER.debug("  Fragment 0 unpinned and CLOSED (not in cache, pins=0)");
-        } else {
-          LOGGER.debug("  Fragment 0 unpinned (not in cache, pins=" + mostRecentPageFragment.getPinCount() + ")");
-        }
+        // Fragment was evicted from cache - removalListener already closed it, do nothing
+        // (NEVER manually close - that causes double-close/double-release errors)
+        LOGGER.debug("  Fragment 0 unpinned (not in cache, already closed by cache, pins=" + mostRecentPageFragment.getPinCount() + ")");
       }
     }
 
@@ -896,24 +892,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
               LOGGER.debug("  Fragment " + i + " unpinned (pins=" + pageFragment.getPinCount() + 
                   ", rev=" + pageFragment.getRevision() + ", inCache=true)");
             } else {
-              // Fragment not in cache - if fully unpinned, close it
-              if (pageFragment.getPinCount() == 0) {
-                pageFragment.close();
-                LOGGER.debug("  Fragment " + i + " unpinned and CLOSED (not in cache, rev=" + pageFragment.getRevision() + ")");
-              } else {
-                LOGGER.debug("  Fragment " + i + " unpinned (not in cache, pins=" + pageFragment.getPinCount() + 
-                    ", rev=" + pageFragment.getRevision() + ")");
-              }
+              // Fragment was evicted from cache - removalListener already closed it, do nothing
+              LOGGER.debug("  Fragment " + i + " unpinned (not in cache, already closed by cache, rev=" + pageFragment.getRevision() + ")");
             }
           } else {
-            // No original key - close if fully unpinned
-            if (pageFragment.getPinCount() == 0) {
-              pageFragment.close();
-              LOGGER.debug("  Fragment " + i + " unpinned and CLOSED (no key, rev=" + pageFragment.getRevision() + ")");
-            } else {
-              LOGGER.debug("  Fragment " + i + " unpinned (no key, pins=" + pageFragment.getPinCount() + 
-                  ", rev=" + pageFragment.getRevision() + ")");
-            }
+            // No original key - was never cached, do nothing (will be garbage collected)
+            LOGGER.debug("  Fragment " + i + " unpinned (no key, not cached, rev=" + pageFragment.getRevision() + ")");
           }
         } else {
           if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && pageFragment.getPageKey() == 0) {
