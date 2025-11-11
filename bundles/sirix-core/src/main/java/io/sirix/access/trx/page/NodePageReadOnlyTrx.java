@@ -743,9 +743,17 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   private void setMostRecentlyReadRecordPage(@NonNull IndexLogKey indexLogKey, @NonNull PageReference pageReference,
       KeyValueLeafPage recordPage) {
+    // Acquire guard for the new page if it's different from current
+    if (recordPage != null && (currentPageGuard == null || currentPageGuard.page() != recordPage)) {
+      closeCurrentPageGuard();
+      if (!recordPage.isClosed()) {
+        currentPageGuard = new PageGuard(pageReference, recordPage);
+      }
+    }
+    
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
       if (pathSummaryRecordPage != null) {
-        if (DEBUG_PATH_SUMMARY) {
+        if (DEBUG_PATH_SUMMARY && recordPage != null) {
           System.err.println("[PATH_SUMMARY-REPLACE] Replacing old pathSummaryRecordPage: " + "oldPageKey="
                                  + pathSummaryRecordPage.page.getPageKey() + ", newPageKey=" + recordPage.getPageKey()
                                  + ", trxIntentLog=" + (trxIntentLog != null));
