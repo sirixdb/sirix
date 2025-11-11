@@ -90,6 +90,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     );
   
   /**
+   * Version counter for detecting page reuse (LeanStore/Umbra approach).
+   * Incremented when page is evicted and reused for a different logical page.
+   */
+  private final AtomicInteger version = new AtomicInteger(0);
+
+  /**
+   * HOT bit for clock-based eviction (second-chance algorithm).
+   * Set to true on page access, cleared by clock sweeper.
+   */
+  private volatile boolean hot = false;
+
+  /**
    * DIAGNOSTIC: Stack trace of where this page was created (only captured when DEBUG_MEMORY_LEAKS=true).
    * Used to trace where leaked pages come from.
    */
@@ -1192,6 +1204,83 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public int getRevision() {
     return revision;
+  }
+
+  /**
+   * Get the current version of this page frame.
+   * Used for detecting page reuse via version counter check.
+   *
+   * @return current version number
+   */
+  public int getVersion() {
+    return version.get();
+  }
+
+  /**
+   * Increment the version counter.
+   * Called when the page frame is reused for a different logical page.
+   */
+  public void incrementVersion() {
+    version.incrementAndGet();
+  }
+
+  /**
+   * Mark this page as recently accessed (set HOT bit).
+   * Called on every page access for clock eviction algorithm.
+   */
+  public void markAccessed() {
+    hot = true;
+  }
+
+  /**
+   * Check if this page is HOT (recently accessed).
+   *
+   * @return true if page is hot, false otherwise
+   */
+  public boolean isHot() {
+    return hot;
+  }
+
+  /**
+   * Clear the HOT bit (for clock sweeper second-chance algorithm).
+   */
+  public void clearHot() {
+    hot = false;
+  }
+
+  /**
+   * Reset page data structures for reuse.
+   * Clears records and internal state but keeps MemorySegments allocated.
+   * Used when evicting a page to prepare frame for reuse.
+   */
+  public void reset() {
+    // Clear record arrays
+    Arrays.fill(records, null);
+    
+    // Clear offsets
+    Arrays.fill(slotOffsets, -1);
+    Arrays.fill(deweyIdOffsets, -1);
+    
+    // Reset free space pointers
+    slotMemoryFreeSpaceStart = 0;
+    deweyIdMemoryFreeSpaceStart = 0;
+    lastSlotIndex = -1;
+    lastDeweyIdIndex = areDeweyIDsStored ? -1 : -1;
+    
+    // Clear references
+    references.clear();
+    addedReferences = false;
+    
+    // Clear cached data
+    bytes = null;
+    hashCode = null;
+    hash = 0;
+    
+    // Clear HOT bit
+    hot = false;
+    
+    // NOTE: We do NOT release MemorySegments here - they stay allocated
+    // The allocator's release() method is called separately if needed
   }
 
   // Add references to OverflowPages.
