@@ -165,9 +165,11 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           // Check pin counts of leaked pages
           int pinnedLeaks = 0;
           int unpinnedLeaks = 0;
+          // TODO: Replace with guard count tracking
           var pinCountBreakdown = new java.util.HashMap<Integer, Integer>();
           for (var page : livePages) {
-            int pinCount = page.getPinCount();
+            // int pinCount = page.getPinCount();  // REMOVED
+            int pinCount = 0; // TODO: will be replaced with guardCount
             if (pinCount > 0) {
               pinnedLeaks++;
             } else {
@@ -183,9 +185,11 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           
           // Show which transaction IDs leaked PATH_SUMMARY pins
           if (pinnedLeaks > 0) {
-            System.err.println("\nPinned Pages - Which Transactions:");
+            // TODO: Replace with guard diagnostics
+            System.err.println("\nPages with guards:");
             for (var page : livePages) {
-              if (page.getPinCount() > 0) {
+              // if (page.getPinCount() > 0) {  // REMOVED
+              if (false) {  // TODO: check guardCount
                 System.err.println("  Page " + page.getPageKey() + 
                                    " (" + page.getIndexType() + ")" +
                                    " revision=" + page.getRevision() +
@@ -208,7 +212,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
               var bufferMgr = io.sirix.access.Databases.getGlobalBufferManager();
               
               for (var page : livePages) {
-                if (page.getPinCount() == 0) {
+                // if (page.getPinCount() == 0) {  // REMOVED
+                if (true) {  // TODO: check guardCount == 0
                   boolean found = false;
                   
                   // Check if in RecordPageCache
@@ -260,7 +265,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
             // Show first few examples
             int shown = 0;
             for (var page : livePages) {
-              if (page.getPinCount() == 0 && shown < 5) {
+              // if (page.getPinCount() == 0 && shown < 5) {  // REMOVED
+              if (shown < 5) {  // TODO: check guardCount == 0
                 System.err.println("  Example: Page " + page.getPageKey() + 
                                    " (" + page.getIndexType() + ")" +
                                    " revision=" + page.getRevision());
@@ -279,14 +285,15 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
             for (var page : new java.util.ArrayList<>(livePages)) {
               if (!page.isClosed()) {
                 try {
-                  // Force-unpin if still pinned
-                  if (page.getPinCount() > 0) {
-                    var pinsByTrx = new java.util.HashMap<>(page.getPinCountByTransaction());
+                  // TODO: Check and release guards if still held
+                  // if (page.getPinCount() > 0) {  // REMOVED
+                  if (false) {  // TODO: check guardCount
+                    var pinsByTrx = new java.util.HashMap<Integer, Integer>(); // page.getPinCountByTransaction());  // REMOVED
                     for (var entry : pinsByTrx.entrySet()) {
                       int trxId = entry.getKey();
                       int pins = entry.getValue();
                       for (int i = 0; i < pins; i++) {
-                        page.decrementPinCount(trxId);
+                        // page.decrementPinCount(trxId);  // REMOVED
                         forceUnpinnedCount++;
                       }
                     }

@@ -78,11 +78,67 @@ public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheK
 
   @Override
   public void put(RevisionRootPageCacheKey key, @NonNull RevisionRootPage value) {
+    // CRITICAL FIX: Unswizzle all PageReferences before caching
+    // RevisionRootPage contains PageReferences that might have swizzled KeyValueLeafPage instances
+    // These swizzled pages prevent proper cleanup and cause memory leaks
+    // We must null out the page references so they don't keep KeyValueLeafPages alive
+    unswizzlePageReferences(value);
     cache.put(key, value);
+  }
+  
+  /**
+   * Unswizzle all PageReferences in a RevisionRootPage before caching.
+   * This prevents swizzled KeyValueLeafPage instances from being kept alive
+   * by cached RevisionRootPages.
+   */
+  private void unswizzlePageReferences(RevisionRootPage revisionRootPage) {
+    // Unswizzle references to index trees (hold KeyValueLeafPage instances)
+    var nameRef = revisionRootPage.getNamePageReference();
+    if (nameRef != null && nameRef.getPage() instanceof io.sirix.page.NamePage namePage) {
+      // Unswizzle the NamePage's index tree references (hold KeyValueLeafPage Page 0s)
+      unswizzleIndexPageReferences(namePage);
+    }
+    
+    var pathSummaryRef = revisionRootPage.getPathSummaryPageReference();
+    if (pathSummaryRef != null && pathSummaryRef.getPage() instanceof io.sirix.page.PathSummaryPage pathSummaryPage) {
+      unswizzleIndexPageReferences(pathSummaryPage);
+    }
+    
+    var casRef = revisionRootPage.getCASPageReference();
+    if (casRef != null && casRef.getPage() instanceof io.sirix.page.CASPage casPage) {
+      unswizzleIndexPageReferences(casPage);
+    }
+    
+    var pathRef = revisionRootPage.getPathPageReference();
+    if (pathRef != null && pathRef.getPage() instanceof io.sirix.page.PathPage pathPage) {
+      unswizzleIndexPageReferences(pathPage);
+    }
+    
+    var documentRef = revisionRootPage.getIndirectDocumentIndexPageReference();
+    if (documentRef != null) {
+      documentRef.setPage(null);
+    }
+  }
+  
+  /**
+   * Unswizzle PageReferences in index pages (NamePage, PathPage, etc.)
+   * These pages contain references to KeyValueLeafPage instances that need to be unswizzled.
+   */
+  private void unswizzleIndexPageReferences(io.sirix.page.interfaces.Page indexPage) {
+    // Index pages extend AbstractForwardingPage which has getReferences()
+    for (var ref : indexPage.getReferences()) {
+      if (ref != null) {
+        ref.setPage(null);
+      }
+    }
   }
 
   @Override
   public void putAll(Map<? extends RevisionRootPageCacheKey, ? extends RevisionRootPage> map) {
+    // CRITICAL FIX: Unswizzle all pages before caching
+    for (var value : map.values()) {
+      unswizzlePageReferences(value);
+    }
     cache.putAll(map);
   }
 

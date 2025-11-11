@@ -22,31 +22,14 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
   public RecordPageCache(final int maxWeight) {
     final RemovalListener<PageReference, KeyValueLeafPage> removalListener =
         (PageReference key, KeyValueLeafPage page, RemovalCause cause) -> {
-          // Handle ALL removals (eviction, invalidate, clear) - not just evictions
+          // Handle ALL removals (eviction, invalidate, clear)
           assert key != null;
           key.setPage(null);
           assert page != null;
           
-          // CRITICAL: Handle different removal causes appropriately
-          // - EXPLICIT (TIL.put() removing page): Skip if pinned (will be closed by TIL)
-          // - REPLACED (cache update): Skip if pinned (new version being cached)
-          // - SIZE (eviction): Must be unpinned, always close
-          // - COLLECTED (GC): Page key was GC'd, page might already be unreachable
-          if (cause == RemovalCause.EXPLICIT || cause == RemovalCause.REPLACED) {
-            if (page.getPinCount() > 0) {
-              // Page still pinned - don't close, will be handled by transaction/TIL
-              LOGGER.trace("RecordPage {} removed but NOT closed (cause={}, pinCount={})", 
-                          key.getKey(), cause, page.getPinCount());
-              return;
-            }
-            // Unpinned on explicit removal - close it
-            LOGGER.trace("RecordPage {} removed and closing (cause={}, unpinned)", key.getKey(), cause);
-          } else if (cause == RemovalCause.SIZE) {
-            // SIZE evictions must have pinCount == 0
-            assert page.getPinCount() == 0 : "Evicted page must not be pinned: " + page.getPinCount();
-          }
+          // TODO: Will be replaced with version-based eviction logic
+          // For now, close all pages on removal
           
-          // Page handles its own cleanup
           if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
             LOGGER.debug("RecordPageCache EVICT: closing page {} type={} rev={} cause={}", 
                 page.getPageKey(), page.getIndexType(), page.getRevision(), cause);
@@ -60,14 +43,12 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
     cache = Caffeine.newBuilder()
                     .maximumWeight(maxWeight)
                     .weigher((PageReference _, KeyValueLeafPage value) -> {
-                      if (value.getPinCount() > 0) {
-                        return 0; // Pinned pages have zero weight (won't be evicted)
-                      }
-                      // Use actual memory segment sizes for accurate tracking
+                      // TODO: Will be replaced with custom sharded cache
+                      // Use actual memory segment sizes for tracking
                       return (int) value.getActualMemorySize();
                     })
-                    .removalListener(removalListener) // FIXED: Use removalListener for ALL removals
-                    .recordStats() // Enable statistics for diagnostics
+                    .removalListener(removalListener)
+                    .recordStats()
                     .build();
   }
 
@@ -89,44 +70,9 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
    * @param key the page reference
    * @param trxId the transaction ID doing the unpin
    */
-  public void unpinAndUpdateWeight(PageReference key, int trxId) {
-    // CRITICAL: Use computeIfPresent for atomic operation
-    // The decrementPinCount() method is now synchronized, so it's safe from races
-    cache.asMap().computeIfPresent(key, (k, page) -> {
-      // decrementPinCount() is now synchronized and handles closed pages gracefully
-      // It will return silently if the page is already closed or transaction never pinned it
-      page.decrementPinCount(trxId);
-      
-      // Return same instance to trigger weight recalculation
-      // Caffeine will call the weigher which checks pin count
-      return page;
-    });
-  }
-  
-  /**
-   * Atomically pin a page and update its weight in the cache.
-   * 
-   * @param key the page reference
-   * @param trxId the transaction ID doing the pin
-   */
-  public void pinAndUpdateWeight(PageReference key, int trxId) {
-    // CRITICAL: Use computeIfPresent for atomic operation
-    // The incrementPinCount() method is now synchronized and will throw if page is closed
-    cache.asMap().computeIfPresent(key, (k, page) -> {
-      try {
-        page.incrementPinCount(trxId);
-      } catch (IllegalStateException e) {
-        // Page was closed - this can happen if eviction occurred between get and pin
-        // Return null to remove from cache (page is invalid)
-        LOGGER.debug("Attempted to pin closed page {} - removing from cache", key.getKey());
-        return null;
-      }
-      
-      // Return same instance to trigger weight recalculation
-      // Caffeine will call the weigher which checks pin count
-      return page;
-    });
-  }
+  // TODO: These methods will be replaced with guard-based lifecycle management
+  // public void unpinAndUpdateWeight(PageReference key, int trxId) - REMOVED
+  // public void pinAndUpdateWeight(PageReference key, int trxId) - REMOVED
 
   @Override
   public KeyValueLeafPage get(PageReference key) {
@@ -190,28 +136,22 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
     com.github.benmanes.caffeine.cache.stats.CacheStats caffeineStats = cache.stats();
     
     int totalPages = 0;
-    int pinnedPages = 0;
     long totalWeight = 0;
-    long pinnedWeight = 0;
     
     for (KeyValueLeafPage page : cache.asMap().values()) {
       totalPages++;
       long weight = page.getActualMemorySize();
       totalWeight += weight;
-      
-      if (page.getPinCount() > 0) {
-        pinnedPages++;
-        pinnedWeight += weight;
-      }
     }
     
+    // TODO: Update statistics after implementing guard-based system
     return new CacheStatistics(
         totalPages,
-        pinnedPages,
-        totalPages - pinnedPages,
+        0, // pinnedPages - will be replaced with guardCount tracking
+        totalPages,
         totalWeight,
-        pinnedWeight,
-        totalWeight - pinnedWeight,
+        0, // pinnedWeight
+        totalWeight,
         caffeineStats.hitCount(),
         caffeineStats.missCount(),
         caffeineStats.evictionCount()

@@ -35,32 +35,15 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
           key.setPage(null);
           assert page != null;
           
-          // CRITICAL FIX: For EXPLICIT removal, check if page is pinned
-          // - Pinned pages: Skip closing (still in use by transaction)
-          // - Unpinned pages: MUST close (being removed from cache, won't be closed elsewhere)
-          if (cause == RemovalCause.EXPLICIT || cause == RemovalCause.REPLACED) {
-            if (page.getPinCount() > 0) {
-              // Still pinned - don't close, transaction will handle it
-              SKIPPED_EXPLICIT.incrementAndGet();
-              LOGGER.trace("Fragment {} removed but NOT closed (cause={}, pinCount={})", 
-                          key.getKey(), cause, page.getPinCount());
-              return;
-            }
-            // Unpinned - close it now, this is the last chance
-            LOGGER.trace("Fragment {} removed and closing (cause={}, unpinned)", key.getKey(), cause);
-          }
-          
-          // All removals (SIZE eviction, EXPLICIT if unpinned) should close
-          assert page.getPinCount() == 0 : "Fragment page must not be pinned: " + page.getPinCount() 
-              + " (pins by transaction: " + page.getPinCountByTransaction() + ")";
+          // TODO: Will be replaced with version-based eviction logic
+          // For now, close all fragment pages on removal
           
           // Track evictions
           long evictions = TOTAL_EVICTIONS.incrementAndGet();
           
           // Log every 100th eviction
           if (evictions % 100 == 0) {
-            LOGGER.info("RecordPageFragmentCache: {} SIZE evictions, {} EXPLICIT skipped (pinned)", 
-                        evictions, SKIPPED_EXPLICIT.get());
+            LOGGER.info("RecordPageFragmentCache: {} evictions", evictions);
           }
           
           // DIAGNOSTIC: Track page closes for leak detection
@@ -75,9 +58,7 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
     cache = Caffeine.newBuilder()
                     .maximumWeight(maxWeight)
                     .weigher((PageReference _, KeyValueLeafPage value) -> {
-                      if (value.getPinCount() > 0) {
-                        return 0; // Pinned fragments have zero weight (won't be evicted)
-                      }
+                      // TODO: Will be replaced with custom sharded cache
                       return (int) value.getActualMemorySize();
                     })
                     .scheduler(Scheduler.systemScheduler())
@@ -112,44 +93,9 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
    * @param key the page reference
    * @param trxId the transaction ID doing the unpin
    */
-  public void unpinAndUpdateWeight(PageReference key, int trxId) {
-    // CRITICAL: Use computeIfPresent for atomic operation
-    // The decrementPinCount() method is now synchronized, so it's safe from races
-    cache.asMap().computeIfPresent(key, (k, page) -> {
-      // decrementPinCount() is now synchronized and handles closed pages gracefully
-      // It will return silently if the page is already closed or transaction never pinned it
-      page.decrementPinCount(trxId);
-      
-      // Return same instance to trigger weight recalculation
-      // Caffeine will call the weigher which checks pin count
-      return page;
-    });
-  }
-  
-  /**
-   * Atomically pin a page and update its weight in the cache.
-   * 
-   * @param key the page reference  
-   * @param trxId the transaction ID doing the pin
-   */
-  public void pinAndUpdateWeight(PageReference key, int trxId) {
-    // CRITICAL: Use computeIfPresent for atomic operation
-    // The incrementPinCount() method is now synchronized and will throw if page is closed
-    cache.asMap().computeIfPresent(key, (k, page) -> {
-      try {
-        page.incrementPinCount(trxId);
-      } catch (IllegalStateException e) {
-        // Page was closed - this can happen if eviction occurred between get and pin
-        // Return null to remove from cache (page is invalid)
-        LOGGER.debug("Attempted to pin closed page {} - removing from cache", key.getKey());
-        return null;
-      }
-      
-      // Return same instance to trigger weight recalculation
-      // Caffeine will call the weigher which checks pin count
-      return page;
-    });
-  }
+  // TODO: These methods will be replaced with guard-based lifecycle management
+  // public void unpinAndUpdateWeight(PageReference key, int trxId) - REMOVED
+  // public void pinAndUpdateWeight(PageReference key, int trxId) - REMOVED
 
   @Override
   public KeyValueLeafPage get(PageReference key) {
@@ -212,14 +158,7 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
   public String getDiagnostics() {
     long size = cache.estimatedSize();
     
-    long pinnedCount = cache.asMap().values().stream()
-                            .filter(p -> p.getPinCount() > 0)
-                            .count();
-    long unpinnedCount = size - pinnedCount;
-    
-    long totalPinCount = cache.asMap().values().stream()
-                               .mapToLong(KeyValueLeafPage::getPinCount)
-                               .sum();
+    // TODO: Update to track guard count instead of pin count
     
     long weightedSizeMB = -1;
     var policy = cache.policy().eviction();
@@ -227,8 +166,8 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
       weightedSizeMB = policy.get().weightedSize().orElse(-1L) / (1024 * 1024);
     }
     
-    return String.format("RecordPageFragmentCache: total=%d, pinned=%d, unpinned=%d, totalPinCount=%d, weightedSize=%dMB",
-                        size, pinnedCount, unpinnedCount, totalPinCount, weightedSizeMB);
+    return String.format("RecordPageFragmentCache: total=%d, guardCount=TODO, weightedSize=%dMB",
+                        size, weightedSizeMB);
   }
 
   /**

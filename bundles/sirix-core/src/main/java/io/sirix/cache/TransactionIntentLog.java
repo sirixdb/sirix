@@ -119,20 +119,6 @@ public final class TransactionIntentLog implements AutoCloseable {
     }
   }
 
-  /**
-   * Force-unpin all transactions from a page.
-   * Called before closing TIL pages to ensure pin counts don't prevent segment release.
-   */
-  private void forceUnpinAll(KeyValueLeafPage page) {
-    var pinsByTrx = new java.util.HashMap<>(page.getPinCountByTransaction());
-    for (var entry : pinsByTrx.entrySet()) {
-      int trxId = entry.getKey();
-      int pinCount = entry.getValue();
-      for (int i = 0; i < pinCount; i++) {
-        page.decrementPinCount(trxId);
-      }
-    }
-  }
 
   /**
    * Clears the cache.
@@ -160,6 +146,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     // CRITICAL: Must force-unpin before closing to release memory segments
     int totalContainers = list.size();
     int kvLeafContainers = 0;
+    int page0Count = 0;
     
     for (final PageContainer pageContainer : list) {
       Page complete = pageContainer.getComplete();
@@ -167,34 +154,45 @@ public final class TransactionIntentLog implements AutoCloseable {
       
       if (complete instanceof KeyValueLeafPage completePage) {
         kvLeafContainers++;
+        if (completePage.getPageKey() == 0) {
+          page0Count++;
+        }
         
+        // CRITICAL: Use forceCloseForTIL to atomically unpin all transactions and close
+        // TIL owns these pages exclusively - must close them regardless of pin count
+        completePage.forceCloseForTIL();
         if (!completePage.isClosed()) {
-          // CRITICAL: Pages in TIL were already removed from cache in TIL.put()
-          // We MUST close them here since they won't be closed by cache RemovalListener
-          forceUnpinAll(completePage);
-          completePage.close();
-          closedComplete++;
-        } else {
+          LOGGER.error("TIL.clear(): FAILED to close complete page {} ({}) rev={}",
+              completePage.getPageKey(), completePage.getIndexType(), completePage.getRevision());
           skippedAlreadyClosed++;
+        } else {
+          closedComplete++;
         }
       }
       
       // Check if modified is a different instance before closing
       if (modified instanceof KeyValueLeafPage modifiedPage && modified != complete) {
+        if (modifiedPage.getPageKey() == 0) {
+          page0Count++;
+        }
+        
+        // CRITICAL: Use forceCloseForTIL to atomically unpin all transactions and close
+        modifiedPage.forceCloseForTIL();
         if (!modifiedPage.isClosed()) {
-          // Same logic - pages in TIL must be closed here
-          forceUnpinAll(modifiedPage);
-          modifiedPage.close();
-          closedModified++;
-        } else {
+          LOGGER.error("TIL.clear(): FAILED to close modified page {} ({}) rev={}",
+              modifiedPage.getPageKey(), modifiedPage.getIndexType(), modifiedPage.getRevision());
           skippedAlreadyClosed++;
+        } else {
+          closedModified++;
         }
       }
     }
     list.clear();
     
-    LOGGER.debug("TIL.clear() processed {} containers ({} KeyValueLeafPages), closed {} complete + {} modified pages, skipped {} already closed",
-        totalContainers, kvLeafContainers, closedComplete, closedModified, skippedAlreadyClosed);
+    // Always log TIL cleanup to track Page 0 leaks
+    System.err.println("TIL.clear() processed " + totalContainers + " containers (" + kvLeafContainers + 
+        " KeyValueLeafPages, " + page0Count + " Page0s), closed " + closedComplete + " complete + " + 
+        closedModified + " modified pages, failed " + skippedAlreadyClosed + " closes");
   }
 
   /**
@@ -224,33 +222,52 @@ public final class TransactionIntentLog implements AutoCloseable {
     // CRITICAL: Must force-unpin before closing to release memory segments
     int closedComplete = 0;
     int closedModified = 0;
+    int page0Count = 0;
+    int failedCloses = 0;
     
     for (final PageContainer pageContainer : list) {
       Page completePage = pageContainer.getComplete();
       Page modifiedPage = pageContainer.getModified();
       
       if (completePage instanceof KeyValueLeafPage kvCompletePage) {
+        if (kvCompletePage.getPageKey() == 0) {
+          page0Count++;
+        }
+        
+        // CRITICAL: Use forceCloseForTIL to atomically unpin all transactions and close
+        // TIL owns these pages exclusively - must close them regardless of pin count
+        kvCompletePage.forceCloseForTIL();
         if (!kvCompletePage.isClosed()) {
-          forceUnpinAll(kvCompletePage);
-          kvCompletePage.close();
+          LOGGER.error("TIL.close(): FAILED to close complete page {} ({}) rev={}",
+              kvCompletePage.getPageKey(), kvCompletePage.getIndexType(), kvCompletePage.getRevision());
+          failedCloses++;
+        } else {
           closedComplete++;
         }
       }
       
       // Check if modified is a different instance before closing
       if (modifiedPage instanceof KeyValueLeafPage kvModifiedPage && modifiedPage != completePage) {
+        if (kvModifiedPage.getPageKey() == 0) {
+          page0Count++;
+        }
+        
+        // CRITICAL: Use forceCloseForTIL to atomically unpin all transactions and close
+        kvModifiedPage.forceCloseForTIL();
         if (!kvModifiedPage.isClosed()) {
-          forceUnpinAll(kvModifiedPage);
-          kvModifiedPage.close();
+          LOGGER.error("TIL.close(): FAILED to close modified page {} ({}) rev={}",
+              kvModifiedPage.getPageKey(), kvModifiedPage.getIndexType(), kvModifiedPage.getRevision());
+          failedCloses++;
+        } else {
           closedModified++;
         }
       }
     }
     
-    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      LOGGER.debug("TIL.close() closed {} complete + {} modified pages (from {} containers)", 
-          closedComplete, closedModified, initialSize);
-    }
+    // Always log TIL cleanup to track Page 0 leaks
+    System.err.println("TIL.close() processed " + initialSize + " containers (" + page0Count + 
+        " Page0s), closed " + closedComplete + " complete + " + closedModified + 
+        " modified pages, failed " + failedCloses + " closes");
     
     logKey = 0;
     list.clear();

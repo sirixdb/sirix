@@ -79,44 +79,15 @@ public final class BufferManagerImpl implements BufferManager {
 
   @Override
   public void clearAllCaches() {
-    // Force-unpin all pages before clearing (pin count leak fix)
-    // At this point all transactions should be closed, so any remaining pins are leaks
-    
-    // DIAGNOSTIC: Count pages in caches
-    int recordCacheSize = recordPageCache.asMap().size();
-    int fragmentCacheSize = recordPageFragmentCache.asMap().size();
-    int pageCacheSize = pageCache.asMap().size();
-    
-    // First pass: force-unpin all pinned pages
-    for (var entry : recordPageCache.asMap().entrySet()) {
-      var page = entry.getValue();
-      if (page.getPinCount() > 0) {
-        forceUnpinAll(page);
-      }
-    }
-    
-    for (var entry : recordPageFragmentCache.asMap().entrySet()) {
-      var page = entry.getValue();
-      if (page.getPinCount() > 0) {
-        forceUnpinAll(page);
-      }
-    }
-    
-    for (var entry : pageCache.asMap().entrySet()) {
-      if (entry.getValue() instanceof KeyValueLeafPage kvPage) {
-        if (kvPage.getPinCount() > 0) {
-          forceUnpinAll(kvPage);
-        }
-      }
-    }
+    // TODO: Update after implementing guard-based system
+    // Clear all caches - removal listeners will handle page cleanup
     
     if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
       LOGGER.debug("clearAllCaches(): RecordCache={}, FragmentCache={}, PageCache={}", 
-          recordCacheSize, fragmentCacheSize, pageCacheSize);
+          recordPageCache.asMap().size(), recordPageFragmentCache.asMap().size(), 
+          pageCache.asMap().size());
     }
     
-    // DON'T explicitly close pages - let the cache removal listener do it
-    // Explicitly closing leaves closed pages in cache which causes "assert !isClosed()" failures
     // Just clear the caches - removal listener will close pages
     pageCache.clear();
     recordPageCache.clear();
@@ -125,33 +96,6 @@ public final class BufferManagerImpl implements BufferManager {
     redBlackTreeNodeCache.clear();
     namesCache.clear();
     pathSummaryCache.clear();
-  }
-  
-  /**
-   * Force-unpin all transactions from a page.
-   * Used when clearing caches - at this point all transactions should be closed,
-   * so any remaining pins are leaks that need to be cleaned up.
-   */
-  private void forceUnpinAll(KeyValueLeafPage page) {
-    // CRITICAL FIX: Skip if page is already closed
-    if (page.isClosed()) {
-      return;  // Page is closed, no need to unpin
-    }
-    
-    var pinsByTrx = new java.util.HashMap<>(page.getPinCountByTransaction());
-    for (var entry : pinsByTrx.entrySet()) {
-      int trxId = entry.getKey();
-      int pinCount = entry.getValue();
-      for (int i = 0; i < pinCount; i++) {
-        page.decrementPinCount(trxId);
-      }
-    }
-    
-    // CRITICAL: Verify the page is actually unpinned
-    if (page.getPinCount() > 0) {
-      throw new IllegalStateException("Page " + page.getPageKey() + " still has pinCount=" + 
-          page.getPinCount() + " after force-unpin! Pins by trx: " + page.getPinCountByTransaction());
-    }
   }
   
   @Override
@@ -173,13 +117,7 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : recordKeysToRemove) {
-      // Use computeIfPresent for atomic force-unpin and removal
-      recordPageCache.asMap().computeIfPresent(key, (k, page) -> {
-        if (page.getPinCount() > 0) {
-          forceUnpinAll(page);
-        }
-        return null;  // Returning null removes the entry atomically
-      });
+      recordPageCache.remove(key);
       removedFromRecordCache++;
     }
     
@@ -191,12 +129,7 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : fragmentKeysToRemove) {
-      recordPageFragmentCache.asMap().computeIfPresent(key, (k, page) -> {
-        if (page.getPinCount() > 0) {
-          forceUnpinAll(page);
-        }
-        return null;  // Atomic removal
-      });
+      recordPageFragmentCache.remove(key);
       removedFromFragmentCache++;
     }
     
@@ -250,13 +183,7 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : recordKeysToRemove) {
-      // Use computeIfPresent for atomic force-unpin and removal
-      recordPageCache.asMap().computeIfPresent(key, (k, page) -> {
-        if (page.getPinCount() > 0) {
-          forceUnpinAll(page);
-        }
-        return null;  // Returning null removes the entry atomically
-      });
+      recordPageCache.remove(key);
       removedFromRecordCache++;
     }
     
@@ -269,12 +196,7 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : fragmentKeysToRemove) {
-      recordPageFragmentCache.asMap().computeIfPresent(key, (k, page) -> {
-        if (page.getPinCount() > 0) {
-          forceUnpinAll(page);
-        }
-        return null;  // Atomic removal
-      });
+      recordPageFragmentCache.remove(key);
       removedFromFragmentCache++;
     }
     

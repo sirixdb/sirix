@@ -90,13 +90,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     );
   
   /**
-   * Track pin counts per transaction ID (PostgreSQL PrivateRefCount pattern).
-   * Each transaction independently pins/unpins shared pages.
-   */
-  private final ConcurrentHashMap<Integer, AtomicInteger> pinCountByTrx = new ConcurrentHashMap<>();
-  private final AtomicInteger cachedTotalPinCount = new AtomicInteger(0);  // Cached sum for O(1) weigher
-
-  /**
    * DIAGNOSTIC: Stack trace of where this page was created (only captured when DEBUG_MEMORY_LEAKS=true).
    * Used to trace where leaked pages come from.
    */
@@ -327,59 +320,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     } else {
       this.creationStackTrace = null;
     }
-  }
-
-  @Override
-  public synchronized void incrementPinCount(int trxId) {
-    // CRITICAL: synchronized to make isClosed check atomic with pin count modification
-    // Without this, a page could be closed between the check and the increment, leading to
-    // pinned closed pages that leak memory segments
-    if (isClosed) {
-      throw new IllegalStateException("Cannot pin closed page " + recordPageKey + " type=" + indexType + " rev=" + revision);
-    }
-    pinCountByTrx.computeIfAbsent(trxId, _ -> new AtomicInteger(0)).incrementAndGet();
-    cachedTotalPinCount.incrementAndGet();  // O(1) cache update
-  }
-
-  @Override
-  public synchronized void decrementPinCount(int trxId) {
-    // CRITICAL: synchronized to make isClosed check atomic with pin count modification
-    // Also prevents race where two threads try to unpin the same transaction simultaneously
-    if (isClosed) {
-      // Page already closed - pin count is already 0, this is a no-op
-      // This can happen if cache eviction closed the page before transaction unpinned it
-      return;
-    }
-    var counter = pinCountByTrx.get(trxId);
-    if (counter == null) {
-      // Transaction never pinned this page, or already unpinned it
-      // This can happen in race conditions where multiple threads try to unpin
-      return;
-    }
-    int newCount = counter.decrementAndGet();
-    if (newCount < 0) {
-      throw new IllegalStateException("Pin count for trx " + trxId + " went negative on page " + recordPageKey);
-    }
-    cachedTotalPinCount.decrementAndGet();  // O(1) cache update
-    
-    if (newCount == 0) {
-      pinCountByTrx.remove(trxId);  // Cleanup when transaction done with this page
-    }
-  }
-
-  @Override
-  public int getPinCount() {
-    // Cached total - O(1) for Caffeine weigher (hot path!)
-    return cachedTotalPinCount.get();
-  }
-  
-  /**
-   * Get pin count breakdown per transaction for diagnostics.
-   * @return Map of transaction ID to pin count
-   */
-  public Map<Integer, Integer> getPinCountByTransaction() {
-    return pinCountByTrx.entrySet().stream()
-        .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().get()));
   }
 
   // Update the last slot index after setting a slot.
@@ -1117,22 +1057,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public synchronized void close() {
     // CRITICAL: synchronized to prevent race with incrementPinCount/decrementPinCount
-    // Without this, a thread could pin a page that's being closed, leading to memory leaks
+    // TODO: Check guard count before closing to prevent closing guarded pages
     if (!isClosed) {
-      // CRITICAL: Check pin count before closing to prevent closing pinned pages
-      int currentPinCount = getPinCount();
-      if (currentPinCount > 0) {
-        // Page is still pinned - cannot close yet
-        // This can happen if cache eviction tries to close a page that's still in use
-        LOGGER.warn("Attempted to close pinned page {} ({}) rev={} with pinCount={} - skipping close",
-            recordPageKey, indexType, revision, currentPinCount);
-        return;
-      }
+      // int currentPinCount = getPinCount();  // REMOVED
+      // Guard count check will be added here later
       
       if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
         boolean wasInLivePages = ALL_LIVE_PAGES.contains(this);
         System.err.println("[CLOSE] Page 0 (" + indexType + ") rev=" + revision + " instance=" + System.identityHashCode(this) + 
-            " wasInLivePages=" + wasInLivePages + " pinCount=" + currentPinCount);
+            " wasInLivePages=" + wasInLivePages);
       }
       
       isClosed = true;

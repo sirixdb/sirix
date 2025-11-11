@@ -12,7 +12,11 @@ import java.util.concurrent.ConcurrentMap;
 /**
  * Diagnostic utility to analyze pin count distribution and memory usage across cached pages.
  * Used to identify memory leaks caused by pinning bugs vs cache eviction bugs.
+ * 
+ * @deprecated Will be replaced with GuardUsageDiagnostics
+ * TODO: Remove this class after guard-based system is implemented
  */
+@Deprecated
 public class PinCountDiagnostics {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(PinCountDiagnostics.class);

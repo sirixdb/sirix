@@ -40,12 +40,6 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
    */
   MemorySegment deweyIds();
 
-  void incrementPinCount(int trxId);
-
-  void decrementPinCount(int trxId);
-
-  int getPinCount();
-
   /**
    * Get the unique page record identifier.
    *

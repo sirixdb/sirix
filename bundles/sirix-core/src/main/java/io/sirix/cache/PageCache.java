@@ -26,7 +26,7 @@ public final class PageCache implements Cache<PageReference, Page> {
       assert page != null;
 
       if (page instanceof KeyValueLeafPage keyValueLeafPage) {
-        assert keyValueLeafPage.getPinCount() == 0 : "Page must not be pinned: " + keyValueLeafPage.getPinCount();
+        // TODO: Will be replaced with version-based eviction logic
         
         // Page handles its own cleanup
         LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}", 
@@ -40,18 +40,14 @@ public final class PageCache implements Cache<PageReference, Page> {
                     .maximumWeight(maxWeight)
                     .weigher((PageReference _, Page value) -> {
                       if (value instanceof KeyValueLeafPage keyValueLeafPage) {
-                        if (keyValueLeafPage.getPinCount() > 0) {
-                          return 0; // Pinned pages have zero weight (won't be evicted)
-                        } else {
-                          // Use actual memory segment sizes for accurate tracking
-                          return (int) keyValueLeafPage.getActualMemorySize();
-                        }
+                        // TODO: Will be replaced with custom sharded cache
+                        return (int) keyValueLeafPage.getActualMemorySize();
                       } else {
                         return 1000; // Other page types use fixed weight
                       }
                     })
-                    .removalListener(removalListener) // FIXED: Use removalListener for ALL removals
-                    .recordStats() // Enable statistics for diagnostics
+                    .removalListener(removalListener)
+                    .recordStats()
                     .build();
   }
 
@@ -135,9 +131,7 @@ public final class PageCache implements Cache<PageReference, Page> {
     com.github.benmanes.caffeine.cache.stats.CacheStats caffeineStats = cache.stats();
     
     int totalPages = 0;
-    int pinnedPages = 0;
     long totalWeight = 0;
-    long pinnedWeight = 0;
     
     for (Page page : cache.asMap().values()) {
       if (page instanceof KeyValueLeafPage kvPage) {
@@ -145,20 +139,22 @@ public final class PageCache implements Cache<PageReference, Page> {
         long weight = kvPage.getActualMemorySize();
         totalWeight += weight;
         
-        if (kvPage.getPinCount() > 0) {
-          pinnedPages++;
-          pinnedWeight += weight;
-        }
+        // TODO: Update to track guard count
+        // if (kvPage.getPinCount() > 0) {  // REMOVED
+        //   pinnedPages++;
+        //   pinnedWeight += weight;
+        // }
       }
     }
     
+    // TODO: Update statistics after implementing guard-based system
     return new CacheStatistics(
         totalPages,
-        pinnedPages,
-        totalPages - pinnedPages,
+        0, // pinnedPages
+        totalPages,
         totalWeight,
-        pinnedWeight,
-        totalWeight - pinnedWeight,
+        0, // pinnedWeight
+        totalWeight,
         caffeineStats.hitCount(),
         caffeineStats.missCount(),
         caffeineStats.evictionCount()
