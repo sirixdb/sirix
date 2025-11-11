@@ -450,7 +450,8 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
       for (var page : pages) {
-        assert page.getPinCount() > 0;
+        // TODO: Add guard assertion here
+        // assert page.getPinCount() > 0;  // REMOVED
       }
       assert pages.size() <= revToRestore;
       final T firstPage = pages.getFirst();

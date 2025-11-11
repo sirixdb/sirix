@@ -158,9 +158,8 @@ public final class TransactionIntentLog implements AutoCloseable {
           page0Count++;
         }
         
-        // CRITICAL: Use forceCloseForTIL to atomically unpin all transactions and close
-        // TIL owns these pages exclusively - must close them regardless of pin count
-        completePage.forceCloseForTIL();
+        // TIL owns these pages exclusively - must close them
+        completePage.close();
         if (!completePage.isClosed()) {
           LOGGER.error("TIL.clear(): FAILED to close complete page {} ({}) rev={}",
               completePage.getPageKey(), completePage.getIndexType(), completePage.getRevision());
@@ -176,8 +175,8 @@ public final class TransactionIntentLog implements AutoCloseable {
           page0Count++;
         }
         
-        // CRITICAL: Use forceCloseForTIL to atomically unpin all transactions and close
-        modifiedPage.forceCloseForTIL();
+        // TIL owns these pages exclusively - must close them
+        modifiedPage.close();
         if (!modifiedPage.isClosed()) {
           LOGGER.error("TIL.clear(): FAILED to close modified page {} ({}) rev={}",
               modifiedPage.getPageKey(), modifiedPage.getIndexType(), modifiedPage.getRevision());
@@ -236,7 +235,7 @@ public final class TransactionIntentLog implements AutoCloseable {
         
         // CRITICAL: Use forceCloseForTIL to atomically unpin all transactions and close
         // TIL owns these pages exclusively - must close them regardless of pin count
-        kvCompletePage.forceCloseForTIL();
+        kvCompletePage.close();
         if (!kvCompletePage.isClosed()) {
           LOGGER.error("TIL.close(): FAILED to close complete page {} ({}) rev={}",
               kvCompletePage.getPageKey(), kvCompletePage.getIndexType(), kvCompletePage.getRevision());
@@ -253,7 +252,7 @@ public final class TransactionIntentLog implements AutoCloseable {
         }
         
         // CRITICAL: Use forceCloseForTIL to atomically unpin all transactions and close
-        kvModifiedPage.forceCloseForTIL();
+        kvModifiedPage.close();
         if (!kvModifiedPage.isClosed()) {
           LOGGER.error("TIL.close(): FAILED to close modified page {} ({}) rev={}",
               kvModifiedPage.getPageKey(), kvModifiedPage.getIndexType(), kvModifiedPage.getRevision());

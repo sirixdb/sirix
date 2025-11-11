@@ -192,8 +192,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
               if (false) {  // TODO: check guardCount
                 System.err.println("  Page " + page.getPageKey() + 
                                    " (" + page.getIndexType() + ")" +
-                                   " revision=" + page.getRevision() +
-                                   " pinned by transactions: " + page.getPinCountByTransaction());
+                                   " revision=" + page.getRevision());
+                                   // " pinned by transactions: " + page.getPinCountByTransaction());  // REMOVED
               }
             }
           }

@@ -108,56 +108,31 @@ public class PinCountDiagnostics {
   
   /**
    * Scan a cache and generate diagnostic report.
+   * @deprecated Pin counts removed, use guard counts instead
    */
+  @Deprecated
   public static DiagnosticReport scanCache(Cache<PageReference, ? extends Page> cache) {
     ConcurrentMap<PageReference, ? extends Page> map = cache.asMap();
     
     int totalPages = 0;
-    int pinnedPages = 0;
-    int unpinnedPages = 0;
     long totalMemoryBytes = 0;
-    long pinnedMemoryBytes = 0;
-    long unpinnedMemoryBytes = 0;
-    Map<Integer, Integer> pinCountDistribution = new HashMap<>();
-    List<PagePinInfo> pagesWithPins = new ArrayList<>();
     
     for (Map.Entry<PageReference, ? extends Page> entry : map.entrySet()) {
       Page page = entry.getValue();
       if (!(page instanceof KeyValueLeafPage kvPage)) {
-        continue; // Only analyze KeyValueLeafPages
+        continue;
       }
       
       totalPages++;
-      int pinCount = kvPage.getPinCount();
       long memoryBytes = kvPage.getActualMemorySize();
-      
       totalMemoryBytes += memoryBytes;
-      
-      if (pinCount > 0) {
-        pinnedPages++;
-        pinnedMemoryBytes += memoryBytes;
-        
-        Map<Integer, Integer> pinsByTrx = kvPage.getPinCountByTransaction();
-        pagesWithPins.add(new PagePinInfo(
-            kvPage.getPageKey(),
-            kvPage.getRevision(),
-            kvPage.getIndexType() != null ? kvPage.getIndexType().toString() : "UNKNOWN",
-            pinCount,
-            memoryBytes,
-            pinsByTrx
-        ));
-      } else {
-        unpinnedPages++;
-        unpinnedMemoryBytes += memoryBytes;
-      }
-      
-      pinCountDistribution.merge(pinCount, 1, Integer::sum);
     }
     
+    // TODO: Update to track guard counts instead of pin counts
     return new DiagnosticReport(
-        totalPages, pinnedPages, unpinnedPages,
-        totalMemoryBytes, pinnedMemoryBytes, unpinnedMemoryBytes,
-        pinCountDistribution, pagesWithPins
+        totalPages, 0, totalPages,
+        totalMemoryBytes, 0, totalMemoryBytes,
+        new HashMap<>(), new ArrayList<>()
     );
   }
   
@@ -203,69 +178,19 @@ public class PinCountDiagnostics {
   
   /**
    * Check for leaked pins when a transaction closes.
-   * Returns list of pages that this transaction still has pinned.
+   * @deprecated Pin counts removed, use guard counts instead
    */
+  @Deprecated
   public static List<PagePinInfo> checkTransactionPins(BufferManager bufferManager, int trxId) {
-    List<PagePinInfo> leakedPins = new ArrayList<>();
-    
-    for (Page page : bufferManager.getRecordPageCache().asMap().values()) {
-      if (page instanceof KeyValueLeafPage kvPage) {
-        Map<Integer, Integer> pinsByTrx = kvPage.getPinCountByTransaction();
-        Integer pinCount = pinsByTrx.get(trxId);
-        if (pinCount != null && pinCount > 0) {
-          leakedPins.add(new PagePinInfo(
-              kvPage.getPageKey(),
-              kvPage.getRevision(),
-              kvPage.getIndexType() != null ? kvPage.getIndexType().toString() : "UNKNOWN",
-              pinCount,
-              kvPage.getActualMemorySize(),
-              Map.of(trxId, pinCount)
-          ));
-        }
-      }
-    }
-    
-    for (Page page : bufferManager.getRecordPageFragmentCache().asMap().values()) {
-      if (page instanceof KeyValueLeafPage kvPage) {
-        Map<Integer, Integer> pinsByTrx = kvPage.getPinCountByTransaction();
-        Integer pinCount = pinsByTrx.get(trxId);
-        if (pinCount != null && pinCount > 0) {
-          leakedPins.add(new PagePinInfo(
-              kvPage.getPageKey(),
-              kvPage.getRevision(),
-              kvPage.getIndexType() != null ? kvPage.getIndexType().toString() : "FRAGMENT",
-              pinCount,
-              kvPage.getActualMemorySize(),
-              Map.of(trxId, pinCount)
-          ));
-        }
-      }
-    }
-    
-    // CRITICAL: Also check PageCache!
-    for (Page page : bufferManager.getPageCache().asMap().values()) {
-      if (page instanceof KeyValueLeafPage kvPage) {
-        Map<Integer, Integer> pinsByTrx = kvPage.getPinCountByTransaction();
-        Integer pinCount = pinsByTrx.get(trxId);
-        if (pinCount != null && pinCount > 0) {
-          leakedPins.add(new PagePinInfo(
-              kvPage.getPageKey(),
-              kvPage.getRevision(),
-              kvPage.getIndexType() != null ? kvPage.getIndexType().toString() : "PAGE_CACHE",
-              pinCount,
-              kvPage.getActualMemorySize(),
-              Map.of(trxId, pinCount)
-          ));
-        }
-      }
-    }
-    
-    return leakedPins;
+    // TODO: Update to check for leaked guards instead
+    return new ArrayList<>();
   }
   
   /**
    * Warn if transaction is closing with pinned pages.
+   * @deprecated Pin counts removed, use guard counts instead
    */
+  @Deprecated
   public static void warnOnTransactionClose(BufferManager bufferManager, int trxId) {
     if (!Boolean.getBoolean("sirix.debug.pin.counts")) {
       return;
