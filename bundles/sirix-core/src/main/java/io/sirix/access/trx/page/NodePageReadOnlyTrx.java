@@ -137,6 +137,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private final io.sirix.access.trx.RevisionEpochTracker.Ticket epochTicket;
 
   /**
+   * Current page guard (holds page while cursor is on it).
+   * Guard is released when cursor moves to a different page.
+   */
+  private PageGuard currentPageGuard;
+
+  /**
    * Cached name page of this revision.
    */
   private final RevisionRootPage rootPage;
@@ -1258,12 +1264,29 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   /**
+   * Close the current page guard if one is active.
+   * Should be called before fetching a different page or when transaction closes.
+   */
+  private void closeCurrentPageGuard() {
+    if (currentPageGuard != null && !currentPageGuard.isClosed()) {
+      try {
+        currentPageGuard.close();
+      } catch (FrameReusedException e) {
+        // Page was evicted and reused - this is fine, we're done with it anyway
+        LOGGER.debug("Page frame was reused while closing guard (expected): {}", e.getMessage());
+      }
+      currentPageGuard = null;
+    }
+  }
+
+  /**
    * TODO: Will be replaced with guard cleanup logic.
    * Clean up any resources held by this transaction.
    */
   private void unpinAllPagesForTransaction(int transactionId) {
     // TODO: Implement guard release logic here
-    // For now, this is a no-op - pages will be managed by guards later
+    // For now, close any active page guard
+    closeCurrentPageGuard();
   }
 
   @Override
