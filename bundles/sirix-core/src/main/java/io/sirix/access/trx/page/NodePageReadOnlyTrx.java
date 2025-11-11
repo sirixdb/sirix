@@ -131,6 +131,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private final long resourceId;
 
   /**
+   * Epoch tracker ticket for this transaction (for MVCC-aware eviction).
+   * Registered when transaction opens, deregistered when it closes.
+   */
+  private final io.sirix.access.trx.RevisionEpochTracker.Ticket epochTicket;
+
+  /**
    * Cached name page of this revision.
    */
   private final RevisionRootPage rootPage;
@@ -190,6 +196,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     revisionNumber = revision;
     rootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
     namePage = revisionRootPageReader.getNamePage(this, rootPage);
+    
+    // Register with epoch tracker for MVCC-aware eviction
+    this.epochTicket = resourceSession.getRevisionEpochTracker().register(revision);
   }
 
   private Page loadPage(final PageReference reference) {
@@ -1260,6 +1269,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   @Override
   public void close() {
     if (!isClosed) {
+      // Deregister from epoch tracker (allow eviction of pages from this revision)
+      resourceSession.getRevisionEpochTracker().deregister(epochTicket);
+      
       if (trxIntentLog == null) {
         pageReader.close();
       }

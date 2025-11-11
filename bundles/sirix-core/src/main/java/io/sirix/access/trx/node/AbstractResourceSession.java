@@ -11,6 +11,7 @@ import io.sirix.access.trx.page.NodePageReadOnlyTrx;
 import io.sirix.access.trx.page.PageTrxFactory;
 import io.sirix.access.trx.page.PageTrxReadOnlyFactory;
 import io.sirix.access.trx.page.RevisionRootPageReader;
+import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.api.*;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeTrx;
@@ -123,6 +124,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   final BufferManager bufferManager;
 
   /**
+   * Tracks the minimum active revision for MVCC-aware page eviction.
+   * Pages can only be evicted when their revision < minActiveRevision.
+   */
+  final RevisionEpochTracker revisionEpochTracker;
+
+  /**
    * The resource store with which this manager has been created.
    */
   final ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore;
@@ -178,6 +185,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     lastCommittedUberPage = new AtomicReference<>(uberPage);
     this.user = user;
     pool = new AtomicReference<>();
+    
+    // Initialize revision epoch tracker (128 slots = supports up to 128 concurrent transactions)
+    this.revisionEpochTracker = new RevisionEpochTracker(128);
+    this.revisionEpochTracker.setLastCommittedRevision(uberPage.getRevisionNumber());
 
     isClosed = false;
   }
@@ -673,6 +684,15 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertNotClosed();
 
     return resourceConfig;
+  }
+
+  /**
+   * Get the revision epoch tracker for this resource session.
+   *
+   * @return the revision epoch tracker
+   */
+  public RevisionEpochTracker getRevisionEpochTracker() {
+    return revisionEpochTracker;
   }
 
   @Override
