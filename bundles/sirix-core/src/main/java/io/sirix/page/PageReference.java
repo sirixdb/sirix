@@ -30,6 +30,7 @@ import io.sirix.settings.Constants;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * <p>
@@ -61,6 +62,12 @@ public final class PageReference {
   private List<PageFragmentKey> pageFragments;
 
   private int hash;
+
+  /**
+   * Guard count tracks active PageGuards referencing this page.
+   * Pages can only be evicted when guardCount == 0.
+   */
+  private final AtomicInteger guardCount = new AtomicInteger(0);
 
   /**
    * Default constructor setting up an uninitialized page reference.
@@ -251,5 +258,34 @@ public final class PageReference {
 
   public byte[] getHash() {
     return hashInBytes;
+  }
+
+  /**
+   * Acquire a guard on this page reference.
+   * Increments the guard count to indicate an active guard is holding this page.
+   */
+  public void acquireGuard() {
+    guardCount.incrementAndGet();
+  }
+
+  /**
+   * Release a guard on this page reference.
+   * Decrements the guard count when a PageGuard is closed.
+   */
+  public void releaseGuard() {
+    int newCount = guardCount.decrementAndGet();
+    if (newCount < 0) {
+      throw new IllegalStateException("Guard count underflow for page reference");
+    }
+  }
+
+  /**
+   * Get the current guard count.
+   * Used by eviction logic to check if page can be safely evicted.
+   *
+   * @return current number of active guards
+   */
+  public int getGuardCount() {
+    return guardCount.get();
   }
 }
