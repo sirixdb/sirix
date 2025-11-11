@@ -33,12 +33,15 @@ public final class ClockSweeper implements Runnable {
   private final AtomicBoolean running = new AtomicBoolean(true);
   private final int sweepIntervalMs;
   private final int shardIndex;
+  private final long databaseId;
+  private final long resourceId;
 
   // Metrics
   private final AtomicLong pagesEvicted = new AtomicLong(0);
   private final AtomicLong pagesSkippedByHot = new AtomicLong(0);
   private final AtomicLong pagesSkippedByWatermark = new AtomicLong(0);
   private final AtomicLong pagesSkippedByGuard = new AtomicLong(0);
+  private final AtomicLong pagesSkippedByOwnership = new AtomicLong(0);
 
   /**
    * Create a new clock sweeper for a shard.
@@ -47,13 +50,17 @@ public final class ClockSweeper implements Runnable {
    * @param epochTracker the epoch tracker for revision watermark
    * @param sweepIntervalMs how often to sweep (milliseconds)
    * @param shardIndex index of this shard (for logging)
+   * @param databaseId database ID to filter pages
+   * @param resourceId resource ID to filter pages
    */
   public ClockSweeper(ShardedPageCache.Shard shard, RevisionEpochTracker epochTracker,
-                      int sweepIntervalMs, int shardIndex) {
+                      int sweepIntervalMs, int shardIndex, long databaseId, long resourceId) {
     this.shard = shard;
     this.epochTracker = epochTracker;
     this.sweepIntervalMs = sweepIntervalMs;
     this.shardIndex = shardIndex;
+    this.databaseId = databaseId;
+    this.resourceId = resourceId;
   }
 
   /**
@@ -106,6 +113,14 @@ public final class ClockSweeper implements Runnable {
       
       for (int i = 0; i < pagesToScan && i < keys.size(); i++) {
         PageReference ref = keys.get(shard.clockHand);
+        
+        // Only evict pages belonging to this resource
+        if (ref.getDatabaseId() != databaseId || ref.getResourceId() != resourceId) {
+          shard.clockHand = (shard.clockHand + 1) % Math.max(1, keys.size());
+          pagesSkippedByOwnership.incrementAndGet();
+          continue;
+        }
+        
         KeyValueLeafPage page = shard.map.get(ref);
 
         if (page == null) {
@@ -161,9 +176,9 @@ public final class ClockSweeper implements Runnable {
    * @return diagnostic string
    */
   public String getStatistics() {
-    return String.format("ClockSweeper[%d]: evicted=%d, skipped(hot=%d, watermark=%d, guard=%d)",
-        shardIndex, pagesEvicted.get(), pagesSkippedByHot.get(),
-        pagesSkippedByWatermark.get(), pagesSkippedByGuard.get());
+    return String.format("ClockSweeper[db=%d,res=%d,shard=%d]: evicted=%d, skipped(hot=%d, watermark=%d, guard=%d, ownership=%d)",
+        databaseId, resourceId, shardIndex, pagesEvicted.get(), pagesSkippedByHot.get(),
+        pagesSkippedByWatermark.get(), pagesSkippedByGuard.get(), pagesSkippedByOwnership.get());
   }
 }
 

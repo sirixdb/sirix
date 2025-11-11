@@ -130,6 +130,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   final RevisionEpochTracker revisionEpochTracker;
 
   /**
+   * Clock sweeper threads for background page eviction.
+   * TODO: Will be started once we switch to ShardedPageCache
+   */
+  // private final List<Thread> clockSweeperThreads;
+  // private final List<io.sirix.cache.ClockSweeper> clockSweepers;
+
+  /**
    * The resource store with which this manager has been created.
    */
   final ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore;
@@ -189,6 +196,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // Initialize revision epoch tracker (128 slots = supports up to 128 concurrent transactions)
     this.revisionEpochTracker = new RevisionEpochTracker(128);
     this.revisionEpochTracker.setLastCommittedRevision(uberPage.getRevisionNumber());
+
+    // TODO: Start ClockSweeper threads once we switch caches to ShardedPageCache
+    // this.clockSweeperThreads = new ArrayList<>();
+    // this.clockSweepers = new ArrayList<>();
 
     isClosed = false;
   }
