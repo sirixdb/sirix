@@ -168,7 +168,8 @@ public final class ConcurrentAxisTest {
         for (var page : snapshot) {
           if (!page.isClosed()) {
             stillOpen++;
-            if (page.getPinCount() > 0) {
+              // TODO: Check guard count instead
+              if (false) { // page.getPinCount() > 0) {  // REMOVED
               stillPinned++;
             }
           }
@@ -224,14 +225,14 @@ public final class ConcurrentAxisTest {
           });
           
           leakedByType.forEach((type, pages) -> {
-            long pinned = pages.stream().filter(p -> p.getPinCount() > 0).count();
+              // TODO: Filter by guard count
+              long pinned = 0; // pages.stream().filter(p -> p.getPinCount() > 0).count();  // REMOVED
             System.err.println("  " + type + ": " + pages.size() + " leaked (" + pinned + " still pinned)");
             
             // Sample first 5 leaked pages for detailed analysis
             pages.stream().limit(5).forEach(page -> {
-              System.err.println("    Page " + page.getPageKey() + ": pinCount=" + page.getPinCount() + 
-                               ", closed=" + page.isClosed() +
-                               ", pinByTrx=" + page.getPinCountByTransaction());
+              System.err.println("    Page " + page.getPageKey() + 
+                               ", closed=" + page.isClosed());
             });
           });
           

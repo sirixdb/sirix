@@ -105,9 +105,7 @@ public class NamePage0LeakTest {
           .filter(p -> p.getPageKey() == 0)
           .filter(p -> p.getIndexType() == io.sirix.index.IndexType.NAME)
           .forEach(p -> System.err.println("  Page 0 NAME (rev " + p.getRevision() + 
-                                          "): pinCount=" + p.getPinCount() +
-                                          ", closed=" + p.isClosed() +
-                                          ", pinByTrx=" + p.getPinCountByTransaction()));
+                                            ", closed=" + p.isClosed() + ")"));
     } catch (Exception ex) {
       System.err.println("(Cache analysis skipped - transaction closed)");
     }
