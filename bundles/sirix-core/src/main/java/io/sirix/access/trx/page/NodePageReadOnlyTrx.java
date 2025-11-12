@@ -475,6 +475,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && isMostRecentlyReadPathSummaryPage(indexLogKey)) {
       var page = pathSummaryRecordPage.page();
       assert !page.isClosed();
+      
+      // Acquire guard for PATH_SUMMARY page
+      if (currentPageGuard == null || currentPageGuard.page() != page) {
+        closeCurrentPageGuard();
+        currentPageGuard = new PageGuard(pathSummaryRecordPage.pageReference, page);
+      }
+      
       return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
     }
 
@@ -491,6 +498,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), null);
         cachedPage = null;
       } else {
+        // Acquire guard for cached page
+        if (currentPageGuard == null || currentPageGuard.page() != page) {
+          closeCurrentPageGuard();
+          currentPageGuard = new PageGuard(cachedPage.pageReference, page);
+        }
         return new PageReferenceToPage(cachedPage.pageReference, page);
       }
     }
@@ -731,6 +743,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     if (recordPageFromBuffer != null) {
       pageReferenceToRecordPage.setPage(recordPageFromBuffer);
       assert !recordPageFromBuffer.isClosed();
+      
+      // Acquire guard if this is a different page
+      if (currentPageGuard == null || currentPageGuard.page() != recordPageFromBuffer) {
+        closeCurrentPageGuard();
+        currentPageGuard = new PageGuard(pageReferenceToRecordPage, recordPageFromBuffer);
+      }
+      
       return recordPageFromBuffer;
     }
 
@@ -969,9 +988,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
               "[PATH_SUMMARY-SWIZZLED] Found swizzled page: " + "pageKey=" + kvLeafPage.getPageKey() + ", revision="
                   + kvLeafPage.getRevision());
         }
-        // CRITICAL: Use pinAndUpdateWeight to atomically pin and update weight
-        // TODO: Acquire guard here
-        // kvLeafPage.incrementPinCount(trxId);  // REMOVED
+        
+        // Acquire guard for swizzled page
+        if (currentPageGuard == null || currentPageGuard.page() != kvLeafPage) {
+          closeCurrentPageGuard();
+          currentPageGuard = new PageGuard(pageReferenceToRecordPage, kvLeafPage);
+        }
       }
       return page;
     }
