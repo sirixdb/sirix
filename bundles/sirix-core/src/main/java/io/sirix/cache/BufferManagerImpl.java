@@ -12,35 +12,40 @@ public final class BufferManagerImpl implements BufferManager {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(BufferManagerImpl.class);
 
-  private final PageCache pageCache;
-
-  private final RecordPageCache recordPageCache;
-
-  private final RecordPageFragmentCache recordPageFragmentCache;
+  // Use ShardedPageCache instead of Caffeine for direct eviction control
+  private final ShardedPageCache recordPageCache;
+  private final ShardedPageCache recordPageFragmentCache;
+  private final ShardedPageCache pageCache;
 
   private final RevisionRootPageCache revisionRootPageCache;
-
   private final RedBlackTreeNodeCache redBlackTreeNodeCache;
-
   private final NamesCache namesCache;
-
   private final PathSummaryCache pathSummaryCache;
 
   public BufferManagerImpl(int maxPageCachWeight, int maxRecordPageCacheWeight,
       int maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxRBTreeNodeCache, 
       int maxNamesCacheSize, int maxPathSummaryCacheSize) {
-    pageCache = new PageCache(maxPageCachWeight);
-    recordPageCache = new RecordPageCache(maxRecordPageCacheWeight);
-    recordPageFragmentCache = new RecordPageFragmentCache(maxRecordPageFragmentCacheWeight);
+    // Use ShardedPageCache with 64 shards for multi-core scalability
+    // TODO: Eviction based on memory limits will be handled by ClockSweeper
+    int shardCount = 64;
+    recordPageCache = new ShardedPageCache(shardCount);
+    recordPageFragmentCache = new ShardedPageCache(shardCount);
+    pageCache = new ShardedPageCache(shardCount);
+    
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
     namesCache = new NamesCache(maxNamesCacheSize);
     pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
+    
+    LOGGER.info("BufferManagerImpl initialized with ShardedPageCache (shards={})", shardCount);
   }
 
   @Override
   public Cache<PageReference, Page> getPageCache() {
-    return pageCache;
+    // Cast is safe - ShardedPageCache stores KeyValueLeafPages which are Pages
+    @SuppressWarnings("unchecked")
+    Cache<PageReference, Page> cache = (Cache<PageReference, Page>) (Cache<?, ?>) pageCache;
+    return cache;
   }
 
   @Override
