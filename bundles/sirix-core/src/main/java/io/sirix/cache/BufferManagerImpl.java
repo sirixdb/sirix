@@ -14,7 +14,7 @@ public final class BufferManagerImpl implements BufferManager {
 
   // Use ShardedPageCache for KeyValueLeafPage caches (direct eviction control)
   private final ShardedPageCache recordPageCache;
-  private final Cache<PageReference, KeyValueLeafPage> recordPageFragmentCache;
+  private final ShardedPageCache recordPageFragmentCache;
   
   // Keep Caffeine PageCache for mixed page types (NamePage, RevisionRootPage, etc.)
   private final PageCache pageCache;
@@ -27,11 +27,9 @@ public final class BufferManagerImpl implements BufferManager {
   public BufferManagerImpl(int maxPageCachWeight, int maxRecordPageCacheWeight,
       int maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxRBTreeNodeCache, 
       int maxNamesCacheSize, int maxPathSummaryCacheSize) {
-    // Use ShardedPageCache with 64 shards for KeyValueLeafPage caches (multi-core scalability)
-    int shardCount = 64;
-    recordPageCache = new ShardedPageCache(shardCount);
-    // TEMPORARILY use Caffeine for fragment cache to match working branch behavior
-    recordPageFragmentCache = new RecordPageFragmentCache(maxRecordPageFragmentCacheWeight);
+    // Use simplified ShardedPageCache (single HashMap) for KeyValueLeafPage caches
+    recordPageCache = new ShardedPageCache(1);  // Simplified: no actual sharding
+    recordPageFragmentCache = new ShardedPageCache(1);
     
     // Keep Caffeine PageCache for mixed page types (NamePage, UberPage, etc.)
     pageCache = new PageCache(maxPageCachWeight);
@@ -41,8 +39,8 @@ public final class BufferManagerImpl implements BufferManager {
     namesCache = new NamesCache(maxNamesCacheSize);
     pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
     
-    LOGGER.info("BufferManagerImpl initialized: ShardedPageCache (shards={}) for record/fragment caches, " +
-                "Caffeine PageCache for mixed page types", shardCount);
+    LOGGER.info("BufferManagerImpl initialized: ShardedPageCache (simplified) for record/fragment caches, " +
+                "Caffeine PageCache for mixed page types");
   }
 
   @Override

@@ -214,52 +214,41 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     long resourceId = resourceConfig.getID();
     int sweepIntervalMs = 100; // Sweep every 100ms
 
-    // Only start sweepers if we're using ShardedPageCache
+    // Start ClockSweeper for RecordPageCache (simplified: single thread)
     if (bufferManager.getRecordPageCache() instanceof io.sirix.cache.ShardedPageCache recordCache) {
-      int shardCount = recordCache.getShardCount();
+      io.sirix.cache.ShardedPageCache.Shard shard = recordCache.getShard(
+          new io.sirix.page.PageReference().setDatabaseId(databaseId).setResourceId(resourceId));
       
-      for (int shardIndex = 0; shardIndex < shardCount; shardIndex++) {
-        io.sirix.cache.ShardedPageCache.Shard shard = recordCache.getShard(
-            new io.sirix.page.PageReference().setDatabaseId(databaseId).setResourceId(resourceId).setKey(shardIndex));
-        
-        io.sirix.cache.ClockSweeper sweeper = new io.sirix.cache.ClockSweeper(
-            shard, revisionEpochTracker, sweepIntervalMs, shardIndex, databaseId, resourceId);
-        
-        Thread thread = new Thread(sweeper, "ClockSweeper-RecordPage-" + databaseId + "-" + resourceId + "-" + shardIndex);
-        thread.setDaemon(true);
-        thread.start();
-        
-        clockSweepers.add(sweeper);
-        clockSweeperThreads.add(thread);
-      }
+      io.sirix.cache.ClockSweeper sweeper = new io.sirix.cache.ClockSweeper(
+          shard, revisionEpochTracker, sweepIntervalMs, 0, databaseId, resourceId);
       
-      LOGGER.info("Started {} ClockSweeper threads for RecordPageCache (db={}, res={})", 
-          shardCount, databaseId, resourceId);
+      Thread thread = new Thread(sweeper, "ClockSweeper-RecordPage-" + databaseId + "-" + resourceId);
+      thread.setDaemon(true);
+      thread.start();
+      
+      clockSweepers.add(sweeper);
+      clockSweeperThreads.add(thread);
+      
+      LOGGER.info("Started 1 ClockSweeper thread for RecordPageCache (db={}, res={})", databaseId, resourceId);
     }
 
-    // TEMPORARILY skip ClockSweeper for fragment cache - debugging child count issue
-    // Start sweepers for RecordPageFragmentCache
-    // if (bufferManager.getRecordPageFragmentCache() instanceof io.sirix.cache.ShardedPageCache fragmentCache) {
-    //   int shardCount = fragmentCache.getShardCount();
-    //   
-    //   for (int shardIndex = 0; shardIndex < shardCount; shardIndex++) {
-    //     io.sirix.cache.ShardedPageCache.Shard shard = fragmentCache.getShard(
-    //         new io.sirix.page.PageReference().setDatabaseId(databaseId).setResourceId(resourceId).setKey(shardIndex));
-    //     
-    //     io.sirix.cache.ClockSweeper sweeper = new io.sirix.cache.ClockSweeper(
-    //         shard, revisionEpochTracker, sweepIntervalMs, shardIndex, databaseId, resourceId);
-    //     
-    //     Thread thread = new Thread(sweeper, "ClockSweeper-FragmentPage-" + databaseId + "-" + resourceId + "-" + shardIndex);
-    //     thread.setDaemon(true);
-    //     thread.start();
-    //     
-    //     clockSweepers.add(sweeper);
-    //     clockSweeperThreads.add(thread);
-    //   }
-    //   
-    //   LOGGER.info("Started {} ClockSweeper threads for RecordPageFragmentCache (db={}, res={})", 
-    //       shardCount, databaseId, resourceId);
-    // }
+    // Start ClockSweeper for RecordPageFragmentCache (simplified: single thread)
+    if (bufferManager.getRecordPageFragmentCache() instanceof io.sirix.cache.ShardedPageCache fragmentCache) {
+      io.sirix.cache.ShardedPageCache.Shard shard = fragmentCache.getShard(
+          new io.sirix.page.PageReference().setDatabaseId(databaseId).setResourceId(resourceId));
+      
+      io.sirix.cache.ClockSweeper sweeper = new io.sirix.cache.ClockSweeper(
+          shard, revisionEpochTracker, sweepIntervalMs, 0, databaseId, resourceId);
+      
+      Thread thread = new Thread(sweeper, "ClockSweeper-FragmentPage-" + databaseId + "-" + resourceId);
+      thread.setDaemon(true);
+      thread.start();
+      
+      clockSweepers.add(sweeper);
+      clockSweeperThreads.add(thread);
+      
+      LOGGER.info("Started 1 ClockSweeper thread for RecordPageFragmentCache (db={}, res={})", databaseId, resourceId);
+    }
   }
 
   /**

@@ -11,12 +11,15 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiFunction;
 
 /**
- * Sharded page cache for multi-core scalability.
+ * Simple page cache with direct eviction control.
  * <p>
- * Replaces Caffeine with custom sharding to enable:
+ * Uses a single ConcurrentHashMap with clock-based eviction.
+ * Simplified from multi-shard design for easier debugging and maintenance.
+ * <p>
+ * Provides:
  * - Direct control over eviction (revision watermark + guardCount checks)
  * - Clock-based second-chance eviction algorithm
- * - Minimal lock contention across cores
+ * - ConcurrentHashMap's built-in lock-free read optimization
  * <p>
  * Inspired by LeanStore/Umbra buffer management architectures.
  *
@@ -26,63 +29,44 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ShardedPageCache.class);
 
-  private final Shard[] shards;
-  private final int shardMask;
+  private final ConcurrentHashMap<PageReference, KeyValueLeafPage> map = new ConcurrentHashMap<>();
+  private final ReentrantLock evictionLock = new ReentrantLock();
+  private int clockHand = 0;
 
   /**
-   * A single shard containing a subset of cached pages.
-   */
-  public static final class Shard {
-    final ConcurrentHashMap<PageReference, KeyValueLeafPage> map = new ConcurrentHashMap<>();
-    final ReentrantLock evictionLock = new ReentrantLock();
-    int clockHand = 0;
-
-    public Shard() {
-    }
-  }
-
-  /**
-   * Create a new sharded page cache.
+   * Create a new page cache.
    *
-   * @param shardCount number of shards (must be power of 2, e.g., 64, 128)
+   * @param shardCount unused (kept for API compatibility)
    */
   public ShardedPageCache(int shardCount) {
-    if (Integer.bitCount(shardCount) != 1) {
-      throw new IllegalArgumentException("Shard count must be power of 2, got: " + shardCount);
-    }
-    
-    this.shards = new Shard[shardCount];
-    this.shardMask = shardCount - 1;
-    
-    for (int i = 0; i < shardCount; i++) {
-      shards[i] = new Shard();
-    }
-    
-    LOGGER.info("Created ShardedPageCache with {} shards", shardCount);
+    LOGGER.info("Created ShardedPageCache (simplified single-map design)");
   }
 
   /**
-   * Compute shard index for a page reference.
-   */
-  private int shardIndex(PageReference ref) {
-    // Hash based on database ID, resource ID, and key for good distribution
-    int hash = (int) (ref.getDatabaseId() ^ ref.getResourceId() ^ ref.getKey());
-    // Mix bits to improve distribution
-    hash ^= (hash >>> 16);
-    return hash & shardMask;
-  }
-
-  /**
-   * Get the shard for a page reference.
+   * Get the single shard (for ClockSweeper compatibility).
    */
   public Shard getShard(PageReference ref) {
-    return shards[shardIndex(ref)];
+    return new Shard(map, evictionLock, clockHand);
+  }
+  
+  /**
+   * Shard wrapper for ClockSweeper compatibility.
+   */
+  public static final class Shard {
+    final ConcurrentHashMap<PageReference, KeyValueLeafPage> map;
+    final ReentrantLock evictionLock;
+    int clockHand;
+
+    Shard(ConcurrentHashMap<PageReference, KeyValueLeafPage> map, ReentrantLock lock, int clockHand) {
+      this.map = map;
+      this.evictionLock = lock;
+      this.clockHand = clockHand;
+    }
   }
 
   @Override
   public KeyValueLeafPage get(PageReference key) {
-    Shard shard = getShard(key);
-    KeyValueLeafPage page = shard.map.get(key);
+    KeyValueLeafPage page = map.get(key);
     if (page != null && !page.isClosed()) {
       page.markAccessed(); // Set HOT bit for clock algorithm
     }
@@ -94,8 +78,7 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
     // CRITICAL FIX: Wrap mappingFunction to only execute on cache MISS
     // The mappingFunction should only be called when value is null, not on every access!
     // This prevents guards from being acquired repeatedly (guard leaks)
-    Shard shard = getShard(key);
-    KeyValueLeafPage page = shard.map.compute(key, (k, existingValue) -> {
+    KeyValueLeafPage page = map.compute(key, (k, existingValue) -> {
       if (existingValue != null && !existingValue.isClosed()) {
         // Cache HIT - return existing without calling mappingFunction
         return existingValue;
@@ -115,8 +98,7 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       throw new NullPointerException("Cannot cache null page");
     }
     
-    Shard shard = getShard(key);
-    shard.map.put(key, value);
+    map.put(key, value);
     value.markAccessed(); // Set HOT bit
   }
 
@@ -126,8 +108,7 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       throw new NullPointerException("Cannot cache null page");
     }
     
-    Shard shard = getShard(key);
-    KeyValueLeafPage existing = shard.map.putIfAbsent(key, value);
+    KeyValueLeafPage existing = map.putIfAbsent(key, value);
     if (existing == null) {
       value.markAccessed(); // Set HOT bit for new entry
     }
@@ -135,27 +116,24 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
 
   @Override
   public void clear() {
-    for (Shard shard : shards) {
-      shard.evictionLock.lock();
-      try {
-        // Close all pages before clearing
-        for (KeyValueLeafPage page : shard.map.values()) {
-          if (!page.isClosed()) {
-            page.close();
-          }
+    evictionLock.lock();
+    try {
+      // Close all pages before clearing
+      for (KeyValueLeafPage page : map.values()) {
+        if (!page.isClosed()) {
+          page.close();
         }
-        shard.map.clear();
-        shard.clockHand = 0;
-      } finally {
-        shard.evictionLock.unlock();
       }
+      map.clear();
+      clockHand = 0;
+    } finally {
+      evictionLock.unlock();
     }
   }
 
   @Override
   public void remove(PageReference key) {
-    Shard shard = getShard(key);
-    KeyValueLeafPage page = shard.map.remove(key);
+    KeyValueLeafPage page = map.remove(key);
     if (page != null && !page.isClosed()) {
       page.close();
     }
@@ -187,13 +165,7 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
 
   @Override
   public ConcurrentMap<PageReference, KeyValueLeafPage> asMap() {
-    // Return a view that combines all shards
-    // Note: This is less efficient than per-shard access, but needed for compatibility
-    ConcurrentHashMap<PageReference, KeyValueLeafPage> combinedMap = new ConcurrentHashMap<>();
-    for (Shard shard : shards) {
-      combinedMap.putAll(shard.map);
-    }
-    return combinedMap;
+    return map;
   }
 
   @Override
@@ -202,25 +174,21 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   }
 
   /**
-   * Get the number of shards.
+   * Get the number of shards (always 1 in simplified design).
    *
-   * @return shard count
+   * @return shard count (1)
    */
   public int getShardCount() {
-    return shards.length;
+    return 1;
   }
 
   /**
-   * Get total number of cached pages across all shards.
+   * Get total number of cached pages.
    *
    * @return total page count
    */
   public long size() {
-    long total = 0;
-    for (Shard shard : shards) {
-      total += shard.map.size();
-    }
-    return total;
+    return map.size();
   }
 
   /**
@@ -233,18 +201,16 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
     long totalMemory = 0;
     long hotPages = 0;
 
-    for (Shard shard : shards) {
-      for (KeyValueLeafPage page : shard.map.values()) {
-        totalPages++;
-        totalMemory += page.getActualMemorySize();
-        if (page.isHot()) {
-          hotPages++;
-        }
+    for (KeyValueLeafPage page : map.values()) {
+      totalPages++;
+      totalMemory += page.getActualMemorySize();
+      if (page.isHot()) {
+        hotPages++;
       }
     }
 
-    return String.format("ShardedPageCache: shards=%d, pages=%d, hot=%d (%.1f%%), memory=%.2fMB",
-        shards.length, totalPages, hotPages,
+    return String.format("ShardedPageCache: pages=%d, hot=%d (%.1f%%), memory=%.2fMB",
+        totalPages, hotPages,
         totalPages > 0 ? (hotPages * 100.0 / totalPages) : 0,
         totalMemory / (1024.0 * 1024.0));
   }
