@@ -131,10 +131,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   /**
    * Clock sweeper threads for background page eviction.
-   * TODO: Will be started once we switch to ShardedPageCache
+   * One thread per cache shard for multi-core scalability.
    */
-  // private final List<Thread> clockSweeperThreads;
-  // private final List<io.sirix.cache.ClockSweeper> clockSweepers;
+  private final List<Thread> clockSweeperThreads;
+  private final List<io.sirix.cache.ClockSweeper> clockSweepers;
 
   /**
    * The resource store with which this manager has been created.
@@ -197,11 +197,93 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     this.revisionEpochTracker = new RevisionEpochTracker(128);
     this.revisionEpochTracker.setLastCommittedRevision(uberPage.getRevisionNumber());
 
-    // TODO: Start ClockSweeper threads once we switch caches to ShardedPageCache
-    // this.clockSweeperThreads = new ArrayList<>();
-    // this.clockSweepers = new ArrayList<>();
+    // Start ClockSweeper threads for each ShardedPageCache
+    this.clockSweeperThreads = new ArrayList<>();
+    this.clockSweepers = new ArrayList<>();
+    startClockSweepers();
 
     isClosed = false;
+  }
+
+  /**
+   * Start ClockSweeper background threads for page eviction.
+   * Creates one sweeper thread per shard in each ShardedPageCache.
+   */
+  private void startClockSweepers() {
+    long databaseId = resourceConfig.getDatabaseId();
+    long resourceId = resourceConfig.getID();
+    int sweepIntervalMs = 100; // Sweep every 100ms
+
+    // Only start sweepers if we're using ShardedPageCache
+    if (bufferManager.getRecordPageCache() instanceof io.sirix.cache.ShardedPageCache recordCache) {
+      int shardCount = recordCache.getShardCount();
+      
+      for (int shardIndex = 0; shardIndex < shardCount; shardIndex++) {
+        io.sirix.cache.ShardedPageCache.Shard shard = recordCache.getShard(
+            new io.sirix.page.PageReference().setDatabaseId(databaseId).setResourceId(resourceId).setKey(shardIndex));
+        
+        io.sirix.cache.ClockSweeper sweeper = new io.sirix.cache.ClockSweeper(
+            shard, revisionEpochTracker, sweepIntervalMs, shardIndex, databaseId, resourceId);
+        
+        Thread thread = new Thread(sweeper, "ClockSweeper-RecordPage-" + databaseId + "-" + resourceId + "-" + shardIndex);
+        thread.setDaemon(true);
+        thread.start();
+        
+        clockSweepers.add(sweeper);
+        clockSweeperThreads.add(thread);
+      }
+      
+      LOGGER.info("Started {} ClockSweeper threads for RecordPageCache (db={}, res={})", 
+          shardCount, databaseId, resourceId);
+    }
+
+    // Start sweepers for RecordPageFragmentCache
+    if (bufferManager.getRecordPageFragmentCache() instanceof io.sirix.cache.ShardedPageCache fragmentCache) {
+      int shardCount = fragmentCache.getShardCount();
+      
+      for (int shardIndex = 0; shardIndex < shardCount; shardIndex++) {
+        io.sirix.cache.ShardedPageCache.Shard shard = fragmentCache.getShard(
+            new io.sirix.page.PageReference().setDatabaseId(databaseId).setResourceId(resourceId).setKey(shardIndex));
+        
+        io.sirix.cache.ClockSweeper sweeper = new io.sirix.cache.ClockSweeper(
+            shard, revisionEpochTracker, sweepIntervalMs, shardIndex, databaseId, resourceId);
+        
+        Thread thread = new Thread(sweeper, "ClockSweeper-FragmentPage-" + databaseId + "-" + resourceId + "-" + shardIndex);
+        thread.setDaemon(true);
+        thread.start();
+        
+        clockSweepers.add(sweeper);
+        clockSweeperThreads.add(thread);
+      }
+      
+      LOGGER.info("Started {} ClockSweeper threads for RecordPageFragmentCache (db={}, res={})", 
+          shardCount, databaseId, resourceId);
+    }
+  }
+
+  /**
+   * Stop all ClockSweeper threads.
+   * Called when resource session is closed.
+   */
+  private void stopClockSweepers() {
+    for (io.sirix.cache.ClockSweeper sweeper : clockSweepers) {
+      sweeper.stop();
+    }
+    
+    for (Thread thread : clockSweeperThreads) {
+      thread.interrupt();
+    }
+    
+    // Wait for threads to finish (with timeout)
+    for (Thread thread : clockSweeperThreads) {
+      try {
+        thread.join(1000); // Wait max 1 second
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+    
+    LOGGER.info("Stopped {} ClockSweeper threads", clockSweeperThreads.size());
   }
 
   public void createPageTrxPool() {
@@ -492,6 +574,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public synchronized void close() {
     if (!isClosed) {
+      // Stop ClockSweeper threads first
+      stopClockSweepers();
+      
       // Close all open node transactions.
       for (NodeReadOnlyTrx rtx : nodeTrxMap.values()) {
         if (rtx instanceof XmlNodeTrx xmlNodeTrx) {

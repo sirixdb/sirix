@@ -32,12 +32,12 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   /**
    * A single shard containing a subset of cached pages.
    */
-  static final class Shard {
+  public static final class Shard {
     final ConcurrentHashMap<PageReference, KeyValueLeafPage> map = new ConcurrentHashMap<>();
     final ReentrantLock evictionLock = new ReentrantLock();
     int clockHand = 0;
 
-    Shard() {
+    public Shard() {
     }
   }
 
@@ -75,7 +75,7 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   /**
    * Get the shard for a page reference.
    */
-  Shard getShard(PageReference ref) {
+  public Shard getShard(PageReference ref) {
     return shards[shardIndex(ref)];
   }
 
