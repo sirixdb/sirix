@@ -12,10 +12,12 @@ public final class BufferManagerImpl implements BufferManager {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(BufferManagerImpl.class);
 
-  // Use ShardedPageCache instead of Caffeine for direct eviction control
+  // Use ShardedPageCache for KeyValueLeafPage caches (direct eviction control)
   private final ShardedPageCache recordPageCache;
   private final ShardedPageCache recordPageFragmentCache;
-  private final ShardedPageCache pageCache;
+  
+  // Keep Caffeine PageCache for mixed page types (NamePage, RevisionRootPage, etc.)
+  private final PageCache pageCache;
 
   private final RevisionRootPageCache revisionRootPageCache;
   private final RedBlackTreeNodeCache redBlackTreeNodeCache;
@@ -25,27 +27,26 @@ public final class BufferManagerImpl implements BufferManager {
   public BufferManagerImpl(int maxPageCachWeight, int maxRecordPageCacheWeight,
       int maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxRBTreeNodeCache, 
       int maxNamesCacheSize, int maxPathSummaryCacheSize) {
-    // Use ShardedPageCache with 64 shards for multi-core scalability
-    // TODO: Eviction based on memory limits will be handled by ClockSweeper
+    // Use ShardedPageCache with 64 shards for KeyValueLeafPage caches (multi-core scalability)
     int shardCount = 64;
     recordPageCache = new ShardedPageCache(shardCount);
     recordPageFragmentCache = new ShardedPageCache(shardCount);
-    pageCache = new ShardedPageCache(shardCount);
+    
+    // Keep Caffeine PageCache for mixed page types (NamePage, UberPage, etc.)
+    pageCache = new PageCache(maxPageCachWeight);
     
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
     namesCache = new NamesCache(maxNamesCacheSize);
     pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
     
-    LOGGER.info("BufferManagerImpl initialized with ShardedPageCache (shards={})", shardCount);
+    LOGGER.info("BufferManagerImpl initialized: ShardedPageCache (shards={}) for record/fragment caches, " +
+                "Caffeine PageCache for mixed page types", shardCount);
   }
 
   @Override
   public Cache<PageReference, Page> getPageCache() {
-    // Cast is safe - ShardedPageCache stores KeyValueLeafPages which are Pages
-    @SuppressWarnings("unchecked")
-    Cache<PageReference, Page> cache = (Cache<PageReference, Page>) (Cache<?, ?>) pageCache;
-    return cache;
+    return pageCache;
   }
 
   @Override
