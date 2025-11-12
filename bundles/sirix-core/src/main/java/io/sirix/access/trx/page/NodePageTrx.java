@@ -328,11 +328,24 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     final PageContainer pageCont = getPageContainer(recordPageKey, index, indexType);
 
     if (pageCont == null) {
+      // No PageContainer found in TIL - fall back to read-only path
+      if (recordKey == 16) {
+        System.err.println("[DEBUG-NODE-16] getRecord: PageContainer is NULL, falling back to pageRtx.getRecord");
+      }
       return pageRtx.getRecord(recordKey, indexType, index);
     } else {
+      if (recordKey == 16) {
+        System.err.println("[DEBUG-NODE-16] getRecord: Found PageContainer, checking modified page");
+      }
       DataRecord node = pageRtx.getValue(((KeyValueLeafPage) pageCont.getModified()), recordKey);
       if (node == null) {
+        if (recordKey == 16) {
+          System.err.println("[DEBUG-NODE-16] getRecord: Not in modified, checking complete page");
+        }
         node = pageRtx.getValue(((KeyValueLeafPage) pageCont.getComplete()), recordKey);
+      }
+      if (recordKey == 16 && node != null) {
+        System.err.println("[DEBUG-NODE-16] getRecord: Found node, identity=" + System.identityHashCode(node));
       }
       return (V) pageRtx.checkItemIfDeleted(node);
     }

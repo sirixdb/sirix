@@ -2503,6 +2503,8 @@ final class JsonNodeTrxImpl extends
   private void adaptForRemove(final StructNode oldNode) {
     assert oldNode != null;
 
+    System.err.println("[DEBUG-REMOVE] adaptForRemove called for node " + oldNode.getNodeKey() + ", parent=" + oldNode.getParentKey());
+
     // Adapt left sibling node if there is one.
     if (oldNode.hasLeftSibling()) {
       final StructNode leftSibling =
@@ -2519,6 +2521,8 @@ final class JsonNodeTrxImpl extends
 
     // Adapt parent, if node has left sibling now it is a first child, and right sibling will be a last child
     StructNode parent = pageTrx.prepareRecordForModification(oldNode.getParentKey(), IndexType.DOCUMENT, -1);
+    System.err.println("[DEBUG-REMOVE] Retrieved parent node " + parent.getNodeKey() + " for modification");
+    
     if (!oldNode.hasLeftSibling()) {
       parent.setFirstChildKey(oldNode.getRightSiblingKey());
     }
@@ -2527,7 +2531,10 @@ final class JsonNodeTrxImpl extends
     }
 
     if (storeChildCount) {
+      long childCountBefore = parent.getChildCount();
       parent.decrementChildCount();
+      long childCountAfter = parent.getChildCount();
+      System.err.println("[DEBUG-CHILDCOUNT] Parent " + parent.getNodeKey() + " before=" + childCountBefore + ", after=" + childCountAfter + ", storeChildCount=" + storeChildCount);
     }
 
     // Remove non-structural nodes of old node.
