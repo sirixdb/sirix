@@ -1,7 +1,6 @@
 package io.sirix.cache;
 
 import io.sirix.page.KeyValueLeafPage;
-import io.sirix.page.PageReference;
 
 /**
  * Auto-closeable guard for page access (LeanStore/Umbra pattern).
@@ -9,10 +8,14 @@ import io.sirix.page.PageReference;
  * Manages page lifecycle through scoped guard acquisition and release.
  * Pages can only be evicted when guardCount == 0 and version checks pass.
  * <p>
+ * NOTE: Guards protect the PAGE (frame), not the key. This matches LeanStore/Umbra
+ * architecture where the frame contains the guard count. No reference to the key
+ * is needed since the guard count lives on the page itself.
+ * <p>
  * Usage:
  * <pre>{@code
- * try (PageGuard guard = new PageGuard(pageRef, page)) {
- *     KeyValueLeafPage page = guard.page();
+ * try (PageGuard guard = new PageGuard(page)) {
+ *     KeyValueLeafPage p = guard.page();
  *     // Use page...
  * }  // Guard automatically released
  * }</pre>
@@ -21,7 +24,6 @@ import io.sirix.page.PageReference;
  */
 public final class PageGuard implements AutoCloseable {
   
-  private final PageReference ref;
   private final KeyValueLeafPage page;
   private final int versionAtFix;
   private boolean closed = false;
@@ -29,14 +31,12 @@ public final class PageGuard implements AutoCloseable {
   /**
    * Create a new page guard.
    *
-   * @param ref the page reference
    * @param page the page being guarded
    */
-  public PageGuard(PageReference ref, KeyValueLeafPage page) {
-    this.ref = ref;
+  public PageGuard(KeyValueLeafPage page) {
     this.page = page;
     this.versionAtFix = page.getVersion();
-    ref.acquireGuard();
+    page.acquireGuard();  // Guard the PAGE (frame)
   }
 
   /**
@@ -76,7 +76,7 @@ public final class PageGuard implements AutoCloseable {
   @Override
   public void close() {
     if (!closed) {
-      ref.releaseGuard();
+      page.releaseGuard();  // Release guard on PAGE
       int currentVersion = page.getVersion();
       if (currentVersion != versionAtFix) {
         closed = true;

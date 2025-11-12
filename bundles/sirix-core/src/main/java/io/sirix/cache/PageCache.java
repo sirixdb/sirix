@@ -27,10 +27,10 @@ public final class PageCache implements Cache<PageReference, Page> {
 
       if (page instanceof KeyValueLeafPage keyValueLeafPage) {
         // CRITICAL: Check guard count before closing
-        if (key.getGuardCount() > 0) {
+        if (keyValueLeafPage.getGuardCount() > 0) {
           // Page is actively guarded - DO NOT close
           LOGGER.trace("PageCache: Page {} has active guards ({}), skipping close (cause={})",
-              key.getKey(), key.getGuardCount(), cause);
+              key.getKey(), keyValueLeafPage.getGuardCount(), cause);
           return;
         }
         
@@ -47,7 +47,7 @@ public final class PageCache implements Cache<PageReference, Page> {
                     .weigher((PageReference key, Page value) -> {
                       if (value instanceof KeyValueLeafPage keyValueLeafPage) {
                         // Guarded pages have zero weight (won't be evicted)
-                        if (key.getGuardCount() > 0) {
+                        if (keyValueLeafPage.getGuardCount() > 0) {
                           return 0;
                         }
                         return (int) keyValueLeafPage.getActualMemorySize();

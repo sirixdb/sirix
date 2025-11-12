@@ -479,7 +479,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       // Acquire guard for PATH_SUMMARY page
       if (currentPageGuard == null || currentPageGuard.page() != page) {
         closeCurrentPageGuard();
-        currentPageGuard = new PageGuard(pathSummaryRecordPage.pageReference, page);
+        currentPageGuard = new PageGuard(page);
       }
       
       return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
@@ -501,7 +501,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         // Acquire guard for cached page
         if (currentPageGuard == null || currentPageGuard.page() != page) {
           closeCurrentPageGuard();
-          currentPageGuard = new PageGuard(cachedPage.pageReference, page);
+          currentPageGuard = new PageGuard(page);
         }
         return new PageReferenceToPage(cachedPage.pageReference, page);
       }
@@ -747,7 +747,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       // Acquire guard if this is a different page
       if (currentPageGuard == null || currentPageGuard.page() != recordPageFromBuffer) {
         closeCurrentPageGuard();
-        currentPageGuard = new PageGuard(pageReferenceToRecordPage, recordPageFromBuffer);
+        currentPageGuard = new PageGuard(recordPageFromBuffer);
       }
       
       return recordPageFromBuffer;
@@ -762,7 +762,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     if (recordPage != null && (currentPageGuard == null || currentPageGuard.page() != recordPage)) {
       closeCurrentPageGuard();
       if (!recordPage.isClosed()) {
-        currentPageGuard = new PageGuard(pageReference, recordPage);
+        currentPageGuard = new PageGuard(recordPage);
       }
     }
     
@@ -840,16 +840,15 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final int maxRevisionsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
     final VersioningType versioningApproach = resourceConfig.versioningType;
 
-    for (var page : result.pages()) {
-      // TODO: Add guard assertion here
-      // assert page.getPinCount() > 0;  // REMOVED
-      assert !page.isClosed();
-    }
-
-    // CRITICAL: Use try-finally to ensure page fragments are ALWAYS unpinned
-    // even if combineRecordPages() throws an exception. Without this, pinned
-    // fragments leak and their segments are never returned to the allocator.
+    // Guard all fragments during the combining operation (local guards, not currentPageGuard)
+    final List<PageGuard> fragmentGuards = new ArrayList<>(result.pages().size());
     try {
+      for (var page : result.pages()) {
+        assert !page.isClosed();
+        // Acquire guard on the page (guards are on pages, not references)
+        fragmentGuards.add(new PageGuard((KeyValueLeafPage) page));
+      }
+
       final Page completePage = versioningApproach.combineRecordPages(result.pages(), maxRevisionsToRestore, this);
       pageReferenceToRecordPage.setPage(completePage);
       assert !completePage.isClosed();
@@ -865,7 +864,18 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
       return completePage;
     } finally {
-      // ALWAYS unpin fragments, even on exception
+      // Release all fragment guards
+      for (PageGuard guard : fragmentGuards) {
+        try {
+          guard.close();
+        } catch (FrameReusedException e) {
+          // Fragment was evicted and reused during combining - this shouldn't happen 
+          // because we had guards, but handle it gracefully
+          LOGGER.warn("Fragment frame was reused during combining (unexpected): {}", e.getMessage());
+        }
+      }
+      
+      // ALWAYS unpin fragments (for compatibility with any remaining pin-based code)
       unpinPageFragments(pageReferenceToRecordPage,
                          result.pages(),
                          result.originalKeys(),
@@ -992,7 +1002,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         // Acquire guard for swizzled page
         if (currentPageGuard == null || currentPageGuard.page() != kvLeafPage) {
           closeCurrentPageGuard();
-          currentPageGuard = new PageGuard(pageReferenceToRecordPage, kvLeafPage);
+          currentPageGuard = new PageGuard(kvLeafPage);
         }
       }
       return page;
@@ -1040,31 +1050,21 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final var pageReferenceWithKey =
         new PageReference().setKey(originalStorageKey).setDatabaseId(databaseId).setResourceId(resourceId);
 
-    // CRITICAL: Don't do I/O inside compute() - load outside
-    KeyValuePage<DataRecord> page = resourceBufferManager.getRecordPageFragmentCache().get(pageReferenceWithKey);
-    
-    if (page == null || page.isClosed()) {
-      // Cache miss or closed - load from disk
-      var kvPage = (KeyValueLeafPage) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
-      
+    // Use compute to atomically handle cache hit/miss
+    KeyValuePage<DataRecord> page = resourceBufferManager.getRecordPageFragmentCache().get(pageReferenceWithKey, (_, value) -> {
+      var kvPage = (value != null)
+          ? value
+          : (KeyValueLeafPage) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
+
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
         LOGGER.debug("FRAGMENT Page 0 loaded: " + kvPage.getIndexType() + " rev=" + kvPage.getRevision() + " (instance="
-                         + System.identityHashCode(kvPage) + ", fromCache=false)");
+                         + System.identityHashCode(kvPage) + ", fromCache=" + (value != null) + ")");
       }
-      
-      // Install in cache
-      resourceBufferManager.getRecordPageFragmentCache().putIfAbsent(pageReferenceWithKey, kvPage);
-      page = resourceBufferManager.getRecordPageFragmentCache().get(pageReferenceWithKey);
-      if (page == null) {
-        page = kvPage;
-      }
-    }
+
+      return kvPage;
+    });
     
     assert !page.isClosed();
-    //    } else {
-    //      page = (KeyValuePage<DataRecord>) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
-    //      page.incrementPinCount(trxId);
-    //    }
     pages.add(page);
 
     if (originalPageFragments.isEmpty() || page.size() == Constants.NDP_NODE_COUNT) {
@@ -1092,13 +1092,20 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final var pageReference =
         new PageReference().setKey(pageFragmentKey.key()).setDatabaseId(databaseId).setResourceId(resourceId);
 
-    // CRITICAL: Check cache without compute (avoid holding lock during I/O)
-    final var pageFromCache = resourceBufferManager.getRecordPageFragmentCache().get(pageReference);
-    
-    if (pageFromCache != null && !pageFromCache.isClosed()) {
-      // Cache HIT
-      assert pageFragmentKey.revision() == pageFromCache.getRevision() :
-          "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + pageFromCache.getRevision();
+    // CRITICAL: Check cache with compute to get atomic cache hit handling
+    final var pageFromCache =
+        resourceBufferManager.getRecordPageFragmentCache().get(pageReference, (key, existingPage) -> {
+          if (existingPage != null && !existingPage.isClosed()) {
+            // Cache HIT
+            assert pageFragmentKey.revision() == existingPage.getRevision() :
+                "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + existingPage.getRevision();
+            return existingPage;
+          }
+          // Cache MISS: Return null, we'll load async below
+          return null;
+        });
+
+    if (pageFromCache != null) {
       return CompletableFuture.completedFuture(pageFromCache);
     }
 
@@ -1108,21 +1115,28 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                                                           resourceSession.getResourceConfig())
                                                                .whenComplete((page, _) -> {
                                                                  reader.close();
-                                                                 //if (trxIntentLog == null) {
                                                                  assert pageFragmentKey.revision()
                                                                      == ((KeyValuePage<DataRecord>) page).getRevision() :
                                                                      "Revision mismatch: key="
                                                                          + pageFragmentKey.revision() + ", page="
                                                                          + ((KeyValuePage<DataRecord>) page).getRevision();
-                                                                 // Add to cache - putIfAbsent handles race
+                                                                 // Add to cache using compute to handle race conditions
                                                                  resourceBufferManager.getRecordPageFragmentCache()
-                                                                                      .putIfAbsent(pageReference, 
-                                                                                                   (KeyValueLeafPage) page);
+                                                                                      .get(pageReference,
+                                                                                           (key, existingPage) -> {
+                                                                                             if (existingPage != null
+                                                                                                 && !existingPage.isClosed()) {
+                                                                                               // Another thread loaded it - use existing
+                                                                                               return existingPage;
+                                                                                             }
+                                                                                             // We're first - cache our loaded page
+                                                                                             return (KeyValueLeafPage) page;
+                                                                                           });
                                                                });
   }
 
-  static CompletableFuture<List<KeyValuePage<DataRecord>>> sequence(
-      List<CompletableFuture<KeyValuePage<DataRecord>>> listOfCompletableFutures) {
+  static <T> CompletableFuture<List<T>> sequence(
+      List<CompletableFuture<T>> listOfCompletableFutures) {
     return CompletableFuture.allOf(listOfCompletableFutures.toArray(new CompletableFuture[0]))
                             .thenApply(_ -> listOfCompletableFutures.stream()
                                                                     .map(CompletableFuture::join)

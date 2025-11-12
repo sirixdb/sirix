@@ -136,8 +136,8 @@ public final class ClockSweeper implements Runnable {
         } else if (page.getRevision() >= minActiveRev) {
           // Still needed by active transaction
           pagesSkippedByWatermark.incrementAndGet();
-        } else if (ref.getGuardCount() > 0) {
-          // Guard is active
+        } else if (page.getGuardCount() > 0) {
+          // Guard is active on the page
           pagesSkippedByGuard.incrementAndGet();
         } else {
           // Evict: increment version, reset page, remove from map

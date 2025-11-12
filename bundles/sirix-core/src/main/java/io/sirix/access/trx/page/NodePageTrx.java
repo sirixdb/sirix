@@ -62,6 +62,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -717,9 +718,27 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     final VersioningType versioningType = pageRtx.resourceSession.getResourceConfig().versioningType;
     final int mileStoneRevision = pageRtx.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
     
+    // Guard all fragments during the combining operation (local guards)
+    final List<io.sirix.cache.PageGuard> fragmentGuards = new ArrayList<>(result.pages().size());
     try {
+      for (var page : result.pages()) {
+        // Acquire guard on the page (guards are on pages, not references)
+        fragmentGuards.add(new io.sirix.cache.PageGuard((io.sirix.page.KeyValueLeafPage) page));
+      }
+      
       return versioningType.combineRecordPagesForModification(result.pages(), mileStoneRevision, this, reference, log);
     } finally {
+      // Release all fragment guards
+      for (io.sirix.cache.PageGuard guard : fragmentGuards) {
+        try {
+          guard.close();
+        } catch (io.sirix.cache.FrameReusedException e) {
+          // Fragment was evicted and reused during combining - shouldn't happen with guards
+          org.slf4j.LoggerFactory.getLogger(NodePageTrx.class)
+              .warn("Fragment frame was reused during combining (unexpected): {}", e.getMessage());
+        }
+      }
+      
       pageRtx.unpinPageFragments(reference, result.pages(), result.originalKeys(), result.storageKeyForFirstFragment());
     }
   }

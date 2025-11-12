@@ -102,6 +102,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private volatile boolean hot = false;
 
   /**
+   * Guard count for preventing eviction during active use (LeanStore/Umbra pattern).
+   * Pages with guardCount > 0 cannot be evicted.
+   * This is simpler than per-transaction pinning - it's just a reference count.
+   */
+  private final AtomicInteger guardCount = new AtomicInteger(0);
+
+  /**
    * DIAGNOSTIC: Stack trace of where this page was created (only captured when DEBUG_MEMORY_LEAKS=true).
    * Used to trace where leaked pages come from.
    */
@@ -1225,6 +1232,31 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Acquire a guard on this page (increment guard count).
+   * Pages with active guards cannot be evicted.
+   */
+  public void acquireGuard() {
+    guardCount.incrementAndGet();
+  }
+
+  /**
+   * Release a guard on this page (decrement guard count).
+   */
+  public void releaseGuard() {
+    guardCount.decrementAndGet();
+  }
+
+  /**
+   * Get the current guard count.
+   * Used by ClockSweeper to check if page can be evicted.
+   *
+   * @return current guard count
+   */
+  public int getGuardCount() {
+    return guardCount.get();
+  }
+
+  /**
    * Mark this page as recently accessed (set HOT bit).
    * Called on every page access for clock eviction algorithm.
    */
@@ -1274,6 +1306,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Clear cached data
     bytes = null;
     hashCode = null;
+    
+    // Reset guard count (should already be 0, but ensure it)
+    guardCount.set(0);
     hash = 0;
     
     // Clear HOT bit
