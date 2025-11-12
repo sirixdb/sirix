@@ -200,7 +200,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // Start ClockSweeper threads for each ShardedPageCache
     this.clockSweeperThreads = new ArrayList<>();
     this.clockSweepers = new ArrayList<>();
-    startClockSweepers();
+    // TODO: TEMPORARILY DISABLED for debugging
+    // startClockSweepers();
 
     isClosed = false;
   }
@@ -575,7 +576,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public synchronized void close() {
     if (!isClosed) {
       // Stop ClockSweeper threads first
-      stopClockSweepers();
+      // TODO: TEMPORARILY DISABLED
+      // stopClockSweepers();
       
       // Close all open node transactions.
       for (NodeReadOnlyTrx rtx : nodeTrxMap.values()) {
