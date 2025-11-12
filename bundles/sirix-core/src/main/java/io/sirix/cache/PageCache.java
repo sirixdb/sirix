@@ -26,7 +26,13 @@ public final class PageCache implements Cache<PageReference, Page> {
       assert page != null;
 
       if (page instanceof KeyValueLeafPage keyValueLeafPage) {
-        // TODO: Will be replaced with version-based eviction logic
+        // CRITICAL: Check guard count before closing
+        if (key.getGuardCount() > 0) {
+          // Page is actively guarded - DO NOT close
+          LOGGER.trace("PageCache: Page {} has active guards ({}), skipping close (cause={})",
+              key.getKey(), key.getGuardCount(), cause);
+          return;
+        }
         
         // Page handles its own cleanup
         LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}", 
@@ -38,9 +44,12 @@ public final class PageCache implements Cache<PageReference, Page> {
 
     cache = Caffeine.newBuilder()
                     .maximumWeight(maxWeight)
-                    .weigher((PageReference _, Page value) -> {
+                    .weigher((PageReference key, Page value) -> {
                       if (value instanceof KeyValueLeafPage keyValueLeafPage) {
-                        // TODO: Will be replaced with custom sharded cache
+                        // Guarded pages have zero weight (won't be evicted)
+                        if (key.getGuardCount() > 0) {
+                          return 0;
+                        }
                         return (int) keyValueLeafPage.getActualMemorySize();
                       } else {
                         return 1000; // Other page types use fixed weight

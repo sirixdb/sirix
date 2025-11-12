@@ -27,8 +27,13 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
           key.setPage(null);
           assert page != null;
           
-          // TODO: Will be replaced with version-based eviction logic
-          // For now, close all pages on removal
+          // CRITICAL: Check guard count before closing
+          if (key.getGuardCount() > 0) {
+            // Page is actively guarded - DO NOT close
+            LOGGER.trace("RecordPageCache: Page {} has active guards ({}), skipping close (cause={})",
+                key.getKey(), key.getGuardCount(), cause);
+            return;
+          }
           
           if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
             LOGGER.debug("RecordPageCache EVICT: closing page {} type={} rev={} cause={}", 
@@ -42,8 +47,11 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
 
     cache = Caffeine.newBuilder()
                     .maximumWeight(maxWeight)
-                    .weigher((PageReference _, KeyValueLeafPage value) -> {
-                      // TODO: Will be replaced with custom sharded cache
+                    .weigher((PageReference key, KeyValueLeafPage value) -> {
+                      // Guarded pages have zero weight (won't be evicted)
+                      if (key.getGuardCount() > 0) {
+                        return 0;
+                      }
                       // Use actual memory segment sizes for tracking
                       return (int) value.getActualMemorySize();
                     })

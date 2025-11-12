@@ -35,8 +35,13 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
           key.setPage(null);
           assert page != null;
           
-          // TODO: Will be replaced with version-based eviction logic
-          // For now, close all fragment pages on removal
+          // CRITICAL: Check guard count before closing
+          if (key.getGuardCount() > 0) {
+            // Page fragment is actively guarded - DO NOT close
+            LOGGER.trace("RecordPageFragmentCache: Fragment {} has active guards ({}), skipping close (cause={})",
+                key.getKey(), key.getGuardCount(), cause);
+            return;
+          }
           
           // Track evictions
           long evictions = TOTAL_EVICTIONS.incrementAndGet();
@@ -57,8 +62,11 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
 
     cache = Caffeine.newBuilder()
                     .maximumWeight(maxWeight)
-                    .weigher((PageReference _, KeyValueLeafPage value) -> {
-                      // TODO: Will be replaced with custom sharded cache
+                    .weigher((PageReference key, KeyValueLeafPage value) -> {
+                      // Guarded fragments have zero weight (won't be evicted)
+                      if (key.getGuardCount() > 0) {
+                        return 0;
+                      }
                       return (int) value.getActualMemorySize();
                     })
                     .scheduler(Scheduler.systemScheduler())
