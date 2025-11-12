@@ -14,7 +14,7 @@ public final class BufferManagerImpl implements BufferManager {
 
   // Use ShardedPageCache for KeyValueLeafPage caches (direct eviction control)
   private final ShardedPageCache recordPageCache;
-  private final ShardedPageCache recordPageFragmentCache;
+  private final Cache<PageReference, KeyValueLeafPage> recordPageFragmentCache;
   
   // Keep Caffeine PageCache for mixed page types (NamePage, RevisionRootPage, etc.)
   private final PageCache pageCache;
@@ -30,7 +30,8 @@ public final class BufferManagerImpl implements BufferManager {
     // Use ShardedPageCache with 64 shards for KeyValueLeafPage caches (multi-core scalability)
     int shardCount = 64;
     recordPageCache = new ShardedPageCache(shardCount);
-    recordPageFragmentCache = new ShardedPageCache(shardCount);
+    // TEMPORARILY use Caffeine for fragment cache to match working branch behavior
+    recordPageFragmentCache = new RecordPageFragmentCache(maxRecordPageFragmentCacheWeight);
     
     // Keep Caffeine PageCache for mixed page types (NamePage, UberPage, etc.)
     pageCache = new PageCache(maxPageCachWeight);

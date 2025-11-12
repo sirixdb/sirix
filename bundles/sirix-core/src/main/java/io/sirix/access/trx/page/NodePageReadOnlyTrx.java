@@ -840,15 +840,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final int maxRevisionsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
     final VersioningType versioningApproach = resourceConfig.versioningType;
 
-    // Guard all fragments during the combining operation (local guards, not currentPageGuard)
-    final List<PageGuard> fragmentGuards = new ArrayList<>(result.pages().size());
+    // Fragments already guarded by getPageFragments() - no need to guard again
     try {
-      for (var page : result.pages()) {
-        assert !page.isClosed();
-        // Acquire guard on the page (guards are on pages, not references)
-        fragmentGuards.add(new PageGuard((KeyValueLeafPage) page));
-      }
-
       final Page completePage = versioningApproach.combineRecordPages(result.pages(), maxRevisionsToRestore, this);
       pageReferenceToRecordPage.setPage(completePage);
       assert !completePage.isClosed();
@@ -864,15 +857,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
       return completePage;
     } finally {
-      // Release all fragment guards
-      for (PageGuard guard : fragmentGuards) {
-        try {
-          guard.close();
-        } catch (FrameReusedException e) {
-          // Fragment was evicted and reused during combining - this shouldn't happen 
-          // because we had guards, but handle it gracefully
-          LOGGER.warn("Fragment frame was reused during combining (unexpected): {}", e.getMessage());
-        }
+      // Release fragment guards (acquired in getPageFragments)
+      for (var page : result.pages()) {
+        ((KeyValueLeafPage) page).releaseGuard();
       }
       
       // ALWAYS unpin fragments (for compatibility with any remaining pin-based code)
@@ -1050,19 +1037,29 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final var pageReferenceWithKey =
         new PageReference().setKey(originalStorageKey).setDatabaseId(databaseId).setResourceId(resourceId);
 
-    // Use compute to atomically handle cache hit/miss
-    KeyValuePage<DataRecord> page = resourceBufferManager.getRecordPageFragmentCache().get(pageReferenceWithKey, (_, value) -> {
-      var kvPage = (value != null)
-          ? value
-          : (KeyValueLeafPage) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
-
+    // Check cache first
+    KeyValuePage<DataRecord> page = resourceBufferManager.getRecordPageFragmentCache().get(pageReferenceWithKey);
+    
+    if (page == null || page.isClosed()) {
+      // Cache miss - load from disk
+      var kvPage = (KeyValueLeafPage) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
+      
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
         LOGGER.debug("FRAGMENT Page 0 loaded: " + kvPage.getIndexType() + " rev=" + kvPage.getRevision() + " (instance="
-                         + System.identityHashCode(kvPage) + ", fromCache=" + (value != null) + ")");
+                         + System.identityHashCode(kvPage) + ", fromCache=false)");
       }
-
-      return kvPage;
-    });
+      
+      // Add to cache
+      resourceBufferManager.getRecordPageFragmentCache().putIfAbsent(pageReferenceWithKey, kvPage);
+      page = resourceBufferManager.getRecordPageFragmentCache().get(pageReferenceWithKey);
+      if (page == null) {
+        page = kvPage;
+      }
+    }
+    
+    // CRITICAL: Acquire guard for this fragment (replaces old incrementPinCount)
+    // Guards protect fragments from eviction until combining completes
+    ((KeyValueLeafPage) page).acquireGuard();
     
     assert !page.isClosed();
     pages.add(page);

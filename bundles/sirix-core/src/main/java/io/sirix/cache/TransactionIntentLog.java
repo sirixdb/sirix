@@ -78,6 +78,10 @@ public final class TransactionIntentLog implements AutoCloseable {
     // This prevents double-close: cache eviction → close(), then TIL.close() → close()
     // Pages in TIL must NOT be in any cache - TIL owns them exclusively
     
+    // CRITICAL FIX: Clear cached hash before cache operations
+    // The hash depends on key/logKey which we'll modify below
+    key.clearCachedHash();
+    
     // Remove from RecordPageCache (full pages)
     bufferManager.getRecordPageCache().remove(key);
     

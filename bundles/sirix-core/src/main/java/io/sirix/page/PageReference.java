@@ -174,9 +174,18 @@ public final class PageReference {
    * @return this instance
    */
   public PageReference setLogKey(final int key) {
-    hash = 0;
+    hash = 0;  // Clear cached hashCode since it includes logKey
     logKey = key;
     return this;
+  }
+  
+  /**
+   * Clear the cached hashCode.
+   * Must be called before changing key, logKey, databaseId, or resourceId if the PageReference
+   * is already in a HashMap, since the hash depends on these values.
+   */
+  public void clearCachedHash() {
+    hash = 0;
   }
 
   /**

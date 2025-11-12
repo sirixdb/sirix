@@ -237,28 +237,29 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
           shardCount, databaseId, resourceId);
     }
 
+    // TEMPORARILY skip ClockSweeper for fragment cache - debugging child count issue
     // Start sweepers for RecordPageFragmentCache
-    if (bufferManager.getRecordPageFragmentCache() instanceof io.sirix.cache.ShardedPageCache fragmentCache) {
-      int shardCount = fragmentCache.getShardCount();
-      
-      for (int shardIndex = 0; shardIndex < shardCount; shardIndex++) {
-        io.sirix.cache.ShardedPageCache.Shard shard = fragmentCache.getShard(
-            new io.sirix.page.PageReference().setDatabaseId(databaseId).setResourceId(resourceId).setKey(shardIndex));
-        
-        io.sirix.cache.ClockSweeper sweeper = new io.sirix.cache.ClockSweeper(
-            shard, revisionEpochTracker, sweepIntervalMs, shardIndex, databaseId, resourceId);
-        
-        Thread thread = new Thread(sweeper, "ClockSweeper-FragmentPage-" + databaseId + "-" + resourceId + "-" + shardIndex);
-        thread.setDaemon(true);
-        thread.start();
-        
-        clockSweepers.add(sweeper);
-        clockSweeperThreads.add(thread);
-      }
-      
-      LOGGER.info("Started {} ClockSweeper threads for RecordPageFragmentCache (db={}, res={})", 
-          shardCount, databaseId, resourceId);
-    }
+    // if (bufferManager.getRecordPageFragmentCache() instanceof io.sirix.cache.ShardedPageCache fragmentCache) {
+    //   int shardCount = fragmentCache.getShardCount();
+    //   
+    //   for (int shardIndex = 0; shardIndex < shardCount; shardIndex++) {
+    //     io.sirix.cache.ShardedPageCache.Shard shard = fragmentCache.getShard(
+    //         new io.sirix.page.PageReference().setDatabaseId(databaseId).setResourceId(resourceId).setKey(shardIndex));
+    //     
+    //     io.sirix.cache.ClockSweeper sweeper = new io.sirix.cache.ClockSweeper(
+    //         shard, revisionEpochTracker, sweepIntervalMs, shardIndex, databaseId, resourceId);
+    //     
+    //     Thread thread = new Thread(sweeper, "ClockSweeper-FragmentPage-" + databaseId + "-" + resourceId + "-" + shardIndex);
+    //     thread.setDaemon(true);
+    //     thread.start();
+    //     
+    //     clockSweepers.add(sweeper);
+    //     clockSweeperThreads.add(thread);
+    //   }
+    //   
+    //   LOGGER.info("Started {} ClockSweeper threads for RecordPageFragmentCache (db={}, res={})", 
+    //       shardCount, databaseId, resourceId);
+    // }
   }
 
   /**

@@ -91,8 +91,18 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
 
   @Override
   public KeyValueLeafPage get(PageReference key, BiFunction<? super PageReference, ? super KeyValueLeafPage, ? extends KeyValueLeafPage> mappingFunction) {
+    // CRITICAL FIX: Wrap mappingFunction to only execute on cache MISS
+    // The mappingFunction should only be called when value is null, not on every access!
+    // This prevents guards from being acquired repeatedly (guard leaks)
     Shard shard = getShard(key);
-    KeyValueLeafPage page = shard.map.compute(key, mappingFunction);
+    KeyValueLeafPage page = shard.map.compute(key, (k, existingValue) -> {
+      if (existingValue != null && !existingValue.isClosed()) {
+        // Cache HIT - return existing without calling mappingFunction
+        return existingValue;
+      }
+      // Cache MISS - call mappingFunction to load
+      return mappingFunction.apply(k, existingValue);
+    });
     if (page != null && !page.isClosed()) {
       page.markAccessed(); // Set HOT bit
     }
