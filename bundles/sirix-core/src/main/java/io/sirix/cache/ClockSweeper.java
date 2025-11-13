@@ -112,12 +112,18 @@ public final class ClockSweeper implements Runnable {
       int pagesToScan = Math.max(10, keys.size() / 10);
       
       for (int i = 0; i < pagesToScan && i < keys.size(); i++) {
-        PageReference ref = keys.get(shard.clockHand);
+        // CRITICAL FIX: Bound clockHand to current keys.size() to handle concurrent modifications
+        // The keys list is a snapshot, but the map can grow/shrink concurrently
+        if (keys.isEmpty()) {
+          break; // No more keys to scan
+        }
+        int safeIndex = shard.clockHand % keys.size();
+        PageReference ref = keys.get(safeIndex);
         
         // Filter by resource if not global (databaseId=0 and resourceId=0 means GLOBAL)
         boolean isGlobalSweeper = (databaseId == 0 && resourceId == 0);
         if (!isGlobalSweeper && (ref.getDatabaseId() != databaseId || ref.getResourceId() != resourceId)) {
-          shard.clockHand = (shard.clockHand + 1) % Math.max(1, keys.size());
+          shard.clockHand++;
           pagesSkippedByOwnership.incrementAndGet();
           continue;
         }
@@ -126,7 +132,7 @@ public final class ClockSweeper implements Runnable {
 
         if (page == null) {
           // Page was removed, move clock hand
-          shard.clockHand = (shard.clockHand + 1) % Math.max(1, keys.size());
+          shard.clockHand++;
           continue;
         }
 
@@ -164,8 +170,8 @@ public final class ClockSweeper implements Runnable {
           }
         }
 
-        // Move clock hand
-        shard.clockHand = (shard.clockHand + 1) % Math.max(1, keys.size());
+        // Move clock hand forward (will be bounded on next iteration)
+        shard.clockHand++;
       }
     } finally {
       shard.evictionLock.unlock();
