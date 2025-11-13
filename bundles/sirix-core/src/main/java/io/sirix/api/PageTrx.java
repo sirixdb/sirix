@@ -173,4 +173,13 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @return the revision to represent
    */
   int getRevisionToRepresent();
+  
+  /**
+   * Acquire a guard on the page containing the current node.
+   * This is needed when holding a reference to a node across cursor movements.
+   * The guard prevents the page from being modified or evicted while the node is in use.
+   *
+   * @return a PageGuard that must be closed when done with the node
+   */
+  io.sirix.cache.PageGuard acquireGuardForCurrentNode();
 }

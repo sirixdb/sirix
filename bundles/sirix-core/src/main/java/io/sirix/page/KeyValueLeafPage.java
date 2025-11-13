@@ -1075,16 +1075,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public synchronized void close() {
-    // CRITICAL: synchronized to prevent race with incrementPinCount/decrementPinCount
-    // TODO: Check guard count before closing to prevent closing guarded pages
+    // CRITICAL: synchronized to prevent race with acquireGuard/releaseGuard
     if (!isClosed) {
-      // int currentPinCount = getPinCount();  // REMOVED
-      // Guard count check will be added here later
+      // CRITICAL FIX: Check guard count before closing to prevent closing guarded pages
+      int currentGuardCount = guardCount.get();
+      if (currentGuardCount > 0) {
+        // Page is still guarded - cannot close yet
+        // This can happen if cache eviction tries to close a page that's still in use
+        LOGGER.warn("Attempted to close guarded page {} ({}) rev={} with guardCount={} - skipping close",
+            recordPageKey, indexType, revision, currentGuardCount);
+        return;
+      }
       
       if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
         boolean wasInLivePages = ALL_LIVE_PAGES.contains(this);
         System.err.println("[CLOSE] Page 0 (" + indexType + ") rev=" + revision + " instance=" + System.identityHashCode(this) + 
-            " wasInLivePages=" + wasInLivePages);
+            " wasInLivePages=" + wasInLivePages + " guardCount=" + currentGuardCount);
       }
       
       isClosed = true;

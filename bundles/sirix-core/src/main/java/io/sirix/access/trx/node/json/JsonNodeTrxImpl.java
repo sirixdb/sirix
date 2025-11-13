@@ -2073,7 +2073,12 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      final StructNode node = (StructNode) getCurrentNode();
+      // CRITICAL FIX: Acquire a separate guard on the current node's page
+      // to prevent it from being modified/evicted during the PostOrderAxis traversal
+      final io.sirix.cache.PageGuard nodePageGuard = pageTrx.acquireGuardForCurrentNode();
+      
+      try {
+        final StructNode node = (StructNode) getCurrentNode();
       if (node.getKind() == NodeKind.JSON_DOCUMENT) {
         throw new SirixUsageException("Document root can not be removed.");
       }
@@ -2130,15 +2135,19 @@ final class JsonNodeTrxImpl extends
         nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
       }
 
-      if (node.hasRightSibling()) {
-        moveTo(node.getRightSiblingKey());
-      } else if (node.hasLeftSibling()) {
-        moveTo(node.getLeftSiblingKey());
-      } else {
-        moveTo(node.getParentKey());
-      }
+        if (node.hasRightSibling()) {
+          moveTo(node.getRightSiblingKey());
+        } else if (node.hasLeftSibling()) {
+          moveTo(node.getLeftSiblingKey());
+        } else {
+          moveTo(node.getParentKey());
+        }
 
-      return this;
+        return this;
+      } finally {
+        // Release the guard on the node's page
+        nodePageGuard.close();
+      }
     } finally {
       if (lock != null) {
         lock.unlock();
@@ -2503,8 +2512,6 @@ final class JsonNodeTrxImpl extends
   private void adaptForRemove(final StructNode oldNode) {
     assert oldNode != null;
 
-    System.err.println("[DEBUG-REMOVE] adaptForRemove called for node " + oldNode.getNodeKey() + ", parent=" + oldNode.getParentKey());
-
     // Adapt left sibling node if there is one.
     if (oldNode.hasLeftSibling()) {
       final StructNode leftSibling =
@@ -2521,7 +2528,6 @@ final class JsonNodeTrxImpl extends
 
     // Adapt parent, if node has left sibling now it is a first child, and right sibling will be a last child
     StructNode parent = pageTrx.prepareRecordForModification(oldNode.getParentKey(), IndexType.DOCUMENT, -1);
-    System.err.println("[DEBUG-REMOVE] Retrieved parent node " + parent.getNodeKey() + " for modification");
     
     if (!oldNode.hasLeftSibling()) {
       parent.setFirstChildKey(oldNode.getRightSiblingKey());
@@ -2531,10 +2537,7 @@ final class JsonNodeTrxImpl extends
     }
 
     if (storeChildCount) {
-      long childCountBefore = parent.getChildCount();
       parent.decrementChildCount();
-      long childCountAfter = parent.getChildCount();
-      System.err.println("[DEBUG-CHILDCOUNT] Parent " + parent.getNodeKey() + " before=" + childCountBefore + ", after=" + childCountAfter + ", storeChildCount=" + storeChildCount);
     }
 
     // Remove non-structural nodes of old node.

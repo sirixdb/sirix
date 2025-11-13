@@ -328,24 +328,11 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     final PageContainer pageCont = getPageContainer(recordPageKey, index, indexType);
 
     if (pageCont == null) {
-      // No PageContainer found in TIL - fall back to read-only path
-      if (recordKey == 16) {
-        System.err.println("[DEBUG-NODE-16] getRecord: PageContainer is NULL, falling back to pageRtx.getRecord");
-      }
       return pageRtx.getRecord(recordKey, indexType, index);
     } else {
-      if (recordKey == 16) {
-        System.err.println("[DEBUG-NODE-16] getRecord: Found PageContainer, checking modified page");
-      }
       DataRecord node = pageRtx.getValue(((KeyValueLeafPage) pageCont.getModified()), recordKey);
       if (node == null) {
-        if (recordKey == 16) {
-          System.err.println("[DEBUG-NODE-16] getRecord: Not in modified, checking complete page");
-        }
         node = pageRtx.getValue(((KeyValueLeafPage) pageCont.getComplete()), recordKey);
-      }
-      if (recordKey == 16 && node != null) {
-        System.err.println("[DEBUG-NODE-16] getRecord: Found node, identity=" + System.identityHashCode(node));
       }
       return (V) pageRtx.checkItemIfDeleted(node);
     }
@@ -797,5 +784,22 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       LOGGER.warn("⚠️  NodePageTrx FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL", 
           pageRtx.getTrxId(), System.identityHashCode(this), System.identityHashCode(log), log.getList().size());
     }
+  }
+  
+  /**
+   * Acquire a guard on the page containing the current node.
+   * This is needed when holding a reference to a node across cursor movements.
+   *
+   * @return a PageGuard that must be closed when done with the node
+   */
+  public io.sirix.cache.PageGuard acquireGuardForCurrentNode() {
+    // The current node is in the pageRtx's currentPageGuard
+    // We need to return a new guard on the same page
+    // Get the page containing the current node from pageRtx
+    final var currentPage = ((io.sirix.access.trx.page.NodePageReadOnlyTrx) pageRtx).getCurrentPage();
+    if (currentPage == null) {
+      throw new IllegalStateException("No current page - cannot acquire guard");
+    }
+    return new io.sirix.cache.PageGuard(currentPage);
   }
 }

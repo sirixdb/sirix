@@ -193,8 +193,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     this.user = user;
     pool = new AtomicReference<>();
     
-    // Initialize revision epoch tracker (128 slots = supports up to 128 concurrent transactions)
-    this.revisionEpochTracker = new RevisionEpochTracker(128);
+    // Initialize revision epoch tracker (1024 slots = supports up to 1024 concurrent transactions)
+    // Increased from 128 to handle tests that create many transactions via temporal axes
+    this.revisionEpochTracker = new RevisionEpochTracker(1024);
     this.revisionEpochTracker.setLastCommittedRevision(uberPage.getRevisionNumber());
 
     // Start ClockSweeper threads for each ShardedPageCache

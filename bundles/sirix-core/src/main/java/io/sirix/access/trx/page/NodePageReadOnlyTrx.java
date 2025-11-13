@@ -1287,6 +1287,16 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       currentPageGuard = null;
     }
   }
+  
+  /**
+   * Get the page that the current page guard is protecting.
+   * Used when needing to acquire an additional guard on the current page.
+   *
+   * @return the current page, or null if no page is currently guarded
+   */
+  public KeyValueLeafPage getCurrentPage() {
+    return currentPageGuard != null ? currentPageGuard.page() : null;
+  }
 
   /**
    * TODO: Will be replaced with guard cleanup logic.
