@@ -114,8 +114,9 @@ public final class ClockSweeper implements Runnable {
       for (int i = 0; i < pagesToScan && i < keys.size(); i++) {
         PageReference ref = keys.get(shard.clockHand);
         
-        // Only evict pages belonging to this resource
-        if (ref.getDatabaseId() != databaseId || ref.getResourceId() != resourceId) {
+        // Filter by resource if not global (databaseId=0 and resourceId=0 means GLOBAL)
+        boolean isGlobalSweeper = (databaseId == 0 && resourceId == 0);
+        if (!isGlobalSweeper && (ref.getDatabaseId() != databaseId || ref.getResourceId() != resourceId)) {
           shard.clockHand = (shard.clockHand + 1) % Math.max(1, keys.size());
           pagesSkippedByOwnership.incrementAndGet();
           continue;
@@ -133,12 +134,13 @@ public final class ClockSweeper implements Runnable {
         if (page.isHot()) {
           page.clearHot(); // Give second chance
           pagesSkippedByHot.incrementAndGet();
-        } else if (page.getRevision() >= minActiveRev) {
-          // Still needed by active transaction
-          pagesSkippedByWatermark.incrementAndGet();
         } else if (page.getGuardCount() > 0) {
-          // Guard is active on the page
+          // Guard is active on the page (PRIMARY protection mechanism)
           pagesSkippedByGuard.incrementAndGet();
+        } else if (!isGlobalSweeper && page.getRevision() >= minActiveRev) {
+          // For per-resource sweepers: Check revision watermark
+          // For global sweepers: Skip this check (rely on guards for correctness)
+          pagesSkippedByWatermark.incrementAndGet();
         } else {
           // Evict: increment version, reset page, remove from map
           try {

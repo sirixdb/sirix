@@ -48,6 +48,13 @@ public final class Databases {
    * Initialized lazily when first database is opened.
    */
   private static volatile BufferManager GLOBAL_BUFFER_MANAGER = null;
+  
+  /**
+   * Global RevisionEpochTracker for MVCC-aware eviction across all databases/resources.
+   * Tracks minimum active revision globally. ClockSweepers use this to determine
+   * which pages can be safely evicted.
+   */
+  private static volatile io.sirix.access.trx.RevisionEpochTracker GLOBAL_EPOCH_TRACKER = null;
 
   /**
    * Database ID counter for assigning unique IDs to databases.
@@ -192,17 +199,20 @@ public final class Databases {
 
   public static void freeAllocatedMemory() {
     if (MANAGER.sessions().isEmpty()) {
- 
-//      // If no sessions are left, we can clean up the allocator and global caches.
-//      MemorySegmentAllocator segmentAllocator =
-//          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
-//      segmentAllocator.free();
-//
-//      // Clear the global BufferManager caches if initialized
-//      if (GLOBAL_BUFFER_MANAGER != null) {
-//        GLOBAL_BUFFER_MANAGER.clearAllCaches();
-//        GLOBAL_BUFFER_MANAGER = null; // Allow re-initialization with new settings
-//      }
+      // NOTE: BufferManager and ClockSweepers are NOT shut down here!
+      // They follow PostgreSQL bgwriter pattern - run continuously until JVM shutdown.
+      // This prevents race conditions when tests rapidly open/close sessions.
+      
+      // Only clear caches for test hygiene (keep BufferManager infrastructure alive)
+      if (GLOBAL_BUFFER_MANAGER != null) {
+        logger.debug("Clearing global caches (BufferManager stays active)");
+        GLOBAL_BUFFER_MANAGER.clearAllCaches();
+      }
+      
+      // NOTE: Don't clear epoch tracker - it's global state
+      // NOTE: Don't free allocator - it's reused across tests
+      
+      // ClockSweepers continue running in background (daemon threads)
     }
   }
 
@@ -376,6 +386,18 @@ public final class Databases {
           maxRBTreeNodeCache,
           maxNamesCacheSize,
           maxPathSummaryCacheSize);
+      
+      // Initialize global epoch tracker (large slot count for all databases/resources)
+      GLOBAL_EPOCH_TRACKER = new io.sirix.access.trx.RevisionEpochTracker(4096);
+      GLOBAL_EPOCH_TRACKER.setLastCommittedRevision(0);
+      
+      // Start GLOBAL ClockSweeper threads (PostgreSQL bgwriter pattern)
+      // These run continuously until DBMS shutdown
+      if (GLOBAL_BUFFER_MANAGER instanceof BufferManagerImpl bufferMgrImpl) {
+        bufferMgrImpl.startClockSweepers(GLOBAL_EPOCH_TRACKER);
+      }
+      
+      logger.info("GLOBAL ClockSweeper threads started (PostgreSQL bgwriter pattern)");
     }
   }
 
@@ -404,5 +426,21 @@ public final class Databases {
       initializeGlobalBufferManager(2L * (1L << 30)); // 2GB default
     }
     return GLOBAL_BUFFER_MANAGER;
+  }
+  
+  /**
+   * Get the global RevisionEpochTracker instance.
+   * All resource sessions register their active revisions with this global tracker.
+   * This follows PostgreSQL pattern for MVCC snapshot tracking.
+   * 
+   * @return the single global RevisionEpochTracker instance
+   */
+  public static io.sirix.access.trx.RevisionEpochTracker getGlobalEpochTracker() {
+    if (GLOBAL_EPOCH_TRACKER == null) {
+      // Initialize with default if called before BufferManager is initialized
+      GLOBAL_EPOCH_TRACKER = new io.sirix.access.trx.RevisionEpochTracker(4096);
+      GLOBAL_EPOCH_TRACKER.setLastCommittedRevision(0);
+    }
+    return GLOBAL_EPOCH_TRACKER;
   }
 }

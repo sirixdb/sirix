@@ -23,6 +23,12 @@ public final class BufferManagerImpl implements BufferManager {
   private final RedBlackTreeNodeCache redBlackTreeNodeCache;
   private final NamesCache namesCache;
   private final PathSummaryCache pathSummaryCache;
+  
+  // GLOBAL ClockSweeper threads (PostgreSQL bgwriter pattern)
+  // Started when BufferManager is initialized, run until shutdown
+  private final java.util.List<Thread> clockSweeperThreads;
+  private final java.util.List<ClockSweeper> clockSweepers;
+  private volatile boolean isShutdown = false;
 
   public BufferManagerImpl(int maxPageCachWeight, int maxRecordPageCacheWeight,
       int maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxRBTreeNodeCache, 
@@ -38,6 +44,10 @@ public final class BufferManagerImpl implements BufferManager {
     redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
     namesCache = new NamesCache(maxNamesCacheSize);
     pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
+    
+    // Initialize ClockSweeper threads (GLOBAL, like PostgreSQL bgwriter)
+    this.clockSweeperThreads = new java.util.ArrayList<>();
+    this.clockSweepers = new java.util.ArrayList<>();
     
     LOGGER.info("BufferManagerImpl initialized: ShardedPageCache (simplified) for record/fragment caches, " +
                 "Caffeine PageCache for mixed page types");
@@ -78,8 +88,91 @@ public final class BufferManagerImpl implements BufferManager {
     return pathSummaryCache;
   }
 
+  /**
+   * Start global ClockSweeper threads for this BufferManager.
+   * Called once when first database opens. ClockSweepers run until BufferManager shutdown.
+   * This follows PostgreSQL bgwriter pattern - background threads run independently of sessions.
+   *
+   * @param globalEpochTracker the global epoch tracker for MVCC-aware eviction
+   */
+  public synchronized void startClockSweepers(io.sirix.access.trx.RevisionEpochTracker globalEpochTracker) {
+    if (!clockSweepers.isEmpty()) {
+      // Already started
+      return;
+    }
+    
+    int sweepIntervalMs = 100; // Sweep every 100ms
+    
+    // Start ClockSweeper for RecordPageCache (GLOBAL - handles all databases/resources)
+    if (recordPageCache instanceof ShardedPageCache recordCache) {
+      // Get shard 0 (we only have 1 shard in simplified design)
+      ShardedPageCache.Shard shard = recordCache.getShard(new PageReference());
+      
+      ClockSweeper sweeper = new ClockSweeper(
+          shard, globalEpochTracker, sweepIntervalMs, 0, 0, 0);  // databaseId=0, resourceId=0 means "all"
+      
+      Thread thread = new Thread(sweeper, "ClockSweeper-RecordPage-GLOBAL");
+      thread.setDaemon(true);
+      thread.start();
+      
+      clockSweepers.add(sweeper);
+      clockSweeperThreads.add(thread);
+      
+      LOGGER.info("Started GLOBAL ClockSweeper thread for RecordPageCache");
+    }
+    
+    // Start ClockSweeper for RecordPageFragmentCache (GLOBAL)
+    if (recordPageFragmentCache instanceof ShardedPageCache fragmentCache) {
+      ShardedPageCache.Shard shard = fragmentCache.getShard(new PageReference());
+      
+      ClockSweeper sweeper = new ClockSweeper(
+          shard, globalEpochTracker, sweepIntervalMs, 0, 0, 0);  // databaseId=0, resourceId=0 means "all"
+      
+      Thread thread = new Thread(sweeper, "ClockSweeper-FragmentPage-GLOBAL");
+      thread.setDaemon(true);
+      thread.start();
+      
+      clockSweepers.add(sweeper);
+      clockSweeperThreads.add(thread);
+      
+      LOGGER.info("Started GLOBAL ClockSweeper thread for RecordPageFragmentCache");
+    }
+  }
+  
+  /**
+   * Stop all global ClockSweeper threads.
+   * Called when BufferManager is shut down (last database closes).
+   */
+  private synchronized void stopClockSweepers() {
+    for (ClockSweeper sweeper : clockSweepers) {
+      sweeper.stop();
+    }
+    
+    for (Thread thread : clockSweeperThreads) {
+      thread.interrupt();
+    }
+    
+    // Wait for threads to finish (with timeout)
+    for (Thread thread : clockSweeperThreads) {
+      try {
+        thread.join(1000); // Wait max 1 second
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+    
+    LOGGER.info("Stopped {} GLOBAL ClockSweeper threads", clockSweeperThreads.size());
+    
+    clockSweepers.clear();
+    clockSweeperThreads.clear();
+  }
+
   @Override
   public void close() {
+    if (!isShutdown) {
+      stopClockSweepers();
+      isShutdown = true;
+    }
   }
 
   @Override

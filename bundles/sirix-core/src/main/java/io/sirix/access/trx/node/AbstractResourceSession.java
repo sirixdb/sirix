@@ -125,16 +125,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   /**
    * Tracks the minimum active revision for MVCC-aware page eviction.
-   * Pages can only be evicted when their revision < minActiveRevision.
+   * NOTE: This is now the GLOBAL epoch tracker shared across all databases/resources.
+   * Each session registers its active revisions with the global tracker.
    */
   final RevisionEpochTracker revisionEpochTracker;
-
-  /**
-   * Clock sweeper threads for background page eviction.
-   * One thread per cache shard for multi-core scalability.
-   */
-  private final List<Thread> clockSweeperThreads;
-  private final List<io.sirix.cache.ClockSweeper> clockSweepers;
 
   /**
    * The resource store with which this manager has been created.
@@ -193,89 +187,23 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     this.user = user;
     pool = new AtomicReference<>();
     
-    // Initialize revision epoch tracker (1024 slots = supports up to 1024 concurrent transactions)
-    // Increased from 128 to handle tests that create many transactions via temporal axes
-    this.revisionEpochTracker = new RevisionEpochTracker(1024);
+    // Use GLOBAL epoch tracker (shared across all databases/resources)
+    // This follows PostgreSQL pattern where all sessions register with a global tracker
+    this.revisionEpochTracker = io.sirix.access.Databases.getGlobalEpochTracker();
+    
+    // Register this resource's current revision with the global tracker
+    // This allows MVCC-aware eviction across all resources
     this.revisionEpochTracker.setLastCommittedRevision(uberPage.getRevisionNumber());
 
-    // Start ClockSweeper threads for each ShardedPageCache
-    this.clockSweeperThreads = new ArrayList<>();
-    this.clockSweepers = new ArrayList<>();
-    startClockSweepers();
+    // NOTE: ClockSweepers are now GLOBAL (started with BufferManager, not per-session)
+    // This follows PostgreSQL bgwriter pattern - background threads run continuously
 
     isClosed = false;
   }
 
-  /**
-   * Start ClockSweeper background threads for page eviction.
-   * Creates one sweeper thread per shard in each ShardedPageCache.
-   */
-  private void startClockSweepers() {
-    long databaseId = resourceConfig.getDatabaseId();
-    long resourceId = resourceConfig.getID();
-    int sweepIntervalMs = 100; // Sweep every 100ms
-
-    // Start ClockSweeper for RecordPageCache (simplified: single thread)
-    if (bufferManager.getRecordPageCache() instanceof io.sirix.cache.ShardedPageCache recordCache) {
-      io.sirix.cache.ShardedPageCache.Shard shard = recordCache.getShard(
-          new io.sirix.page.PageReference().setDatabaseId(databaseId).setResourceId(resourceId));
-      
-      io.sirix.cache.ClockSweeper sweeper = new io.sirix.cache.ClockSweeper(
-          shard, revisionEpochTracker, sweepIntervalMs, 0, databaseId, resourceId);
-      
-      Thread thread = new Thread(sweeper, "ClockSweeper-RecordPage-" + databaseId + "-" + resourceId);
-      thread.setDaemon(true);
-      thread.start();
-      
-      clockSweepers.add(sweeper);
-      clockSweeperThreads.add(thread);
-      
-      LOGGER.info("Started 1 ClockSweeper thread for RecordPageCache (db={}, res={})", databaseId, resourceId);
-    }
-
-    // Start ClockSweeper for RecordPageFragmentCache (simplified: single thread)
-    if (bufferManager.getRecordPageFragmentCache() instanceof io.sirix.cache.ShardedPageCache fragmentCache) {
-      io.sirix.cache.ShardedPageCache.Shard shard = fragmentCache.getShard(
-          new io.sirix.page.PageReference().setDatabaseId(databaseId).setResourceId(resourceId));
-      
-      io.sirix.cache.ClockSweeper sweeper = new io.sirix.cache.ClockSweeper(
-          shard, revisionEpochTracker, sweepIntervalMs, 0, databaseId, resourceId);
-      
-      Thread thread = new Thread(sweeper, "ClockSweeper-FragmentPage-" + databaseId + "-" + resourceId);
-      thread.setDaemon(true);
-      thread.start();
-      
-      clockSweepers.add(sweeper);
-      clockSweeperThreads.add(thread);
-      
-      LOGGER.info("Started 1 ClockSweeper thread for RecordPageFragmentCache (db={}, res={})", databaseId, resourceId);
-    }
-  }
-
-  /**
-   * Stop all ClockSweeper threads.
-   * Called when resource session is closed.
-   */
-  private void stopClockSweepers() {
-    for (io.sirix.cache.ClockSweeper sweeper : clockSweepers) {
-      sweeper.stop();
-    }
-    
-    for (Thread thread : clockSweeperThreads) {
-      thread.interrupt();
-    }
-    
-    // Wait for threads to finish (with timeout)
-    for (Thread thread : clockSweeperThreads) {
-      try {
-        thread.join(1000); // Wait max 1 second
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-      }
-    }
-    
-    LOGGER.info("Stopped {} ClockSweeper threads", clockSweeperThreads.size());
-  }
+  // REMOVED: ClockSweeper management moved to BufferManager (global lifecycle)
+  // This follows PostgreSQL bgwriter pattern - background threads run continuously,
+  // not tied to individual session lifecycle
 
   public void createPageTrxPool() {
     if (pool.get() == null) {
@@ -565,8 +493,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public synchronized void close() {
     if (!isClosed) {
-      // Stop ClockSweeper threads first
-      stopClockSweepers();
+      // NOTE: ClockSweepers are GLOBAL now - don't stop them per-session
+      // They continue running, managed by BufferManager lifecycle
       
       // Close all open node transactions.
       for (NodeReadOnlyTrx rtx : nodeTrxMap.values()) {
