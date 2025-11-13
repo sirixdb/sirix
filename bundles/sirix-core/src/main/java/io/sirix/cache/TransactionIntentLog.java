@@ -192,10 +192,9 @@ public final class TransactionIntentLog implements AutoCloseable {
     }
     list.clear();
     
-    // Always log TIL cleanup to track Page 0 leaks
-    System.err.println("TIL.clear() processed " + totalContainers + " containers (" + kvLeafContainers + 
-        " KeyValueLeafPages, " + page0Count + " Page0s), closed " + closedComplete + " complete + " + 
-        closedModified + " modified pages, failed " + skippedAlreadyClosed + " closes");
+    // Log TIL cleanup for diagnostics
+    LOGGER.debug("TIL.clear() processed {} containers ({} KeyValueLeafPages, {} Page0s), closed {} complete + {} modified pages, failed {} closes",
+        totalContainers, kvLeafContainers, page0Count, closedComplete, closedModified, skippedAlreadyClosed);
   }
 
   /**
@@ -267,10 +266,9 @@ public final class TransactionIntentLog implements AutoCloseable {
       }
     }
     
-    // Always log TIL cleanup to track Page 0 leaks
-    System.err.println("TIL.close() processed " + initialSize + " containers (" + page0Count + 
-        " Page0s), closed " + closedComplete + " complete + " + closedModified + 
-        " modified pages, failed " + failedCloses + " closes");
+    // Log TIL cleanup for diagnostics
+    LOGGER.debug("TIL.close() processed {} containers ({} Page0s), closed {} complete + {} modified pages, failed {} closes",
+        initialSize, page0Count, closedComplete, closedModified, failedCloses);
     
     logKey = 0;
     list.clear();

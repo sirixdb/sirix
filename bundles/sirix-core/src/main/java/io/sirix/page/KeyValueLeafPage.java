@@ -245,8 +245,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
       boolean addedToLivePages = ALL_LIVE_PAGES.add(this);
       if (!addedToLivePages) {
-        System.err.println("⚠️  DUPLICATE ADD to ALL_LIVE_PAGES: Page " + recordPageKey + " (" + indexType + ") rev=" + 
-            revisionNumber + " instance=" + System.identityHashCode(this) + " totalCreated=" + created);
+        LOGGER.warn("⚠️  DUPLICATE ADD to ALL_LIVE_PAGES: Page {} ({}) rev={} instance={} totalCreated={}",
+            recordPageKey, indexType, revisionNumber, System.identityHashCode(this), created);
       }
       
       // Track Page 0 creation source and register for cleanup
@@ -269,8 +269,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         }
         
         String addStatus = wasAdded ? "ADDED" : "DUPLICATE";
-        System.err.println("[CREATE] Page 0 from " + source + " (" + addStatus + "): " + indexType + " rev=" + 
-            revisionNumber + " instance=" + System.identityHashCode(this) + " totalCreated=" + created);
+        LOGGER.debug("[CREATE] Page 0 from {} ({}): {} rev={} instance={} totalCreated={}",
+            source, addStatus, indexType, revisionNumber, System.identityHashCode(this), created);
       }
     } else {
       this.creationStackTrace = null;
@@ -325,16 +325,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
       boolean addedToLivePages = ALL_LIVE_PAGES.add(this);
       if (!addedToLivePages) {
-        System.err.println("⚠️  DUPLICATE ADD to ALL_LIVE_PAGES: Page " + recordPageKey + " (" + indexType + ") rev=" + 
-            revision + " instance=" + System.identityHashCode(this) + " totalCreated=" + created);
+        LOGGER.warn("⚠️  DUPLICATE ADD to ALL_LIVE_PAGES: Page {} ({}) rev={} instance={} totalCreated={}",
+            recordPageKey, indexType, revision, System.identityHashCode(this), created);
       }
       
       // Track Page 0 creation source and register for cleanup
       if (recordPageKey == 0) {
         boolean wasAdded = ALL_PAGE_0_INSTANCES.add(this); // Register for explicit cleanup
         String addStatus = wasAdded ? "ADDED" : "DUPLICATE";
-        System.err.println("[CREATE] Page 0 from DISK_LOAD (" + addStatus + "): " + indexType + " rev=" + 
-            revision + " instance=" + System.identityHashCode(this) + " totalCreated=" + created);
+        LOGGER.debug("[CREATE] Page 0 from DISK_LOAD ({}): {} rev={} instance={} totalCreated={}",
+            addStatus, indexType, revision, System.identityHashCode(this), created);
       }
     } else {
       this.creationStackTrace = null;
@@ -1082,15 +1082,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       if (currentGuardCount > 0) {
         // Page is still guarded - cannot close yet
         // This can happen if cache eviction tries to close a page that's still in use
-        LOGGER.warn("Attempted to close guarded page {} ({}) rev={} with guardCount={} - skipping close",
+        LOGGER.warn("⚠️  GUARD PROTECTED: Attempted to close guarded page {} ({}) rev={} with guardCount={} - skipping close",
             recordPageKey, indexType, revision, currentGuardCount);
         return;
       }
       
       if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
         boolean wasInLivePages = ALL_LIVE_PAGES.contains(this);
-        System.err.println("[CLOSE] Page 0 (" + indexType + ") rev=" + revision + " instance=" + System.identityHashCode(this) + 
-            " wasInLivePages=" + wasInLivePages + " guardCount=" + currentGuardCount);
+        LOGGER.debug("[CLOSE] Page 0 ({}) rev={} instance={} wasInLivePages={} guardCount={}",
+            indexType, revision, System.identityHashCode(this), wasInLivePages, currentGuardCount);
       }
       
       isClosed = true;
@@ -1242,14 +1242,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * Pages with active guards cannot be evicted.
    */
   public void acquireGuard() {
-    guardCount.incrementAndGet();
+    int newCount = guardCount.incrementAndGet();
+    if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
+      LOGGER.debug("[GUARD-ACQUIRE] Page 0 ({}) guardCount={}", indexType, newCount);
+    }
   }
 
   /**
    * Release a guard on this page (decrement guard count).
    */
   public void releaseGuard() {
-    guardCount.decrementAndGet();
+    int newCount = guardCount.decrementAndGet();
+    if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
+      LOGGER.debug("[GUARD-RELEASE] Page 0 ({}) guardCount={}", indexType, newCount);
+    }
   }
 
   /**
