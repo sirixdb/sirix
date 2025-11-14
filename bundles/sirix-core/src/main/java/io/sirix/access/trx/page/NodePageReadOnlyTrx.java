@@ -751,12 +751,37 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   /**
    * Unpin a record page when it's replaced by a newer page.
    * <p>
-   * Note: Pages in the local cache might be closed or not pinned by this transaction.
-   * We only unpin pages that this transaction actually pinned.
+   * If the page is in cache, it will be closed by the cache's removal listener.
+   * If the page is NOT in cache, we must close it explicitly to prevent leaks.
    */
   private void unpinRecordPage(RecordPage recordPage) {
-    // TODO: Will be replaced with guard release logic
-    // For now, this is a no-op
+    if (recordPage == null) {
+      return;
+    }
+    
+    KeyValueLeafPage page = recordPage.page();
+    if (page == null || page.isClosed()) {
+      return;
+    }
+    
+    // Check if page is in cache
+    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(recordPage.pageReference);
+    
+    if (cachedPage == page) {
+      // Page is in cache - cache will handle closing it on eviction
+      // No action needed
+      return;
+    }
+    
+    // Page is NOT in cache - we must close it explicitly
+    // This happens for pages held in mostRecent fields but evicted from cache
+    if (!page.isClosed()) {
+      page.close();
+      
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+        LOGGER.debug("[UNPIN] Closed mostRecent Page 0 ({}) not in cache", page.getIndexType());
+      }
+    }
   }
 
   @Nullable
