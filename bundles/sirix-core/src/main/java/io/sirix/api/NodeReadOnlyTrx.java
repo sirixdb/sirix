@@ -18,7 +18,7 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    *
    * @return ID of the transaction
    */
-  long getId();
+  int getId();
 
   /**
    * Get the revision number of this transaction.

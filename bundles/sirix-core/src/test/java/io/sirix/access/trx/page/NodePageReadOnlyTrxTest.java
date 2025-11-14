@@ -44,6 +44,13 @@ public final class NodePageReadOnlyTrxTest {
   private InternalResourceSession<?,?> createResourceManagerMock() {
     final var resourceManagerMock = mock(InternalResourceSession.class);
     when(resourceManagerMock.getResourceConfig()).thenReturn(new ResourceConfiguration.Builder("foobar").build());
+    
+    // Mock RevisionEpochTracker to prevent NullPointerException
+    final var epochTrackerMock = mock(io.sirix.access.trx.RevisionEpochTracker.class);
+    final var ticketMock = mock(io.sirix.access.trx.RevisionEpochTracker.Ticket.class);
+    when(epochTrackerMock.register(org.mockito.ArgumentMatchers.anyInt())).thenReturn(ticketMock);
+    when(resourceManagerMock.getRevisionEpochTracker()).thenReturn(epochTrackerMock);
+    
     return resourceManagerMock;
   }
 }

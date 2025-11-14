@@ -2,9 +2,11 @@ package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.index.name.Names;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentMap;
+import java.util.function.BiFunction;
 
 public final class NamesCache implements Cache<NamesCacheKey, Names> {
 
@@ -12,8 +14,8 @@ public final class NamesCache implements Cache<NamesCacheKey, Names> {
 
   public NamesCache(final int maxSize) {
     cache = Caffeine.newBuilder()
+                    .initialCapacity(maxSize)
                     .maximumSize(maxSize)
-                    .expireAfterAccess(5, TimeUnit.MINUTES)
                     .scheduler(scheduler)
                     .build();
   }
@@ -29,8 +31,18 @@ public final class NamesCache implements Cache<NamesCacheKey, Names> {
   }
 
   @Override
-  public void put(NamesCacheKey key, Names value) {
+  public Names get(NamesCacheKey key, BiFunction<? super NamesCacheKey, ? super Names, ? extends Names> mappingFunction) {
+    return cache.asMap().compute(key, mappingFunction);
+  }
+
+  @Override
+  public void put(NamesCacheKey key, @NonNull Names value) {
     cache.put(key, value);
+  }
+
+  @Override
+  public void putIfAbsent(NamesCacheKey key, Names value) {
+    cache.asMap().putIfAbsent(key, value);
   }
 
   @Override

@@ -27,7 +27,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
-import net.openhft.chronicle.bytes.BytesIn;
+import io.sirix.node.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -88,6 +88,8 @@ public final class FullReferencesPage implements Page {
         pageReference.setPage(pageReferenceToClone.getPage());
         pageReference.setKey(pageReferenceToClone.getKey());
         pageReference.setLogKey(pageReferenceToClone.getLogKey());
+        pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
+        pageReference.setResourceId(pageReferenceToClone.getResourceId());
         pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
       }
 
@@ -152,8 +154,7 @@ public final class FullReferencesPage implements Page {
   }
 
   @Override
-  public Page clearPage() {
+  public void close() {
     Arrays.fill(references, null);
-    return Page.super.clearPage();
   }
 }

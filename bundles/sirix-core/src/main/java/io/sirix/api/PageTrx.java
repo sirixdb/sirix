@@ -1,20 +1,19 @@
 package io.sirix.api;
 
+import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
-import io.sirix.index.IndexType;
-import io.sirix.node.NodeKind;
-import io.sirix.page.PageReference;
-import io.sirix.page.UberPage;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
+import io.sirix.index.IndexType;
+import io.sirix.node.BytesOut;
+import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.page.PageReference;
+import io.sirix.page.UberPage;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import io.sirix.cache.PageContainer;
 
-import java.nio.ByteBuffer;
 import java.time.Instant;
 
 /**
@@ -25,7 +24,7 @@ import java.time.Instant;
  */
 public interface PageTrx extends PageReadOnlyTrx {
 
-  Bytes<ByteBuffer> newBufferedBytesInstance();
+  BytesOut<?> newBufferedBytesInstance();
 
   /**
    * Truncate resource to given revision.
@@ -174,4 +173,13 @@ public interface PageTrx extends PageReadOnlyTrx {
    * @return the revision to represent
    */
   int getRevisionToRepresent();
+  
+  /**
+   * Acquire a guard on the page containing the current node.
+   * This is needed when holding a reference to a node across cursor movements.
+   * The guard prevents the page from being modified or evicted while the node is in use.
+   *
+   * @return a PageGuard that must be closed when done with the node
+   */
+  io.sirix.cache.PageGuard acquireGuardForCurrentNode();
 }

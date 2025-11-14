@@ -9,7 +9,7 @@ import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableStructNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.node.xml.ElementNode;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
@@ -211,7 +211,7 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode,
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     return node.computeHash(bytes);
   }
 

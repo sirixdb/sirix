@@ -28,11 +28,10 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.settings.Constants;
 import io.sirix.utils.Compression;
-import net.openhft.chronicle.bytes.Bytes;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.zip.Deflater;
 
@@ -45,20 +44,26 @@ import java.util.zip.Deflater;
  */
 public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNode {
 
-  /** Delegate for common node information. */
+  /**
+   * Delegate for common node information.
+   */
   private final NodeDelegate nodeDelegate;
 
-  /** Storing the value. */
+  /**
+   * Storing the value.
+   */
   private byte[] value;
 
-  /** Determines if input has been compressed. */
+  /**
+   * Determines if input has been compressed.
+   */
   private boolean compressed;
 
   /**
    * Constructor
    *
-   * @param nodeDel {@link NodeDelegate} reference
-   * @param val the value
+   * @param nodeDel    {@link NodeDelegate} reference
+   * @param val        the value
    * @param compressed compress value or not
    */
   public ValueNodeDelegate(final NodeDelegate nodeDel, final byte[] val, final boolean compressed) {
@@ -70,7 +75,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     throw new UnsupportedOperationException();
   }
 
@@ -86,9 +91,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
 
   @Override
   public byte[] getRawValue() {
-    return compressed
-        ? Compression.decompress(value)
-        : value;
+    return compressed ? Compression.decompress(value) : value;
   }
 
   @Override
@@ -108,9 +111,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   @Override
   public void setRawValue(final byte[] value) {
     compressed = new String(value).length() > 10;
-    this.value = compressed
-        ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION)
-        : value;
+    this.value = compressed ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION) : value;
   }
 
   /**

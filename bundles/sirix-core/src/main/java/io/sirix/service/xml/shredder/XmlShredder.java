@@ -21,6 +21,7 @@
 
 package io.sirix.service.xml.shredder;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -33,7 +34,6 @@ import io.sirix.service.InsertPosition;
 import io.sirix.service.ShredderCommit;
 import io.sirix.settings.Constants;
 import io.sirix.utils.LogWrapper;
-import io.brackit.query.atomic.QNm;
 import org.slf4j.LoggerFactory;
 
 import javax.xml.namespace.QName;
@@ -310,8 +310,8 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
 
     try (final var db = Databases.openXmlDatabase(target)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").build());
-      try (final XmlResourceSession resMgr = db.beginResourceSession("shredded");
-           final XmlNodeTrx wtx = resMgr.beginNodeTrx();
+      try (final XmlResourceSession resourceSession = db.beginResourceSession("shredded");
+           final XmlNodeTrx wtx = resourceSession.beginNodeTrx();
            final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
         final XMLEventReader reader = createFileReader(fis);
         final boolean includeCoPI = args.length == 3 && Boolean.parseBoolean(args[2]);

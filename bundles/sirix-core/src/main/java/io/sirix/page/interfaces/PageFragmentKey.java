@@ -17,4 +17,16 @@ public interface PageFragmentKey {
    * @return The revision number.
    */
   int revision();
+
+  /**
+   * Get the database ID.
+   * @return The database ID.
+   */
+  long databaseId();
+
+  /**
+   * Get the resource ID.
+   * @return The resource ID.
+   */
+  long resourceId();
 }
