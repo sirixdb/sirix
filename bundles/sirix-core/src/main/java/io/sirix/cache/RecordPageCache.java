@@ -72,16 +72,6 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
     cache.cleanUp();
   }
   
-  /**
-   * Atomically unpin a page and update its weight in the cache.
-   * 
-   * @param key the page reference
-   * @param trxId the transaction ID doing the unpin
-   */
-  // TODO: These methods will be replaced with guard-based lifecycle management
-  // public void unpinAndUpdateWeight(PageReference key, int trxId) - REMOVED
-  // public void pinAndUpdateWeight(PageReference key, int trxId) - REMOVED
-
   @Override
   public KeyValueLeafPage get(PageReference key) {
     return cache.getIfPresent(key);

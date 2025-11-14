@@ -29,14 +29,37 @@ public final class PageGuard implements AutoCloseable {
   private boolean closed = false;
 
   /**
-   * Create a new page guard.
+   * Create a new page guard and acquire the guard.
    *
    * @param page the page being guarded
    */
   public PageGuard(KeyValueLeafPage page) {
+    this(page, true);
+  }
+
+  /**
+   * Create a new page guard, optionally acquiring the guard.
+   *
+   * @param page the page being guarded
+   * @param acquireGuard if true, acquire guard; if false, guard must already be acquired
+   */
+  private PageGuard(KeyValueLeafPage page, boolean acquireGuard) {
     this.page = page;
     this.versionAtFix = page.getVersion();
-    page.acquireGuard();  // Guard the PAGE (frame)
+    if (acquireGuard) {
+      page.acquireGuard();  // Guard the PAGE (frame)
+    }
+  }
+
+  /**
+   * Wrap a page that already has a guard acquired.
+   * Used when page was returned from cache.getAndGuard().
+   *
+   * @param page the page with guard already acquired
+   * @return PageGuard wrapper that will release the pre-acquired guard
+   */
+  public static PageGuard fromAcquired(KeyValueLeafPage page) {
+    return new PageGuard(page, false);
   }
 
   /**

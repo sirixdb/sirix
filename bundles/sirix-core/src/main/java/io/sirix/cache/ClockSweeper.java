@@ -128,27 +128,37 @@ public final class ClockSweeper implements Runnable {
           continue;
         }
         
-        KeyValueLeafPage page = shard.map.get(ref);
+        // CRITICAL: Use compute() to atomically check guards and evict
+        // This prevents TOCTOU race where getAndGuard() could acquire guard
+        // between our guardCount check and page.reset()
+        shard.map.compute(ref, (k, page) -> {
+          if (page == null) {
+            // Page was removed by another thread
+            return null;
+          }
 
-        if (page == null) {
-          // Page was removed, move clock hand
-          shard.clockHand++;
-          continue;
-        }
-
-        // Check if page is HOT
-        if (page.isHot()) {
-          page.clearHot(); // Give second chance
-          pagesSkippedByHot.incrementAndGet();
-        } else if (page.getGuardCount() > 0) {
-          // Guard is active on the page (PRIMARY protection mechanism)
-          pagesSkippedByGuard.incrementAndGet();
-        } else if (!isGlobalSweeper && page.getRevision() >= minActiveRev) {
-          // For per-resource sweepers: Check revision watermark
-          // For global sweepers: Skip this check (rely on guards for correctness)
-          pagesSkippedByWatermark.incrementAndGet();
-        } else {
-          // Evict: increment version, reset page, remove from map
+          // All checks and eviction must be atomic within compute()
+          
+          // Check if page is HOT
+          if (page.isHot()) {
+            page.clearHot(); // Give second chance
+            pagesSkippedByHot.incrementAndGet();
+            return page; // Keep in cache
+          }
+          
+          // ATOMIC: Check guard count (PRIMARY protection)
+          if (page.getGuardCount() > 0) {
+            pagesSkippedByGuard.incrementAndGet();
+            return page; // Keep in cache
+          }
+          
+          // Check revision watermark
+          if (!isGlobalSweeper && page.getRevision() >= minActiveRev) {
+            pagesSkippedByWatermark.incrementAndGet();
+            return page; // Keep in cache
+          }
+          
+          // ATOMIC EVICTION: Evict within compute() while holding per-key lock
           try {
             page.incrementVersion();
             page.reset(); // Clear data, keep MemorySegments
@@ -156,7 +166,6 @@ public final class ClockSweeper implements Runnable {
             // Optionally release physical memory via madvise
             // (allocator.reset() would do this)
             
-            shard.map.remove(ref);
             ref.setPage(null);
             pagesEvicted.incrementAndGet();
             
@@ -165,10 +174,13 @@ public final class ClockSweeper implements Runnable {
                   shardIndex, pagesEvicted.get(), pagesSkippedByHot.get(),
                   pagesSkippedByWatermark.get(), pagesSkippedByGuard.get());
             }
+            
+            return null; // Remove from cache
           } catch (Exception e) {
             LOGGER.error("ClockSweeper[{}] failed to evict page {}", shardIndex, page.getPageKey(), e);
+            return page; // Keep in cache on error
           }
-        }
+        });
 
         // Move clock hand forward (will be bounded on next iteration)
         shard.clockHand++;

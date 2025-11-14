@@ -23,14 +23,11 @@ package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Scheduler;
 import io.sirix.page.KeyValueLeafPage;
-import io.sirix.page.PageReference;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.PolyNull;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.BiFunction;
-import java.util.function.Function;
 
 /**
  * Interface for all upcoming cache implementations. Can be a weak one, a LRU-based one or a
@@ -123,6 +120,39 @@ public interface Cache<K, V> {
    */
   default void cleanUp() {
     // Default: no-op for caches that don't need it
+  }
+
+  /**
+   * Get a page and atomically acquire a guard on it (if V is KeyValueLeafPage).
+   * This prevents the race where ClockSweeper evicts a page between
+   * cache lookup and guard acquisition.
+   * <p>
+   * Default implementation assumes V is KeyValueLeafPage and uses asMap().compute()
+   * for atomicity. Implementations can override for better performance.
+   *
+   * @param key the page reference key
+   * @return page with guard already acquired, or null if not in cache or closed
+   * @throws UnsupportedOperationException if V is not KeyValueLeafPage
+   */
+  default V getAndGuard(K key) {
+    try {
+      return asMap().compute(key, (k, existingValue) -> {
+        if (existingValue != null) {
+          KeyValueLeafPage page = (KeyValueLeafPage) existingValue;
+          if (!page.isClosed()) {
+            // ATOMIC: mark accessed AND acquire guard while holding map lock for this key
+            page.markAccessed();
+            page.acquireGuard();
+            return existingValue;
+          }
+        }
+        // Not in cache or closed - return null (don't return closed page!)
+        // CRITICAL: Must NOT acquire guard on closed pages and must NOT return them
+        return null;
+      });
+    } catch (ClassCastException e) {
+      throw new UnsupportedOperationException("getAndGuard() only supports KeyValueLeafPage values", e);
+    }
   }
 
   /** Close a cache, might be a file handle for persistent caches. */

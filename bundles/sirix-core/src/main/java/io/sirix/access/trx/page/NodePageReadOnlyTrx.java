@@ -137,8 +137,16 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private final io.sirix.access.trx.RevisionEpochTracker.Ticket epochTicket;
 
   /**
-   * Current page guard (holds page while cursor is on it).
-   * Guard is released when cursor moves to a different page.
+   * Current page guard - protects the page where cursor is currently positioned.
+   * 
+   * Guard lifecycle:
+   * - Acquired when cursor moves to a page
+   * - Released when cursor moves to a DIFFERENT page
+   * - Released on transaction close
+   * 
+   * This matches database cursor semantics: only the "current" page is pinned.
+   * Node keys are primitives (copied from MemorySegments), so old pages can be
+   * evicted after cursor moves away.
    */
   private PageGuard currentPageGuard;
 
@@ -474,15 +482,30 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     // First: Check cached pages.
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && isMostRecentlyReadPathSummaryPage(indexLogKey)) {
       var page = pathSummaryRecordPage.page();
-      assert !page.isClosed();
       
-      // Acquire guard for PATH_SUMMARY page
-      if (currentPageGuard == null || currentPageGuard.page() != page) {
-        closeCurrentPageGuard();
-        currentPageGuard = new PageGuard(page);
+      // CRITICAL: Validate page is still in cache and acquire guard atomically
+      // The mostRecent field might hold a stale reference to an evicted page
+      var guardedPage = resourceBufferManager.getRecordPageCache().getAndGuard(pathSummaryRecordPage.pageReference);
+      
+      if (guardedPage == page && !page.isClosed()) {
+        // Same instance and not closed - safe to use
+        // Single-guard: Replace current guard
+        if (currentPageGuard == null || currentPageGuard.page() != page) {
+          closeCurrentPageGuard();
+          currentPageGuard = PageGuard.fromAcquired(page);
+        } else {
+          // Already guarding this page - release extra
+          page.releaseGuard();
+        }
+        return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
+      } else {
+        // Different instance or closed - mostRecent is stale, release guard if acquired
+        if (guardedPage != null) {
+          guardedPage.releaseGuard();
+        }
+        pathSummaryRecordPage = null;  // Clear stale reference
+        // Fall through to reload
       }
-      
-      return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
     }
 
     // Check the most recent page for this type/index
@@ -492,18 +515,30 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                                        indexLogKey.getRevisionNumber());
     if (cachedPage != null) {
       var page = cachedPage.page();
-      // CRITICAL: Handle closed pages
-      if (page.isClosed()) {
-        // Page was closed - clear the field
-        setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), null);
-        cachedPage = null;
-      } else {
-        // Acquire guard for cached page
+      
+      // CRITICAL: Validate page is still in cache and acquire guard atomically
+      // The mostRecent field might hold a stale reference to an evicted/reset page
+      var guardedPage = resourceBufferManager.getRecordPageCache().getAndGuard(cachedPage.pageReference);
+      
+      if (guardedPage == page && !page.isClosed()) {
+        // Same instance and not closed - safe to use
+        // Single-guard: Replace current guard
         if (currentPageGuard == null || currentPageGuard.page() != page) {
           closeCurrentPageGuard();
-          currentPageGuard = new PageGuard(page);
+          currentPageGuard = PageGuard.fromAcquired(page);
+        } else {
+          // Already guarding this page - release extra
+          page.releaseGuard();
         }
         return new PageReferenceToPage(cachedPage.pageReference, page);
+      } else {
+        // Different instance, null, or closed - mostRecent is stale
+        if (guardedPage != null) {
+          guardedPage.releaseGuard();
+        }
+        setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), null);
+        cachedPage = null;
+        // Fall through to reload
       }
     }
 
@@ -567,9 +602,33 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(pageReferenceToRecordPage);
 
     if (loadedPage != null) {
-      // TODO: Add guard acquisition here
-      // loadedPage.incrementPinCount(trxId);  // REMOVED
+      // Add to cache
       resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, loadedPage);
+      
+      // CRITICAL: Acquire guard atomically from cache
+      var guardedPage = resourceBufferManager.getRecordPageCache().getAndGuard(pageReferenceToRecordPage);
+      
+      if (guardedPage != null && guardedPage == loadedPage) {
+        // Successfully guarded
+        // Single-guard: Replace current guard
+        if (currentPageGuard == null || currentPageGuard.page() != loadedPage) {
+          closeCurrentPageGuard();
+          currentPageGuard = PageGuard.fromAcquired(loadedPage);
+        } else {
+          // Already guarding this page - release extra
+          loadedPage.releaseGuard();
+        }
+      } else {
+        // Failed to guard (shouldn't happen for freshly loaded page)
+        if (guardedPage != null && guardedPage != loadedPage) {
+          // Different page in cache - use that one instead
+          guardedPage.releaseGuard();
+        }
+        LOGGER.warn("Failed to guard PATH_SUMMARY bypass page: key={}, loaded={}, cached={}",
+            pageReferenceToRecordPage.getKey(), 
+            System.identityHashCode(loadedPage),
+            guardedPage != null ? System.identityHashCode(guardedPage) : "null");
+      }
 
       if (DEBUG_PATH_SUMMARY) {
         System.err.println(
@@ -693,15 +752,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
               + indexLogKey.getRevisionNumber());
     }
 
-    // CRITICAL: Don't do I/O inside compute() - causes deadlocks with ConcurrentHashMap
-    // Use simple get() first, then load outside compute if needed
-    KeyValueLeafPage recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
-    
-    // Handle closed pages
-    if (recordPageFromBuffer != null && recordPageFromBuffer.isClosed()) {
-      resourceBufferManager.getRecordPageCache().remove(pageReferenceToRecordPage);
-      recordPageFromBuffer = null;
-    }
+    // CRITICAL: Use atomic getAndGuard() to prevent race with ClockSweeper
+    // Between cache.get() and guard acquisition, ClockSweeper could evict the page
+    // Note: getAndGuard() returns null for closed pages (no guard acquired)
+    KeyValueLeafPage recordPageFromBuffer = resourceBufferManager.getRecordPageCache().getAndGuard(pageReferenceToRecordPage);
     
     if (recordPageFromBuffer == null) {
       // Cache miss - load outside of compute
@@ -716,10 +770,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         // Try to install in cache (putIfAbsent handles race)
         resourceBufferManager.getRecordPageCache().putIfAbsent(pageReferenceToRecordPage, kvPage);
         
-        // Get what's actually in cache (might be from another thread)
-        recordPageFromBuffer = resourceBufferManager.getRecordPageCache().get(pageReferenceToRecordPage);
+        // ATOMIC: Get from cache with guard acquired
+        recordPageFromBuffer = resourceBufferManager.getRecordPageCache().getAndGuard(pageReferenceToRecordPage);
         if (recordPageFromBuffer == null) {
-          recordPageFromBuffer = kvPage; // Use our loaded page
+          // Another thread removed it - use our loaded page and acquire guard manually
+          kvPage.acquireGuard();
+          recordPageFromBuffer = kvPage;
         }
         
         if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageFromBuffer.getPageKey() == 0) {
@@ -744,10 +800,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       pageReferenceToRecordPage.setPage(recordPageFromBuffer);
       assert !recordPageFromBuffer.isClosed();
       
-      // Acquire guard if this is a different page
+      // Single-guard: Wrap the already-guarded page (guard was acquired by getAndGuard())
       if (currentPageGuard == null || currentPageGuard.page() != recordPageFromBuffer) {
         closeCurrentPageGuard();
-        currentPageGuard = new PageGuard(recordPageFromBuffer);
+        currentPageGuard = PageGuard.fromAcquired(recordPageFromBuffer);
+      } else {
+        // Same page as current guard - release the extra guard we just acquired
+        recordPageFromBuffer.releaseGuard();
       }
       
       return recordPageFromBuffer;
@@ -758,13 +817,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   private void setMostRecentlyReadRecordPage(@NonNull IndexLogKey indexLogKey, @NonNull PageReference pageReference,
       KeyValueLeafPage recordPage) {
-    // Acquire guard for the new page if it's different from current
-    if (recordPage != null && (currentPageGuard == null || currentPageGuard.page() != recordPage)) {
-      closeCurrentPageGuard();
-      if (!recordPage.isClosed()) {
-        currentPageGuard = new PageGuard(recordPage);
-      }
-    }
+    // Single-guard: Guard is already managed by caller (getFromBufferManager/getInMemoryPageInstance)
+    // No additional guard management needed here
     
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
       if (pathSummaryRecordPage != null) {
@@ -986,10 +1040,28 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                   + kvLeafPage.getRevision());
         }
         
-        // Acquire guard for swizzled page
-        if (currentPageGuard == null || currentPageGuard.page() != kvLeafPage) {
-          closeCurrentPageGuard();
-          currentPageGuard = new PageGuard(kvLeafPage);
+        // CRITICAL: Swizzled pages might not have guards - acquire atomically via cache
+        // Even though page is swizzled, it should be in cache if it's valid
+        var guardedPage = resourceBufferManager.getRecordPageCache().getAndGuard(pageReferenceToRecordPage);
+        
+        if (guardedPage == kvLeafPage && !kvLeafPage.isClosed()) {
+          // Same instance - safe to use with guard
+          // Single-guard: Replace current guard
+          if (currentPageGuard == null || currentPageGuard.page() != kvLeafPage) {
+            closeCurrentPageGuard();
+            currentPageGuard = PageGuard.fromAcquired(kvLeafPage);
+          } else {
+            // Already guarding this page - release extra
+            kvLeafPage.releaseGuard();
+          }
+        } else {
+          // Swizzled page not in cache or different instance - need to reload
+          // Release guard if we acquired one
+          if (guardedPage != null) {
+            guardedPage.releaseGuard();
+          }
+          pageReferenceToRecordPage.setPage(null);  // Clear stale swizzled reference
+          return null;  // Signal caller to reload
         }
       }
       return page;
@@ -1037,10 +1109,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final var pageReferenceWithKey =
         new PageReference().setKey(originalStorageKey).setDatabaseId(databaseId).setResourceId(resourceId);
 
-    // Check cache first
-    KeyValuePage<DataRecord> page = resourceBufferManager.getRecordPageFragmentCache().get(pageReferenceWithKey);
+    // CRITICAL: Use atomic getAndGuard() to prevent race with ClockSweeper
+    // Note: getAndGuard() returns null for closed pages (no guard acquired)
+    KeyValuePage<DataRecord> page = resourceBufferManager.getRecordPageFragmentCache().getAndGuard(pageReferenceWithKey);
     
-    if (page == null || page.isClosed()) {
+    if (page == null) {
       // Cache miss - load from disk
       var kvPage = (KeyValueLeafPage) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
       
@@ -1051,15 +1124,15 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       
       // Add to cache
       resourceBufferManager.getRecordPageFragmentCache().putIfAbsent(pageReferenceWithKey, kvPage);
-      page = resourceBufferManager.getRecordPageFragmentCache().get(pageReferenceWithKey);
+      
+      // ATOMIC: Get from cache with guard acquired
+      page = resourceBufferManager.getRecordPageFragmentCache().getAndGuard(pageReferenceWithKey);
       if (page == null) {
+        // Another thread removed it - use our loaded page and acquire guard manually
+        kvPage.acquireGuard();
         page = kvPage;
       }
     }
-    
-    // CRITICAL: Acquire guard for this fragment (replaces old incrementPinCount)
-    // Guards protect fragments from eviction until combining completes
-    ((KeyValueLeafPage) page).acquireGuard();
     
     assert !page.isClosed();
     pages.add(page);
@@ -1290,7 +1363,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   
   /**
    * Get the page that the current page guard is protecting.
-   * Used when needing to acquire an additional guard on the current page.
+   * Used by NodePageTrx for acquiring additional guards on the current page.
    *
    * @return the current page, or null if no page is currently guarded
    */
@@ -1298,19 +1371,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return currentPageGuard != null ? currentPageGuard.page() : null;
   }
 
-  /**
-   * TODO: Will be replaced with guard cleanup logic.
-   * Clean up any resources held by this transaction.
-   */
-  private void unpinAllPagesForTransaction(int transactionId) {
-    // TODO: Implement guard release logic here
-    // For now, close any active page guard
-    closeCurrentPageGuard();
-  }
-
   @Override
   public void close() {
     if (!isClosed) {
+      // Close current page guard
+      closeCurrentPageGuard();
+      
       // Deregister from epoch tracker (allow eviction of pages from this revision)
       resourceSession.getRevisionEpochTracker().deregister(epochTicket);
       
@@ -1338,14 +1404,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
       // PATH_SUMMARY handled separately below (has special bypass logic)
 
-      // CRITICAL FIX: Unpin ALL pages still pinned by this transaction in global caches
-      unpinAllPagesForTransaction(trxId);
-
       // Handle PATH_SUMMARY bypassed pages for write transactions (they're not in cache)
       if (pathSummaryRecordPage != null && trxIntentLog != null) {
         if (!pathSummaryRecordPage.page.isClosed()) {
-          // TODO: Release guard before closing
-          // pathSummaryRecordPage.page.decrementPinCount(trxId);  // REMOVED
+          // Guard already released by releaseAllGuards()
           pathSummaryRecordPage.page.close();
         }
       }
