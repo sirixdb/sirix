@@ -94,6 +94,10 @@ public final class PageReference {
 
   /**
    * Set in-memory instance of deserialized page.
+   * 
+   * Note: This just swaps the reference. The old page is NOT closed here.
+   * Pages are owned by the cache and will be closed by the cache's removal listener
+   * when evicted, or by explicit operations (TIL, transaction close).
    *
    * @param page deserialized page
    */

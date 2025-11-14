@@ -424,6 +424,10 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       final int revision = uberPage.getRevisionNumber();
       serializeIndexDefinitions(revision);
 
+      // CRITICAL: Release current page guard BEFORE TIL.clear()
+      // If guard is on a TIL page, the page won't close (guardCount > 0 check)
+      pageRtx.closeCurrentPageGuard();
+      
       // Clear and return pages to pool (TransactionIntentLog.clear() handles clearing and returning)
       // Note: Pages are already unpinned when added to TIL, so they're closed by cache removal listener
       log.clear();
@@ -515,6 +519,10 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   public UberPage rollback() {
     pageRtx.assertNotClosed();
     
+    // CRITICAL: Release current page guard BEFORE TIL.clear()
+    // If guard is on a TIL page, the page won't close (guardCount > 0 check)
+    pageRtx.closeCurrentPageGuard();
+    
     // Note: Pages are already unpinned when added to TIL
     log.clear();
     
@@ -546,9 +554,13 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
         pageRtx.resourceSession.closePageWriteTransaction(pageRtx.getTrxId());
       }
 
-      // Note: Pages are already unpinned when added to TIL
-      log.close();
+      // CRITICAL: Close pageRtx FIRST to release guards BEFORE TIL tries to close pages
+      // If guards are active when TIL.close() runs, pages won't close (guardCount > 0 check)
       pageRtx.close();
+      
+      // Now TIL can close pages (guards released)
+      log.close();
+      
       storagePageReaderWriter.close();
       isClosed = true;
     }

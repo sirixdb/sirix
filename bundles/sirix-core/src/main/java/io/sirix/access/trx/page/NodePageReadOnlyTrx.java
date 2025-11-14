@@ -618,19 +618,35 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
           // Already guarding this page - release extra
           loadedPage.releaseGuard();
         }
-      } else {
-        // Failed to guard (shouldn't happen for freshly loaded page)
-        if (guardedPage != null && guardedPage != loadedPage) {
-          // Different page in cache - use that one instead
+      } else if (guardedPage != null && guardedPage != loadedPage) {
+        // CRITICAL: Different page in cache - another thread added different instance
+        // Our loadedPage is orphaned - close it to prevent leak
+        if (!loadedPage.isClosed()) {
+          loadedPage.close();
+        }
+        // Use the cached page instead
+        if (currentPageGuard == null || currentPageGuard.page() != guardedPage) {
+          closeCurrentPageGuard();
+          currentPageGuard = PageGuard.fromAcquired(guardedPage);
+        } else {
+          // Already guarding cached page - release extra
           guardedPage.releaseGuard();
         }
-        LOGGER.warn("Failed to guard PATH_SUMMARY bypass page: key={}, loaded={}, cached={}",
+        // Update loadedPage reference to the cached one
+        loadedPage = guardedPage;
+      } else {
+        // guardedPage is null - cache remove happened, very rare
+        LOGGER.warn("Failed to guard PATH_SUMMARY bypass page: key={}, loaded={}, cached=null",
             pageReferenceToRecordPage.getKey(), 
-            System.identityHashCode(loadedPage),
-            guardedPage != null ? System.identityHashCode(guardedPage) : "null");
+            System.identityHashCode(loadedPage));
+        // Close orphaned page
+        if (!loadedPage.isClosed()) {
+          loadedPage.close();
+        }
+        loadedPage = null;  // Will return null below
       }
 
-      if (DEBUG_PATH_SUMMARY) {
+      if (DEBUG_PATH_SUMMARY && loadedPage != null) {
         System.err.println(
             "[PATH_SUMMARY-BYPASS]   -> Loaded from disk and cached: " + "pageKey=" + loadedPage.getPageKey()
                 + ", revision=" + loadedPage.getRevision());
@@ -776,6 +792,12 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
           // Another thread removed it - use our loaded page and acquire guard manually
           kvPage.acquireGuard();
           recordPageFromBuffer = kvPage;
+        } else if (recordPageFromBuffer != kvPage) {
+          // CRITICAL: Another thread won the race and added a different page instance
+          // Our kvPage is orphaned - close it to prevent leak
+          if (!kvPage.isClosed()) {
+            kvPage.close();
+          }
         }
         
         if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageFromBuffer.getPageKey() == 0) {
@@ -1131,6 +1153,13 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         // Another thread removed it - use our loaded page and acquire guard manually
         kvPage.acquireGuard();
         page = kvPage;
+      } else if (page != kvPage) {
+        // CRITICAL: Another thread added a different page instance
+        // Our kvPage is orphaned - close it to prevent leak
+        if (!kvPage.isClosed()) {
+          kvPage.close();
+        }
+        // Use the cached page (guard already acquired by getAndGuard)
       }
     }
     
@@ -1348,8 +1377,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   /**
    * Close the current page guard if one is active.
    * Should be called before fetching a different page or when transaction closes.
+   * 
+   * Package-private to allow NodePageTrx to release guards before TIL operations.
    */
-  private void closeCurrentPageGuard() {
+  void closeCurrentPageGuard() {
     if (currentPageGuard != null && !currentPageGuard.isClosed()) {
       try {
         currentPageGuard.close();

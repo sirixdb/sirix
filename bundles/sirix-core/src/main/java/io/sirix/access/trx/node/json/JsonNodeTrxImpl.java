@@ -43,6 +43,8 @@ import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.index.path.summary.PathSummaryWriter.OPType;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
@@ -58,8 +60,6 @@ import io.sirix.service.json.shredder.JsonItemShredder;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-import io.sirix.node.BytesOut;
-import io.sirix.node.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -67,7 +67,6 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -2072,68 +2071,67 @@ final class JsonNodeTrxImpl extends
       lock.lock();
     }
 
+    // CRITICAL FIX: Acquire a separate guard on the current node's page
+    // to prevent it from being modified/evicted during the PostOrderAxis traversal
+    final var nodePageGuard = pageTrx.acquireGuardForCurrentNode();
+
     try {
-      // CRITICAL FIX: Acquire a separate guard on the current node's page
-      // to prevent it from being modified/evicted during the PostOrderAxis traversal
-      final io.sirix.cache.PageGuard nodePageGuard = pageTrx.acquireGuardForCurrentNode();
-      
-      try {
         final StructNode node = (StructNode) getCurrentNode();
-      if (node.getKind() == NodeKind.JSON_DOCUMENT) {
-        throw new SirixUsageException("Document root can not be removed.");
-      }
+        if (node.getKind() == NodeKind.JSON_DOCUMENT) {
+          throw new SirixUsageException("Document root can not be removed.");
+        }
 
-      final var parentNodeKind = getParentKind();
+        final var parentNodeKind = getParentKind();
 
-      if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
-          && parentNodeKind != NodeKind.ARRAY) && !canRemoveValue) {
-        throw new SirixUsageException(
-            "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
-      }
+        if ((parentNodeKind != NodeKind.JSON_DOCUMENT && parentNodeKind != NodeKind.OBJECT
+            && parentNodeKind != NodeKind.ARRAY) && !canRemoveValue) {
+          throw new SirixUsageException(
+              "An object record value can not be removed, you have to remove the whole object record (parent of this value).");
+        }
 
-      canRemoveValue = false;
+        canRemoveValue = false;
 
-      if (parentNodeKind != NodeKind.OBJECT_KEY) {
-        adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
-      }
+        if (parentNodeKind != NodeKind.OBJECT_KEY) {
+          adaptUpdateOperationsForRemove(node.getDeweyID(), node.getNodeKey());
+        }
 
-      // Remove subtree.
-      for (final var axis = new PostOrderAxis(this); axis.hasNext(); ) {
-        axis.nextLong();
+        // Remove subtree.
+        for (final var axis = new PostOrderAxis(this); axis.hasNext(); ) {
+          axis.nextLong();
 
-        final var currentNode = axis.getCursor().getNode();
+          final var currentNode = axis.getCursor().getNode();
 
-        // Remove name.
-        removeName();
+          // Remove name.
+          removeName();
 
-        // Remove text value.
-        removeValue();
+          // Remove text value.
+          removeValue();
 
-        // Then remove node.
-        pageTrx.removeRecord(currentNode.getNodeKey(), IndexType.DOCUMENT, -1);
+          // Then remove node.
+          pageTrx.removeRecord(currentNode.getNodeKey(), IndexType.DOCUMENT, -1);
+
+          if (storeNodeHistory) {
+            nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNode.getNodeKey());
+          }
+        }
+
+        // Remove the name of subtree-root.
+        if (node.getKind() == NodeKind.OBJECT_KEY) {
+          removeName();
+        } else {
+          removeValue();
+        }
+
+        // Adapt hashes and neighbour nodes as well as the name from the NamePage mapping if it's not a text node.
+        final ImmutableJsonNode jsonNode = (ImmutableJsonNode) node;
+        nodeReadOnlyTrx.setCurrentNode(jsonNode);
+        nodeHashing.adaptHashesWithRemove();
+        adaptForRemove(node);
+        nodeReadOnlyTrx.setCurrentNode(jsonNode);
 
         if (storeNodeHistory) {
-          nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNode.getNodeKey());
+          nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
         }
-      }
-
-      // Remove the name of subtree-root.
-      if (node.getKind() == NodeKind.OBJECT_KEY) {
-        removeName();
-      } else {
-        removeValue();
-      }
-
-      // Adapt hashes and neighbour nodes as well as the name from the NamePage mapping if it's not a text node.
-      final ImmutableJsonNode jsonNode = (ImmutableJsonNode) node;
-      nodeReadOnlyTrx.setCurrentNode(jsonNode);
-      nodeHashing.adaptHashesWithRemove();
-      adaptForRemove(node);
-      nodeReadOnlyTrx.setCurrentNode(jsonNode);
-
-      if (storeNodeHistory) {
-        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
-      }
 
         if (node.hasRightSibling()) {
           moveTo(node.getRightSiblingKey());
@@ -2144,14 +2142,12 @@ final class JsonNodeTrxImpl extends
         }
 
         return this;
-      } finally {
-        // Release the guard on the node's page
-        nodePageGuard.close();
-      }
     } finally {
       if (lock != null) {
         lock.unlock();
       }
+      // Release the guard on the node's page
+      nodePageGuard.close();
     }
   }
 
@@ -2372,7 +2368,7 @@ final class JsonNodeTrxImpl extends
 
       final var modifiedNode =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-      
+
       // Handle both BooleanNode and ObjectBooleanNode
       final ImmutableNode updatedNode;
       if (modifiedNode instanceof BooleanNode boolNode) {
@@ -2528,7 +2524,7 @@ final class JsonNodeTrxImpl extends
 
     // Adapt parent, if node has left sibling now it is a first child, and right sibling will be a last child
     StructNode parent = pageTrx.prepareRecordForModification(oldNode.getParentKey(), IndexType.DOCUMENT, -1);
-    
+
     if (!oldNode.hasLeftSibling()) {
       parent.setFirstChildKey(oldNode.getRightSiblingKey());
     }
@@ -2721,7 +2717,7 @@ final class JsonNodeTrxImpl extends
       }
       // $CASES-OMITTED$
       default -> //new JsonItemShredder.Builder(this, new JsonItemIterator(new JsonItemFactory().get), insert).build().call();
-        throw new IllegalStateException(); // FIXME
+          throw new IllegalStateException(); // FIXME
     }
     rtx.close();
   }
