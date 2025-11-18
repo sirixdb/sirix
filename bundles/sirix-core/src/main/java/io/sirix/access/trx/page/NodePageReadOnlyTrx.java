@@ -32,9 +32,9 @@ import io.sirix.api.ResourceSession;
 import io.sirix.cache.*;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
-import io.sirix.io.BytesUtils;
 import io.sirix.io.Reader;
 import io.sirix.node.DeletedNode;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.*;
@@ -44,12 +44,13 @@ import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.settings.VersioningType;
-import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.nio.ByteBuffer;
+import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -66,9 +67,14 @@ import static java.util.Objects.requireNonNull;
  */
 public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
-  private record RecordPage(int index, IndexType indexType, long recordPageKey, int revision, Page page) {
-  }
+  private static final Logger LOGGER = LoggerFactory.getLogger(NodePageReadOnlyTrx.class);
 
+  // DEBUG FLAG: Enable with -Dsirix.debug.path.summary=true
+  private static final boolean DEBUG_PATH_SUMMARY = Boolean.getBoolean("sirix.debug.path.summary");
+
+  private record RecordPage(int index, IndexType indexType, long recordPageKey, int revision,
+                            PageReference pageReference, KeyValueLeafPage page) {
+  }
   /**
    * Page reader exclusively assigned to this transaction.
    */
@@ -112,7 +118,37 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   /**
    * The transaction-ID.
    */
-  private final long trxId;
+  private final int trxId;
+
+  /**
+   * The unique database ID for this transaction.
+   */
+  private final long databaseId;
+
+  /**
+   * The unique resource ID for this transaction.
+   */
+  private final long resourceId;
+
+  /**
+   * Epoch tracker ticket for this transaction (for MVCC-aware eviction).
+   * Registered when transaction opens, deregistered when it closes.
+   */
+  private final io.sirix.access.trx.RevisionEpochTracker.Ticket epochTicket;
+
+  /**
+   * Current page guard - protects the page where cursor is currently positioned.
+   * 
+   * Guard lifecycle:
+   * - Acquired when cursor moves to a page
+   * - Released when cursor moves to a DIFFERENT page
+   * - Released on transaction close
+   * 
+   * This matches database cursor semantics: only the "current" page is guarded.
+   * Node keys are primitives (copied from MemorySegments), so old pages can be
+   * evicted after cursor moves away.
+   */
+  private PageGuard currentPageGuard;
 
   /**
    * Cached name page of this revision.
@@ -125,18 +161,18 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   private final NamePage namePage;
 
   /**
-   * Caches the most recently read record page.
+   * Most recently read pages by type and index.
+   * Using specific fields instead of generic cache for clear ownership and lifecycle.
+   * Index-aware: NAME/PATH/CAS can have multiple indexes (0-3).
    */
-  private RecordPage mostRecentlyReadRecordPage;
-
-  /**
-   * Caches the second most recently read record page.
-   */
-  private RecordPage secondMostRecentlyReadRecordPage;
-
+  private RecordPage mostRecentDocumentPage;
+  private RecordPage mostRecentChangedNodesPage;
+  private RecordPage mostRecentRecordToRevisionsPage;
   private RecordPage pathSummaryRecordPage;
-
-  private final Bytes<ByteBuffer> byteBufferForRecords = Bytes.elasticHeapByteBuffer(40);
+  private final RecordPage[] mostRecentPathPages = new RecordPage[4];
+  private final RecordPage[] mostRecentCasPages = new RecordPage[4];
+  private final RecordPage[] mostRecentNamePages = new RecordPage[4];
+  private RecordPage mostRecentDeweyIdPage;
 
   /**
    * Standard constructor.
@@ -150,7 +186,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @param trxIntentLog          the transaction intent log (can be {@code null})
    * @throws SirixIOException if reading of the persistent storage fails
    */
-  public NodePageReadOnlyTrx(final long trxId,
+  public NodePageReadOnlyTrx(final int trxId,
       final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession,
       final UberPage uberPage, final @NonNegative int revision, final Reader reader,
       final BufferManager resourceBufferManager, final @NonNull RevisionRootPageReader revisionRootPageReader,
@@ -165,9 +201,18 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     this.uberPage = requireNonNull(uberPage);
     this.trxIntentLog = trxIntentLog;
 
+    // Extract database and resource IDs for use in composite cache keys
+    this.databaseId = resourceConfig.getDatabaseId();
+    this.resourceId = resourceConfig.getID();
+    // No initialization needed - using specific fields for most recent pages
+    // (mostRecentDocumentPage, mostRecentNamePages[], etc. initialized to null)
+
     revisionNumber = revision;
     rootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
     namePage = revisionRootPageReader.getNamePage(this, rootPage);
+    
+    // Register with epoch tracker for MVCC-aware eviction
+    this.epochTicket = resourceSession.getRevisionEpochTracker().register(revision);
   }
 
   private Page loadPage(final PageReference reference) {
@@ -181,39 +226,36 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       if (page != null) {
         return page;
       }
+      // Page was in TIL but has been cleared - need to reload from disk
+      // logKey might still be set, so don't assert it's NULL_ID_INT
     }
 
-    if (trxIntentLog == null) {
-      assert reference.getLogKey() == Constants.NULL_ID_INT;
-      page = resourceBufferManager.getPageCache().get(reference, pageReference -> {
-        try {
-          return pageReader.read(pageReference, resourceSession.getResourceConfig());
-        } catch (final SirixIOException e) {
-          throw new IllegalStateException(e);
-        }
-      });
-      if (page != null) {
-        reference.setPage(page);
+    //   if (trxIntentLog == null) {
+    // REMOVED INCORRECT ASSERTION: logKey can be != NULL_ID_INT if page was in TIL then cleared
+    // assert reference.getLogKey() == Constants.NULL_ID_INT;
+    page = resourceBufferManager.getPageCache().get(reference, (_, _) -> {
+      try {
+        // Reader will fixup PageReference IDs during deserialization
+        return pageReader.read(reference, resourceSession.getResourceConfig());
+      } catch (final SirixIOException e) {
+        throw new IllegalStateException(e);
       }
-      return page;
-    }
-
-    if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
-      page = pageReader.read(reference, resourceSession.getResourceConfig());
-    }
-
+    });
     if (page != null) {
-      putIntoPageCache(reference, page);
       reference.setPage(page);
     }
     return page;
-  }
+    //    }
 
-  private void putIntoPageCache(PageReference reference, Page page) {
-    if (!(page instanceof UberPage)) {
-      // Put page into buffer manager.
-      resourceBufferManager.getPageCache().putIfAbsent(reference, page);
-    }
+    //    if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT) {
+    //      page = pageReader.read(reference, resourceSession.getResourceConfig());
+    //    }
+    //
+    //    if (page != null) {
+    //      putIntoPageCache(reference, page);
+    //      reference.setPage(page);
+    //    }
+    //    return page;
   }
 
   @Override
@@ -229,9 +271,21 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   @Override
-  public long getTrxId() {
+  public int getTrxId() {
     assertNotClosed();
     return trxId;
+  }
+
+  @Override
+  public long getDatabaseId() {
+    assertNotClosed();
+    return databaseId;
+  }
+
+  @Override
+  public long getResourceId() {
+    assertNotClosed();
+    return resourceId;
   }
 
   @Override
@@ -262,16 +316,16 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     var indexLogKey = new IndexLogKey(indexType, recordPageKey, index, revisionNumber);
 
     // $CASES-OMITTED$
-    final Page page = switch (indexType) {
+    final PageReferenceToPage pageReferenceToPage = switch (indexType) {
       case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(indexLogKey);
       default -> throw new IllegalStateException();
     };
 
-    if (page == null) {
+    if (pageReferenceToPage == null || pageReferenceToPage.page == null) {
       return null;
     }
 
-    final var dataRecord = getValue(((KeyValueLeafPage) page), recordKey);
+    final var dataRecord = getValue(((KeyValueLeafPage) pageReferenceToPage.page), recordKey);
 
     //noinspection unchecked
     return (V) checkItemIfDeleted(dataRecord);
@@ -282,7 +336,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     final var offset = PageReadOnlyTrx.recordPageOffset(nodeKey);
     DataRecord record = page.getRecord(offset);
     if (record == null) {
-      byte[] data = page.getSlot(offset);
+      var data = page.getSlot(offset);
       if (data != null) {
         record = getDataRecord(nodeKey, offset, data, page);
       }
@@ -304,12 +358,11 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return record;
   }
 
-  private DataRecord getDataRecord(long key, int offset, byte[] data, KeyValueLeafPage page) {
-    byteBufferForRecords.clear();
-    BytesUtils.doWrite(byteBufferForRecords, data);
-    var record =
-        resourceConfig.recordPersister.deserialize(byteBufferForRecords, key, page.getDeweyId(offset), resourceConfig);
-    byteBufferForRecords.clear();
+  private DataRecord getDataRecord(long key, int offset, MemorySegment data, KeyValueLeafPage page) {
+    var record = resourceConfig.recordPersister.deserialize(new MemorySegmentBytesIn(data),
+                                                            key,
+                                                            page.getDeweyIdAsByteArray(offset),
+                                                            resourceConfig);
     page.setRecord(record);
     return record;
   }
@@ -351,13 +404,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   public RevisionRootPage loadRevRoot(@NonNegative final int revisionKey) {
     assert revisionKey <= resourceSession.getMostRecentRevisionNumber();
     if (trxIntentLog == null) {
-      final Cache<Integer, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
-      RevisionRootPage revisionRootPage = cache.get(revisionKey);
-      if (revisionRootPage == null) {
-        revisionRootPage = pageReader.readRevisionRootPage(revisionKey, resourceConfig);
-        cache.put(revisionKey, revisionRootPage);
-      }
-      return revisionRootPage;
+      final Cache<RevisionRootPageCacheKey, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
+      final var cacheKey = new RevisionRootPageCacheKey(databaseId, resourceId, revisionKey);
+      return cache.get(cacheKey, (_, _) -> pageReader.readRevisionRootPage(revisionKey, resourceConfig));
     } else {
       if (revisionKey == 0 && uberPage.getRevisionRootReference() != null) {
         final var revisionRootPageReference = uberPage.getRevisionRootReference();
@@ -422,20 +471,75 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     return uberPage;
   }
 
+  public record PageReferenceToPage(PageReference reference, Page page) {
+  }
+
   @Override
-  public Page getRecordPage(@NonNull IndexLogKey indexLogKey) {
+  public PageReferenceToPage getRecordPage(@NonNull IndexLogKey indexLogKey) {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
 
-    // First: Check most recent pages.
+    // First: Check cached pages.
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && isMostRecentlyReadPathSummaryPage(indexLogKey)) {
-      return pathSummaryRecordPage.page();
+      var page = pathSummaryRecordPage.page();
+      
+      // CRITICAL: Validate page is still in cache and acquire guard atomically
+      // The mostRecent field might hold a stale reference to an evicted page
+      var guardedPage = resourceBufferManager.getRecordPageCache().getAndGuard(pathSummaryRecordPage.pageReference);
+      
+      if (guardedPage == page && !page.isClosed()) {
+        // Same instance and not closed - safe to use
+        // Single-guard: Replace current guard
+        if (currentPageGuard == null || currentPageGuard.page() != page) {
+          closeCurrentPageGuard();
+          currentPageGuard = PageGuard.fromAcquired(page);
+        } else {
+          // Already guarding this page - release extra
+          page.releaseGuard();
+        }
+        return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
+      } else {
+        // Different instance or closed - mostRecent is stale, release guard if acquired
+        if (guardedPage != null) {
+          guardedPage.releaseGuard();
+        }
+        pathSummaryRecordPage = null;  // Clear stale reference
+        // Fall through to reload
+      }
     }
-    if (isMostRecentlyReadPage(indexLogKey)) {
-      return mostRecentlyReadRecordPage.page();
-    }
-    if (isSecondMostRecentlyReadPage(indexLogKey)) {
-      return secondMostRecentlyReadRecordPage.page();
+
+    // Check the most recent page for this type/index
+    var cachedPage = getMostRecentPage(indexLogKey.getIndexType(),
+                                       indexLogKey.getIndexNumber(),
+                                       indexLogKey.getRecordPageKey(),
+                                       indexLogKey.getRevisionNumber());
+    if (cachedPage != null) {
+      var page = cachedPage.page();
+      
+      // CRITICAL: Validate page is still in cache and acquire guard atomically
+      // The mostRecent field might hold a stale reference to an evicted/reset page
+      var guardedPage = resourceBufferManager.getRecordPageCache().getAndGuard(cachedPage.pageReference);
+      
+      if (guardedPage == page && !page.isClosed()) {
+        // Same instance and not closed - safe to use
+        // Single-guard: Replace current guard
+        if (currentPageGuard == null || currentPageGuard.page() != page) {
+          closeCurrentPageGuard();
+          currentPageGuard = PageGuard.fromAcquired(page);
+        } else {
+          // Already guarding this page - release extra
+          page.releaseGuard();
+        }
+        return new PageReferenceToPage(cachedPage.pageReference, page);
+      } else {
+        // Different instance, null, or closed - mostRecent is stale
+        if (guardedPage != null) {
+          guardedPage.releaseGuard();
+        }
+        setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), null);
+        cachedPage = null;
+        // Fall through to reload
+      }
     }
 
     // Second: Traverse trie.
@@ -449,16 +553,108 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
     // Third: Try to get in-memory instance.
     var page = getInMemoryPageInstance(indexLogKey, pageReferenceToRecordPage);
-    if (page != null) {
-      return page;
+    if (page != null && !page.isClosed()) {
+      assert page instanceof KeyValueLeafPage;
+      setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, (KeyValueLeafPage) page);
+      return new PageReferenceToPage(pageReferenceToRecordPage, page);
     }
 
     // Fourth: Try to get from resource buffer manager.
     if (trxIntentLog == null || indexLogKey.getIndexType() != IndexType.PATH_SUMMARY) {
-      return getFromBufferManager(indexLogKey, pageReferenceToRecordPage);
+      if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+        System.err.println("\n[PATH_SUMMARY-DECISION] Using normal cache (read-only trx):");
+        System.err.println("  - recordPageKey: " + indexLogKey.getRecordPageKey());
+        System.err.println("  - revision: " + indexLogKey.getRevisionNumber());
+      }
+
+      page = getFromBufferManager(indexLogKey, pageReferenceToRecordPage);
+
+      if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY
+          && page instanceof KeyValueLeafPage kvp) {
+        System.err.println(
+            "[PATH_SUMMARY-NORMAL]   -> Got page from cache: " + "pageKey=" + kvp.getPageKey() + ", revision="
+                + kvp.getRevision());
+      }
+
+      // CRITICAL: Handle case where page doesn't exist (e.g., temporal queries accessing non-existent revisions)
+      if (page == null) {
+        // Page doesn't exist for this revision/index - this can happen with temporal queries
+        // Return null to signal page not found (caller should handle gracefully)
+        return null;
+      }
+
+      assert page instanceof KeyValueLeafPage;
+      setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, (KeyValueLeafPage) page);
+      return new PageReferenceToPage(pageReferenceToRecordPage, page);
     }
 
-    return loadDataPageFromDurableStorageAndCombinePageFragments(indexLogKey, pageReferenceToRecordPage);
+    // PATH_SUMMARY bypass for write transactions - REQUIRED due to cache key limitations
+    // RecordPageCache uses PageReference (key + logKey) as cache key, which doesn't include revision.
+    // Different revisions of the same page can have the same PageReference → cache returns wrong revision.
+    // Bypass loads directly from disk to avoid stale cached pages.
+    if (DEBUG_PATH_SUMMARY) {
+      System.err.println("\n[PATH_SUMMARY-DECISION] Using bypass (write trx):");
+      System.err.println("  - recordPageKey: " + indexLogKey.getRecordPageKey());
+      System.err.println("  - revision: " + indexLogKey.getRevisionNumber());
+    }
+
+    var loadedPage =
+        (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(pageReferenceToRecordPage);
+
+    if (loadedPage != null) {
+      // Add to cache
+      resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, loadedPage);
+      
+      // CRITICAL: Acquire guard atomically from cache
+      var guardedPage = resourceBufferManager.getRecordPageCache().getAndGuard(pageReferenceToRecordPage);
+      
+      if (guardedPage != null && guardedPage == loadedPage) {
+        // Successfully guarded
+        // Single-guard: Replace current guard
+        if (currentPageGuard == null || currentPageGuard.page() != loadedPage) {
+          closeCurrentPageGuard();
+          currentPageGuard = PageGuard.fromAcquired(loadedPage);
+        } else {
+          // Already guarding this page - release extra
+          loadedPage.releaseGuard();
+        }
+      } else if (guardedPage != null && guardedPage != loadedPage) {
+        // CRITICAL: Different page in cache - another thread added different instance
+        // Our loadedPage is orphaned - close it to prevent leak
+        if (!loadedPage.isClosed()) {
+          loadedPage.close();
+        }
+        // Use the cached page instead
+        if (currentPageGuard == null || currentPageGuard.page() != guardedPage) {
+          closeCurrentPageGuard();
+          currentPageGuard = PageGuard.fromAcquired(guardedPage);
+        } else {
+          // Already guarding cached page - release extra
+          guardedPage.releaseGuard();
+        }
+        // Update loadedPage reference to the cached one
+        loadedPage = guardedPage;
+      } else {
+        // guardedPage is null - cache remove happened, very rare
+        LOGGER.warn("Failed to guard PATH_SUMMARY bypass page: key={}, loaded={}, cached=null",
+            pageReferenceToRecordPage.getKey(), 
+            System.identityHashCode(loadedPage));
+        // Close orphaned page
+        if (!loadedPage.isClosed()) {
+          loadedPage.close();
+        }
+        loadedPage = null;  // Will return null below
+      }
+
+      if (DEBUG_PATH_SUMMARY && loadedPage != null) {
+        System.err.println(
+            "[PATH_SUMMARY-BYPASS]   -> Loaded from disk and cached: " + "pageKey=" + loadedPage.getPageKey()
+                + ", revision=" + loadedPage.getRevision());
+      }
+    }
+
+    setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, loadedPage);
+    return new PageReferenceToPage(pageReferenceToRecordPage, loadedPage);
   }
 
   private boolean isMostRecentlyReadPathSummaryPage(IndexLogKey indexLogKey) {
@@ -467,78 +663,406 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         && pathSummaryRecordPage.revision == indexLogKey.getRevisionNumber();
   }
 
-  private boolean isMostRecentlyReadPage(IndexLogKey indexLogKey) {
-    return mostRecentlyReadRecordPage != null
-        && mostRecentlyReadRecordPage.recordPageKey == indexLogKey.getRecordPageKey()
-        && mostRecentlyReadRecordPage.index == indexLogKey.getIndexNumber()
-        && mostRecentlyReadRecordPage.indexType == indexLogKey.getIndexType()
-        && mostRecentlyReadRecordPage.revision == indexLogKey.getRevisionNumber();
+  /**
+   * Get the most recent page for a given index type and index number.
+   */
+  @Nullable
+  private RecordPage getMostRecentPage(IndexType indexType, int index, long recordPageKey, int revision) {
+    RecordPage candidate = switch (indexType) {
+      case DOCUMENT -> mostRecentDocumentPage;
+      case CHANGED_NODES -> mostRecentChangedNodesPage;
+      case RECORD_TO_REVISIONS -> mostRecentRecordToRevisionsPage;
+      case PATH_SUMMARY -> pathSummaryRecordPage;
+      case PATH -> index < mostRecentPathPages.length ? mostRecentPathPages[index] : null;
+      case CAS -> index < mostRecentCasPages.length ? mostRecentCasPages[index] : null;
+      case NAME -> index < mostRecentNamePages.length ? mostRecentNamePages[index] : null;
+      case DEWEYID_TO_RECORDID -> mostRecentDeweyIdPage;
+      default -> null;
+    };
+    
+    // Verify it matches the requested page
+    if (candidate != null && candidate.recordPageKey == recordPageKey && candidate.revision == revision) {
+      return candidate;
+    }
+    return null;
+  }
+  
+  /**
+   * Set the most recent page for a given index type and index number.
+   */
+  private void setMostRecentPage(IndexType indexType, int index, RecordPage page) {
+    // Close the previous page if it's been evicted from cache
+    RecordPage previous = switch (indexType) {
+      case DOCUMENT -> {
+        RecordPage old = mostRecentDocumentPage;
+        mostRecentDocumentPage = page;
+        yield old;
+      }
+      case CHANGED_NODES -> {
+        RecordPage old = mostRecentChangedNodesPage;
+        mostRecentChangedNodesPage = page;
+        yield old;
+      }
+      case RECORD_TO_REVISIONS -> {
+        RecordPage old = mostRecentRecordToRevisionsPage;
+        mostRecentRecordToRevisionsPage = page;
+        yield old;
+      }
+      case PATH_SUMMARY -> {
+        RecordPage old = pathSummaryRecordPage;
+        pathSummaryRecordPage = page;
+        yield old;
+      }
+      case PATH -> {
+        RecordPage old = index < mostRecentPathPages.length ? mostRecentPathPages[index] : null;
+        if (index < mostRecentPathPages.length) {
+          mostRecentPathPages[index] = page;
+        }
+        yield old;
+      }
+      case CAS -> {
+        RecordPage old = index < mostRecentCasPages.length ? mostRecentCasPages[index] : null;
+        if (index < mostRecentCasPages.length) {
+          mostRecentCasPages[index] = page;
+        }
+        yield old;
+      }
+      case NAME -> {
+        RecordPage old = index < mostRecentNamePages.length ? mostRecentNamePages[index] : null;
+        if (index < mostRecentNamePages.length) {
+          mostRecentNamePages[index] = page;
+        }
+        yield old;
+      }
+      case DEWEYID_TO_RECORDID -> {
+        RecordPage old = mostRecentDeweyIdPage;
+        mostRecentDeweyIdPage = page;
+        yield old;
+      }
+      default -> null;
+    };
+    
+    // Close the replaced page if it's orphaned (not in cache)
+    if (previous != null && previous != page) {
+      closeMostRecentPageIfOrphaned(previous);
+    }
   }
 
-  private boolean isSecondMostRecentlyReadPage(IndexLogKey indexLogKey) {
-    return secondMostRecentlyReadRecordPage != null
-        && secondMostRecentlyReadRecordPage.recordPageKey == indexLogKey.getRecordPageKey()
-        && secondMostRecentlyReadRecordPage.index == indexLogKey.getIndexNumber()
-        && secondMostRecentlyReadRecordPage.indexType == indexLogKey.getIndexType()
-        && secondMostRecentlyReadRecordPage.revision == indexLogKey.getRevisionNumber();
+  /**
+   * Close a mostRecent page if it's been evicted from cache (orphaned).
+   * <p>
+   * If the page is in cache, it will be closed by the cache's removal listener.
+   * If the page is NOT in cache, we must close it explicitly to prevent leaks.
+   * 
+   * This handles the case where a page was cached, stored in mostRecent field,
+   * then evicted from cache while still held in the field.
+   */
+  private void closeMostRecentPageIfOrphaned(RecordPage recordPage) {
+    if (recordPage == null) {
+      return;
+    }
+    
+    KeyValueLeafPage page = recordPage.page();
+    if (page == null || page.isClosed()) {
+      return;
+    }
+    
+    // Check if page is in cache
+    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(recordPage.pageReference);
+    
+    if (cachedPage == page) {
+      // Page is in cache - cache will handle closing it on eviction
+      // No action needed
+      return;
+    }
+    
+    // Page is NOT in cache - we must close it explicitly
+    // This happens for pages held in mostRecent fields but evicted from cache
+    if (!page.isClosed()) {
+      page.close();
+      
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+        LOGGER.debug("[CLEANUP] Closed orphaned mostRecent Page 0 ({}) not in cache", page.getIndexType());
+      }
+    }
   }
 
   @Nullable
   private Page getFromBufferManager(@NonNull IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
-    final Page recordPageFromBuffer = resourceBufferManager.getRecordPageCache()
-                                                           .get(pageReferenceToRecordPage,
-                                                                _ -> (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(
-                                                                    indexLogKey,
-                                                                    pageReferenceToRecordPage));
+    if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+      System.err.println(
+          "[PATH_SUMMARY-CACHE-LOOKUP] Looking up in cache: " + "PageRef(key=" + pageReferenceToRecordPage.getKey()
+              + ", logKey=" + pageReferenceToRecordPage.getLogKey() + ")" + ", requestedRevision="
+              + indexLogKey.getRevisionNumber());
+    }
+
+    // CRITICAL: Use atomic getAndGuard() to prevent race with ClockSweeper
+    // Between cache.get() and guard acquisition, ClockSweeper could evict the page
+    // Note: getAndGuard() returns null for closed pages (no guard acquired)
+    KeyValueLeafPage recordPageFromBuffer = resourceBufferManager.getRecordPageCache().getAndGuard(pageReferenceToRecordPage);
+    
+    if (recordPageFromBuffer == null) {
+      // Cache miss - load outside of compute
+      var kvPage = (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(pageReferenceToRecordPage);
+      
+      if (kvPage != null) {
+        if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+          System.err.println("[PATH_SUMMARY-CACHE-LOOKUP]   -> Loaded from disk: " + "pageKey=" + kvPage.getPageKey()
+                      + ", revision=" + kvPage.getRevision());
+        }
+        
+        // Try to install in cache (putIfAbsent handles race)
+        resourceBufferManager.getRecordPageCache().putIfAbsent(pageReferenceToRecordPage, kvPage);
+        
+        // ATOMIC: Get from cache with guard acquired
+        recordPageFromBuffer = resourceBufferManager.getRecordPageCache().getAndGuard(pageReferenceToRecordPage);
+        if (recordPageFromBuffer == null) {
+          // Another thread removed it - use our loaded page and acquire guard manually
+          kvPage.acquireGuard();
+          recordPageFromBuffer = kvPage;
+        } else if (recordPageFromBuffer != kvPage) {
+          // CRITICAL: Another thread won the race and added a different page instance
+          // Our kvPage is orphaned - close it to prevent leak
+          if (!kvPage.isClosed()) {
+            kvPage.close();
+          }
+        }
+        
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageFromBuffer.getPageKey() == 0) {
+          LOGGER.debug("Page 0 added to RecordPageCache: {} rev={} instance={}",
+                       recordPageFromBuffer.getIndexType(),
+                       recordPageFromBuffer.getRevision(),
+                       " PageRef(key=" + pageReferenceToRecordPage.getKey() + ", logKey="
+                           + pageReferenceToRecordPage.getLogKey() + ", db="
+                           + pageReferenceToRecordPage.getDatabaseId() + ", res="
+                           + pageReferenceToRecordPage.getResourceId() + ")"
+                           + " (instance=" + System.identityHashCode(recordPageFromBuffer) + ")");
+        }
+      }
+    } else {
+      if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+        System.err.println("[PATH_SUMMARY-CACHE-LOOKUP]   -> Cache HIT: " + "pageKey=" + recordPageFromBuffer.getPageKey() 
+                    + ", revision=" + recordPageFromBuffer.getRevision());
+      }
+    }
 
     if (recordPageFromBuffer != null) {
-      setMostRecentlyReadRecordPage(indexLogKey, recordPageFromBuffer);
       pageReferenceToRecordPage.setPage(recordPageFromBuffer);
+      assert !recordPageFromBuffer.isClosed();
+      
+      // Single-guard: Wrap the already-guarded page (guard was acquired by getAndGuard())
+      if (currentPageGuard == null || currentPageGuard.page() != recordPageFromBuffer) {
+        closeCurrentPageGuard();
+        currentPageGuard = PageGuard.fromAcquired(recordPageFromBuffer);
+      } else {
+        // Same page as current guard - release the extra guard we just acquired
+        recordPageFromBuffer.releaseGuard();
+      }
+      
       return recordPageFromBuffer;
     }
 
     return null;
   }
 
-  private void setMostRecentlyReadRecordPage(@NonNull IndexLogKey indexLogKey, Page recordPageFromBuffer) {
+  private void setMostRecentlyReadRecordPage(@NonNull IndexLogKey indexLogKey, @NonNull PageReference pageReference,
+      KeyValueLeafPage recordPage) {
+    // Single-guard: Guard is already managed by caller (getFromBufferManager/getInMemoryPageInstance)
+    // No additional guard management needed here
+    
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+      if (pathSummaryRecordPage != null) {
+        if (DEBUG_PATH_SUMMARY && recordPage != null) {
+          System.err.println("[PATH_SUMMARY-REPLACE] Replacing old pathSummaryRecordPage: " + "oldPageKey="
+                                 + pathSummaryRecordPage.page.getPageKey() + ", newPageKey=" + recordPage.getPageKey()
+                                 + ", trxIntentLog=" + (trxIntentLog != null));
+        }
+
+        if (trxIntentLog == null) {
+          if (resourceBufferManager.getRecordPageCache().get(pathSummaryRecordPage.pageReference) != null) {
+            assert !pathSummaryRecordPage.page.isClosed();
+
+            if (DEBUG_PATH_SUMMARY) {
+              System.err.println("[PATH_SUMMARY-REPLACE]   -> Read-only: Old page still in cache");
+            }
+          }
+        } else {
+          // Write transaction: Bypassed PATH_SUMMARY pages should NOT be in cache
+          // But if bypass is disabled for testing, they might be cached
+          // Remove from cache before closing to prevent "closed page in cache" errors
+          pathSummaryRecordPage.pageReference.setPage(null);
+          resourceBufferManager.getRecordPageCache().remove(pathSummaryRecordPage.pageReference);
+
+          if (!pathSummaryRecordPage.page.isClosed()) {
+            if (DEBUG_PATH_SUMMARY) {
+              System.err.println("[PATH_SUMMARY-REPLACE]   -> Write trx: Closing bypassed page " + "pageKey="
+                                     + pathSummaryRecordPage.page.getPageKey() + ", revision="
+                                     + pathSummaryRecordPage.page.getRevision());
+            }
+            pathSummaryRecordPage.page.close();
+          }
+        }
+      }
+
       pathSummaryRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
                                              indexLogKey.getIndexType(),
                                              indexLogKey.getRecordPageKey(),
                                              indexLogKey.getRevisionNumber(),
-                                             recordPageFromBuffer);
+                                             pageReference,
+                                             recordPage);
     } else {
-      secondMostRecentlyReadRecordPage = mostRecentlyReadRecordPage;
-      mostRecentlyReadRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
-                                                  indexLogKey.getIndexType(),
-                                                  indexLogKey.getRecordPageKey(),
-                                                  indexLogKey.getRevisionNumber(),
-                                                  recordPageFromBuffer);
+      // Set as most recent page for this type/index (auto-unpins previous)
+      var newRecordPage = new RecordPage(indexLogKey.getIndexNumber(),
+                                         indexLogKey.getIndexType(),
+                                         indexLogKey.getRecordPageKey(),
+                                         indexLogKey.getRevisionNumber(),
+                                         pageReference,
+                                         recordPage);
+      setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), newRecordPage);
     }
   }
 
   @Nullable
-  private Page loadDataPageFromDurableStorageAndCombinePageFragments(@NonNull IndexLogKey indexLogKey,
-      PageReference pageReferenceToRecordPage) {
+  private Page loadDataPageFromDurableStorageAndCombinePageFragments(PageReference pageReferenceToRecordPage) {
     if (pageReferenceToRecordPage.getKey() == Constants.NULL_ID_LONG) {
       // No persistent key set to load page from durable storage.
       return null;
     }
 
     // Load list of page "fragments" from persistent storage.
-    final List<KeyValuePage<DataRecord>> pages = getPageFragments(pageReferenceToRecordPage);
+    final var result = getPageFragments(pageReferenceToRecordPage);
 
-    if (pages.isEmpty()) {
+    if (result.pages().isEmpty()) {
       return null;
     }
 
     final int maxRevisionsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
     final VersioningType versioningApproach = resourceConfig.versioningType;
-    final Page completePage = versioningApproach.combineRecordPages(pages, maxRevisionsToRestore, this);
 
-    pageReferenceToRecordPage.setPage(completePage);
-    setMostRecentlyReadRecordPage(indexLogKey, completePage);
-    return completePage;
+    // Fragments already guarded by getPageFragments() - no need to guard again
+    try {
+      final Page completePage = versioningApproach.combineRecordPages(result.pages(), maxRevisionsToRestore, this);
+      pageReferenceToRecordPage.setPage(completePage);
+      assert !completePage.isClosed();
+
+      // DIAGNOSTIC: Track combined Page 0 creation with stack trace
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && completePage instanceof KeyValueLeafPage kvp
+          && kvp.getPageKey() == 0) {
+        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+        String caller = stack.length > 6 ? stack[6].getMethodName() : "unknown";
+        LOGGER.debug("COMBINED PAGE 0 created: " + kvp.getIndexType() + " rev=" + kvp.getRevision() + " by " + caller
+                         + " (instance=" + System.identityHashCode(kvp) + ")");
+      }
+
+      return completePage;
+    } finally {
+      // Release fragment guards (acquired in getPageFragments)
+      for (var page : result.pages()) {
+        ((KeyValueLeafPage) page).releaseGuard();
+      }
+      
+      // Close orphaned fragments (not in cache after combining)
+      closeOrphanedFragments(pageReferenceToRecordPage,
+                            result.pages(),
+                            result.originalKeys(),
+                            result.storageKeyForFirstFragment());
+    }
+  }
+
+  /**
+   * Close fragment pages that are not in cache after page combining.
+   * 
+   * After combining fragments into a complete page, the fragment pages may have been
+   * evicted from cache. If so, we must close them explicitly to prevent leaks.
+   */
+  public void closeOrphanedFragments(PageReference pageReference, List<KeyValuePage<DataRecord>> pages,
+      List<PageFragmentKey> originalPageFragmentKeys, long storageKeyForFirstFragment) {
+    if (pages.isEmpty()) {
+      return;
+    }
+
+    // DIAGNOSTIC: Check for duplicate instances in pages list
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      var instanceCounts = new java.util.HashMap<Integer, Integer>();
+      for (var page : pages) {
+        if (((KeyValueLeafPage) page).getPageKey() == 0) {
+          int hash = System.identityHashCode(page);
+          instanceCounts.merge(hash, 1, Integer::sum);
+        }
+      }
+      for (var entry : instanceCounts.entrySet()) {
+        if (entry.getValue() > 1) {
+          LOGGER.debug("WARNING: Fragment instance " + entry.getKey() + " appears " + entry.getValue()
+                           + " times in pages list!");
+        }
+      }
+    }
+
+    LOGGER.debug("closeOrphanedFragments: " + pages.size() + " fragments, trxIntentLog=" + (trxIntentLog != null));
+
+    // Track which unique page instances we've processed to avoid duplicates
+    var processedPages = new java.util.HashSet<KeyValueLeafPage>();
+
+    var mostRecentPageFragment = (KeyValueLeafPage) pages.getFirst();
+
+    final var fragmentRef0 =
+        new PageReference().setKey(storageKeyForFirstFragment).setDatabaseId(databaseId).setResourceId(resourceId);
+
+    var existing = resourceBufferManager.getRecordPageFragmentCache().get(fragmentRef0);
+    if (existing != null && existing == mostRecentPageFragment) {
+      // Fragment still in cache - cache will close it on eviction
+      // No action needed
+    } else {
+      // Fragment not in cache - close it explicitly to prevent leak
+      // It was either: (a) evicted and closed by removalListener (close is idempotent), OR
+      //                (b) never added to cache (needs closing now)
+      mostRecentPageFragment.close();
+    }
+    
+    LOGGER.debug("  Fragment 0 processed");
+
+    // Cache older fragments using their ORIGINAL storage keys (file offsets)
+    for (int i = 1; i < pages.size(); i++) {
+      var pageFragment = (KeyValueLeafPage) pages.get(i);
+
+      // DIAGNOSTIC
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && pageFragment.getPageKey() == 0) {
+        LOGGER.debug(
+            "  Older fragment " + i + ": Page 0 " + pageFragment.getIndexType() + " rev=" + pageFragment.getRevision()
+                + " instance=" + System.identityHashCode(pageFragment)
+                + " hasOriginalKey=" + (i - 1 < originalPageFragmentKeys.size()));
+      }
+
+      // Process each unique page instance once
+      if (processedPages.add(pageFragment)) {
+        // Check if in cache
+        if (i - 1 < originalPageFragmentKeys.size()) {
+          var originalFragmentKey = originalPageFragmentKeys.get(i - 1);
+          final var olderFragmentRef =
+              new PageReference().setKey(originalFragmentKey.key()).setDatabaseId(databaseId).setResourceId(resourceId);
+
+          var existingOlder = resourceBufferManager.getRecordPageFragmentCache().get(olderFragmentRef);
+          if (existingOlder != null && existingOlder == pageFragment) {
+            // Fragment still in cache - cache will close it on eviction
+            // No action needed
+          } else {
+            // Fragment not in cache - close it explicitly
+            // It was either: (a) evicted and closed by removalListener (close is idempotent), OR
+            //                (b) never added to cache (needs closing now)
+            pageFragment.close();
+          }
+        } else {
+          // No original key - never cached, close explicitly
+          pageFragment.close();
+        }
+        
+        LOGGER.debug("  Fragment " + i + " processed (rev=" + pageFragment.getRevision() + ")");
+      } else {
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && pageFragment.getPageKey() == 0) {
+          LOGGER.debug("  Fragment " + i + " SKIPPED (already processed this instance)");
+        }
+      }
+    }
   }
 
   @Nullable
@@ -547,7 +1071,40 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
     Page page = pageReferenceToRecordPage.getPage();
 
     if (page != null) {
-      setMostRecentlyReadRecordPage(indexLogKey, page);
+      // Don't cache PATH_SUMMARY pages from write transactions (bypassed pages)
+      // Reason: Different revisions share same PageReference → cache collisions
+      if (trxIntentLog == null || indexLogKey.getIndexType() != IndexType.PATH_SUMMARY) {
+        var kvLeafPage = ((KeyValueLeafPage) page);
+        if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+          System.err.println(
+              "[PATH_SUMMARY-SWIZZLED] Found swizzled page: " + "pageKey=" + kvLeafPage.getPageKey() + ", revision="
+                  + kvLeafPage.getRevision());
+        }
+        
+        // CRITICAL: Swizzled pages might not have guards - acquire atomically via cache
+        // Even though page is swizzled, it should be in cache if it's valid
+        var guardedPage = resourceBufferManager.getRecordPageCache().getAndGuard(pageReferenceToRecordPage);
+        
+        if (guardedPage == kvLeafPage && !kvLeafPage.isClosed()) {
+          // Same instance - safe to use with guard
+          // Single-guard: Replace current guard
+          if (currentPageGuard == null || currentPageGuard.page() != kvLeafPage) {
+            closeCurrentPageGuard();
+            currentPageGuard = PageGuard.fromAcquired(kvLeafPage);
+          } else {
+            // Already guarding this page - release extra
+            kvLeafPage.releaseGuard();
+          }
+        } else {
+          // Swizzled page not in cache or different instance - need to reload
+          // Release guard if we acquired one
+          if (guardedPage != null) {
+            guardedPage.releaseGuard();
+          }
+          pageReferenceToRecordPage.setPage(null);  // Clear stale swizzled reference
+          return null;  // Signal caller to reload
+        }
+      }
       return page;
     }
 
@@ -566,45 +1123,77 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   }
 
   /**
+   * Result of loading page fragments, including pages, original fragment keys, and storage key for pages[0].
+   */
+  record PageFragmentsResult(List<KeyValuePage<DataRecord>> pages, List<PageFragmentKey> originalKeys,
+                             long storageKeyForFirstFragment) {
+  }
+
+  /**
    * Dereference key/value page reference and get all leaves, the {@link KeyValuePage}s from the
    * revision-trees.
    *
    * @param pageReference optional page reference pointing to the first page
-   * @return dereferenced pages
+   * @return dereferenced pages and their original fragment keys
    * @throws SirixIOException if an I/O-error occurs within the creation process
    */
-  @SuppressWarnings("unchecked")
-  List<KeyValuePage<DataRecord>> getPageFragments(final PageReference pageReference) {
+  PageFragmentsResult getPageFragments(final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceSession.getResourceConfig();
     final int revsToRestore = config.maxNumberOfRevisionsToRestore;
     final int[] revisionsToRead = config.versioningType.getRevisionRoots(rootPage.getRevision(), revsToRestore);
     final List<KeyValuePage<DataRecord>> pages = new ArrayList<>(revisionsToRead.length);
 
-    final var pageFragments = pageReference.getPageFragments();
-    final var pageReferenceWithKey = new PageReference().setKey(pageReference.getKey());
+    // CRITICAL: Save original pageFragments AND storage key before mutation
+    final var originalPageFragments = new ArrayList<>(pageReference.getPageFragments());
+    final long originalStorageKey = pageReference.getKey(); // Storage key for pages[0]
+    final var pageReferenceWithKey =
+        new PageReference().setKey(originalStorageKey).setDatabaseId(databaseId).setResourceId(resourceId);
 
-    KeyValuePage<DataRecord> page;
-
-    if (trxIntentLog == null) {
-      page = (KeyValuePage<DataRecord>) resourceBufferManager.getPageCache()
-                                                             .get(pageReferenceWithKey,
-                                                                  _ -> pageReader.read(pageReferenceWithKey,
-                                                                                       resourceSession.getResourceConfig()));
-    } else {
-      page = (KeyValuePage<DataRecord>) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
+    // CRITICAL: Use atomic getAndGuard() to prevent race with ClockSweeper
+    // Note: getAndGuard() returns null for closed pages (no guard acquired)
+    KeyValuePage<DataRecord> page = resourceBufferManager.getRecordPageFragmentCache().getAndGuard(pageReferenceWithKey);
+    
+    if (page == null) {
+      // Cache miss - load from disk
+      var kvPage = (KeyValueLeafPage) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
+      
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
+        LOGGER.debug("FRAGMENT Page 0 loaded: " + kvPage.getIndexType() + " rev=" + kvPage.getRevision() + " (instance="
+                         + System.identityHashCode(kvPage) + ", fromCache=false)");
+      }
+      
+      // Add to cache
+      resourceBufferManager.getRecordPageFragmentCache().putIfAbsent(pageReferenceWithKey, kvPage);
+      
+      // ATOMIC: Get from cache with guard acquired
+      page = resourceBufferManager.getRecordPageFragmentCache().getAndGuard(pageReferenceWithKey);
+      if (page == null) {
+        // Another thread removed it - use our loaded page and acquire guard manually
+        kvPage.acquireGuard();
+        page = kvPage;
+      } else if (page != kvPage) {
+        // CRITICAL: Another thread added a different page instance
+        // Our kvPage is orphaned - close it to prevent leak
+        if (!kvPage.isClosed()) {
+          kvPage.close();
+        }
+        // Use the cached page (guard already acquired by getAndGuard)
+      }
     }
+    
+    assert !page.isClosed();
     pages.add(page);
 
-    if (pageFragments.isEmpty() || page.size() == Constants.NDP_NODE_COUNT) {
-      return pages;
+    if (originalPageFragments.isEmpty() || page.size() == Constants.NDP_NODE_COUNT) {
+      return new PageFragmentsResult(pages, originalPageFragments, originalStorageKey);
     }
 
-    final List<PageFragmentKey> pageFragmentKeys = new ArrayList<>(pageFragments.size() + 1);
-    pageFragmentKeys.addAll(pageFragments);
+    final List<PageFragmentKey> pageFragmentKeys = new ArrayList<>(originalPageFragments.size() + 1);
+    pageFragmentKeys.addAll(originalPageFragments);
     pages.addAll(getPreviousPageFragments(pageFragmentKeys));
 
-    return pages;
+    return new PageFragmentsResult(pages, originalPageFragments, originalStorageKey);
   }
 
   private List<KeyValuePage<DataRecord>> getPreviousPageFragments(final List<PageFragmentKey> pageFragments) {
@@ -618,33 +1207,54 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   @SuppressWarnings("unchecked")
   private CompletableFuture<KeyValuePage<DataRecord>> readPage(final PageFragmentKey pageFragmentKey) {
-    final var pageReference = new PageReference().setKey(pageFragmentKey.key());
-    if (trxIntentLog == null) {
-      final var pageFromBufferManager = resourceBufferManager.getPageCache().get(pageReference);
-      if (pageFromBufferManager != null) {
-        assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) pageFromBufferManager).getRevision();
-        return CompletableFuture.completedFuture((KeyValuePage<DataRecord>) pageFromBufferManager);
-      }
+    final var pageReference =
+        new PageReference().setKey(pageFragmentKey.key()).setDatabaseId(databaseId).setResourceId(resourceId);
+
+    // CRITICAL: Check cache with compute to get atomic cache hit handling
+    final var pageFromCache =
+        resourceBufferManager.getRecordPageFragmentCache().get(pageReference, (key, existingPage) -> {
+          if (existingPage != null && !existingPage.isClosed()) {
+            // Cache HIT
+            assert pageFragmentKey.revision() == existingPage.getRevision() :
+                "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + existingPage.getRevision();
+            return existingPage;
+          }
+          // Cache MISS: Return null, we'll load async below
+          return null;
+        });
+
+    if (pageFromCache != null) {
+      return CompletableFuture.completedFuture(pageFromCache);
     }
+
+    // Cache miss - load async and add to cache when complete
     final var reader = resourceSession.createReader();
     return (CompletableFuture<KeyValuePage<DataRecord>>) reader.readAsync(pageReference,
                                                                           resourceSession.getResourceConfig())
                                                                .whenComplete((page, _) -> {
                                                                  reader.close();
-                                                                 if (trxIntentLog == null) {
-                                                                   assert pageFragmentKey.revision()
-                                                                       == ((KeyValuePage<DataRecord>) page).getRevision();
-                                                                   synchronized (resourceBufferManager.getPageCache()) {
-                                                                     resourceBufferManager.getPageCache()
-                                                                                          .putIfAbsent(pageReference,
-                                                                                                       page);
-                                                                   }
-                                                                 }
+                                                                 assert pageFragmentKey.revision()
+                                                                     == ((KeyValuePage<DataRecord>) page).getRevision() :
+                                                                     "Revision mismatch: key="
+                                                                         + pageFragmentKey.revision() + ", page="
+                                                                         + ((KeyValuePage<DataRecord>) page).getRevision();
+                                                                 // Add to cache using compute to handle race conditions
+                                                                 resourceBufferManager.getRecordPageFragmentCache()
+                                                                                      .get(pageReference,
+                                                                                           (key, existingPage) -> {
+                                                                                             if (existingPage != null
+                                                                                                 && !existingPage.isClosed()) {
+                                                                                               // Another thread loaded it - use existing
+                                                                                               return existingPage;
+                                                                                             }
+                                                                                             // We're first - cache our loaded page
+                                                                                             return (KeyValueLeafPage) page;
+                                                                                           });
                                                                });
   }
 
-  static CompletableFuture<List<KeyValuePage<DataRecord>>> sequence(
-      List<CompletableFuture<KeyValuePage<DataRecord>>> listOfCompletableFutures) {
+  static <T> CompletableFuture<List<T>> sequence(
+      List<CompletableFuture<T>> listOfCompletableFutures) {
     return CompletableFuture.allOf(listOfCompletableFutures.toArray(new CompletableFuture[0]))
                             .thenApply(_ -> listOfCompletableFutures.stream()
                                                                     .map(CompletableFuture::join)
@@ -783,15 +1393,73 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                       .toString();
   }
 
+  /**
+   * Close the current page guard if one is active.
+   * Should be called before fetching a different page or when transaction closes.
+   * 
+   * Package-private to allow NodePageTrx to release guards before TIL operations.
+   */
+  void closeCurrentPageGuard() {
+    if (currentPageGuard != null && !currentPageGuard.isClosed()) {
+      try {
+        currentPageGuard.close();
+      } catch (FrameReusedException e) {
+        // Page was evicted and reused - this is fine, we're done with it anyway
+        LOGGER.debug("Page frame was reused while closing guard (expected): {}", e.getMessage());
+      }
+      currentPageGuard = null;
+    }
+  }
+  
+  /**
+   * Get the page that the current page guard is protecting.
+   * Used by NodePageTrx for acquiring additional guards on the current page.
+   *
+   * @return the current page, or null if no page is currently guarded
+   */
+  public KeyValueLeafPage getCurrentPage() {
+    return currentPageGuard != null ? currentPageGuard.page() : null;
+  }
+
   @Override
-  public synchronized void close() {
+  public void close() {
     if (!isClosed) {
+      // Close current page guard
+      closeCurrentPageGuard();
+      
+      // Deregister from epoch tracker (allow eviction of pages from this revision)
+      resourceSession.getRevisionEpochTracker().deregister(epochTicket);
+      
       if (trxIntentLog == null) {
         pageReader.close();
       }
 
       if (resourceSession.getNodeReadTrxByTrxId(trxId).isEmpty()) {
         resourceSession.closePageReadTransaction(trxId);
+      }
+
+      // CRITICAL: Close all mostRecent pages if they're orphaned (not in cache)
+      closeMostRecentPageIfOrphaned(mostRecentDocumentPage);
+      closeMostRecentPageIfOrphaned(mostRecentChangedNodesPage);
+      closeMostRecentPageIfOrphaned(mostRecentRecordToRevisionsPage);
+      closeMostRecentPageIfOrphaned(mostRecentDeweyIdPage);
+      for (RecordPage page : mostRecentPathPages) {
+        closeMostRecentPageIfOrphaned(page);
+      }
+      for (RecordPage page : mostRecentCasPages) {
+        closeMostRecentPageIfOrphaned(page);
+      }
+      for (RecordPage page : mostRecentNamePages) {
+        closeMostRecentPageIfOrphaned(page);
+      }
+      // PATH_SUMMARY handled separately below (has special bypass logic)
+
+      // Handle PATH_SUMMARY bypassed pages for write transactions (they're not in cache)
+      if (pathSummaryRecordPage != null && trxIntentLog != null) {
+        if (!pathSummaryRecordPage.page.isClosed()) {
+          // Guard already released by closeCurrentPageGuard()
+          pathSummaryRecordPage.page.close();
+        }
       }
 
       isClosed = true;

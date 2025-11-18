@@ -8,7 +8,7 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableStructNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Fixed;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.xml.XmlDocumentRootNode;
 
 import java.nio.ByteBuffer;
@@ -165,7 +165,7 @@ public class ImmutableXmlDocumentRootNode implements ImmutableStructNode, Immuta
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     return node.computeHash(bytes);
   }
 

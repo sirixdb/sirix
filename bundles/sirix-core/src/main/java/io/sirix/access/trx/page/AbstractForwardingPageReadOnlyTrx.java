@@ -12,7 +12,6 @@ import io.sirix.io.Reader;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.*;
-import io.sirix.page.interfaces.Page;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -77,8 +76,18 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   }
 
   @Override
-  public long getTrxId() {
+  public int getTrxId() {
     return delegate().getTrxId();
+  }
+
+  @Override
+  public long getDatabaseId() {
+    return delegate().getDatabaseId();
+  }
+
+  @Override
+  public long getResourceId() {
+    return delegate().getResourceId();
   }
 
   @Override
@@ -137,7 +146,7 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   }
 
   @Override
-  public Page getRecordPage(@NonNull IndexLogKey indexLogKey) {
+  public NodePageReadOnlyTrx.PageReferenceToPage getRecordPage(@NonNull IndexLogKey indexLogKey) {
     return delegate().getRecordPage(indexLogKey);
   }
 

@@ -1,19 +1,22 @@
 package io.sirix.diff.algorithm;
 
-import org.custommonkey.xmlunit.DetailedDiff;
-import org.custommonkey.xmlunit.Diff;
-import org.custommonkey.xmlunit.Difference;
-import org.custommonkey.xmlunit.XMLUnit;
-import org.junit.*;
 import io.sirix.XmlTestHelper;
 import io.sirix.XmlTestHelper.PATHS;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.diff.service.FMSEImport;
+import io.sirix.service.InsertPosition;
 import io.sirix.service.xml.serialize.XmlSerializer;
 import io.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
-import io.sirix.service.InsertPosition;
 import io.sirix.service.xml.shredder.XmlShredder;
+import org.custommonkey.xmlunit.DetailedDiff;
+import org.custommonkey.xmlunit.Diff;
+import org.custommonkey.xmlunit.Difference;
+import org.custommonkey.xmlunit.XMLUnit;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
@@ -24,8 +27,6 @@ import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Predicate;
-
-import static java.util.stream.Collectors.toList;
 
 /**
  * Test the FMSE implementation.
@@ -222,7 +223,7 @@ public final class FMSETest {
       assert database != null;
       XmlResourceSession resource = database.beginResourceSession(XmlTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
-      final List<Path> list = Files.list(folder).filter(fileNameFilter).sorted(comparator()).collect(toList());
+      final List<Path> list = Files.list(folder).filter(fileNameFilter).sorted(comparator()).toList();
 
       // Sort files list according to file names.
 

@@ -1,7 +1,12 @@
 package io.sirix.cache;
 
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.interfaces.Page;
 import io.sirix.page.PageReference;
+import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.settings.Constants;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -12,6 +17,8 @@ import java.util.List;
  * @author Johannes Lichtenberger
  */
 public final class TransactionIntentLog implements AutoCloseable {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(TransactionIntentLog.class);
 
   /**
    * The collection to hold the maps.
@@ -37,6 +44,11 @@ public final class TransactionIntentLog implements AutoCloseable {
     this.bufferManager = bufferManager;
     logKey = 0;
     list = new ArrayList<>(maxInMemoryCapacity);
+    
+    // DIAGNOSTIC: Track TIL creation
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("TIL CREATED: instance={} (maxCapacity={})", System.identityHashCode(this), maxInMemoryCapacity);
+    }
   }
 
   /**
@@ -62,7 +74,33 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @param value a value to be associated with the specified key
    */
   public void put(final PageReference key, final PageContainer value) {
+    // CRITICAL: Remove from ALL caches BEFORE mutating the PageReference
+    // This prevents double-close: cache eviction → close(), then TIL.close() → close()
+    // Pages in TIL must NOT be in any cache - TIL owns them exclusively
+    
+    // CRITICAL FIX: Clear cached hash before cache operations
+    // The hash depends on key/logKey which we'll modify below
+    key.clearCachedHash();
+    
+    // Remove from RecordPageCache (full pages)
     bufferManager.getRecordPageCache().remove(key);
+    
+    // Remove from RecordPageFragmentCache (fragments)
+    bufferManager.getRecordPageFragmentCache().remove(key);
+
+    // Remove all page fragments from cache
+    List<PageFragmentKey> pageFragments = key.getPageFragments();
+    if (pageFragments != null && !pageFragments.isEmpty()) {
+      for (PageFragmentKey fragmentKey : pageFragments) {
+        PageReference fragmentRef = new PageReference()
+            .setKey(fragmentKey.key())
+            .setDatabaseId(fragmentKey.databaseId())
+            .setResourceId(fragmentKey.resourceId());
+        bufferManager.getRecordPageFragmentCache().remove(fragmentRef);
+      }
+    }
+    
+    // Remove from PageCache (other page types)
     bufferManager.getPageCache().remove(key);
 
     key.setKey(Constants.NULL_ID_LONG);
@@ -71,14 +109,92 @@ public final class TransactionIntentLog implements AutoCloseable {
 
     list.add(value);
     logKey++;
+    
+    // Diagnostic logging for leak detection
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      if (value.getComplete() instanceof KeyValueLeafPage completePage) {
+        LOGGER.debug("TIL.put: complete page {} type={} rev={}", 
+            completePage.getPageKey(), completePage.getIndexType(), completePage.getRevision());
+      }
+      if (value.getModified() instanceof KeyValueLeafPage modifiedPage && modifiedPage != value.getComplete()) {
+        LOGGER.debug("TIL.put: modified page {} type={} rev={}", 
+            modifiedPage.getPageKey(), modifiedPage.getIndexType(), modifiedPage.getRevision());
+      }
+    }
   }
+
 
   /**
    * Clears the cache.
+   * Force-unpins and closes all pages in TIL.
    */
   public void clear() {
+    int closedComplete = 0;
+    int closedModified = 0;
+    int skippedAlreadyClosed = 0;
+    
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("TIL.clear() starting with {} containers", list.size());
+    }
+    
     logKey = 0;
+    
+    // CRITICAL: Force completion of ALL pending async removal listeners
+    // Pages were removed from caches in put() - we must wait for async listeners
+    // to finish before we close pages in TIL, otherwise double-close
+    bufferManager.getRecordPageCache().cleanUp();
+    bufferManager.getRecordPageFragmentCache().cleanUp();
+    bufferManager.getPageCache().cleanUp();
+    
+    // Close all pages in TIL
+    // CRITICAL: Must force-unpin before closing to release memory segments
+    int totalContainers = list.size();
+    int kvLeafContainers = 0;
+    int page0Count = 0;
+    
+    for (final PageContainer pageContainer : list) {
+      Page complete = pageContainer.getComplete();
+      Page modified = pageContainer.getModified();
+      
+      if (complete instanceof KeyValueLeafPage completePage) {
+        kvLeafContainers++;
+        if (completePage.getPageKey() == 0) {
+          page0Count++;
+        }
+        
+        // TIL owns these pages exclusively - must close them
+        completePage.close();
+        if (!completePage.isClosed()) {
+          LOGGER.error("TIL.clear(): FAILED to close complete page {} ({}) rev={}",
+              completePage.getPageKey(), completePage.getIndexType(), completePage.getRevision());
+          skippedAlreadyClosed++;
+        } else {
+          closedComplete++;
+        }
+      }
+      
+      // Check if modified is a different instance before closing
+      if (modified instanceof KeyValueLeafPage modifiedPage && modified != complete) {
+        if (modifiedPage.getPageKey() == 0) {
+          page0Count++;
+        }
+        
+        // TIL owns these pages exclusively - must close them
+        modifiedPage.close();
+        if (!modifiedPage.isClosed()) {
+          LOGGER.error("TIL.clear(): FAILED to close modified page {} ({}) rev={}",
+              modifiedPage.getPageKey(), modifiedPage.getIndexType(), modifiedPage.getRevision());
+          skippedAlreadyClosed++;
+        } else {
+          closedModified++;
+        }
+      }
+    }
     list.clear();
+    
+    // Log TIL cleanup for diagnostics
+    LOGGER.debug("TIL.clear() processed {} containers ({} KeyValueLeafPages, {} Page0s), closed {} complete + {} modified pages, failed {} closes",
+        totalContainers, kvLeafContainers, page0Count, closedComplete, closedModified, skippedAlreadyClosed);
   }
 
   /**
@@ -92,7 +208,83 @@ public final class TransactionIntentLog implements AutoCloseable {
 
   @Override
   public void close() {
+    int initialSize = list.size();
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("TIL.close() starting with {} containers", initialSize);
+    }
+    
+    // CRITICAL: Force completion of ALL pending async removal listeners
+    // Pages were removed from caches in put() - we must wait for async listeners
+    // to finish before we close pages in TIL, otherwise double-close
+    bufferManager.getRecordPageCache().cleanUp();
+    bufferManager.getRecordPageFragmentCache().cleanUp();
+    bufferManager.getPageCache().cleanUp();
+    
+    // Close pages to release segments
+    // CRITICAL: Must force-unpin before closing to release memory segments
+    int closedComplete = 0;
+    int closedModified = 0;
+    int page0Count = 0;
+    int failedCloses = 0;
+    
+    for (final PageContainer pageContainer : list) {
+      Page completePage = pageContainer.getComplete();
+      Page modifiedPage = pageContainer.getModified();
+      
+      if (completePage instanceof KeyValueLeafPage kvCompletePage) {
+        if (kvCompletePage.getPageKey() == 0) {
+          page0Count++;
+        }
+        
+        // CRITICAL: Use forceCloseForTIL to atomically unpin all transactions and close
+        // TIL owns these pages exclusively - must close them regardless of pin count
+        kvCompletePage.close();
+        if (!kvCompletePage.isClosed()) {
+          LOGGER.error("TIL.close(): FAILED to close complete page {} ({}) rev={}",
+              kvCompletePage.getPageKey(), kvCompletePage.getIndexType(), kvCompletePage.getRevision());
+          failedCloses++;
+        } else {
+          closedComplete++;
+        }
+      }
+      
+      // Check if modified is a different instance before closing
+      if (modifiedPage instanceof KeyValueLeafPage kvModifiedPage && modifiedPage != completePage) {
+        if (kvModifiedPage.getPageKey() == 0) {
+          page0Count++;
+        }
+        
+        // CRITICAL: Use forceCloseForTIL to atomically unpin all transactions and close
+        kvModifiedPage.close();
+        if (!kvModifiedPage.isClosed()) {
+          LOGGER.error("TIL.close(): FAILED to close modified page {} ({}) rev={}",
+              kvModifiedPage.getPageKey(), kvModifiedPage.getIndexType(), kvModifiedPage.getRevision());
+          failedCloses++;
+        } else {
+          closedModified++;
+        }
+      }
+    }
+    
+    // Log TIL cleanup for diagnostics
+    LOGGER.debug("TIL.close() processed {} containers ({} Page0s), closed {} complete + {} modified pages, failed {} closes",
+        initialSize, page0Count, closedComplete, closedModified, failedCloses);
+    
     logKey = 0;
     list.clear();
   }
+  
+  @Override
+  @SuppressWarnings("deprecation")
+  protected void finalize() {
+    // DIAGNOSTIC: Detect if TIL is GC'd without being closed
+    if (!list.isEmpty() && KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      LOGGER.warn("⚠️  TIL FINALIZED WITHOUT CLEAR: instance={} with {} containers still in list!", 
+          System.identityHashCode(this), list.size());
+    }
+  }
 }
+
+
+
+

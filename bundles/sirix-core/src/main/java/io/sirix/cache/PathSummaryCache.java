@@ -3,16 +3,19 @@ package io.sirix.cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
 
-public class PathSummaryCache implements Cache<Integer, PathSummaryData> {
+public class PathSummaryCache implements Cache<PathSummaryCacheKey, PathSummaryData> {
 
-  private final com.github.benmanes.caffeine.cache.Cache<Integer, PathSummaryData> cache;
+  private final com.github.benmanes.caffeine.cache.Cache<PathSummaryCacheKey, PathSummaryData> cache;
 
   public PathSummaryCache(final int maxSize) {
     cache = Caffeine.newBuilder()
+                    .initialCapacity(maxSize)
                     .maximumSize(maxSize)
-                    .expireAfterAccess(5, TimeUnit.MINUTES)
+                    .scheduler(scheduler)
                     .build();
   }
 
@@ -22,17 +25,28 @@ public class PathSummaryCache implements Cache<Integer, PathSummaryData> {
   }
 
   @Override
-  public PathSummaryData get(Integer key) {
+  public PathSummaryData get(PathSummaryCacheKey key) {
     return cache.getIfPresent(key);
   }
 
   @Override
-  public void put(Integer key, PathSummaryData value) {
+  public PathSummaryData get(PathSummaryCacheKey key,
+      BiFunction<? super PathSummaryCacheKey, ? super PathSummaryData, ? extends PathSummaryData> mappingFunction) {
+    return cache.asMap().compute(key, mappingFunction);
+  }
+
+  @Override
+  public void putIfAbsent(PathSummaryCacheKey key, PathSummaryData value) {
+    cache.asMap().putIfAbsent(key, value);
+  }
+
+  @Override
+  public void put(PathSummaryCacheKey key, PathSummaryData value) {
     cache.put(key, value);
   }
 
   @Override
-  public void putAll(Map<? extends Integer, ? extends PathSummaryData> map) {
+  public void putAll(Map<? extends PathSummaryCacheKey, ? extends PathSummaryData> map) {
     cache.putAll(map);
   }
 
@@ -42,13 +56,18 @@ public class PathSummaryCache implements Cache<Integer, PathSummaryData> {
   }
 
   @Override
-  public Map<Integer, PathSummaryData> getAll(Iterable<? extends Integer> keys) {
+  public Map<PathSummaryCacheKey, PathSummaryData> getAll(Iterable<? extends PathSummaryCacheKey> keys) {
     return cache.getAllPresent(keys);
   }
 
   @Override
-  public void remove(Integer key) {
+  public void remove(PathSummaryCacheKey key) {
     cache.invalidate(key);
+  }
+
+  @Override
+  public ConcurrentMap<PathSummaryCacheKey, PathSummaryData> asMap() {
+    return cache.asMap();
   }
 
   @Override

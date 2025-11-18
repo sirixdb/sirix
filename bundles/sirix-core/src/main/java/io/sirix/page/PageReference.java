@@ -30,6 +30,7 @@ import io.sirix.settings.Constants;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * <p>
@@ -49,12 +50,24 @@ public final class PageReference {
   /** Log key. */
   private int logKey = Constants.NULL_ID_INT;
 
+  /** Unique database ID to distinguish pages from different databases in global BufferManager. */
+  private long databaseId = Constants.NULL_ID_LONG;
+
+  /** Unique resource ID to distinguish pages from different resources in global BufferManager. */
+  private long resourceId = Constants.NULL_ID_LONG;
+
   /** The hash in bytes, generated from the referenced page-fragment. */
   private byte[] hashInBytes;
 
   private List<PageFragmentKey> pageFragments;
 
   private int hash;
+
+  /**
+   * Guard count tracks active PageGuards referencing this page.
+   * Pages can only be evicted when guardCount == 0.
+   */
+  private final AtomicInteger guardCount = new AtomicInteger(0);
 
   /**
    * Default constructor setting up an uninitialized page reference.
@@ -72,6 +85,8 @@ public final class PageReference {
     logKey = reference.logKey;
     page = reference.page;
     key = reference.key;
+    databaseId = reference.databaseId;
+    resourceId = reference.resourceId;
     hashInBytes = reference.hashInBytes;
     pageFragments = reference.pageFragments;
     hash = reference.hash;
@@ -79,6 +94,10 @@ public final class PageReference {
 
   /**
    * Set in-memory instance of deserialized page.
+   * 
+   * Note: This just swaps the reference. The old page is NOT closed here.
+   * Pages are owned by the cache and will be closed by the cache's removal listener
+   * when evicted, or by explicit operations (TIL, transaction close).
    *
    * @param page deserialized page
    */
@@ -159,14 +178,67 @@ public final class PageReference {
    * @return this instance
    */
   public PageReference setLogKey(final int key) {
-    hash = 0;
+    hash = 0;  // Clear cached hashCode since it includes logKey
     logKey = key;
+    return this;
+  }
+  
+  /**
+   * Clear the cached hashCode.
+   * Must be called before changing key, logKey, databaseId, or resourceId if the PageReference
+   * is already in a HashMap, since the hash depends on these values.
+   */
+  public void clearCachedHash() {
+    hash = 0;
+  }
+
+  /**
+   * Get the unique database ID.
+   *
+   * @return database ID
+   */
+  public long getDatabaseId() {
+    return databaseId;
+  }
+
+  /**
+   * Set the unique database ID.
+   *
+   * @param databaseId the database ID
+   * @return this instance
+   */
+  public PageReference setDatabaseId(final long databaseId) {
+    hash = 0;
+    this.databaseId = databaseId;
+    return this;
+  }
+
+  /**
+   * Get the unique resource ID.
+   *
+   * @return resource ID
+   */
+  public long getResourceId() {
+    return resourceId;
+  }
+
+  /**
+   * Set the unique resource ID.
+   *
+   * @param resourceId the resource ID
+   * @return this instance
+   */
+  public PageReference setResourceId(final long resourceId) {
+    hash = 0;
+    this.resourceId = resourceId;
     return this;
   }
 
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
+                      .add("databaseId", databaseId)
+                      .add("resourceId", resourceId)
                       .add("logKey", logKey)
                       .add("key", key)
                       .add("page", page)
@@ -177,7 +249,7 @@ public final class PageReference {
   @Override
   public int hashCode() {
     if (hash == 0) {
-      hash = Objects.hash(logKey, key);
+      hash = Objects.hash(databaseId, resourceId, logKey, key);
     }
     return hash;
   }
@@ -185,7 +257,10 @@ public final class PageReference {
   @Override
   public boolean equals(final @Nullable Object other) {
     if (other instanceof PageReference otherPageRef) {
-      return otherPageRef.logKey == logKey && otherPageRef.key == key;
+      return otherPageRef.databaseId == databaseId 
+          && otherPageRef.resourceId == resourceId
+          && otherPageRef.logKey == logKey 
+          && otherPageRef.key == key;
     }
     return false;
   }
@@ -196,5 +271,34 @@ public final class PageReference {
 
   public byte[] getHash() {
     return hashInBytes;
+  }
+
+  /**
+   * Acquire a guard on this page reference.
+   * Increments the guard count to indicate an active guard is holding this page.
+   */
+  public void acquireGuard() {
+    guardCount.incrementAndGet();
+  }
+
+  /**
+   * Release a guard on this page reference.
+   * Decrements the guard count when a PageGuard is closed.
+   */
+  public void releaseGuard() {
+    int newCount = guardCount.decrementAndGet();
+    if (newCount < 0) {
+      throw new IllegalStateException("Guard count underflow for page reference");
+    }
+  }
+
+  /**
+   * Get the current guard count.
+   * Used by eviction logic to check if page can be safely evicted.
+   *
+   * @return current number of active guards
+   */
+  public int getGuardCount() {
+    return guardCount.get();
   }
 }

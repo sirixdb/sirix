@@ -35,12 +35,10 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.settings.Fixed;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.checker.nullness.qual.NonNull;
-
-import java.nio.ByteBuffer;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
  * Delegate method for all nodes building up the structure. That means that all nodes representing
@@ -141,23 +139,22 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
 
   @Override
   public boolean hasFirstChild() {
-    return firstChild != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasLastChild() {
-    return lastChild != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()
-        && lastChild != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getLastChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasLeftSibling() {
-    return leftSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasRightSibling() {
-    return rightSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -237,7 +234,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     throw new UnsupportedOperationException();
   }
 

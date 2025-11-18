@@ -167,7 +167,7 @@ public final class DiffFactory {
   public static final class Builder<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> {
 
     /** {@link ResourceSession} reference. */
-    final ResourceSession<R, W> resMgr;
+    final ResourceSession<R, W> session;
 
     /** Start key of new revision. */
     transient long newStartKey;
@@ -219,7 +219,7 @@ public final class DiffFactory {
      */
     public Builder(final ResourceSession<R, W> resMgr, final @NonNegative int newRev, final @NonNegative int oldRev,
         final DiffOptimized diffKind, final Set<DiffObserver> observers) {
-      this.resMgr = requireNonNull(resMgr);
+      this.session = requireNonNull(resMgr);
       checkArgument(newRev >= 0, "paramNewRev must be >= 0!");
       this.newRev = newRev;
       checkArgument(oldRev >= 0, "paramOldRev must be >= 0!");

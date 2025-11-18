@@ -8,7 +8,7 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.json.ObjectKeyNode;
 import io.sirix.node.json.ObjectNode;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 
 import java.nio.ByteBuffer;
 
@@ -93,7 +93,7 @@ public final class ImmutableObjectKeyNode extends AbstractImmutableJsonStructura
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     return node.computeHash(bytes);
   }
 }

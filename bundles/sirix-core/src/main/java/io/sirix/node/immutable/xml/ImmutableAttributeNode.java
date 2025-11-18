@@ -10,7 +10,7 @@ import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Constants;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.node.xml.AttributeNode;
@@ -155,7 +155,7 @@ public final class ImmutableAttributeNode implements ImmutableValueNode, Immutab
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     return node.computeHash(bytes);
   }
 

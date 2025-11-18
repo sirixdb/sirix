@@ -14,25 +14,34 @@ public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, Node> {
   private final com.github.benmanes.caffeine.cache.Cache<RBIndexKey, Node> cache;
 
   public RedBlackTreeNodeCache(final int maxSize) {
-    final RemovalListener<RBIndexKey, Node> removalListener =
-        (RBIndexKey key, Node value, RemovalCause cause) -> {
-          assert key != null;
-          assert value != null;
+    final RemovalListener<RBIndexKey, Node> removalListener = (RBIndexKey key, Node value, RemovalCause cause) -> {
+      assert key != null;
+      assert value != null;
 
-          if (value instanceof RBNodeKey<?> rbNodeKey) {
-            final RBNodeKey<?> parent = rbNodeKey.getParent();
+      if (value instanceof RBNodeKey<?> rbNodeKey) {
+        final RBNodeKey<?> parent = rbNodeKey.getParent();
 
-            if (parent != null) {
-              if (value.equals(parent.getLeftChild())) {
-                parent.setLeftChild(null);
-              } else if (value.equals(parent.getRightChild())) {
-                parent.setRightChild(null);
-              }
-            }
+        if (parent != null) {
+          if (value.equals(parent.getLeftChild())) {
+            parent.setLeftChild(null);
+          } else if (value.equals(parent.getRightChild())) {
+            parent.setRightChild(null);
           }
-        };
+        }
+      }
+    };
 
-    cache = Caffeine.newBuilder().maximumSize(maxSize).removalListener(removalListener).scheduler(scheduler).build();
+    cache = Caffeine.newBuilder()
+                    .initialCapacity(maxSize)
+                    .maximumSize(maxSize)
+                    .removalListener(removalListener)
+                    .scheduler(scheduler)
+                    .build();
+  }
+
+  @Override
+  public void putIfAbsent(RBIndexKey key, Node value) {
+    cache.asMap().putIfAbsent(key, value);
   }
 
   @Override

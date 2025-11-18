@@ -83,7 +83,7 @@ public final class PageTrxFactory {
    */
   public PageTrx createPageTrx(
       final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
-      final UberPage uberPage, final Writer writer, final @NonNegative long trxId,
+      final UberPage uberPage, final Writer writer, final @NonNegative int trxId,
       final @NonNegative int representRevision, final @NonNegative int lastStoredRevision,
       final @NonNegative int lastCommitedRevision, final boolean isBoundToNodeTrx, final BufferManager bufferManager) {
     final ResourceConfiguration resourceConfig = resourceManager.getResourceConfig();
@@ -187,7 +187,9 @@ public final class PageTrxFactory {
         log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
       }
 
-      final var revisionRootPageReference = new PageReference();
+      final var revisionRootPageReference = new PageReference()
+          .setDatabaseId(pageRtx.getDatabaseId())
+          .setResourceId(pageRtx.getResourceId());
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
       uberPage.setRevisionRootPageReference(revisionRootPageReference);
       uberPage.setRevisionRootPage(newRevisionRootPage);

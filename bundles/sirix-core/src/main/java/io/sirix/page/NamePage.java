@@ -206,17 +206,12 @@ public final class NamePage extends AbstractForwardingPage {
     }
 
     final Cache<NamesCacheKey, Names> namesCache = pageRtx.getBufferManager().getNamesCache();
-    final NamesCacheKey namesCacheKey = new NamesCacheKey(pageRtx.getRevisionNumber(), offset);
-    Names names = namesCache.get(namesCacheKey);
-
-    if (names == null) {
-      names = Names.fromStorage(pageRtx, offset, maxNodeKey);
-      namesCache.put(namesCacheKey, names);
-    } else {
-      names = Names.copy(names);
-    }
-
-    return names;
+    final NamesCacheKey namesCacheKey = new NamesCacheKey(
+        pageRtx.getDatabaseId(),
+        pageRtx.getResourceId(),
+        pageRtx.getRevisionNumber(),
+        offset);
+    return namesCache.get(namesCacheKey, (_, _) -> Names.copy(Names.fromStorage(pageRtx, offset, maxNodeKey)));
   }
 
   /**

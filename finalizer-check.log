@@ -1,0 +1,491 @@
+> Task :sirix-core:cleanTest
+> Task :sirix-core:compileJava UP-TO-DATE
+> Task :sirix-core:processResources UP-TO-DATE
+> Task :sirix-core:classes UP-TO-DATE
+> Task :sirix-core:compileTestJava UP-TO-DATE
+> Task :sirix-core:processTestResources UP-TO-DATE
+> Task :sirix-core:testClasses UP-TO-DATE
+
+> Task :sirix-core:test
+
+ConcurrentAxisTest > testSeriellNew() STANDARD_OUT
+    19:06:14.900 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - ========== Initializing UmbraDB-Style Memory Allocator ==========
+    19:06:14.902 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Physical memory limit: 2048 MB
+    19:06:14.903 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected base page size: 4096 bytes
+    19:06:14.904 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected huge page size: 2 MB
+    19:06:14.904 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Virtual address space required: 14 GB
+    19:06:14.904 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocating virtual memory regions...
+    19:06:14.905 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 0 (4096 bytes per segment)
+    19:06:14.928 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 0 initialized with 524288 pre-allocated segments
+    19:06:14.928 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 1 (8192 bytes per segment)
+    19:06:14.936 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 1 initialized with 262144 pre-allocated segments
+    19:06:14.936 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 2 (16384 bytes per segment)
+    19:06:14.940 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 2 initialized with 131072 pre-allocated segments
+    19:06:14.941 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 3 (32768 bytes per segment)
+    19:06:14.943 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 3 initialized with 65536 pre-allocated segments
+    19:06:14.943 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 4 (65536 bytes per segment)
+    19:06:14.944 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 4 initialized with 32768 pre-allocated segments
+    19:06:14.944 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 5 (131072 bytes per segment)
+    19:06:14.945 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 5 initialized with 16384 pre-allocated segments
+    19:06:14.945 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 6 (262144 bytes per segment)
+    19:06:14.945 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 6 initialized with 8192 pre-allocated segments
+    19:06:14.945 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    19:06:14.945 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Allocator initialized successfully:
+    19:06:14.945 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Base page size: 4096 bytes
+    19:06:14.945 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Huge page size: 2 MB (available)
+    19:06:14.945 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Virtual memory mapped: 14 GB (across 7 size classes)
+    19:06:14.945 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Physical memory limit: 2048 MB
+    19:06:14.946 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Segment size classes: [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+    19:06:14.946 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    19:06:14.957 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Cleaning up allocator (physical memory: 0 MB)
+    19:06:14.989 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator cleanup complete
+    19:06:14.993 [Test worker] INFO  i.s.service.xml.shredder.XmlShredder - Shredding '/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+    19:06:14.993 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - ========== Initializing UmbraDB-Style Memory Allocator ==========
+    19:06:14.993 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Physical memory limit: 2048 MB
+    19:06:14.993 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected base page size: 4096 bytes
+    19:06:14.994 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected huge page size: 2 MB
+    19:06:14.994 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Virtual address space required: 14 GB
+    19:06:14.994 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocating virtual memory regions...
+    19:06:14.995 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 0 (4096 bytes per segment)
+    19:06:15.011 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 0 initialized with 524288 pre-allocated segments
+    19:06:15.011 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 1 (8192 bytes per segment)
+    19:06:15.018 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 1 initialized with 262144 pre-allocated segments
+    19:06:15.019 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 2 (16384 bytes per segment)
+    19:06:15.022 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 2 initialized with 131072 pre-allocated segments
+    19:06:15.023 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 3 (32768 bytes per segment)
+    19:06:15.025 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 3 initialized with 65536 pre-allocated segments
+    19:06:15.025 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 4 (65536 bytes per segment)
+    19:06:15.026 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 4 initialized with 32768 pre-allocated segments
+    19:06:15.027 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 5 (131072 bytes per segment)
+    19:06:15.027 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 5 initialized with 16384 pre-allocated segments
+    19:06:15.027 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 6 (262144 bytes per segment)
+    19:06:15.027 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 6 initialized with 8192 pre-allocated segments
+    19:06:15.027 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    19:06:15.028 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Allocator initialized successfully:
+    19:06:15.028 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Base page size: 4096 bytes
+    19:06:15.028 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Huge page size: 2 MB (available)
+    19:06:15.028 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Virtual memory mapped: 14 GB (across 7 size classes)
+    19:06:15.028 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Physical memory limit: 2048 MB
+    19:06:15.028 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Segment size classes: [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+    19:06:15.028 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+
+ConcurrentAxisTest > testSeriellNew() STANDARD_ERROR
+    [DiagnosticLogger] Initializing... LOG_FILE=/home/johannes/IdeaProjects/sirix/memory-leak-diagnostic.log
+    [DiagnosticLogger] user.home=/home/johannes
+    [DiagnosticLogger] Parent dirs created/exist: false
+    [DiagnosticLogger] SUCCESS: Logging initialized at /home/johannes/IdeaProjects/sirix/memory-leak-diagnostic.log
+
+ConcurrentAxisTest > testSeriellNew() STANDARD_OUT
+    [DiagnosticLogger] Log file: /home/johannes/IdeaProjects/sirix/memory-leak-diagnostic.log
+
+ConcurrentAxisTest > testSeriellNew() STANDARD_ERROR
+    Oct 28, 2025 7:06:15 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:15 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:15 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:15 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:16 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:16 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:16 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:16 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+
+ConcurrentAxisTest > testSeriellNew() STANDARD_OUT
+    19:06:16.515 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Cleaning up allocator (physical memory: 1 MB)
+    19:06:16.547 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator cleanup complete
+    19:06:16.549 [Test worker] INFO  i.s.service.xml.shredder.XmlShredder -  done [1555 ms].
+    19:06:16.550 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - ========== Initializing UmbraDB-Style Memory Allocator ==========
+    19:06:16.550 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Physical memory limit: 2048 MB
+    19:06:16.550 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected base page size: 4096 bytes
+    19:06:16.550 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected huge page size: 2 MB
+    19:06:16.550 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Virtual address space required: 14 GB
+    19:06:16.550 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocating virtual memory regions...
+    19:06:16.550 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 0 (4096 bytes per segment)
+    19:06:16.652 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 0 initialized with 524288 pre-allocated segments
+    19:06:16.652 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 1 (8192 bytes per segment)
+    19:06:16.657 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 1 initialized with 262144 pre-allocated segments
+    19:06:16.658 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 2 (16384 bytes per segment)
+    19:06:16.660 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 2 initialized with 131072 pre-allocated segments
+    19:06:16.661 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 3 (32768 bytes per segment)
+    19:06:16.663 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 3 initialized with 65536 pre-allocated segments
+    19:06:16.663 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 4 (65536 bytes per segment)
+    19:06:16.664 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 4 initialized with 32768 pre-allocated segments
+    19:06:16.664 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 5 (131072 bytes per segment)
+    19:06:16.664 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 5 initialized with 16384 pre-allocated segments
+    19:06:16.664 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 6 (262144 bytes per segment)
+    19:06:16.665 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 6 initialized with 8192 pre-allocated segments
+    19:06:16.665 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    19:06:16.665 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Allocator initialized successfully:
+    19:06:16.665 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Base page size: 4096 bytes
+    19:06:16.665 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Huge page size: 2 MB (available)
+    19:06:16.665 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Virtual memory mapped: 14 GB (across 7 size classes)
+    19:06:16.665 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Physical memory limit: 2048 MB
+    19:06:16.665 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Segment size classes: [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+    19:06:16.665 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    19:06:16.989 [ForkJoinPool.commonPool-worker-19] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 100 SIZE evictions, 8 EXPLICIT skipped (pinned)
+    19:06:17.082 [ForkJoinPool.commonPool-worker-17] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 200 SIZE evictions, 8 EXPLICIT skipped (pinned)
+    19:06:17.239 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Cleaning up allocator (physical memory: 2 MB)
+    19:06:17.276 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator cleanup complete
+
+ConcurrentAxisTest > testSeriellNew() STANDARD_ERROR
+
+    ========== PAGE STATISTICS ==========
+    PAGES_CREATED: 1333
+    PAGES_CLOSED: 1249
+    UNCLOSED LEAK: 83
+
+    Pages by type (CREATED / CLOSED / LEAKED):
+
+ConcurrentAxisTest > testSeriellNew() STANDARD_OUT
+    19:06:17.278 [ForkJoinPool.commonPool-worker-4] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 300 SIZE evictions, 8 EXPLICIT skipped (pinned)
+
+ConcurrentAxisTest > testSeriellNew() STANDARD_ERROR
+      DOCUMENT: 1278 / 1227 / 51
+      RECORD_TO_REVISIONS: 1 / 1 / 0
+      NAME: 44 / 20 / 24
+      PATH_SUMMARY: 8 / 7 / 1
+      CHANGED_NODES: 1 / 1 / 0
+      DEWEYID_TO_RECORDID: 1 / 1 / 0
+
+    === LEAKED PAGE ANALYSIS ===
+    Live pages still in memory: 0
+      (Detailed analysis skipped - transaction already closed)
+    =====================================
+
+
+ConcurrentAxisTest > testSeriellOld() STANDARD_OUT
+    19:06:17.286 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - ========== Initializing UmbraDB-Style Memory Allocator ==========
+    19:06:17.286 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Physical memory limit: 2048 MB
+    19:06:17.286 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected base page size: 4096 bytes
+    19:06:17.286 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected huge page size: 2 MB
+    19:06:17.286 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Virtual address space required: 14 GB
+    19:06:17.286 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocating virtual memory regions...
+    19:06:17.286 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 0 (4096 bytes per segment)
+    19:06:17.295 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 0 initialized with 524288 pre-allocated segments
+    19:06:17.295 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 1 (8192 bytes per segment)
+    19:06:17.300 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 1 initialized with 262144 pre-allocated segments
+    19:06:17.300 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 2 (16384 bytes per segment)
+    19:06:17.302 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 2 initialized with 131072 pre-allocated segments
+    19:06:17.302 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 3 (32768 bytes per segment)
+    19:06:17.303 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 3 initialized with 65536 pre-allocated segments
+    19:06:17.303 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 4 (65536 bytes per segment)
+    19:06:17.304 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 4 initialized with 32768 pre-allocated segments
+    19:06:17.304 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 5 (131072 bytes per segment)
+    19:06:17.304 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 5 initialized with 16384 pre-allocated segments
+    19:06:17.305 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 6 (262144 bytes per segment)
+    19:06:17.305 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 6 initialized with 8192 pre-allocated segments
+    19:06:17.305 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    19:06:17.305 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Allocator initialized successfully:
+    19:06:17.305 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Base page size: 4096 bytes
+    19:06:17.305 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Huge page size: 2 MB (available)
+    19:06:17.305 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Virtual memory mapped: 14 GB (across 7 size classes)
+    19:06:17.305 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Physical memory limit: 2048 MB
+    19:06:17.305 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Segment size classes: [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+    19:06:17.305 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    19:06:17.306 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Cleaning up allocator (physical memory: 0 MB)
+    19:06:17.327 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator cleanup complete
+    19:06:17.328 [Test worker] INFO  i.s.service.xml.shredder.XmlShredder - Shredding '/home/johannes/IdeaProjects/sirix/bundles/sirix-core/src/test/resources/10mb.xml' to '/tmp/sirix/path1' ... 
+    19:06:17.328 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - ========== Initializing UmbraDB-Style Memory Allocator ==========
+    19:06:17.328 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Physical memory limit: 2048 MB
+    19:06:17.329 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected base page size: 4096 bytes
+    19:06:17.329 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected huge page size: 2 MB
+    19:06:17.329 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Virtual address space required: 14 GB
+    19:06:17.329 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocating virtual memory regions...
+    19:06:17.329 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 0 (4096 bytes per segment)
+    19:06:17.337 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 0 initialized with 524288 pre-allocated segments
+    19:06:17.337 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 1 (8192 bytes per segment)
+    19:06:17.342 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 1 initialized with 262144 pre-allocated segments
+    19:06:17.342 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 2 (16384 bytes per segment)
+    19:06:17.344 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 2 initialized with 131072 pre-allocated segments
+    19:06:17.344 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 3 (32768 bytes per segment)
+    19:06:17.346 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 3 initialized with 65536 pre-allocated segments
+    19:06:17.346 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 4 (65536 bytes per segment)
+    19:06:17.346 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 4 initialized with 32768 pre-allocated segments
+    19:06:17.346 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 5 (131072 bytes per segment)
+    19:06:17.347 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 5 initialized with 16384 pre-allocated segments
+    19:06:17.347 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 6 (262144 bytes per segment)
+    19:06:17.347 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 6 initialized with 8192 pre-allocated segments
+    19:06:17.347 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    19:06:17.347 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Allocator initialized successfully:
+    19:06:17.347 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Base page size: 4096 bytes
+    19:06:17.347 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Huge page size: 2 MB (available)
+    19:06:17.347 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Virtual memory mapped: 14 GB (across 7 size classes)
+    19:06:17.347 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Physical memory limit: 2048 MB
+    19:06:17.347 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Segment size classes: [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+    19:06:17.347 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+
+ConcurrentAxisTest > testSeriellOld() STANDARD_ERROR
+    Oct 28, 2025 7:06:17 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:17 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:17 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:17 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:18 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:18 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:18 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+    Oct 28, 2025 7:06:18 PM com.github.benmanes.caffeine.cache.BoundedLocalCache lambda$notifyRemoval$1
+    WARNING: Exception thrown by removal listener
+    java.lang.AssertionError: Page must not be pinned: 1
+    	at io.sirix.cache.RecordPageCache.lambda$new$0(RecordPageCache.java:29)
+    	at com.github.benmanes.caffeine.cache.BoundedLocalCache.lambda$notifyRemoval$1(BoundedLocalCache.java:420)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1750)
+    	at java.base/java.util.concurrent.ForkJoinTask$RunnableExecuteAction.compute(ForkJoinTask.java:1742)
+    	at java.base/java.util.concurrent.ForkJoinTask$InterruptibleTask.exec(ForkJoinTask.java:1659)
+    	at java.base/java.util.concurrent.ForkJoinTask.doExec(ForkJoinTask.java:511)
+    	at java.base/java.util.concurrent.ForkJoinPool$WorkQueue.topLevelExec(ForkJoinPool.java:1450)
+    	at java.base/java.util.concurrent.ForkJoinPool.runWorker(ForkJoinPool.java:2019)
+    	at java.base/java.util.concurrent.ForkJoinWorkerThread.run(ForkJoinWorkerThread.java:187)
+
+
+ConcurrentAxisTest > testSeriellOld() STANDARD_OUT
+    19:06:18.121 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Cleaning up allocator (physical memory: 1 MB)
+    19:06:18.152 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator cleanup complete
+    19:06:18.153 [Test worker] INFO  i.s.service.xml.shredder.XmlShredder -  done [824 ms].
+    19:06:18.153 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - ========== Initializing UmbraDB-Style Memory Allocator ==========
+    19:06:18.153 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Physical memory limit: 2048 MB
+    19:06:18.153 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected base page size: 4096 bytes
+    19:06:18.153 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Detected huge page size: 2 MB
+    19:06:18.153 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Virtual address space required: 14 GB
+    19:06:18.153 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocating virtual memory regions...
+    19:06:18.153 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 0 (4096 bytes per segment)
+    19:06:18.169 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 0 initialized with 524288 pre-allocated segments
+    19:06:18.169 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 1 (8192 bytes per segment)
+    19:06:18.177 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 1 initialized with 262144 pre-allocated segments
+    19:06:18.177 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 2 (16384 bytes per segment)
+    19:06:18.182 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 2 initialized with 131072 pre-allocated segments
+    19:06:18.182 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 3 (32768 bytes per segment)
+    19:06:18.184 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 3 initialized with 65536 pre-allocated segments
+    19:06:18.184 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 4 (65536 bytes per segment)
+    19:06:18.185 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 4 initialized with 32768 pre-allocated segments
+    19:06:18.185 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 5 (131072 bytes per segment)
+    19:06:18.185 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 5 initialized with 16384 pre-allocated segments
+    19:06:18.185 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pre-allocated 2 GB virtual region for size class 6 (262144 bytes per segment)
+    19:06:18.186 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Pool 6 initialized with 8192 pre-allocated segments
+    19:06:18.186 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    19:06:18.186 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Allocator initialized successfully:
+    19:06:18.186 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Base page size: 4096 bytes
+    19:06:18.186 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Huge page size: 2 MB (available)
+    19:06:18.186 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Virtual memory mapped: 14 GB (across 7 size classes)
+    19:06:18.186 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Physical memory limit: 2048 MB
+    19:06:18.186 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator -   - Segment size classes: [4096, 8192, 16384, 32768, 65536, 131072, 262144]
+    19:06:18.186 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - =================================================================
+    19:06:18.408 [ForkJoinPool.commonPool-worker-14] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 400 SIZE evictions, 16 EXPLICIT skipped (pinned)
+    19:06:18.498 [ForkJoinPool.commonPool-worker-12] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 500 SIZE evictions, 16 EXPLICIT skipped (pinned)
+    19:06:18.563 [ForkJoinPool.commonPool-worker-11] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 600 SIZE evictions, 16 EXPLICIT skipped (pinned)
+    19:06:18.602 [ForkJoinPool.commonPool-worker-11] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 700 SIZE evictions, 16 EXPLICIT skipped (pinned)
+    19:06:18.706 [ForkJoinPool.commonPool-worker-14] INFO  i.s.cache.RecordPageFragmentCache - RecordPageFragmentCache: 800 SIZE evictions, 16 EXPLICIT skipped (pinned)
+    19:06:18.754 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - Cleaning up allocator (physical memory: 0 MB)
+    19:06:18.782 [Test worker] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator cleanup complete
+
+ConcurrentAxisTest > testSeriellOld() STANDARD_ERROR
+
+    ========== PAGE STATISTICS ==========
+    PAGES_CREATED: 1821
+    PAGES_CLOSED: 1723
+    UNCLOSED LEAK: 98
+
+    Pages by type (CREATED / CLOSED / LEAKED):
+      DOCUMENT: 1766 / 1693 / 73
+      RECORD_TO_REVISIONS: 1 / 1 / 0
+      NAME: 44 / 20 / 24
+      PATH_SUMMARY: 8 / 7 / 1
+      CHANGED_NODES: 1 / 1 / 0
+      DEWEYID_TO_RECORDID: 1 / 1 / 0
+
+    === LEAKED PAGE ANALYSIS ===
+    Live pages still in memory: 71
+      (Detailed analysis skipped - transaction already closed)
+    =====================================
+
+
+19:06:18.788 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - Shutting down LinuxMemorySegmentAllocator...
+19:06:18.788 [Thread-3] INFO  i.s.c.LinuxMemorySegmentAllocator - LinuxMemorySegmentAllocator shutdown complete.
+
+[Incubating] Problems report is available at: file:///home/johannes/IdeaProjects/sirix/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.1.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 5s
+6 actionable tasks: 2 executed, 4 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.1.0/userguide/configuration_cache_enabling.html

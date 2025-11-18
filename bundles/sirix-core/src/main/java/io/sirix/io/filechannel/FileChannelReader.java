@@ -102,7 +102,7 @@ public final class FileChannelReader extends AbstractReader {
       buffer.flip();
       final byte[] page = buffer.array();
 
-      // Perform byte operations.
+      // Perform byte operations (deserialize will also fixup PageReference IDs)
       return deserialize(resourceConfiguration, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);

@@ -5,6 +5,7 @@ import io.sirix.api.PageTrx;
 import io.sirix.page.interfaces.Page;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
+import java.lang.foreign.MemorySegment;
 import java.util.List;
 
 /**
@@ -19,14 +20,10 @@ public final class OverflowPage implements Page {
    */
   private final byte[] data;
 
-  public OverflowPage() {
-    data = new byte[0];
-  }
-
   /**
    * Constructor.
    *
-   * @param data data to be stored
+   * @param data data to be stored as byte array
    */
   public OverflowPage(final byte[] data) {
     assert data != null;
@@ -41,6 +38,7 @@ public final class OverflowPage implements Page {
 
   @Override
   public void commit(@NonNull PageTrx pageWriteTrx) {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -53,14 +51,18 @@ public final class OverflowPage implements Page {
     throw new UnsupportedOperationException();
   }
 
-//  @Override
-//  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
-//      final SerializationType type) {
-//    out.writeInt(data.length);
-//    out.write(data);
-//  }
+  /**
+   * Get the data as a MemorySegment (for compatibility with existing code).
+   * Returns a heap segment backed by the byte array.
+   */
+  public MemorySegment getData() {
+    return MemorySegment.ofArray(data);
+  }
 
-  public byte[] getData() {
+  /**
+   * Get the raw byte array data.
+   */
+  public byte[] getDataBytes() {
     return data;
   }
 }

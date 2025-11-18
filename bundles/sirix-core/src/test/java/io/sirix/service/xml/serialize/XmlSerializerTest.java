@@ -1,29 +1,7 @@
-/**
- * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification, are permitted
- * provided that the following conditions are met: * Redistributions of source code must retain the
- * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
- * in binary form must reproduce the above copyright notice, this list of conditions and the
- * following disclaimer in the documentation and/or other materials provided with the distribution.
- * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
- * endorse or promote products derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
- * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
 package io.sirix.service.xml.serialize;
 
-import static org.junit.Assert.assertEquals;
-import java.io.ByteArrayOutputStream;
-
+import io.sirix.XmlTestHelper;
+import io.sirix.XmlTestHelper.PATHS;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixException;
@@ -32,8 +10,10 @@ import io.sirix.utils.XmlDocumentCreator;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import io.sirix.XmlTestHelper;
-import io.sirix.XmlTestHelper.PATHS;
+
+import java.io.ByteArrayOutputStream;
+
+import static org.junit.Assert.assertEquals;
 
 public class XmlSerializerTest {
 
@@ -50,17 +30,17 @@ public class XmlSerializerTest {
   @Test
   public void testXMLSerializerWithInitialIndent() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final XmlNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = session.beginNodeTrx();
          final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
 
       // Generate from this session.
-      final XmlSerializer serializer = new XmlSerializer.XmlSerializerBuilder(manager, out).prettyPrint().withInitialIndent().build();
+      final XmlSerializer serializer = new XmlSerializer.XmlSerializerBuilder(session, out).prettyPrint().withInitialIndent().build();
       serializer.call();
 
-      System.out.println(out.toString(Constants.DEFAULT_ENCODING.toString()));
+      System.out.println(out.toString(Constants.DEFAULT_ENCODING));
 
       // assertEquals(XmlDocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING.toString()));
     }
@@ -69,16 +49,16 @@ public class XmlSerializerTest {
   @Test
   public void testXMLSerializerWithMaxLevel() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final XmlNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = session.beginNodeTrx();
          final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
 
       // Generate from this session.
-      final XmlSerializer serializer = new XmlSerializer.XmlSerializerBuilder(manager, out).emitXMLDeclaration().maxLevel(2).build();
+      final XmlSerializer serializer = new XmlSerializer.XmlSerializerBuilder(session, out).emitXMLDeclaration().maxLevel(2).build();
       serializer.call();
-      assertEquals(XmlDocumentCreator.PRUNED, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(XmlDocumentCreator.PRUNED, out.toString(Constants.DEFAULT_ENCODING));
     }
   }
 
@@ -94,68 +74,68 @@ public class XmlSerializerTest {
       // Generate from this session.
       final XmlSerializer serializer = new XmlSerializer.XmlSerializerBuilder(manager, out).emitXMLDeclaration().build();
       serializer.call();
-      assertEquals(XmlDocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(XmlDocumentCreator.XML, out.toString(Constants.DEFAULT_ENCODING));
     }
   }
 
   @Test
   public void testRestSerializer() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final XmlNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = session.beginNodeTrx();
          final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
       wtx.close();
 
       // Generate from this session.
-      final XmlSerializer serializer = XmlSerializer.newBuilder(manager, out)
+      final XmlSerializer serializer = XmlSerializer.newBuilder(session, out)
                                                     .emitRESTful()
                                                     .emitRESTSequence()
                                                     .emitIDs()
                                                     .emitXMLDeclaration()
                                                     .build();
       serializer.call();
-      assertEquals(XmlDocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
-      assertEquals(XmlDocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(XmlDocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING));
+      assertEquals(XmlDocumentCreator.REST, out.toString(Constants.DEFAULT_ENCODING));
     }
   }
 
   @Test
   public void testIDSerializer() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final XmlNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = session.beginNodeTrx();
          final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
       wtx.close();
 
       // Generate from this session.
-      final XmlSerializer serializer = new XmlSerializer.XmlSerializerBuilder(manager, out).emitIDs().emitXMLDeclaration().build();
+      final XmlSerializer serializer = new XmlSerializer.XmlSerializerBuilder(session, out).emitIDs().emitXMLDeclaration().build();
       serializer.call();
-      assertEquals(XmlDocumentCreator.ID, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(XmlDocumentCreator.ID, out.toString(Constants.DEFAULT_ENCODING));
     }
   }
 
   @Test
   public void testSampleCompleteSerializer() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final XmlNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = session.beginNodeTrx();
          final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
       // generate serialize all from this session
       XmlDocumentCreator.createVersioned(wtx);
 
       XmlSerializer serializerall =
-          new XmlSerializer.XmlSerializerBuilder(manager, out, -1).emitXMLDeclaration().serializeTimestamp(false).build();
+          new XmlSerializer.XmlSerializerBuilder(session, out, -1).emitXMLDeclaration().serializeTimestamp(false).build();
       serializerall.call();
-      assertEquals(XmlDocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(XmlDocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING));
       out.reset();
 
       serializerall =
-          new XmlSerializer.XmlSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().serializeTimestamp(false).build();
+          new XmlSerializer.XmlSerializerBuilder(session, out, 1, 2, 3).emitXMLDeclaration().serializeTimestamp(false).build();
       serializerall.call();
       assertEquals(XmlDocumentCreator.VERSIONEDXML, out.toString());
     }
@@ -168,8 +148,8 @@ public class XmlSerializerTest {
   @Test
   public void testKeyStart() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final XmlNodeTrx wtx = manager.beginNodeTrx();
+    try (final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final XmlNodeTrx wtx = session.beginNodeTrx();
          final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
       // generate serialize all from this session
@@ -177,7 +157,7 @@ public class XmlSerializerTest {
       wtx.commit();
 
       XmlSerializer serializerall =
-          new XmlSerializer.XmlSerializerBuilder(manager, 5l, out, new XmlSerializerProperties()).emitXMLDeclaration().build();
+          new XmlSerializer.XmlSerializerBuilder(session, 5L, out, new XmlSerializerProperties()).emitXMLDeclaration().build();
       serializerall.call();
       final String result = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><b>foo<c/></b>";
 
@@ -185,9 +165,9 @@ public class XmlSerializerTest {
       out.reset();
 
       serializerall =
-          new XmlSerializer.XmlSerializerBuilder(manager, out, 1, 2, 3).emitXMLDeclaration().serializeTimestamp(false).build();
+          new XmlSerializer.XmlSerializerBuilder(session, out, 1, 2, 3).emitXMLDeclaration().serializeTimestamp(false).build();
       serializerall.call();
-      assertEquals(XmlDocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING.toString()));
+      assertEquals(XmlDocumentCreator.VERSIONEDXML, out.toString(Constants.DEFAULT_ENCODING));
     }
   }
 }

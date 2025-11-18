@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.node.xml;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.access.trx.node.*;
 import io.sirix.api.Axis;
 import io.sirix.api.Movement;
@@ -51,8 +52,8 @@ import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.XMLToken;
-import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -89,7 +90,7 @@ import static java.util.Objects.requireNonNull;
 final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNodeTrx, XmlNodeFactory, ImmutableXmlNode, InternalXmlNodeReadOnlyTrx>
     implements InternalXmlNodeTrx, ForwardingXmlNodeReadOnlyTrx {
 
-  private final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
+  private final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer();
 
   /**
    * The deweyID manager.

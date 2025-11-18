@@ -62,7 +62,10 @@ public final class TreeModifierImpl implements TreeModifier {
       revisionRootPage = new RevisionRootPage(pageRtx.loadRevRoot(baseRevision), representRevision + 1);
 
       // Link the prepared revision root nodePageReference with the prepared indirect tree.
-      log.put(new PageReference(), PageContainer.getInstance(revisionRootPage, revisionRootPage));
+      final var revRootRef = new PageReference()
+          .setDatabaseId(pageRtx.getDatabaseId())
+          .setResourceId(pageRtx.getResourceId());
+      log.put(revRootRef, PageContainer.getInstance(revisionRootPage, revisionRootPage));
     }
 
     // Return prepared revision root nodePageReference.
@@ -98,7 +101,9 @@ public final class TreeModifierImpl implements TreeModifier {
 
       // Create new page reference, add it to the transaction-log and reassign it in the root pages
       // of the tree.
-      final PageReference newPageReference = new PageReference();
+      final PageReference newPageReference = new PageReference()
+          .setDatabaseId(pageRtx.getDatabaseId())
+          .setResourceId(pageRtx.getResourceId());
       log.put(newPageReference, PageContainer.getInstance(page, page));
       setNewIndirectPage(pageRtx, revisionRootPage, indexType, index, newPageReference);
 
