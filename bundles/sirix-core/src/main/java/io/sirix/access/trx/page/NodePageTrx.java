@@ -189,8 +189,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       @Override
       protected boolean removeEldestEntry(Map.Entry<IndexLogKey, PageContainer> eldest) {
         if (size() > 100) {
-          // CRITICAL FIX: When evicting PageContainer from local cache, ensure pages are handled
-          // Pages in PageContainer should either be in TIL or need to be unpinned/closed
+          // When evicting PageContainer from local cache, ensure pages are properly tracked
+          // Pages should be in TIL (will be closed on commit/rollback) or in global cache
           PageContainer container = eldest.getValue();
           if (container != null) {
             // Pages in local cache should already be in TIL (appended via appendLogRecord)
@@ -428,8 +428,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
       // If guard is on a TIL page, the page won't close (guardCount > 0 check)
       pageRtx.closeCurrentPageGuard();
       
-      // Clear and return pages to pool (TransactionIntentLog.clear() handles clearing and returning)
-      // Note: Pages are already unpinned when added to TIL, so they're closed by cache removal listener
+      // Clear TransactionIntentLog - closes all modified pages
       log.clear();
       
       // Clear local cache (pages are already handled by log.clear())
@@ -523,7 +522,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     // If guard is on a TIL page, the page won't close (guardCount > 0 check)
     pageRtx.closeCurrentPageGuard();
     
-    // Note: Pages are already unpinned when added to TIL
+    // Clear TransactionIntentLog - closes all modified pages
     log.clear();
     
     // Clear local cache and reset references (pages already handled by log.clear())
@@ -739,7 +738,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
         ((io.sirix.page.KeyValueLeafPage) page).releaseGuard();
       }
       
-      pageRtx.unpinPageFragments(reference, result.pages(), result.originalKeys(), result.storageKeyForFirstFragment());
+      pageRtx.closeOrphanedFragments(reference, result.pages(), result.originalKeys(), result.storageKeyForFirstFragment());
     }
   }
 

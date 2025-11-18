@@ -144,7 +144,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * - Released when cursor moves to a DIFFERENT page
    * - Released on transaction close
    * 
-   * This matches database cursor semantics: only the "current" page is pinned.
+   * This matches database cursor semantics: only the "current" page is guarded.
    * Node keys are primitives (copied from MemorySegments), so old pages can be
    * evicted after cursor moves away.
    */
@@ -691,7 +691,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * Set the most recent page for a given index type and index number.
    */
   private void setMostRecentPage(IndexType indexType, int index, RecordPage page) {
-    // Unpin and close the previous page if it exists and is not in global cache
+    // Close the previous page if it's been evicted from cache
     RecordPage previous = switch (indexType) {
       case DOCUMENT -> {
         RecordPage old = mostRecentDocumentPage;
@@ -742,19 +742,22 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       default -> null;
     };
     
-    // Unpin and potentially close the replaced page
+    // Close the replaced page if it's orphaned (not in cache)
     if (previous != null && previous != page) {
-      unpinRecordPage(previous);
+      closeMostRecentPageIfOrphaned(previous);
     }
   }
 
   /**
-   * Unpin a record page when it's replaced by a newer page.
+   * Close a mostRecent page if it's been evicted from cache (orphaned).
    * <p>
    * If the page is in cache, it will be closed by the cache's removal listener.
    * If the page is NOT in cache, we must close it explicitly to prevent leaks.
+   * 
+   * This handles the case where a page was cached, stored in mostRecent field,
+   * then evicted from cache while still held in the field.
    */
-  private void unpinRecordPage(RecordPage recordPage) {
+  private void closeMostRecentPageIfOrphaned(RecordPage recordPage) {
     if (recordPage == null) {
       return;
     }
@@ -779,7 +782,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       page.close();
       
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-        LOGGER.debug("[UNPIN] Closed mostRecent Page 0 ({}) not in cache", page.getIndexType());
+        LOGGER.debug("[CLEANUP] Closed orphaned mostRecent Page 0 ({}) not in cache", page.getIndexType());
       }
     }
   }
@@ -879,11 +882,8 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
           if (resourceBufferManager.getRecordPageCache().get(pathSummaryRecordPage.pageReference) != null) {
             assert !pathSummaryRecordPage.page.isClosed();
 
-            // TODO: Release guard here
-            // cache.unpinAndUpdateWeight(pathSummaryRecordPage.pageReference, trxId);  // REMOVED
-
             if (DEBUG_PATH_SUMMARY) {
-              System.err.println("[PATH_SUMMARY-REPLACE]   -> Read-only: Released old page");
+              System.err.println("[PATH_SUMMARY-REPLACE]   -> Read-only: Old page still in cache");
             }
           }
         } else {
@@ -895,12 +895,10 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
           if (!pathSummaryRecordPage.page.isClosed()) {
             if (DEBUG_PATH_SUMMARY) {
-              System.err.println("[PATH_SUMMARY-REPLACE]   -> Write trx: Unpinning and closing page " + "pageKey="
+              System.err.println("[PATH_SUMMARY-REPLACE]   -> Write trx: Closing bypassed page " + "pageKey="
                                      + pathSummaryRecordPage.page.getPageKey() + ", revision="
                                      + pathSummaryRecordPage.page.getRevision());
             }
-            // TODO: Release guard before closing
-            // pathSummaryRecordPage.page.decrementPinCount(trxId);  // REMOVED
             pathSummaryRecordPage.page.close();
           }
         }
@@ -963,15 +961,21 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         ((KeyValueLeafPage) page).releaseGuard();
       }
       
-      // ALWAYS unpin fragments (for compatibility with any remaining pin-based code)
-      unpinPageFragments(pageReferenceToRecordPage,
-                         result.pages(),
-                         result.originalKeys(),
-                         result.storageKeyForFirstFragment());
+      // Close orphaned fragments (not in cache after combining)
+      closeOrphanedFragments(pageReferenceToRecordPage,
+                            result.pages(),
+                            result.originalKeys(),
+                            result.storageKeyForFirstFragment());
     }
   }
 
-  public void unpinPageFragments(PageReference pageReference, List<KeyValuePage<DataRecord>> pages,
+  /**
+   * Close fragment pages that are not in cache after page combining.
+   * 
+   * After combining fragments into a complete page, the fragment pages may have been
+   * evicted from cache. If so, we must close them explicitly to prevent leaks.
+   */
+  public void closeOrphanedFragments(PageReference pageReference, List<KeyValuePage<DataRecord>> pages,
       List<PageFragmentKey> originalPageFragmentKeys, long storageKeyForFirstFragment) {
     if (pages.isEmpty()) {
       return;
@@ -994,32 +998,28 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
       }
     }
 
-    LOGGER.debug("unpinPageFragments: " + pages.size() + " fragments, trxIntentLog=" + (trxIntentLog != null));
+    LOGGER.debug("closeOrphanedFragments: " + pages.size() + " fragments, trxIntentLog=" + (trxIntentLog != null));
 
-    // Track which unique page instances we've unpinned to avoid unpinning duplicates
-    var unpinnedPages = new java.util.HashSet<KeyValueLeafPage>();
+    // Track which unique page instances we've processed to avoid duplicates
+    var processedPages = new java.util.HashSet<KeyValueLeafPage>();
 
     var mostRecentPageFragment = (KeyValueLeafPage) pages.getFirst();
-
-    // TODO: Release guard for old fragment
-    // mostRecentPageFragment.decrementPinCount(trxId);  // REMOVED
 
     final var fragmentRef0 =
         new PageReference().setKey(storageKeyForFirstFragment).setDatabaseId(databaseId).setResourceId(resourceId);
 
     var existing = resourceBufferManager.getRecordPageFragmentCache().get(fragmentRef0);
     if (existing != null && existing == mostRecentPageFragment) {
-      // Fragment still in cache - put back to trigger weight recalculation
-      resourceBufferManager.getRecordPageFragmentCache().put(fragmentRef0, mostRecentPageFragment);
+      // Fragment still in cache - cache will close it on eviction
+      // No action needed
     } else {
-      // TODO: Check guard count instead
-      // Fragment not in cache - may need to close it
-      // It was either: (a) evicted and closed by removalListener (close is no-op), OR
+      // Fragment not in cache - close it explicitly to prevent leak
+      // It was either: (a) evicted and closed by removalListener (close is idempotent), OR
       //                (b) never added to cache (needs closing now)
       mostRecentPageFragment.close();
     }
     
-    LOGGER.debug("  Fragment 0 released");
+    LOGGER.debug("  Fragment 0 processed");
 
     // Cache older fragments using their ORIGINAL storage keys (file offsets)
     for (int i = 1; i < pages.size(); i++) {
@@ -1033,12 +1033,9 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
                 + " hasOriginalKey=" + (i - 1 < originalPageFragmentKeys.size()));
       }
 
-      // Only release guard ONCE per unique page instance
-      if (unpinnedPages.add(pageFragment)) {
-        // TODO: Release guard here
-        // pageFragment.decrementPinCount(trxId);  // REMOVED
-        
-        // Check if in cache and update weight
+      // Process each unique page instance once
+      if (processedPages.add(pageFragment)) {
+        // Check if in cache
         if (i - 1 < originalPageFragmentKeys.size()) {
           var originalFragmentKey = originalPageFragmentKeys.get(i - 1);
           final var olderFragmentRef =
@@ -1046,26 +1043,23 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
           var existingOlder = resourceBufferManager.getRecordPageFragmentCache().get(olderFragmentRef);
           if (existingOlder != null && existingOlder == pageFragment) {
-            // Fragment still in cache - put back to update weight
-            resourceBufferManager.getRecordPageFragmentCache().put(olderFragmentRef, pageFragment);
+            // Fragment still in cache - cache will close it on eviction
+            // No action needed
           } else {
-            // TODO: Check guard count instead
-            // Fragment not in cache - may need to close it
-            // It was either: (a) evicted and closed by removalListener (close is no-op), OR
+            // Fragment not in cache - close it explicitly
+            // It was either: (a) evicted and closed by removalListener (close is idempotent), OR
             //                (b) never added to cache (needs closing now)
             pageFragment.close();
           }
         } else {
-          // TODO: Check guard count instead
-          // No original key - never cached, may need to close
+          // No original key - never cached, close explicitly
           pageFragment.close();
         }
         
-        LOGGER.debug("  Fragment " + i + " released (rev="
-                         + pageFragment.getRevision() + ")");
+        LOGGER.debug("  Fragment " + i + " processed (rev=" + pageFragment.getRevision() + ")");
       } else {
         if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && pageFragment.getPageKey() == 0) {
-          LOGGER.debug("  Fragment " + i + " SKIPPED (already unpinned this instance)");
+          LOGGER.debug("  Fragment " + i + " SKIPPED (already processed this instance)");
         }
       }
     }
@@ -1444,32 +1438,29 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
         resourceSession.closePageReadTransaction(trxId);
       }
 
-      // CRITICAL: Unpin all most recent pages (clear ownership)
-      unpinRecordPage(mostRecentDocumentPage);
-      unpinRecordPage(mostRecentChangedNodesPage);
-      unpinRecordPage(mostRecentRecordToRevisionsPage);
-      unpinRecordPage(mostRecentDeweyIdPage);
+      // CRITICAL: Close all mostRecent pages if they're orphaned (not in cache)
+      closeMostRecentPageIfOrphaned(mostRecentDocumentPage);
+      closeMostRecentPageIfOrphaned(mostRecentChangedNodesPage);
+      closeMostRecentPageIfOrphaned(mostRecentRecordToRevisionsPage);
+      closeMostRecentPageIfOrphaned(mostRecentDeweyIdPage);
       for (RecordPage page : mostRecentPathPages) {
-        unpinRecordPage(page);
+        closeMostRecentPageIfOrphaned(page);
       }
       for (RecordPage page : mostRecentCasPages) {
-        unpinRecordPage(page);
+        closeMostRecentPageIfOrphaned(page);
       }
       for (RecordPage page : mostRecentNamePages) {
-        unpinRecordPage(page);
+        closeMostRecentPageIfOrphaned(page);
       }
       // PATH_SUMMARY handled separately below (has special bypass logic)
 
       // Handle PATH_SUMMARY bypassed pages for write transactions (they're not in cache)
       if (pathSummaryRecordPage != null && trxIntentLog != null) {
         if (!pathSummaryRecordPage.page.isClosed()) {
-          // Guard already released by releaseAllGuards()
+          // Guard already released by closeCurrentPageGuard()
           pathSummaryRecordPage.page.close();
         }
       }
-
-      // DIAGNOSTIC: Check for leaked pins after closing
-      io.sirix.cache.PinCountDiagnostics.warnOnTransactionClose(resourceBufferManager, trxId);
 
       isClosed = true;
     }
