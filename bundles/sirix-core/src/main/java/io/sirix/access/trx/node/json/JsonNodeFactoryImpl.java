@@ -1,7 +1,7 @@
 package io.sirix.access.trx.node.json;
 
 import io.sirix.access.trx.node.HashType;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.node.Bytes;
@@ -42,9 +42,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private final LongHashFunction hashFunction;
 
   /**
-   * {@link PageTrx} implementation.
+   * {@link StorageEngineWriter} implementation.
    */
-  private final PageTrx pageTrx;
+  private final StorageEngineWriter pageTrx;
 
   /**
    * The current revision number.
@@ -55,9 +55,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
    * Constructor.
    *
    * @param hashFunction hash function used to hash nodes
-   * @param pageTrx      {@link PageTrx} implementation
+   * @param pageTrx      {@link StorageEngineWriter} implementation
    */
-  JsonNodeFactoryImpl(final LongHashFunction hashFunction, final PageTrx pageTrx) {
+  JsonNodeFactoryImpl(final LongHashFunction hashFunction, final StorageEngineWriter pageTrx) {
     this.hashFunction = requireNonNull(hashFunction);
     this.pageTrx = requireNonNull(pageTrx);
     this.revisionNumber = pageTrx.getRevisionNumber();

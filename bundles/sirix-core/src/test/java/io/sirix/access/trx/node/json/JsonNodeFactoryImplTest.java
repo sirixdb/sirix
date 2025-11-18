@@ -31,7 +31,7 @@ package io.sirix.access.trx.node.json;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexType;
 import io.sirix.node.Bytes;
@@ -64,7 +64,7 @@ import static org.mockito.Mockito.*;
  */
 public class JsonNodeFactoryImplTest {
 
-  private PageTrx pageTrx;
+  private StorageEngineWriter pageTrx;
   private JsonResourceSession resourceSession;
   private JsonNodeFactoryImpl factory;
   private ResourceConfiguration resourceConfig;
@@ -77,8 +77,8 @@ public class JsonNodeFactoryImplTest {
     resourceSession = database.beginResourceSession(JsonTestHelper.RESOURCE);
     resourceConfig = resourceSession.getResourceConfig();
     
-    // Create a mock PageTrx that captures created nodes
-    pageTrx = mock(PageTrx.class);
+    // Create a mock StorageEngineWriter that captures created nodes
+    pageTrx = mock(StorageEngineWriter.class);
     
     // Mock the RevisionRootPage to provide node keys
     final RevisionRootPage revisionRootPage = mock(RevisionRootPage.class);

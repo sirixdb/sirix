@@ -28,9 +28,9 @@ import io.sirix.access.User;
 import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.RecordToRevisionsIndex;
-import io.sirix.access.trx.page.PageTrxFactory;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.access.trx.page.StorageEngineWriterFactory;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -82,13 +82,13 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
    * @param writeLock      the write lock, which ensures, that only a single read-write transaction is
    *                       opened on a resource
    * @param user           a user, which interacts with SirixDB, might be {@code null}
-   * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
+   * @param pageTrxFactory A factory that creates new {@link StorageEngineWriter} instances.
    */
   @Inject
   JsonResourceSessionImpl(final ResourceStore<JsonResourceSession> resourceStore,
       final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
       final UberPage uberPage, final Semaphore writeLock, final User user, @DatabaseName final String databaseName,
-      final PageTrxFactory pageTrxFactory) {
+      final StorageEngineWriterFactory pageTrxFactory) {
     super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
 
     this.databaseName = databaseName;
@@ -97,13 +97,13 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   }
 
   @Override
-  public InternalJsonNodeReadOnlyTrx createNodeReadOnlyTrx(int nodeTrxId, PageReadOnlyTrx pageReadTrx,
+  public InternalJsonNodeReadOnlyTrx createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader pageReadTrx,
       Node documentNode) {
     return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableJsonNode) documentNode);
   }
 
   @Override
-  public JsonNodeTrx createNodeReadWriteTrx(int nodeTrxId, PageTrx pageTrx, int maxNodeCount,
+  public JsonNodeTrx createNodeReadWriteTrx(int nodeTrxId, StorageEngineWriter pageTrx, int maxNodeCount,
       Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
     final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, pageTrx, documentNode);

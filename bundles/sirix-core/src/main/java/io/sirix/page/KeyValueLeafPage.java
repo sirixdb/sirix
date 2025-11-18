@@ -3,8 +3,8 @@ package io.sirix.page;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
@@ -979,7 +979,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public <C extends KeyValuePage<DataRecord>> C newInstance(@NonNegative long recordPageKey,
-      @NonNull IndexType indexType, @NonNull PageReadOnlyTrx pageReadTrx) {
+      @NonNull IndexType indexType, @NonNull StorageEngineReader pageReadTrx) {
     // Direct allocation (no pool)
     ResourceConfiguration config = pageReadTrx.getResourceSession().getResourceConfig();
     MemorySegmentAllocator allocator = OS.isWindows() 
@@ -1164,7 +1164,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public void commit(final @NonNull PageTrx pageWriteTrx) {
+  public void commit(final @NonNull StorageEngineWriter pageWriteTrx) {
     addReferences(pageWriteTrx.getResourceSession().getResourceConfig());
     for (final PageReference reference : references.values()) {
       if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
@@ -1359,7 +1359,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
           continue;
         }
         final var recordID = record.getNodeKey();
-        final var offset = PageReadOnlyTrx.recordPageOffset(recordID);
+        final var offset = StorageEngineReader.recordPageOffset(recordID);
 
         // Must be either a normal record or one which requires an overflow page.
         // Use confined arena for temporary serialization

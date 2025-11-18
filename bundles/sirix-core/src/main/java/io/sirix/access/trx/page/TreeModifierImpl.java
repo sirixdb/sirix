@@ -27,8 +27,8 @@
  */
 package io.sirix.access.trx.page;
 
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
@@ -51,7 +51,7 @@ public final class TreeModifierImpl implements TreeModifier {
   }
 
   @Override
-  public RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage, final NodePageReadOnlyTrx pageRtx,
+  public RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage, final NodeStorageEngineReader pageRtx,
       final TransactionIntentLog log, final @NonNegative int baseRevision, final @NonNegative int representRevision) {
     final RevisionRootPage revisionRootPage;
 
@@ -73,7 +73,7 @@ public final class TreeModifierImpl implements TreeModifier {
   }
 
   @Override
-  public PageReference prepareLeafOfTree(final PageTrx pageRtx, final TransactionIntentLog log,
+  public PageReference prepareLeafOfTree(final StorageEngineWriter pageRtx, final TransactionIntentLog log,
       final int[] inpLevelPageCountExp, final PageReference startReference, @NonNegative final long pageKey,
       final int index, final IndexType indexType, final RevisionRootPage revisionRootPage) {
     // Initial state pointing to the indirect nodePageReference of level 0.
@@ -123,7 +123,7 @@ public final class TreeModifierImpl implements TreeModifier {
     return reference;
   }
 
-  private IndirectPage dereferenceOldIndirectPage(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
+  private IndirectPage dereferenceOldIndirectPage(final StorageEngineReader pageRtx, final TransactionIntentLog log,
       PageReference reference) throws AssertionError {
     final PageContainer cont = log.get(reference);
     IndirectPage oldPage = cont == null ? null : (IndirectPage) cont.getComplete();
@@ -138,7 +138,7 @@ public final class TreeModifierImpl implements TreeModifier {
     return oldPage;
   }
 
-  private void setNewIndirectPage(final PageReadOnlyTrx pageRtx, final RevisionRootPage revisionRoot,
+  private void setNewIndirectPage(final StorageEngineReader pageRtx, final RevisionRootPage revisionRoot,
       final IndexType indexType, final int index, final PageReference pageReference) {
     // $CASES-OMITTED$
     switch (indexType) {
@@ -154,7 +154,7 @@ public final class TreeModifierImpl implements TreeModifier {
     }
   }
 
-  private int incrementCurrentMaxIndirectPageTreeLevel(final PageReadOnlyTrx pageRtx,
+  private int incrementCurrentMaxIndirectPageTreeLevel(final StorageEngineReader pageRtx,
       final RevisionRootPage revisionRoot, final IndexType indexType, final int index) {
     // $CASES-OMITTED$
     return switch (indexType) {
@@ -172,7 +172,7 @@ public final class TreeModifierImpl implements TreeModifier {
   }
 
   @Override
-  public IndirectPage prepareIndirectPage(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
+  public IndirectPage prepareIndirectPage(final StorageEngineReader pageRtx, final TransactionIntentLog log,
       final PageReference reference) {
     final PageContainer cont = log.get(reference);
     IndirectPage page = cont == null ? null : (IndirectPage) cont.getComplete();

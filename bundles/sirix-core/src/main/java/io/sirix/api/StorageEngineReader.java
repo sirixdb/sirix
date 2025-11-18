@@ -1,7 +1,7 @@
 package io.sirix.api;
 
 import io.sirix.access.trx.node.CommitCredentials;
-import io.sirix.access.trx.page.NodePageReadOnlyTrx;
+import io.sirix.access.trx.page.NodeStorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.*;
@@ -149,7 +149,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @throws NullPointerException     if {@code pageKind} is {@code null}
    * @throws IllegalArgumentException if {@code key} is negative
    */
-  NodePageReadOnlyTrx.PageReferenceToPage getRecordPage(@NonNull IndexLogKey indexLogKey);
+  NodeStorageEngineReader.PageReferenceToPage getRecordPage(@NonNull IndexLogKey indexLogKey);
 
   /**
    * Determines if transaction is closed or not.

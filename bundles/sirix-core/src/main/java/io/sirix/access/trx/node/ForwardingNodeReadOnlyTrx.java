@@ -4,7 +4,7 @@ import io.brackit.query.atomic.QNm;
 import io.sirix.access.User;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.ResourceSession;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
@@ -67,7 +67,7 @@ public interface ForwardingNodeReadOnlyTrx extends NodeReadOnlyTrx {
     }
 
     @Override
-    default PageReadOnlyTrx getPageTrx() {
+    default StorageEngineReader getPageTrx() {
         return delegate().getPageTrx();
     }
 

@@ -22,7 +22,7 @@ package io.sirix.cache;
 
 import org.junit.Test;
 import io.sirix.Holder;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixException;
 import io.sirix.index.IndexType;
 import io.sirix.page.KeyValueLeafPage;
@@ -41,7 +41,7 @@ public class CacheTestHelper {
   /**
    * Page reading transaction.
    */
-  public static PageReadOnlyTrx PAGE_READ_TRX;
+  public static StorageEngineReader PAGE_READ_TRX;
 
   /**
    * Unordered record pages.

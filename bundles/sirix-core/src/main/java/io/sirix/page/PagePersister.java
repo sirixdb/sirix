@@ -25,7 +25,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.page.interfaces.Page;
 
 import java.io.IOException;

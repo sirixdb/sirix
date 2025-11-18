@@ -23,8 +23,8 @@ package io.sirix.io.iouring;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.*;
 import io.sirix.page.*;
@@ -107,7 +107,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @Override
-  public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx, final int revision) {
+  public Writer truncateTo(final StorageEngineReader pageReadOnlyTrx, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, (_) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
@@ -306,7 +306,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     return this;
   }
 
-  private void flushBuffer(final PageTrx pageTrx, final ByteBuffer buffer) throws IOException {
+  private void flushBuffer(final StorageEngineWriter pageTrx, final ByteBuffer buffer) throws IOException {
     final long fileSize = dataFile.size().join();
     long offset;
 

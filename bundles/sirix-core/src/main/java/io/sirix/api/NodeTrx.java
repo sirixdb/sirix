@@ -100,7 +100,7 @@ public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
    *
    * @return the page read-write transaction used for reading pages from the index structure(s)
    */
-  PageTrx getPageWtx();
+  StorageEngineWriter getPageWtx();
 
   /**
    * Get the user who committed the revision you reverted to, if available.

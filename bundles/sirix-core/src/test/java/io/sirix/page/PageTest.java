@@ -5,8 +5,8 @@ import io.sirix.node.HashCountEntryNode;
 import io.sirix.node.BytesOut;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -45,9 +45,9 @@ public class PageTest {
   private Holder holder;
 
   /**
-   * Sirix {@link PageReadOnlyTrx} instance.
+   * Sirix {@link StorageEngineReader} instance.
    */
-  private PageReadOnlyTrx pageReadTrx;
+  private StorageEngineReader pageReadTrx;
 
   @BeforeClass
   public void setUp() throws SirixException {
@@ -126,11 +126,11 @@ public class PageTest {
     return new Object[][] { { Page.class, new Page[] { indirectPage, namePage, valuePage, pathSummaryPage } } };
   }
 
-  private PageTrx createPageTrxMock() {
+  private StorageEngineWriter createPageTrxMock() {
     final var hashEntryNode = new HashEntryNode(2, 12, "name");
     final var hashCountEntryNode = new HashCountEntryNode(3, 1);
 
-    final PageTrx pageTrx = mock(PageTrx.class);
+    final StorageEngineWriter pageTrx = mock(StorageEngineWriter.class);
     when(pageTrx.createRecord(any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashEntryNode);
     when(pageTrx.createRecord(any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashCountEntryNode);
     when(pageTrx.prepareRecordForModification(2L, IndexType.NAME, 0)).thenReturn(hashCountEntryNode);

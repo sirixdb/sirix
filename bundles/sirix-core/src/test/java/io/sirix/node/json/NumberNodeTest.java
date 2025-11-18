@@ -34,7 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
 import io.sirix.api.Database;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
 
@@ -47,7 +47,7 @@ import static org.junit.Assert.*;
  */
 public class NumberNodeTest {
 
-  private PageTrx pageTrx;
+  private StorageEngineWriter pageTrx;
 
   private Database<JsonResourceSession> database;
 

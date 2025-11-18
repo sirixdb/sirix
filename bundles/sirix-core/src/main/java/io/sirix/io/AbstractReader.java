@@ -1,7 +1,7 @@
 package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.page.PagePersister;

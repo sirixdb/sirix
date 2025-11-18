@@ -42,7 +42,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @param revision the given revision
    * @return this page write transaction instance
    */
-  PageTrx truncateTo(int revision);
+  StorageEngineWriter truncateTo(int revision);
 
   /**
    * Put a page into the cache.
@@ -51,7 +51,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @param page      the page to put into the cache
    * @return this page write transaction instance
    */
-  PageTrx appendLogRecord(@NonNull PageReference reference, @NonNull PageContainer page);
+  StorageEngineWriter appendLogRecord(@NonNull PageReference reference, @NonNull PageContainer page);
 
   /**
    * Create fresh key/record (record must be a record) and prepare key/record-tuple for modifications
@@ -138,7 +138,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
   UberPage commit(@Nullable String commitMessage, @Nullable Instant commitTimeStamp);
 
   /**
-   * Committing a {@link PageTrx}. This method is recursively invoked by all {@link PageReference}s.
+   * Committing a {@link StorageEngineWriter}. This method is recursively invoked by all {@link PageReference}s.
    *
    * @param reference to be commited
    * @throws SirixException       if the write fails

@@ -3,7 +3,7 @@ package io.sirix.access.trx.node;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.node.Bytes;
@@ -35,7 +35,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   /**
    * The page write trx.
    */
-  private final PageTrx pageTrx;
+  private final StorageEngineWriter pageTrx;
 
   /**
    * {@code true} if bulk inserting is enabled, {@code false} otherwise
@@ -54,7 +54,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    * @param pageTrx         the page trx
    */
   protected AbstractNodeHashing(final ResourceConfiguration resourceConfig, final T nodeReadOnlyTrx,
-      final PageTrx pageTrx) {
+      final StorageEngineWriter pageTrx) {
     this.hashType = resourceConfig.hashType;
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
     this.pageTrx = pageTrx;

@@ -28,8 +28,8 @@ import io.sirix.index.IndexType;
 import io.sirix.node.DeweyIDNode;
 import io.sirix.node.SirixDeweyID;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
@@ -93,7 +93,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
   }
 
 //  @Override
-//  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final BytesOut<?> out,
+//  public void serialize(final StorageEngineReader pageReadOnlyTrx, final BytesOut<?> out,
 //      final SerializationType type) {
 //    if (delegate instanceof ReferencesPage4) {
 //      out.writeByte((byte) 0);
@@ -125,10 +125,10 @@ public final class DeweyIDPage extends AbstractForwardingPage {
   /**
    * Initialize dewey id index tree.
    *
-   * @param pageReadTrx {@link PageReadOnlyTrx} instance
+   * @param pageReadTrx {@link StorageEngineReader} instance
    * @param log         the transaction intent log
    */
-  public void createIndexTree(final DatabaseType databaseType, final PageReadOnlyTrx pageReadTrx,
+  public void createIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
       final TransactionIntentLog log) {
     PageReference reference = getIndirectPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
@@ -172,7 +172,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
     return false;
   }
 
-  public SirixDeweyID getDeweyIdForNodeKey(final long nodeKey, final PageReadOnlyTrx pageReadOnlyTrx) {
+  public SirixDeweyID getDeweyIdForNodeKey(final long nodeKey, final StorageEngineReader pageReadOnlyTrx) {
     final DeweyIDNode node = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DEWEYID_TO_RECORDID, 0);
     if (node == null) {
       return null;
@@ -180,7 +180,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
     return node.getDeweyID();
   }
 
-  public long getNodeKeyForDeweyId(final SirixDeweyID deweyId, final PageReadOnlyTrx pageReadOnlyTrx) {
+  public long getNodeKeyForDeweyId(final SirixDeweyID deweyId, final StorageEngineReader pageReadOnlyTrx) {
     if (deweyIDsToNodeKeys == null) {
 //      deweyIDsToNodeKeys =
 //          ChronicleMap.of(SirixDeweyID.class, Long.class).name("deweyIDsToNodeKeysMap").entries(maxNodeKey).create();
@@ -196,7 +196,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
     return deweyIDsToNodeKeys.get(deweyId);
   }
 
-  public void setDeweyID(final SirixDeweyID deweyId, final PageTrx pageTrx) {
+  public void setDeweyID(final SirixDeweyID deweyId, final StorageEngineWriter pageTrx) {
     final long nodeKey = maxNodeKey;
     final DeweyIDNode node = new DeweyIDNode(maxNodeKey++, deweyId);
     pageTrx.createRecord(node, IndexType.DEWEYID_TO_RECORDID, 0);

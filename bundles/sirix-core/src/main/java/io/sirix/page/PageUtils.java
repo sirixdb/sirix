@@ -12,7 +12,7 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.node.BytesIn;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.PageContainer;
 import io.sirix.page.delegates.FullReferencesPage;
 import io.sirix.page.delegates.ReferencesPage4;
@@ -70,7 +70,7 @@ public final class PageUtils {
    * @param indexType    the index type
    */
   public static void createTree(final DatabaseType databaseType, @NonNull PageReference reference,
-      final IndexType indexType, final PageReadOnlyTrx pageReadTrx, final TransactionIntentLog log) {
+      final IndexType indexType, final StorageEngineReader pageReadTrx, final TransactionIntentLog log) {
     // Create new record page.
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceSession().getResourceConfig();
     

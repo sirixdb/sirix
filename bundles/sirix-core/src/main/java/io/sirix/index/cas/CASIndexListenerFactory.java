@@ -3,7 +3,7 @@ package io.sirix.index.cas;
 import static java.util.Objects.requireNonNull;
 
 import io.sirix.access.DatabaseType;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexDef;
 import io.sirix.index.redblacktree.RBTreeWriter;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
@@ -18,7 +18,7 @@ public final class CASIndexListenerFactory {
     this.databaseType = databaseType;
   }
 
-  public CASIndexListener create(final PageTrx pageTrx,
+  public CASIndexListener create(final StorageEngineWriter pageTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     final var pathSummary = requireNonNull(pathSummaryReader);
     final var avlTreeWriter =

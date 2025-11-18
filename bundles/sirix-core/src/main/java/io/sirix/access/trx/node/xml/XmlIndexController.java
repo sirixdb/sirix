@@ -1,7 +1,7 @@
 package io.sirix.access.trx.node.xml;
 
 import io.sirix.access.trx.node.AbstractIndexController;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
@@ -92,17 +92,17 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
     return new PathFilter(paths, new XmlPCRCollector(rtx));
   }
 
-  private XmlNodeVisitor createPathIndexBuilder(final PageTrx pageTrx, final PathSummaryReader pathSummaryReader,
+  private XmlNodeVisitor createPathIndexBuilder(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
     return (XmlNodeVisitor) pathIndex.createBuilder(pageTrx, pathSummaryReader, indexDef);
   }
 
-  private XmlNodeVisitor createCASIndexBuilder(final XmlNodeReadOnlyTrx nodeReadTrx, final PageTrx pageTrx,
+  private XmlNodeVisitor createCASIndexBuilder(final XmlNodeReadOnlyTrx nodeReadTrx, final StorageEngineWriter pageTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return (XmlNodeVisitor) casIndex.createBuilder(nodeReadTrx, pageTrx, pathSummaryReader, indexDef);
   }
 
-  private XmlNodeVisitor createNameIndexBuilder(final PageTrx pageWriteTrx, final IndexDef indexDef) {
+  private XmlNodeVisitor createNameIndexBuilder(final StorageEngineWriter pageWriteTrx, final IndexDef indexDef) {
     return (XmlNodeVisitor) nameIndex.createBuilder(pageWriteTrx, indexDef);
   }
 }

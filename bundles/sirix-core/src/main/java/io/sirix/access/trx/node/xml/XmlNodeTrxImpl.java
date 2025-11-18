@@ -25,7 +25,7 @@ import io.brackit.query.atomic.QNm;
 import io.sirix.access.trx.node.*;
 import io.sirix.api.Axis;
 import io.sirix.api.Movement;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.axis.DescendantAxis;
@@ -111,7 +111,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
    * Constructor.
    *
    * @param resourceManager   the resource manager this transaction is bound to
-   * @param nodeReadOnlyTrx   {@link PageTrx} to interact with the page layer
+   * @param nodeReadOnlyTrx   {@link StorageEngineWriter} to interact with the page layer
    * @param pathSummaryWriter the path summary writer
    * @param maxNodeCount      maximum number of node modifications before auto commit
    * @param nodeHashing       hashes node contents
@@ -1987,12 +1987,12 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
   }
 
   @Override
-  protected AbstractNodeHashing<ImmutableXmlNode, XmlNodeReadOnlyTrx> reInstantiateNodeHashing(PageTrx pageTrx) {
+  protected AbstractNodeHashing<ImmutableXmlNode, XmlNodeReadOnlyTrx> reInstantiateNodeHashing(StorageEngineWriter pageTrx) {
     return new XmlNodeHashing(resourceSession.getResourceConfig(), nodeReadOnlyTrx, pageTrx);
   }
 
   @Override
-  protected XmlNodeFactory reInstantiateNodeFactory(PageTrx pageTrx) {
+  protected XmlNodeFactory reInstantiateNodeFactory(StorageEngineWriter pageTrx) {
     return new XmlNodeFactoryImpl(resourceSession.getResourceConfig().nodeHashFunction, pageTrx);
   }
 }

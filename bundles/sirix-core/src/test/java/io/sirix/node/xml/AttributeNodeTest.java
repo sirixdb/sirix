@@ -33,7 +33,7 @@ import org.junit.Before;
 import org.junit.Test;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixException;
 import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
@@ -55,9 +55,9 @@ public class AttributeNodeTest {
   private Holder holder;
 
   /**
-   * Sirix {@link PageReadOnlyTrx} instance.
+   * Sirix {@link StorageEngineReader} instance.
    */
-  private PageReadOnlyTrx pageReadOnlyTrx;
+  private StorageEngineReader pageReadOnlyTrx;
 
   @Before
   public void setUp() throws SirixException {

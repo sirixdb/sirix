@@ -7,9 +7,9 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.ResourceStore;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.xml.XmlResourceSessionImpl;
-import io.sirix.access.trx.page.NodePageReadOnlyTrx;
-import io.sirix.access.trx.page.PageTrxFactory;
-import io.sirix.access.trx.page.PageTrxReadOnlyFactory;
+import io.sirix.access.trx.page.NodeStorageEngineReader;
+import io.sirix.access.trx.page.StorageEngineWriterFactory;
+import io.sirix.access.trx.page.StorageEngineReaderFactory;
 import io.sirix.access.trx.page.RevisionRootPageReader;
 import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.api.*;
@@ -79,12 +79,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Remember all running page transactions (both read and write).
    */
-  final ConcurrentMap<Integer, PageReadOnlyTrx> pageTrxMap;
+  final ConcurrentMap<Integer, StorageEngineReader> pageTrxMap;
 
   /**
    * Remember the write seperately because of the concurrent writes.
    */
-  final ConcurrentMap<Integer, PageTrx> nodePageTrxMap;
+  final ConcurrentMap<Integer, StorageEngineWriter> nodePageTrxMap;
 
   /**
    * Lock for blocking the commit.
@@ -111,7 +111,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    */
   final AtomicInteger pageTrxIDCounter;
 
-  private final AtomicReference<ObjectPool<PageReadOnlyTrx>> pool;
+  private final AtomicReference<ObjectPool<StorageEngineReader>> pool;
 
   /**
    * Determines if session was closed.
@@ -141,9 +141,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   final User user;
 
   /**
-   * A factory that creates new {@link PageTrx} instances.
+   * A factory that creates new {@link StorageEngineWriter} instances.
    */
-  private final PageTrxFactory pageTrxFactory;
+  private final StorageEngineWriterFactory pageTrxFactory;
 
   /**
    * ID Generation exception message for duplicate ID.
@@ -160,13 +160,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param uberPage       holds a reference to the revision root page tree
    * @param writeLock      allow for concurrent writes
    * @param user           the user tied to the resource manager
-   * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
+   * @param pageTrxFactory A factory that creates new {@link StorageEngineWriter} instances.
    * @throws SirixException if Sirix encounters an exception
    */
   protected AbstractResourceSession(final @NonNull ResourceStore<? extends ResourceSession<R, W>> resourceStore,
       final @NonNull ResourceConfiguration resourceConf, final @NonNull BufferManager bufferManager,
       final @NonNull IOStorage storage, final @NonNull UberPage uberPage, final @NonNull Semaphore writeLock,
-      final @Nullable User user, final PageTrxFactory pageTrxFactory) {
+      final @Nullable User user, final StorageEngineWriterFactory pageTrxFactory) {
     this.resourceStore = requireNonNull(resourceStore);
     resourceConfig = requireNonNull(resourceConf);
     this.bufferManager = requireNonNull(bufferManager);
@@ -216,7 +216,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       config.setMaxWaitMilliseconds(5);
       config.setShutdownWaitMilliseconds(1);
 
-      pool.set(new ObjectPool<>(config, new PageTrxReadOnlyFactory(this)));
+      pool.set(new ObjectPool<>(config, new StorageEngineReaderFactory(this)));
     }
   }
 
@@ -248,16 +248,16 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Create a new {@link PageTrx}.
+   * Create a new {@link StorageEngineWriter}.
    *
    * @param id                the transaction ID
    * @param representRevision the revision which is represented
    * @param storedRevision    the revision which is stored
    * @param abort             determines if a transaction must be aborted (rollback) or not
-   * @return a new {@link PageTrx} instance
+   * @return a new {@link StorageEngineWriter} instance
    */
   @Override
-  public PageTrx createPageTransaction(final @NonNegative int id, final @NonNegative int representRevision,
+  public StorageEngineWriter createPageTransaction(final @NonNegative int id, final @NonNegative int representRevision,
       final @NonNegative int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
@@ -285,7 +285,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(Writer writer, int lastCommittedRev,
-      PageTrx pageTrx) {
+      StorageEngineWriter pageTrx) {
     if (Files.exists(getCommitFile())) {
       writer.truncateTo(pageTrx, lastCommittedRev);
     }
@@ -371,7 +371,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public synchronized R beginNodeReadOnlyTrx(@NonNegative final int revision) {
     assertAccess(revision);
 
-    final PageReadOnlyTrx pageReadTrx = beginPageReadOnlyTrx(revision);
+    final StorageEngineReader pageReadTrx = beginPageReadOnlyTrx(revision);
 
     final Node documentNode = getDocumentNode(pageReadTrx);
 
@@ -386,12 +386,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return reader;
   }
 
-  public abstract R createNodeReadOnlyTrx(int nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode);
+  public abstract R createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader pageReadTrx, Node documentNode);
 
-  public abstract W createNodeReadWriteTrx(int nodeTrxId, PageTrx pageTrx, int maxNodeCount, Duration autoCommitDelay,
+  public abstract W createNodeReadWriteTrx(int nodeTrxId, StorageEngineWriter pageTrx, int maxNodeCount, Duration autoCommitDelay,
       Node documentNode, AfterCommitState afterCommitState);
 
-  static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
+  static Node getDocumentNode(final StorageEngineReader pageReadTrx) {
     final Node node = pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
     if (node == null) {
       pageReadTrx.close();
@@ -472,7 +472,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // Create new page write transaction (shares the same ID with the node write trx).
     final int nodeTrxId = nodeTrxIDCounter.incrementAndGet();
     final int lastRev = getMostRecentRevisionNumber();
-    final PageTrx pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
+    final StorageEngineWriter pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
 
     final Node documentNode = getDocumentNode(pageWtx);
 
@@ -506,11 +506,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         rtx.close();
       }
       // Close all open node page transactions.
-      for (PageReadOnlyTrx rtx : nodePageTrxMap.values()) {
+      for (StorageEngineReader rtx : nodePageTrxMap.values()) {
         rtx.close();
       }
       // Close all open page transactions.
-      for (PageReadOnlyTrx rtx : pageTrxMap.values()) {
+      for (StorageEngineReader rtx : pageTrxMap.values()) {
         rtx.close();
       }
 
@@ -582,7 +582,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param pageTrx       page write trx
    */
   @Override
-  public void setNodePageWriteTransaction(final @NonNegative int transactionID, @NonNull final PageTrx pageTrx) {
+  public void setNodePageWriteTransaction(final @NonNegative int transactionID, @NonNull final StorageEngineWriter pageTrx) {
     assertNotClosed();
     nodePageTrxMap.put(transactionID, pageTrx);
   }
@@ -596,7 +596,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public void closeNodePageWriteTransaction(final @NonNegative int transactionID) {
     assertNotClosed();
-    final PageReadOnlyTrx pageRtx = nodePageTrxMap.remove(transactionID);
+    final StorageEngineReader pageRtx = nodePageTrxMap.remove(transactionID);
     if (pageRtx != null) {
       pageRtx.close();
     }
@@ -721,12 +721,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public synchronized PathSummaryReader openPathSummary(final @NonNegative int revision) {
     assertAccess(revision);
 
-    PageReadOnlyTrx pageReadOnlyTrx;
+    StorageEngineReader pageReadOnlyTrx;
 
     var pool = this.pool.get();
 
     if (pool != null) {
-      Poolable<PageReadOnlyTrx> poolable = null;
+      Poolable<StorageEngineReader> poolable = null;
       boolean invalidObject = true;
       while (invalidObject) {
         try {
@@ -756,11 +756,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public PageReadOnlyTrx beginPageReadOnlyTrx(final @NonNegative int revision) {
+  public StorageEngineReader beginPageReadOnlyTrx(final @NonNegative int revision) {
     assertAccess(revision);
 
     final int currentPageTrxID = pageTrxIDCounter.incrementAndGet();
-    final NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
+    final NodeStorageEngineReader pageReadTrx = new NodeStorageEngineReader(currentPageTrxID,
                                                                     this,
                                                                     lastCommittedUberPage.get(),
                                                                     revision,
@@ -777,7 +777,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized PageTrx beginPageTrx(final @NonNegative int revision) {
+  public synchronized StorageEngineWriter beginPageTrx(final @NonNegative int revision) {
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.
@@ -793,7 +793,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     final int currentPageTrxID = pageTrxIDCounter.incrementAndGet();
     final int lastRev = getMostRecentRevisionNumber();
-    final PageTrx pageTrx = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
+    final StorageEngineWriter pageTrx = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
 
     // Remember page transaction for debugging and safe close.
     if (pageTrxMap.put(currentPageTrxID, pageTrx) != null) {

@@ -28,7 +28,7 @@ import io.brackit.query.jdm.Item;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.*;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -102,7 +102,7 @@ final class JsonNodeTrxImpl extends
   private final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer();
 
   /**
-   * A factory that creates new {@link PageTrx} instances.
+   * A factory that creates new {@link StorageEngineWriter} instances.
    */
   private final String databaseName;
 
@@ -2590,12 +2590,12 @@ final class JsonNodeTrxImpl extends
   }
 
   @Override
-  protected AbstractNodeHashing<ImmutableNode, JsonNodeReadOnlyTrx> reInstantiateNodeHashing(PageTrx pageTrx) {
+  protected AbstractNodeHashing<ImmutableNode, JsonNodeReadOnlyTrx> reInstantiateNodeHashing(StorageEngineWriter pageTrx) {
     return new JsonNodeHashing(resourceSession.getResourceConfig(), nodeReadOnlyTrx, pageTrx);
   }
 
   @Override
-  protected JsonNodeFactory reInstantiateNodeFactory(PageTrx pageTrx) {
+  protected JsonNodeFactory reInstantiateNodeFactory(StorageEngineWriter pageTrx) {
     return new JsonNodeFactoryImpl(hashFunction, pageTrx);
   }
 

@@ -4,8 +4,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 import io.sirix.index.*;
 import io.sirix.index.redblacktree.RBNodeKey;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
@@ -16,11 +16,11 @@ import java.util.Optional;
 import java.util.Set;
 
 public interface PathIndex<B, L extends ChangeListener> {
-  B createBuilder(PageTrx pageTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
+  B createBuilder(StorageEngineWriter pageTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
-  L createListener(PageTrx pageTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
+  L createListener(StorageEngineWriter pageTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
-  default Iterator<NodeReferences> openIndex(final PageReadOnlyTrx pageRtx, final IndexDef indexDef,
+  default Iterator<NodeReferences> openIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
       final PathFilter filter) {
     final RBTreeReader<Long, NodeReferences> reader =
         RBTreeReader.getInstance(pageRtx.getResourceSession().getIndexCache(),

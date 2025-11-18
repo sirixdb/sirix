@@ -2,8 +2,8 @@ package io.sirix.index.redblacktree;
 
 import com.google.common.collect.AbstractIterator;
 import io.sirix.api.NodeCursor;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.Cache;
 import io.sirix.cache.RBIndexKey;
 import io.sirix.exception.SirixIOException;
@@ -69,9 +69,9 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   private Node currentNode;
 
   /**
-   * {@link PageReadOnlyTrx} for persistent storage.
+   * {@link StorageEngineReader} for persistent storage.
    */
-  final PageReadOnlyTrx pageReadOnlyTrx;
+  final StorageEngineReader pageReadOnlyTrx;
 
   /**
    * Index number.
@@ -99,13 +99,13 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    * @param <K>         key instance which extends comparable
    * @param <V>         value
    * @param cache       a cache shared between all read-only tree readers
-   * @param pageReadTrx {@link PageReadOnlyTrx} for persistent storage
+   * @param pageReadTrx {@link StorageEngineReader} for persistent storage
    * @param type        type of index
    * @param index       index
    * @return new tree instance
    */
   public static <K extends Comparable<? super K>, V extends References> RBTreeReader<K, V> getInstance(
-      final Cache<RBIndexKey, Node> cache, final PageReadOnlyTrx pageReadTrx, final IndexType type,
+      final Cache<RBIndexKey, Node> cache, final StorageEngineReader pageReadTrx, final IndexType type,
       @NonNegative final int index) {
     return new RBTreeReader<>(cache, pageReadTrx, type, index);
   }
@@ -114,11 +114,11 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    * Private constructor.
    *
    * @param cache           a cache shared between all read-only tree readers
-   * @param pageReadOnlyTrx {@link PageReadOnlyTrx} for persistent storage
+   * @param pageReadOnlyTrx {@link StorageEngineReader} for persistent storage
    * @param indexType       kind of indexType
    * @param indexNumber     the indexNumber number
    */
-  private RBTreeReader(final Cache<RBIndexKey, Node> cache, final PageReadOnlyTrx pageReadOnlyTrx,
+  private RBTreeReader(final Cache<RBIndexKey, Node> cache, final StorageEngineReader pageReadOnlyTrx,
       final IndexType indexType, final int indexNumber) {
     this.cache = requireNonNull(cache);
     this.pageReadOnlyTrx = requireNonNull(pageReadOnlyTrx);
@@ -136,7 +136,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     }
 
     // TODO: move this / constructor of course should not do any work!
-    if (!(pageReadOnlyTrx instanceof PageTrx)) {
+    if (!(pageReadOnlyTrx instanceof StorageEngineWriter)) {
       for (RBNodeIterator it = new RBNodeIterator(0); it.hasNext(); ) {
         RBNodeKey<K> node = it.next();
         assert node.getNodeKey() != 0;
@@ -265,7 +265,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
           currentNode = node;
           moved = true;
         } else if (node.hasLeftChild()) {
-          node = pageReadOnlyTrx instanceof PageTrx
+          node = pageReadOnlyTrx instanceof StorageEngineWriter
               ? null
               : (RBNodeKey<K>) cache.get(new RBIndexKey(
                   pageReadOnlyTrx.getDatabaseId(),
@@ -293,7 +293,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
           currentNode = node;
           moved = true;
         } else if (node.hasRightChild()) {
-          node = pageReadOnlyTrx instanceof PageTrx
+          node = pageReadOnlyTrx instanceof StorageEngineWriter
               ? null
               : (RBNodeKey<K>) cache.get(new RBIndexKey(
                   pageReadOnlyTrx.getDatabaseId(),

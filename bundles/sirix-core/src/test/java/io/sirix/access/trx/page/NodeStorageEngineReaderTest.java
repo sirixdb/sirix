@@ -2,7 +2,7 @@ package io.sirix.access.trx.page;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.InternalResourceSession;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
@@ -24,7 +24,7 @@ public final class NodePageReadOnlyTrxTest {
   public void testPageKey() {
     final InternalResourceSession<?,?> resourceManagerMock = createResourceManagerMock();
 
-    final var trx = new NodePageReadOnlyTrx(1, resourceManagerMock, new UberPage(), 0,
+    final var trx = new NodeStorageEngineReader(1, resourceManagerMock, new UberPage(), 0,
                                             mock(Reader.class), mock(BufferManager.class),
                                             mock(RevisionRootPageReader.class), mock(
         TransactionIntentLog.class));
@@ -36,8 +36,8 @@ public final class NodePageReadOnlyTrxTest {
 
   @Test
   public void testRecordPageOffset() {
-    Assert.assertEquals(1, PageReadOnlyTrx.recordPageOffset(1));
-    assertEquals(Constants.NDP_NODE_COUNT - 1, PageReadOnlyTrx.recordPageOffset(1023));
+    Assert.assertEquals(1, StorageEngineReader.recordPageOffset(1));
+    assertEquals(Constants.NDP_NODE_COUNT - 1, StorageEngineReader.recordPageOffset(1023));
   }
 
   @NonNull

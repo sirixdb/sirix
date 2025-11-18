@@ -63,7 +63,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Page reader.
    */
-  private final PageReadOnlyTrx pageReadTrx;
+  private final StorageEngineReader pageReadTrx;
 
   /**
    * {@link ResourceSession} reference.
@@ -98,7 +98,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param pageReadTrx     page reader
    * @param resourceSession {@link ResourceSession} reference
    */
-  private PathSummaryReader(final PageReadOnlyTrx pageReadTrx,
+  private PathSummaryReader(final StorageEngineReader pageReadTrx,
       final ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession) {
     pathCache = new HashMap<>();
     this.pageReadTrx = pageReadTrx;
@@ -185,18 +185,18 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public PageReadOnlyTrx getPageTrx() {
+  public StorageEngineReader getPageTrx() {
     return pageReadTrx;
   }
 
   /**
    * Get a new path summary reader instance.
    *
-   * @param pageReadTrx     the {@link PageReadOnlyTrx} instance
+   * @param pageReadTrx     the {@link StorageEngineReader} instance
    * @param resourceSession the {@link ResourceSession} instance
    * @return new path summary reader instance
    */
-  public static PathSummaryReader getInstance(final PageReadOnlyTrx pageReadTrx,
+  public static PathSummaryReader getInstance(final StorageEngineReader pageReadTrx,
       final ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession) {
     return new PathSummaryReader(requireNonNull(pageReadTrx), requireNonNull(resourceSession));
   }

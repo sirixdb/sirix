@@ -31,7 +31,7 @@ package io.sirix.page;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
@@ -280,7 +280,7 @@ public enum PageKind {
       final var overlongEntriesSortedByKey = references.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList();
 
       for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
-        final var pageOffset = PageReadOnlyTrx.recordPageOffset(entry.getKey());
+        final var pageOffset = StorageEngineReader.recordPageOffset(entry.getKey());
         overlongEntriesBitmap.set(pageOffset);
       }
       SerializationType.serializeBitSet(sink, overlongEntriesBitmap);

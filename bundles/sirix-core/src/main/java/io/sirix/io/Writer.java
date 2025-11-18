@@ -22,7 +22,7 @@
 package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
@@ -77,7 +77,7 @@ public interface Writer extends Reader {
    * @param revision the revision to truncate to.
    * @return this writer instance
    */
-  Writer truncateTo(PageReadOnlyTrx pageReadOnlyTrx, int revision);
+  Writer truncateTo(StorageEngineReader pageReadOnlyTrx, int revision);
 
   /**
    * Truncate, that is remove all file content.

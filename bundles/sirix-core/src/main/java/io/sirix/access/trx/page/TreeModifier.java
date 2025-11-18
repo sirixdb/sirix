@@ -27,8 +27,8 @@
  */
 package io.sirix.access.trx.page;
 
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -53,7 +53,7 @@ interface TreeModifier {
    * @return new {@link RevisionRootPage} instance
    * @throws SirixIOException if an I/O error occurs
    */
-  RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, NodePageReadOnlyTrx pageRtx,
+  RevisionRootPage preparePreviousRevisionRootPage(UberPage uberPage, NodeStorageEngineReader pageRtx,
       TransactionIntentLog log, @NonNegative int baseRevision, @NonNegative int representRevision);
 
   /**
@@ -73,7 +73,7 @@ interface TreeModifier {
    *         the {@code key}
    * @throws SirixIOException if an I/O error occured
    */
-  PageReference prepareLeafOfTree(PageTrx pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
+  PageReference prepareLeafOfTree(StorageEngineWriter pageRtx, TransactionIntentLog log, int[] inpLevelPageCountExp,
       PageReference startReference, @NonNegative long pageKey, int indexNumber, IndexType indexType,
       RevisionRootPage revisionRootPage);
 
@@ -87,5 +87,5 @@ interface TreeModifier {
    * @return {@link IndirectPage} reference
    * @throws SirixIOException if an I/O error occurs
    */
-  IndirectPage prepareIndirectPage(PageReadOnlyTrx pageRtx, TransactionIntentLog log, PageReference reference);
+  IndirectPage prepareIndirectPage(StorageEngineReader pageRtx, TransactionIntentLog log, PageReference reference);
 }

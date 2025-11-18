@@ -2,8 +2,8 @@ package io.sirix.index.name;
 
 import static java.util.Objects.requireNonNull;
 
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.node.HashCountEntryNode;
 import io.sirix.node.HashEntryNode;
@@ -69,7 +69,7 @@ public final class Names {
    * @param indexNumber the kind of name dictionary
    * @param maxNodeKey  the maximum node key
    */
-  private Names(final PageReadOnlyTrx pageReadTrx, final int indexNumber, final long maxNodeKey) {
+  private Names(final StorageEngineReader pageReadTrx, final int indexNumber, final long maxNodeKey) {
     this.indexNumber = indexNumber;
     this.maxNodeKey = maxNodeKey;
     // It's okay, we don't allow to store more than Integer.MAX key value pairs.
@@ -112,7 +112,7 @@ public final class Names {
    *
    * @param key the key to remove
    */
-  public void removeName(final int key, final PageTrx pageTrx) {
+  public void removeName(final int key, final StorageEngineWriter pageTrx) {
     final int prevValue = countNameMapping.get(key);
     if (prevValue != 0) {
       final long countNodeKey = countNodeMap.get(key);
@@ -149,7 +149,7 @@ public final class Names {
    * @param name name to create key for
    * @return generated key
    */
-  public int setName(final String name, final PageTrx pageTrx) {
+  public int setName(final String name, final StorageEngineWriter pageTrx) {
     assert name != null;
     assert pageTrx != null;
 
@@ -268,7 +268,7 @@ public final class Names {
    *
    * @return cloned index
    */
-  public static Names fromStorage(final PageReadOnlyTrx readOnlyPageTrx, final int indexNumber, final long maxNodeKey) {
+  public static Names fromStorage(final StorageEngineReader readOnlyPageTrx, final int indexNumber, final long maxNodeKey) {
     return new Names(readOnlyPageTrx, indexNumber, maxNodeKey);
   }
 

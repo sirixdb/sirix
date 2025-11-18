@@ -37,7 +37,7 @@ import io.sirix.node.NodeTestHelper;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.exception.SirixException;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -51,7 +51,7 @@ import static org.junit.Assert.*;
  */
 public class StringNodeTest {
 
-  private PageTrx pageTrx;
+  private StorageEngineWriter pageTrx;
 
   @Before
   public void setUp() throws SirixException {

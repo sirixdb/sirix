@@ -3,7 +3,7 @@ package io.sirix.access.trx.node.xml;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.api.ItemList;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -68,7 +68,7 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default PageReadOnlyTrx getPageTrx() {
+  default StorageEngineReader getPageTrx() {
     return nodeReadOnlyTrxDelegate().getPageTrx();
   }
 

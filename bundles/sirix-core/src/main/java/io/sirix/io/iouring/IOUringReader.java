@@ -24,7 +24,7 @@ package io.sirix.io.iouring;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.PagePersister;
@@ -49,7 +49,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 /**
- * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.
+ * File Reader. Used for {@link StorageEngineReader} to provide read only access on a RandomAccessFile.
  *
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz

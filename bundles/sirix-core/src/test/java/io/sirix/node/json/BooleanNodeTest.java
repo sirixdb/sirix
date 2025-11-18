@@ -31,7 +31,7 @@ package io.sirix.node.json;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.exception.SirixException;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
@@ -51,7 +51,7 @@ import static org.junit.Assert.*;
  */
 public class BooleanNodeTest {
 
-  private PageTrx pageTrx;
+  private StorageEngineWriter pageTrx;
 
   @Before
   public void setUp() throws SirixException {

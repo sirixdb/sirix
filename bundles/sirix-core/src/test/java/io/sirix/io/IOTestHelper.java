@@ -25,7 +25,7 @@ import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.XmlTestHelper;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.ResourceSession;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixUsageException;
@@ -87,7 +87,7 @@ public final class IOTestHelper {
     final var session = mock(ResourceSession.class);
     when(session.getResourceConfig()).thenReturn(resourceConf);
 
-    final var pageReadOnlyTrx = mock(PageTrx.class);
+    final var pageReadOnlyTrx = mock(StorageEngineWriter.class);
     when(pageReadOnlyTrx.getResourceSession()).thenReturn(session);
 
     verify(pageReadOnlyTrx, atMostOnce()).newBufferedBytesInstance();

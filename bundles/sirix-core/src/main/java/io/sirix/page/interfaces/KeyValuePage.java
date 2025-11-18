@@ -1,6 +1,6 @@
 package io.sirix.page.interfaces;
 
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.PageReference;
@@ -104,7 +104,7 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
    * @return a new {@link KeyValuePage} instance
    */
   <C extends KeyValuePage<V>> C newInstance(@NonNegative long recordPageKey,
-      @NonNull IndexType indexType, @NonNull PageReadOnlyTrx pageReadTrx);
+      @NonNull IndexType indexType, @NonNull StorageEngineReader pageReadTrx);
 
   /**
    * Get the index type.

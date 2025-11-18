@@ -21,7 +21,7 @@
 
 package io.sirix.settings;
 
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.node.interfaces.DataRecord;
@@ -53,7 +53,7 @@ public enum VersioningType {
   FULL {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-        final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
+        final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx) {
       assert pages.size() == 1 : "Only one version of the page!";
       var firstPage = pages.getFirst();
       T completePage =  firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), pageReadTrx);
@@ -74,7 +74,7 @@ public enum VersioningType {
 
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx,
+        final List<T> pages, final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx,
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() == 1;
       final T firstPage = pages.getFirst();
@@ -116,7 +116,7 @@ public enum VersioningType {
   DIFFERENTIAL {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-        final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
+        final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx) {
       assert pages.size() <= 2;
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
@@ -167,7 +167,7 @@ public enum VersioningType {
 
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx,
+        final List<T> pages, final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx,
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() <= 2;
       final T firstPage = pages.getFirst();
@@ -278,7 +278,7 @@ public enum VersioningType {
   INCREMENTAL {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-        final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
+        final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx) {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
@@ -331,7 +331,7 @@ public enum VersioningType {
 
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, PageReference reference,
+        final List<T> pages, final int revToRestore, final StorageEngineReader pageReadTrx, PageReference reference,
         final TransactionIntentLog log) {
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
@@ -448,7 +448,7 @@ public enum VersioningType {
   SLIDING_SNAPSHOT {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-        final @NonNegative int revToRestore, final PageReadOnlyTrx pageReadTrx) {
+        final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx) {
       for (var page : pages) {
         // TODO: Add guard assertion here
         // assert page.getPinCount() > 0;  // REMOVED
@@ -505,7 +505,7 @@ public enum VersioningType {
 
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final int revToRestore, final PageReadOnlyTrx pageReadTrx, final PageReference reference,
+        final List<T> pages, final int revToRestore, final StorageEngineReader pageReadTrx, final PageReference reference,
         final TransactionIntentLog log) {
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
@@ -657,7 +657,7 @@ public enum VersioningType {
    * @return the complete {@link KeyValuePage}
    */
   public abstract <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-      final @NonNegative int revsToRestore, final PageReadOnlyTrx pageReadTrx);
+      final @NonNegative int revsToRestore, final StorageEngineReader pageReadTrx);
 
   /**
    * Method to reconstruct a complete {@link KeyValuePage} for reading as well as a
@@ -669,7 +669,7 @@ public enum VersioningType {
    * writing
    */
   public abstract <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-      final List<T> pages, final @NonNegative int revsToRestore, final PageReadOnlyTrx pageReadTrx,
+      final List<T> pages, final @NonNegative int revsToRestore, final StorageEngineReader pageReadTrx,
       final PageReference reference, final TransactionIntentLog log);
 
   /**

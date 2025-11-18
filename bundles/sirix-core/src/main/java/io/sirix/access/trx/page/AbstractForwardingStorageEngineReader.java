@@ -146,7 +146,7 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public NodePageReadOnlyTrx.PageReferenceToPage getRecordPage(@NonNull IndexLogKey indexLogKey) {
+  public NodeStorageEngineReader.PageReferenceToPage getRecordPage(@NonNull IndexLogKey indexLogKey) {
     return delegate().getRecordPage(indexLogKey);
   }
 

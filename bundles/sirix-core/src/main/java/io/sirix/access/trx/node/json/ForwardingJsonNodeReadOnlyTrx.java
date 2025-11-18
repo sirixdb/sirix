@@ -3,7 +3,7 @@ package io.sirix.access.trx.node.json;
 import com.google.gson.JsonObject;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.visitor.JsonNodeVisitor;
@@ -187,7 +187,7 @@ public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx {
   }
 
   @Override
-  default PageReadOnlyTrx getPageTrx() {
+  default StorageEngineReader getPageTrx() {
     return nodeReadOnlyTrxDelegate().getPageTrx();
   }
 

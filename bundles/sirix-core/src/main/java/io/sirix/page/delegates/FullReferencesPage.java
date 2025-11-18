@@ -22,7 +22,7 @@
 package io.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
@@ -135,7 +135,7 @@ public final class FullReferencesPage implements Page {
    * @param pageWriteTrx the page write transaction
    */
   @Override
-  public void commit(@NonNull final PageTrx pageWriteTrx) {
+  public void commit(@NonNull final StorageEngineWriter pageWriteTrx) {
     for (final PageReference reference : references) {
       if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT)) {
         pageWriteTrx.commit(reference);

@@ -1,6 +1,6 @@
 package io.sirix.access.trx.node.xml;
 
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.node.NodeKind;
@@ -33,9 +33,9 @@ import static java.util.Objects.requireNonNull;
 final class XmlNodeFactoryImpl implements XmlNodeFactory {
 
   /**
-   * {@link PageTrx} implementation.
+   * {@link StorageEngineWriter} implementation.
    */
-  private final PageTrx pageTrx;
+  private final StorageEngineWriter pageTrx;
 
   /**
    * The hash function used for hashing nodes.
@@ -51,9 +51,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
    * Constructor.
    *
    * @param hashFunction the hash function used for hashing nodes
-   * @param pageWriteTrx {@link PageTrx} implementation
+   * @param pageWriteTrx {@link StorageEngineWriter} implementation
    */
-  XmlNodeFactoryImpl(final LongHashFunction hashFunction, final PageTrx pageWriteTrx) {
+  XmlNodeFactoryImpl(final LongHashFunction hashFunction, final StorageEngineWriter pageWriteTrx) {
     this.pageTrx = requireNonNull(pageWriteTrx);
     this.pageTrx.createNameKey("xs:untyped", NodeKind.ATTRIBUTE);
     this.pageTrx.createNameKey("xs:untyped", NodeKind.NAMESPACE);

@@ -20,7 +20,7 @@
  */
 package io.sirix.page.interfaces;
 
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -46,9 +46,9 @@ public interface Page extends AutoCloseable {
   /**
    * Commit page.
    *
-   * @param pageWriteTrx {@link PageTrx} implementation
+   * @param pageWriteTrx {@link StorageEngineWriter} implementation
    */
-  default void commit(PageTrx pageWriteTrx) {
+  default void commit(StorageEngineWriter pageWriteTrx) {
     final var references = getReferences();
     //    final var log = pageWriteTrx.getLog();
     //    final List<CompletableFuture<Void>> futures = new ArrayList<>(references.size());

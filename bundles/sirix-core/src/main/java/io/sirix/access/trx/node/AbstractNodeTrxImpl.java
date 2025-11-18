@@ -120,7 +120,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /**
    * The page write trx.
    */
-  protected PageTrx pageTrx;
+  protected StorageEngineWriter pageTrx;
 
   /**
    * The {@link IndexController} used within the resource manager this {@link NodeTrx} is bound to.
@@ -186,7 +186,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.updateOperationsOrdered = new TreeMap<>();
     this.updateOperationsUnordered = new HashMap<>();
 
-    this.pageTrx = (PageTrx) nodeReadOnlyTrx.getPageTrx();
+    this.pageTrx = (StorageEngineWriter) nodeReadOnlyTrx.getPageTrx();
 
     // Only auto commit by node modifications if it is more then 0.
     this.maxNodeCount = maxNodeCount;
@@ -370,9 +370,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     reInstantiateIndexes();
   }
 
-  protected abstract AbstractNodeHashing<N, R> reInstantiateNodeHashing(PageTrx pageTrx);
+  protected abstract AbstractNodeHashing<N, R> reInstantiateNodeHashing(StorageEngineWriter pageTrx);
 
-  protected abstract NF reInstantiateNodeFactory(PageTrx pageTrx);
+  protected abstract NF reInstantiateNodeFactory(StorageEngineWriter pageTrx);
 
   private void reInstantiateIndexes() {
     // Get a new path summary instance.
@@ -538,9 +538,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   @Override
-  public PageTrx getPageWtx() {
+  public StorageEngineWriter getPageWtx() {
     nodeReadOnlyTrx.assertNotClosed();
-    return (PageTrx) nodeReadOnlyTrx.getPageTrx();
+    return (StorageEngineWriter) nodeReadOnlyTrx.getPageTrx();
   }
 
   @Override
@@ -561,7 +561,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         final int trxId = getId();
         nodeReadOnlyTrx.close();
         
-        // CRITICAL FIX: Close PageTrx to trigger TIL.close() and clean up uncommitted pages
+        // CRITICAL FIX: Close StorageEngineWriter to trigger TIL.close() and clean up uncommitted pages
         // Without this, TIL instances with uncommitted pages leak
         if (pageTrx != null && !pageTrx.isClosed()) {
           pageTrx.close();
