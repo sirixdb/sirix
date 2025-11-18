@@ -39,7 +39,7 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.access.trx.node.xml.XmlResourceSessionImpl;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.cache.PageContainer;
@@ -60,12 +60,12 @@ import java.nio.file.Path;
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
-public final class PageTrxFactory {
+public final class StorageEngineWriterFactory {
 
   private final DatabaseType databaseType;
 
   @Inject
-  public PageTrxFactory(final DatabaseType databaseType) {
+  public StorageEngineWriterFactory(final DatabaseType databaseType) {
     this.databaseType = databaseType;
   }
 
@@ -81,7 +81,7 @@ public final class PageTrxFactory {
    * @param isBoundToNodeTrx   {@code true} if this page write trx will be bound to a node trx,
    *                           {@code false} otherwise
    */
-  public PageTrx createPageTrx(
+  public StorageEngineWriter createPageTrx(
       final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
       final UberPage uberPage, final Writer writer, final @NonNegative int trxId,
       final @NonNegative int representRevision, final @NonNegative int lastStoredRevision,
@@ -111,7 +111,7 @@ public final class PageTrxFactory {
     }
 
     // Page read trx.
-    final NodePageReadOnlyTrx pageRtx = new NodePageReadOnlyTrx(trxId,
+    final NodeStorageEngineReader pageRtx = new NodeStorageEngineReader(trxId,
                                                                 resourceManager,
                                                                 uberPage,
                                                                 representRevision,
@@ -122,8 +122,8 @@ public final class PageTrxFactory {
 
     // Create new revision root page.
     final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);
-    // Use temporary IndirectPageTrieWriter to prepare revision root (moved into NodePageTrx in Phase 1)
-    final var tempTrieWriter = new NodePageTrx.IndirectPageTrieWriter();
+    // Use temporary IndirectPageTrieWriter to prepare revision root (moved into NodeStorageEngineWriter in Phase 1)
+    final var tempTrieWriter = new NodeStorageEngineWriter.IndirectPageTrieWriter();
     final RevisionRootPage newRevisionRootPage =
         tempTrieWriter.preparePreviousRevisionRootPage(uberPage, pageRtx, log, representRevision, lastStoredRevision);
     newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
@@ -196,7 +196,7 @@ public final class PageTrxFactory {
       uberPage.setRevisionRootPage(newRevisionRootPage);
     }
 
-    return new NodePageTrx(writer,
+    return new NodeStorageEngineWriter(writer,
                            log,
                            newRevisionRootPage,
                            pageRtx,

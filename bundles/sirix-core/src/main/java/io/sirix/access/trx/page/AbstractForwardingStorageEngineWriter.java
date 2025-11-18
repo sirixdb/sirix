@@ -1,6 +1,6 @@
 package io.sirix.access.trx.page;
 
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.PageReference;
@@ -15,13 +15,13 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public abstract class AbstractForwardingPageWriteTrx extends AbstractForwardingPageReadOnlyTrx
-    implements PageTrx {
+public abstract class AbstractForwardingStorageEngineWriter extends AbstractForwardingStorageEngineReader
+    implements StorageEngineWriter {
 
   /**
    * Constructor for use by subclasses.
    */
-  protected AbstractForwardingPageWriteTrx() {
+  protected AbstractForwardingStorageEngineWriter() {
   }
 
   @Override
@@ -66,5 +66,5 @@ public abstract class AbstractForwardingPageWriteTrx extends AbstractForwardingP
   }
 
   @Override
-  protected abstract @NonNull PageTrx delegate();
+  protected abstract @NonNull StorageEngineWriter delegate();
 }

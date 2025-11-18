@@ -2,7 +2,7 @@ package io.sirix.access.trx.page;
 
 import com.google.common.collect.ForwardingObject;
 import io.sirix.access.trx.node.CommitCredentials;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.IndexLogKey;
@@ -20,13 +20,13 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
-    implements PageReadOnlyTrx {
+public abstract class AbstractForwardingStorageEngineReader extends ForwardingObject
+    implements StorageEngineReader {
 
   /**
    * Constructor for use by subclasses.
    */
-  protected AbstractForwardingPageReadOnlyTrx() {
+  protected AbstractForwardingStorageEngineReader() {
   }
 
   @Override
@@ -171,5 +171,5 @@ public abstract class AbstractForwardingPageReadOnlyTrx extends ForwardingObject
   }
 
   @Override
-  protected abstract @NonNull PageReadOnlyTrx delegate();
+  protected abstract @NonNull StorageEngineReader delegate();
 }
