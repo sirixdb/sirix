@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * @author Johannes Lichtenberger
  */
-public final class NodePageTrxTruncateToRevisionIntegrationTest {
+public final class NodeStorageEngineWriterTruncateToRevisionIntegrationTest {
 
   private static final Path RESOURCE_DATA_FILE = JsonTestHelper.PATHS.PATH1.getFile()
                                                                            .resolve("resources")

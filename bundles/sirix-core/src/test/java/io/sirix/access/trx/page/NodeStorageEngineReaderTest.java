@@ -18,7 +18,7 @@ import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public final class NodePageReadOnlyTrxTest {
+public final class NodeStorageEngineReaderTest {
 
   @Test
   public void testPageKey() {

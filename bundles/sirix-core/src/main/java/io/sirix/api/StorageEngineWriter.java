@@ -153,7 +153,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    *
    * @return the {@link StorageEngineReader} reference
    */
-  StorageEngineReader getPageReadOnlyTrx();
+  StorageEngineReader getStorageEngineReader();
 
   /**
    * Rollback all changes done within the page transaction.
