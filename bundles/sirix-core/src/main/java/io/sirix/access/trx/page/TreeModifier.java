@@ -42,7 +42,7 @@ import org.checkerframework.checker.index.qual.NonNegative;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  *
  */
-public interface TreeModifier {
+interface TreeModifier {
   /**
    * Prepare the previous revision root page and retrieve the next {@link RevisionRootPage}.
    *
