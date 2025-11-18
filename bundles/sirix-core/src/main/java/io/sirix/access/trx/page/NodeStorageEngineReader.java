@@ -27,7 +27,7 @@ import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.*;
 import io.sirix.exception.SirixIOException;
@@ -65,9 +65,9 @@ import static java.util.Objects.requireNonNull;
  * Everything else is exclusive to this transaction. It is required that only a single thread has
  * access to this transaction.
  */
-public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
+public final class NodeStorageEngineReader implements StorageEngineReader {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(NodePageReadOnlyTrx.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(NodeStorageEngineReader.class);
 
   // DEBUG FLAG: Enable with -Dsirix.debug.path.summary=true
   private static final boolean DEBUG_PATH_SUMMARY = Boolean.getBoolean("sirix.debug.path.summary");
@@ -186,7 +186,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * @param trxIntentLog          the transaction intent log (can be {@code null})
    * @throws SirixIOException if reading of the persistent storage fails
    */
-  public NodePageReadOnlyTrx(final int trxId,
+  public NodeStorageEngineReader(final int trxId,
       final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession,
       final UberPage uberPage, final @NonNegative int revision, final Reader reader,
       final BufferManager resourceBufferManager, final @NonNull RevisionRootPageReader revisionRootPageReader,
@@ -333,7 +333,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
 
   @Override
   public DataRecord getValue(final KeyValueLeafPage page, final long nodeKey) {
-    final var offset = PageReadOnlyTrx.recordPageOffset(nodeKey);
+    final var offset = StorageEngineReader.recordPageOffset(nodeKey);
     DataRecord record = page.getRecord(offset);
     if (record == null) {
       var data = page.getSlot(offset);
@@ -1397,7 +1397,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
    * Close the current page guard if one is active.
    * Should be called before fetching a different page or when transaction closes.
    * 
-   * Package-private to allow NodePageTrx to release guards before TIL operations.
+   * Package-private to allow NodeStorageEngineWriter to release guards before TIL operations.
    */
   void closeCurrentPageGuard() {
     if (currentPageGuard != null && !currentPageGuard.isClosed()) {
@@ -1413,7 +1413,7 @@ public final class NodePageReadOnlyTrx implements PageReadOnlyTrx {
   
   /**
    * Get the page that the current page guard is protecting.
-   * Used by NodePageTrx for acquiring additional guards on the current page.
+   * Used by NodeStorageEngineWriter for acquiring additional guards on the current page.
    *
    * @return the current page, or null if no page is currently guarded
    */

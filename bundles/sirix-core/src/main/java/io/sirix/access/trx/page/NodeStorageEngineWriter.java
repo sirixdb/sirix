@@ -26,8 +26,8 @@ import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.xml.XmlIndexController;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
@@ -78,7 +78,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
- * Implements the {@link PageTrx} interface to provide write capabilities to the persistent storage
+ * Implements the {@link StorageEngineWriter} interface to provide write capabilities to the persistent storage
  * layer.
  * </p>
  *
@@ -86,9 +86,9 @@ import static java.util.Objects.requireNonNull;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements PageTrx {
+final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReader implements StorageEngineWriter {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(NodePageTrx.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(NodeStorageEngineWriter.class);
 
   private BytesOut<?> bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
 
@@ -108,9 +108,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   private final RevisionRootPage newRevisionRootPage;
 
   /**
-   * {@link NodePageReadOnlyTrx} instance.
+   * {@link NodeStorageEngineReader} instance.
    */
-  private final NodePageReadOnlyTrx pageRtx;
+  private final NodeStorageEngineReader pageRtx;
 
   /**
    * Determines if transaction is closed.
@@ -170,8 +170,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    * @param isBoundToNodeTrx  {@code true} if this page write trx will be bound to a node trx,
    *                          {@code false} otherwise
    */
-  NodePageTrx(final Writer writer, final TransactionIntentLog log,
-      final RevisionRootPage revisionRootPage, final NodePageReadOnlyTrx pageRtx,
+  NodeStorageEngineWriter(final Writer writer, final TransactionIntentLog log,
+      final RevisionRootPage revisionRootPage, final NodeStorageEngineReader pageRtx,
       final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
     this.trieWriter = new IndirectPageTrieWriter();
     storagePageReaderWriter = requireNonNull(writer);
@@ -376,12 +376,12 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
 
     // DIAGNOSTIC: Track Page 0 closes during commit
     if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && container.getComplete() instanceof io.sirix.page.KeyValueLeafPage completePage && completePage.getPageKey() == 0) {
-      LOGGER.debug("NodePageTrx.commit closing complete Page 0: instance={}", System.identityHashCode(completePage));
+      LOGGER.debug("NodeStorageEngineWriter.commit closing complete Page 0: instance={}", System.identityHashCode(completePage));
     }
     container.getComplete().close();
     
     if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page instanceof io.sirix.page.KeyValueLeafPage kvPage && kvPage.getPageKey() == 0) {
-      LOGGER.debug("NodePageTrx.commit closing modified Page 0: instance={}", System.identityHashCode(kvPage));
+      LOGGER.debug("NodeStorageEngineWriter.commit closing modified Page 0: instance={}", System.identityHashCode(kvPage));
     }
     page.close();
 
@@ -749,17 +749,17 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  protected @NonNull PageReadOnlyTrx delegate() {
+  protected @NonNull StorageEngineReader delegate() {
     return pageRtx;
   }
 
   @Override
-  public PageReadOnlyTrx getPageReadOnlyTrx() {
+  public StorageEngineReader getStorageEngineReader() {
     return pageRtx;
   }
 
   @Override
-  public PageTrx appendLogRecord(@NonNull final PageReference reference, @NonNull final PageContainer pageContainer) {
+  public StorageEngineWriter appendLogRecord(@NonNull final PageReference reference, @NonNull final PageContainer pageContainer) {
     requireNonNull(pageContainer);
     log.put(reference, pageContainer);
     return this;
@@ -772,7 +772,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   }
 
   @Override
-  public PageTrx truncateTo(final int revision) {
+  public StorageEngineWriter truncateTo(final int revision) {
     storagePageReaderWriter.truncateTo(this, revision);
     return this;
   }
@@ -790,9 +790,9 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
   @Override
   @SuppressWarnings("deprecation")
   protected void finalize() {
-    // DIAGNOSTIC: Detect if NodePageTrx is GC'd without being closed
+    // DIAGNOSTIC: Detect if NodeStorageEngineWriter is GC'd without being closed
     if (!isClosed && io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      LOGGER.warn("⚠️  NodePageTrx FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL", 
+      LOGGER.warn("⚠️  NodeStorageEngineWriter FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL", 
           pageRtx.getTrxId(), System.identityHashCode(this), System.identityHashCode(log), log.getList().size());
     }
   }
@@ -807,7 +807,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     // The current node is in the pageRtx's currentPageGuard
     // We need to return a new guard on the same page
     // Get the page containing the current node from pageRtx
-    final var currentPage = ((io.sirix.access.trx.page.NodePageReadOnlyTrx) pageRtx).getCurrentPage();
+    final var currentPage = ((io.sirix.access.trx.page.NodeStorageEngineReader) pageRtx).getCurrentPage();
     if (currentPage == null) {
       throw new IllegalStateException("No current page - cannot acquire guard");
     }
@@ -831,8 +831,8 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
    * <p>This class creates new IndirectPages as needed when navigating to leaves,
    * and manages the transaction intent log for all modified pages.</p>
    *
-   * <p>Note: Package-private access is needed for PageTrxFactory to call preparePreviousRevisionRootPage()
-   * before NodePageTrx is constructed.</p>
+   * <p>Note: Package-private access is needed for StorageEngineWriterFactory to call preparePreviousRevisionRootPage()
+   * before NodeStorageEngineWriter is constructed.</p>
    *
    * @author Johannes Lichtenberger
    */
@@ -848,7 +848,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
      * @param representRevision the revision to represent
      * @return new {@link RevisionRootPage} instance
      */
-    RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage, final NodePageReadOnlyTrx pageRtx,
+    RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage, final NodeStorageEngineReader pageRtx,
         final TransactionIntentLog log, final @NonNegative int baseRevision, final @NonNegative int representRevision) {
       final RevisionRootPage revisionRootPage;
 
@@ -882,7 +882,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
      * @param revisionRootPage the revision root page
      * @return {@link PageReference} instance pointing to the leaf page
      */
-    PageReference prepareLeafOfTree(final PageTrx pageRtx, final TransactionIntentLog log,
+    PageReference prepareLeafOfTree(final StorageEngineWriter pageRtx, final TransactionIntentLog log,
         final int[] inpLevelPageCountExp, final PageReference startReference, @NonNegative final long pageKey,
         final int index, final IndexType indexType, final RevisionRootPage revisionRootPage) {
       // Initial state pointing to the indirect nodePageReference of level 0.
@@ -941,7 +941,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
      * @param reference {@link PageReference} to get the indirect page from or to create a new one
      * @return {@link IndirectPage} reference
      */
-    IndirectPage prepareIndirectPage(final PageReadOnlyTrx pageRtx, final TransactionIntentLog log,
+    IndirectPage prepareIndirectPage(final StorageEngineReader pageRtx, final TransactionIntentLog log,
         final PageReference reference) {
       final PageContainer cont = log.get(reference);
       IndirectPage page = cont == null ? null : (IndirectPage) cont.getComplete();
@@ -960,7 +960,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     /**
      * Set a new indirect page in the appropriate index structure.
      */
-    private void setNewIndirectPage(final PageReadOnlyTrx pageRtx, final RevisionRootPage revisionRoot,
+    private void setNewIndirectPage(final StorageEngineReader pageRtx, final RevisionRootPage revisionRoot,
         final IndexType indexType, final int index, final PageReference pageReference) {
       // $CASES-OMITTED$
       switch (indexType) {
@@ -979,7 +979,7 @@ final class NodePageTrx extends AbstractForwardingPageReadOnlyTrx implements Pag
     /**
      * Increment the current maximum indirect page trie level for the given index type.
      */
-    private int incrementCurrentMaxIndirectPageTreeLevel(final PageReadOnlyTrx pageRtx,
+    private int incrementCurrentMaxIndirectPageTreeLevel(final StorageEngineReader pageRtx,
         final RevisionRootPage revisionRoot, final IndexType indexType, final int index) {
       // $CASES-OMITTED$
       return switch (indexType) {
