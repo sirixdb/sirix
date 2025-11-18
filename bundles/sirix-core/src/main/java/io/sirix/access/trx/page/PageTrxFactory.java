@@ -102,7 +102,6 @@ public final class PageTrxFactory {
       }
     }
 
-    final TreeModifierImpl treeModifier = new TreeModifierImpl();
     final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
     final TransactionIntentLog log = logFactory.createTrxIntentLog(bufferManager, resourceConfig);
 
@@ -123,8 +122,10 @@ public final class PageTrxFactory {
 
     // Create new revision root page.
     final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);
+    // Use temporary IndirectPageTrieWriter to prepare revision root (moved into NodePageTrx in Phase 1)
+    final var tempTrieWriter = new NodePageTrx.IndirectPageTrieWriter();
     final RevisionRootPage newRevisionRootPage =
-        treeModifier.preparePreviousRevisionRootPage(uberPage, pageRtx, log, representRevision, lastStoredRevision);
+        tempTrieWriter.preparePreviousRevisionRootPage(uberPage, pageRtx, log, representRevision, lastStoredRevision);
     newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
     newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
     if (resourceConfig.storeNodeHistory()) {
@@ -195,8 +196,7 @@ public final class PageTrxFactory {
       uberPage.setRevisionRootPage(newRevisionRootPage);
     }
 
-    return new NodePageTrx(treeModifier,
-                           writer,
+    return new NodePageTrx(writer,
                            log,
                            newRevisionRootPage,
                            pageRtx,
