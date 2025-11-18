@@ -17,12 +17,22 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import java.time.Instant;
 
 /**
- * Interface for writing pages to disk and to create in-memory records.
+ * Storage engine writer interface for writing pages to persistent storage.
+ * 
+ * <p>This is the write component of the storage engine, extending {@link StorageEngineReader}
+ * with modification capabilities. Responsible for:</p>
+ * <ul>
+ *   <li>Creating and modifying pages</li>
+ *   <li>Managing the transaction intent log (TIL)</li>
+ *   <li>Writing pages to disk on commit</li>
+ *   <li>Creating records (nodes) in KeyValueLeafPages</li>
+ *   <li>Managing the IndirectPage trie structure for writes</li>
+ * </ul>
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public interface PageTrx extends PageReadOnlyTrx {
+public interface StorageEngineWriter extends StorageEngineReader {
 
   BytesOut<?> newBufferedBytesInstance();
 
@@ -139,11 +149,11 @@ public interface PageTrx extends PageReadOnlyTrx {
   PageContainer dereferenceRecordPageForModification(PageReference reference);
 
   /**
-   * Get inlying {@link PageReadOnlyTrx}.
+   * Get the underlying {@link StorageEngineReader}.
    *
-   * @return the {@link PageReadOnlyTrx} reference
+   * @return the {@link StorageEngineReader} reference
    */
-  PageReadOnlyTrx getPageReadOnlyTrx();
+  StorageEngineReader getPageReadOnlyTrx();
 
   /**
    * Rollback all changes done within the page transaction.

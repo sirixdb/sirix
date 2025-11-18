@@ -17,12 +17,20 @@ import io.sirix.io.Reader;
 import java.util.Optional;
 
 /**
- * Interface for reading pages.
+ * Storage engine reader interface for reading pages from persistent storage.
+ * 
+ * <p>This is the read-only component of the storage engine, responsible for:</p>
+ * <ul>
+ *   <li>Loading pages from disk</li>
+ *   <li>Navigating the trie of IndirectPages</li>
+ *   <li>Reading records (nodes) from KeyValueLeafPages</li>
+ *   <li>Managing the buffer cache for read operations</li>
+ * </ul>
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public interface PageReadOnlyTrx extends AutoCloseable {
+public interface StorageEngineReader extends AutoCloseable {
 
   /**
    * Get the buffer manager.
