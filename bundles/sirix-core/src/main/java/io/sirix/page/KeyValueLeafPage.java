@@ -255,22 +255,28 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         
         StackTraceElement[] stack = Thread.currentThread().getStackTrace();
         String source = "UNKNOWN";
-        for (int i = 0; i < Math.min(stack.length, 10); i++) {
-          if (stack[i].getMethodName().equals("createTree")) {
-            source = "TIL_CREATE";
+        String caller = "UNKNOWN";
+        for (int i = 0; i < Math.min(stack.length, 15); i++) {
+          String methodName = stack[i].getMethodName();
+          String className = stack[i].getClassName();
+          if (methodName.equals("createTree") || methodName.equals("prepareRecordPage")) {
+            source = "NEW_PAGE_CREATE";
+            caller = className + "." + methodName;
             break;
-          } else if (stack[i].getMethodName().equals("deserializePage") || stack[i].getMethodName().equals("read")) {
+          } else if (methodName.equals("deserializePage") || methodName.equals("read")) {
             source = "DISK_LOAD";
+            caller = className + "." + methodName;
             break;
-          } else if (stack[i].getMethodName().equals("newInstance")) {
+          } else if (methodName.equals("newInstance") || methodName.equals("combineRecordPagesForModification")) {
             source = "COMBINED";
+            caller = className + "." + methodName;
             break;
           }
         }
         
         String addStatus = wasAdded ? "ADDED" : "DUPLICATE";
-        LOGGER.debug("[CREATE] Page 0 from {} ({}): {} rev={} instance={} totalCreated={}",
-            source, addStatus, indexType, revisionNumber, System.identityHashCode(this), created);
+        LOGGER.info("[CREATE] Page 0 from {} via {} ({}): {} rev={} instance={} totalCreated={}",
+            source, caller, addStatus, indexType, revisionNumber, System.identityHashCode(this), created);
       }
     } else {
       this.creationStackTrace = null;
@@ -332,9 +338,31 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       // Track Page 0 creation source and register for cleanup
       if (recordPageKey == 0) {
         boolean wasAdded = ALL_PAGE_0_INSTANCES.add(this); // Register for explicit cleanup
+        
+        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+        String source = "UNKNOWN";
+        String caller = "UNKNOWN";
+        for (int i = 0; i < Math.min(stack.length, 15); i++) {
+          String methodName = stack[i].getMethodName();
+          String className = stack[i].getClassName();
+          if (methodName.equals("createTree") || methodName.equals("prepareRecordPage")) {
+            source = "NEW_PAGE_CREATE";
+            caller = className + "." + methodName;
+            break;
+          } else if (methodName.equals("deserializePage") || methodName.equals("read")) {
+            source = "DISK_LOAD";
+            caller = className + "." + methodName;
+            break;
+          } else if (methodName.equals("newInstance") || methodName.equals("combineRecordPagesForModification")) {
+            source = "COMBINED";
+            caller = className + "." + methodName;
+            break;
+          }
+        }
+        
         String addStatus = wasAdded ? "ADDED" : "DUPLICATE";
-        LOGGER.debug("[CREATE] Page 0 from DISK_LOAD ({}): {} rev={} instance={} totalCreated={}",
-            addStatus, indexType, revision, System.identityHashCode(this), created);
+        LOGGER.debug("[CREATE] Page 0 from {} via {} ({}): {} rev={} instance={} totalCreated={}",
+            source, caller, addStatus, indexType, revision, System.identityHashCode(this), created);
       }
     } else {
       this.creationStackTrace = null;
@@ -1089,7 +1117,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       
       if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
         boolean wasInLivePages = ALL_LIVE_PAGES.contains(this);
-        LOGGER.debug("[CLOSE] Page 0 ({}) rev={} instance={} wasInLivePages={} guardCount={}",
+        LOGGER.info("[CLOSE] Page 0 ({}) rev={} instance={} wasInLivePages={} guardCount={}",
             indexType, revision, System.identityHashCode(this), wasInLivePages, currentGuardCount);
       }
       

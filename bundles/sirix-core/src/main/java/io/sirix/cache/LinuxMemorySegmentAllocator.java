@@ -114,99 +114,94 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
       LOGGER.info("Shutting down LinuxMemorySegmentAllocator...");
       
-      // Report page leak statistics before shutdown
-      long finalized = io.sirix.page.KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
-      long created = io.sirix.page.KeyValueLeafPage.PAGES_CREATED.get();
-      long closed = io.sirix.page.KeyValueLeafPage.PAGES_CLOSED.get();
-      var livePages = io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES;
-      
-      if (finalized > 0 || created > 0 || closed > 0 || !livePages.isEmpty()) {
-        System.err.println("\n========== PAGE LEAK DIAGNOSTICS ==========");
-        System.err.println("Pages Created: " + created);
-        System.err.println("Pages Closed: " + closed);
-        System.err.println("Pages Leaked (caught by finalizer): " + finalized);
-        System.err.println("Pages Still Live: " + livePages.size());
+      // Report page leak statistics before shutdown (only if DEBUG_MEMORY_LEAKS enabled)
+      if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        long finalized = io.sirix.page.KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
+        long created = io.sirix.page.KeyValueLeafPage.PAGES_CREATED.get();
+        long closed = io.sirix.page.KeyValueLeafPage.PAGES_CLOSED.get();
+        var livePages = io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES;
         
-        // Show finalized pages breakdown
-        if (finalized > 0) {
-          System.err.println("\nFinalized Pages (NOT closed properly) by Type:");
-          io.sirix.page.KeyValueLeafPage.FINALIZED_BY_TYPE.forEach((type, count) -> 
-              System.err.println("  " + type + ": " + count.get() + " pages"));
+        if (finalized > 0 || created > 0 || closed > 0 || !livePages.isEmpty()) {
+          LOGGER.info("\n========== PAGE LEAK DIAGNOSTICS ==========");
+          LOGGER.info("Pages Created: {}", created);
+          LOGGER.info("Pages Closed: {}", closed);
+          LOGGER.info("Pages Leaked (caught by finalizer): {}", finalized);
+          LOGGER.info("Pages Still Live: {}", livePages.size());
           
-          System.err.println("\nFinalized Pages (NOT closed properly) by Page Key (top 15):");
-          io.sirix.page.KeyValueLeafPage.FINALIZED_BY_PAGE_KEY.entrySet().stream()
-              .sorted(java.util.Map.Entry.<Long, java.util.concurrent.atomic.AtomicLong>comparingByValue(
-                  (a, b) -> Long.compare(b.get(), a.get())).reversed())
-              .limit(15)
-              .forEach(e -> System.err.println("  Page " + e.getKey() + ": " + e.getValue().get() + " times"));
-        }
-        
-        // Show breakdown by page key
-        // CRITICAL: Create snapshot to avoid ConcurrentModificationException during iteration
-        var livePageSnapshot = new java.util.ArrayList<>(livePages);
-        var pageKeyCount = new java.util.HashMap<Long, Integer>();
-        var indexTypeCount = new java.util.HashMap<io.sirix.index.IndexType, Integer>();
-        for (var page : livePageSnapshot) {
-          pageKeyCount.merge(page.getPageKey(), 1, Integer::sum);
-          indexTypeCount.merge(page.getIndexType(), 1, Integer::sum);
-        }
-        
-        if (!pageKeyCount.isEmpty()) {
-          System.err.println("\nLive Pages by Page Key:");
-          pageKeyCount.entrySet().stream()
-              .sorted(java.util.Map.Entry.<Long, Integer>comparingByValue().reversed())
-              .limit(10)
-              .forEach(e -> System.err.println("  Page " + e.getKey() + ": " + e.getValue() + " instances"));
-          
-          System.err.println("\nLive Pages by Index Type:");
-          indexTypeCount.forEach((type, count) -> 
-              System.err.println("  " + type + ": " + count + " instances"));
-          
-          // Check pin counts of leaked pages
-          int pinnedLeaks = 0;
-          int unpinnedLeaks = 0;
-          // TODO: Replace with guard count tracking
-          var pinCountBreakdown = new java.util.HashMap<Integer, Integer>();
-          for (var page : livePages) {
-            // int pinCount = page.getPinCount();  // REMOVED
-            int pinCount = 0; // TODO: will be replaced with guardCount
-            if (pinCount > 0) {
-              pinnedLeaks++;
-            } else {
-              unpinnedLeaks++;
-            }
-            pinCountBreakdown.merge(pinCount, 1, Integer::sum);
+          // Show finalized pages breakdown
+          if (finalized > 0) {
+            LOGGER.info("\nFinalized Pages (NOT closed properly) by Type:");
+            io.sirix.page.KeyValueLeafPage.FINALIZED_BY_TYPE.forEach((type, count) -> 
+                LOGGER.info("  {}: {} pages", type, count.get()));
+            
+            LOGGER.info("\nFinalized Pages (NOT closed properly) by Page Key (top 15):");
+            io.sirix.page.KeyValueLeafPage.FINALIZED_BY_PAGE_KEY.entrySet().stream()
+                .sorted(java.util.Map.Entry.<Long, java.util.concurrent.atomic.AtomicLong>comparingByValue(
+                    (a, b) -> Long.compare(b.get(), a.get())).reversed())
+                .limit(15)
+                .forEach(e -> LOGGER.info("  Page {}: {} times", e.getKey(), e.getValue().get()));
           }
           
-          System.err.println("\nPin Count Analysis:");
-          System.err.println("  Pinned leaks (pinCount > 0): " + pinnedLeaks);
-          System.err.println("  Unpinned leaks (pinCount = 0): " + unpinnedLeaks);
-          System.err.println("  Pin count breakdown: " + pinCountBreakdown);
+          // Show breakdown by page key
+          // CRITICAL: Create snapshot to avoid ConcurrentModificationException during iteration
+          var livePageSnapshot = new java.util.ArrayList<>(livePages);
+          var pageKeyCount = new java.util.HashMap<Long, Integer>();
+          var indexTypeCount = new java.util.HashMap<io.sirix.index.IndexType, Integer>();
+          for (var page : livePageSnapshot) {
+            pageKeyCount.merge(page.getPageKey(), 1, Integer::sum);
+            indexTypeCount.merge(page.getIndexType(), 1, Integer::sum);
+          }
           
-          // Show which transaction IDs leaked PATH_SUMMARY pins
-          if (pinnedLeaks > 0) {
-            // TODO: Replace with guard diagnostics
-            System.err.println("\nPages with guards:");
+          if (!pageKeyCount.isEmpty()) {
+            LOGGER.info("\nLive Pages by Page Key:");
+            pageKeyCount.entrySet().stream()
+                .sorted(java.util.Map.Entry.<Long, Integer>comparingByValue().reversed())
+                .limit(10)
+                .forEach(e -> LOGGER.info("  Page {}: {} instances", e.getKey(), e.getValue()));
+            
+            LOGGER.info("\nLive Pages by Index Type:");
+            indexTypeCount.forEach((type, count) -> 
+                LOGGER.info("  {}: {} instances", type, count));
+            
+            // Check guard counts of leaked pages
+            int guardedLeaks = 0;
+            int unguardedLeaks = 0;
+            var guardCountBreakdown = new java.util.HashMap<Integer, Integer>();
             for (var page : livePages) {
-              // if (page.getPinCount() > 0) {  // REMOVED
-              if (false) {  // TODO: check guardCount
-                System.err.println("  Page " + page.getPageKey() + 
-                                   " (" + page.getIndexType() + ")" +
-                                   " revision=" + page.getRevision());
-                                   // " pinned by transactions: " + page.getPinCountByTransaction());  // REMOVED
+              int guardCount = page.getGuardCount();
+              if (guardCount > 0) {
+                guardedLeaks++;
+              } else {
+                unguardedLeaks++;
+              }
+              guardCountBreakdown.merge(guardCount, 1, Integer::sum);
+            }
+            
+            LOGGER.info("\nGuard Count Analysis:");
+            LOGGER.info("  Guarded leaks (guardCount > 0): {}", guardedLeaks);
+            LOGGER.info("  Unguarded leaks (guardCount = 0): {}", unguardedLeaks);
+            LOGGER.info("  Guard count breakdown: {}", guardCountBreakdown);
+            
+            // Show which pages have guards
+            if (guardedLeaks > 0) {
+              LOGGER.info("\nPages with guards:");
+              for (var page : livePages) {
+                if (page.getGuardCount() > 0) {
+                  LOGGER.info("  Page {} ({}) revision={} guardCount={}",
+                      page.getPageKey(), page.getIndexType(), page.getRevision(), page.getGuardCount());
+                }
               }
             }
-          }
-          
-          // Show details of unpinned leaks (first 10) and check if they're in cache
-          if (unpinnedLeaks > 0) {
-            System.err.println("\nUnpinned Leak Details (these should have been closed!):");
             
-            // Check if global buffer manager exists to search caches
-            int inRecordCache = 0;
-            int inFragmentCache = 0;
-            int inPageCache = 0;
-            int notInAnyCache = 0;
+            // Show details of unguarded leaks (first 10) and check if they're in cache
+            if (unguardedLeaks > 0) {
+              LOGGER.info("\nUnguarded Leak Details (these should have been closed!):");
+              
+              // Check if global buffer manager exists to search caches
+              int inRecordCache = 0;
+              int inFragmentCache = 0;
+              int inPageCache = 0;
+              int notInAnyCache = 0;
             
             try {
               var bufferMgr = io.sirix.access.Databases.getGlobalBufferManager();
@@ -253,10 +248,10 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                 }
               }
               
-              System.err.println("  In RecordPageCache: " + inRecordCache);
-              System.err.println("  In RecordPageFragmentCache: " + inFragmentCache);
-              System.err.println("  In PageCache: " + inPageCache);
-              System.err.println("  NOT in any cache: " + notInAnyCache + " ← LEAKED, NOT TRACKED!");
+              LOGGER.info("  In RecordPageCache: {}", inRecordCache);
+              LOGGER.info("  In RecordPageFragmentCache: {}", inFragmentCache);
+              LOGGER.info("  In PageCache: {}", inPageCache);
+              LOGGER.info("  NOT in any cache: {} ← LEAKED, NOT TRACKED!", notInAnyCache);
               
             } catch (Exception e) {
               // BufferManager might not exist
@@ -265,62 +260,53 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
             // Show first few examples
             int shown = 0;
             for (var page : livePages) {
-              // if (page.getPinCount() == 0 && shown < 5) {  // REMOVED
-              if (shown < 5) {  // TODO: check guardCount == 0
-                System.err.println("  Example: Page " + page.getPageKey() + 
-                                   " (" + page.getIndexType() + ")" +
-                                   " revision=" + page.getRevision());
+              if (page.getGuardCount() == 0 && shown < 5) {
+                LOGGER.info("  Example: Page {} ({}) revision={}",
+                    page.getPageKey(), page.getIndexType(), page.getRevision());
                 shown++;
               }
             }
           }
           
-          // CRITICAL: Force-unpin and close any remaining pages as final cleanup
+          // CRITICAL: Force-close any remaining pages as final cleanup
           // After all fixes, there should be 0-5 pages here (99.9%+ leak-free)
-          // Handle BOTH pinned and unpinned leaks
           if (!livePages.isEmpty()) {
-            System.err.println("\nForce-closing any remaining pages...");
-            int forceUnpinnedCount = 0;
+            LOGGER.info("\nForce-closing any remaining pages...");
+            int forceReleasedGuards = 0;
             int forceClosedCount = 0;
             for (var page : new java.util.ArrayList<>(livePages)) {
               if (!page.isClosed()) {
                 try {
-                  // TODO: Check and release guards if still held
-                  // if (page.getPinCount() > 0) {  // REMOVED
-                  if (false) {  // TODO: check guardCount
-                    var pinsByTrx = new java.util.HashMap<Integer, Integer>(); // page.getPinCountByTransaction());  // REMOVED
-                    for (var entry : pinsByTrx.entrySet()) {
-                      int trxId = entry.getKey();
-                      int pins = entry.getValue();
-                      for (int i = 0; i < pins; i++) {
-                        // page.decrementPinCount(trxId);  // REMOVED
-                        forceUnpinnedCount++;
-                      }
-                    }
+                  // Release any remaining guards
+                  while (page.getGuardCount() > 0) {
+                    page.releaseGuard();
+                    forceReleasedGuards++;
                   }
                   // Now close it
                   page.close();
                   forceClosedCount++;
                 } catch (Exception e) {
-                  System.err.println("  Warning: Failed to force-close page " + page.getPageKey() + 
-                                     " (" + page.getIndexType() + "): " + e.getMessage());
+                  LOGGER.warn("Failed to force-close page {} ({}): {}", 
+                      page.getPageKey(), page.getIndexType(), e.getMessage());
                 }
               }
             }
             if (forceClosedCount > 0) {
-              System.err.println("Force-unpinned " + forceUnpinnedCount + " pins, closed " + forceClosedCount + " pages.");
+              LOGGER.info("Force-released {} guards, closed {} pages.", forceReleasedGuards, forceClosedCount);
             } else {
-              System.err.println("✅ Perfect: No leaked pages to force-close!");
+              LOGGER.info("✅ Perfect: No leaked pages to force-close!");
             }
           }
-        }
-        System.err.println("===========================================\n");
-      }
+          
+          LOGGER.info("===========================================\n");
+          }  // Close if (!pageKeyCount.isEmpty())
+        }  // Close if (finalized > 0 || created > 0 || closed > 0 || !livePages.isEmpty())
+      }  // Close if (DEBUG_MEMORY_LEAKS)
       
       free();
       LOGGER.info("LinuxMemorySegmentAllocator shutdown complete.");
-    }));
-  }
+    }));  // Close lambda and addShutdownHook
+  }  // Close constructor
 
   public static LinuxMemorySegmentAllocator getInstance() {
     return INSTANCE;
@@ -899,3 +885,4 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     allocator.printMemoryStats();
   }
 }
+
