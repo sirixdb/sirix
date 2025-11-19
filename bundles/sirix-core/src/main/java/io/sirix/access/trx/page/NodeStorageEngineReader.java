@@ -302,6 +302,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
+  @SuppressWarnings("unchecked")
   public <V extends DataRecord> V getRecord(final long recordKey, @NonNull final IndexType indexType,
       @NonNegative final int index) {
     requireNonNull(indexType);
