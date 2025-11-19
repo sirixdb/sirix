@@ -272,33 +272,4 @@ public final class PageReference {
   public byte[] getHash() {
     return hashInBytes;
   }
-
-  /**
-   * Acquire a guard on this page reference.
-   * Increments the guard count to indicate an active guard is holding this page.
-   */
-  public void acquireGuard() {
-    guardCount.incrementAndGet();
-  }
-
-  /**
-   * Release a guard on this page reference.
-   * Decrements the guard count when a PageGuard is closed.
-   */
-  public void releaseGuard() {
-    int newCount = guardCount.decrementAndGet();
-    if (newCount < 0) {
-      throw new IllegalStateException("Guard count underflow for page reference");
-    }
-  }
-
-  /**
-   * Get the current guard count.
-   * Used by eviction logic to check if page can be safely evicted.
-   *
-   * @return current number of active guards
-   */
-  public int getGuardCount() {
-    return guardCount.get();
-  }
 }

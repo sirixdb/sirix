@@ -750,13 +750,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /**
-   * Close a mostRecent page if it's been evicted from cache (orphaned).
-   * <p>
-   * If the page is in cache, it will be closed by the cache's removal listener.
-   * If the page is NOT in cache, we must close it explicitly to prevent leaks.
-   * 
-   * This handles the case where a page was cached, stored in mostRecent field,
-   * then evicted from cache while still held in the field.
+   * Release guard on a mostRecent page and close it if orphaned (evicted from cache).
+   * CRITICAL: Must ALWAYS release the guard that was acquired when fetching the page.
+   * If the page is still in cache, cache will close it on eviction.
+   * If the page is NOT in cache (orphaned), we must close it explicitly.
    */
   private void closeMostRecentPageIfOrphaned(RecordPage recordPage) {
     if (recordPage == null) {
@@ -768,22 +765,26 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return;
     }
     
-    // Check if page is in cache
+    // CRITICAL: Always release the guard that was acquired when fetching this page
+    page.releaseGuard();
+    
+    // Check if page is still in cache
     KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(recordPage.pageReference);
     
     if (cachedPage == page) {
-      // Page is in cache - cache will handle closing it on eviction
-      // No action needed
-      return;
-    }
-    
-    // Page is NOT in cache - we must close it explicitly
-    // This happens for pages held in mostRecent fields but evicted from cache
-    if (!page.isClosed()) {
-      page.close();
-      
+      // Page is in cache - cache will close it on eviction
+      // Guard released, no further action needed
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-        LOGGER.debug("[CLEANUP] Closed orphaned mostRecent Page 0 ({}) not in cache", page.getIndexType());
+        LOGGER.debug("[CLEANUP] Released guard on mostRecent Page 0 ({}) - still in cache", page.getIndexType());
+      }
+    } else {
+      // Page is NOT in cache (orphaned) - we must close it explicitly
+      if (!page.isClosed()) {
+        page.close();
+        
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+          LOGGER.debug("[CLEANUP] Released guard and closed orphaned mostRecent Page 0 ({}) - not in cache", page.getIndexType());
+        }
       }
     }
   }
@@ -1439,7 +1440,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         resourceSession.closePageReadTransaction(trxId);
       }
 
-      // CRITICAL: Close all mostRecent pages if they're orphaned (not in cache)
+      // CRITICAL: Close all mostRecent pages to release their pins
       closeMostRecentPageIfOrphaned(mostRecentDocumentPage);
       closeMostRecentPageIfOrphaned(mostRecentChangedNodesPage);
       closeMostRecentPageIfOrphaned(mostRecentRecordToRevisionsPage);
@@ -1462,6 +1463,17 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           pathSummaryRecordPage.page.close();
         }
       }
+
+      // CRITICAL FIX: Clear all mostRecent*Page fields to drop hard references
+      // This allows GC to collect the pages if they are closed and not referenced elsewhere
+      mostRecentDocumentPage = null;
+      mostRecentChangedNodesPage = null;
+      mostRecentRecordToRevisionsPage = null;
+      mostRecentDeweyIdPage = null;
+      pathSummaryRecordPage = null;
+      java.util.Arrays.fill(mostRecentPathPages, null);
+      java.util.Arrays.fill(mostRecentCasPages, null);
+      java.util.Arrays.fill(mostRecentNamePages, null);
 
       isClosed = true;
     }

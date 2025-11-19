@@ -125,7 +125,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * The indirect page trie writer - manages the trie structure of IndirectPages.
    */
-  private final IndirectPageTrieWriter trieWriter;
+  private final TrieWriter trieWriter;
 
   /**
    * The revision to represent.
@@ -173,7 +173,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   NodeStorageEngineWriter(final Writer writer, final TransactionIntentLog log,
       final RevisionRootPage revisionRootPage, final NodeStorageEngineReader pageRtx,
       final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
-    this.trieWriter = new IndirectPageTrieWriter();
+    this.trieWriter = new TrieWriter();
     storagePageReaderWriter = requireNonNull(writer);
     this.log = requireNonNull(log);
     newRevisionRootPage = requireNonNull(revisionRootPage);
@@ -560,8 +560,70 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Now TIL can close pages (guards released)
       log.close();
       
-      storagePageReaderWriter.close();
+      // CRITICAL FIX: Clear cache AFTER log.close() to avoid OOM
+      // log.close() needs the cache entries to properly unpin/close pages
+      // Once closed, we must drop references to allow GC
+      
+      // CRITICAL: Close pages in pageContainerCache that are NOT in TIL or cache
+      // This handles pages that were cached but TIL was cleared (e.g., after commit)
+      for (PageContainer container : pageContainerCache.values()) {
+        closeOrphanedPagesInContainer(container);
+      }
+      
+      pageContainerCache.clear();
+      mostRecentPageContainer = null;
+      secondMostRecentPageContainer = null;
+      mostRecentPathSummaryPageContainer = null;
+      
       isClosed = true;
+    }
+  }
+  
+  /**
+   * Close orphaned pages in a container (pages not in cache).
+   * If page is in cache, cache will manage it - we just drop our reference.
+   * If page is NOT in cache, we must release guard and close it.
+   */
+  private void closeOrphanedPagesInContainer(PageContainer container) {
+    if (container == null) {
+      return;
+    }
+    
+    if (container.getComplete() instanceof KeyValueLeafPage completePage && !completePage.isClosed()) {
+      // Check if page is in cache
+      PageReference ref = new PageReference()
+          .setKey(completePage.getPageKey())
+          .setDatabaseId(pageRtx.getDatabaseId())
+          .setResourceId(pageRtx.getResourceId());
+      KeyValueLeafPage cachedPage = pageRtx.getBufferManager().getRecordPageCache().get(ref);
+      
+      if (cachedPage != completePage) {
+        // Page is NOT in cache - orphaned, must release guard and close
+        if (completePage.getGuardCount() > 0) {
+          completePage.releaseGuard();
+        }
+        completePage.close();
+      }
+      // If page IS in cache, cache will manage it - just drop our reference
+    }
+    
+    if (container.getModified() instanceof KeyValueLeafPage modifiedPage 
+        && modifiedPage != container.getComplete() && !modifiedPage.isClosed()) {
+      // Check if page is in cache
+      PageReference ref = new PageReference()
+          .setKey(modifiedPage.getPageKey())
+          .setDatabaseId(pageRtx.getDatabaseId())
+          .setResourceId(pageRtx.getResourceId());
+      KeyValueLeafPage cachedPage = pageRtx.getBufferManager().getRecordPageCache().get(ref);
+      
+      if (cachedPage != modifiedPage) {
+        // Page is NOT in cache - orphaned, must release guard and close
+        if (modifiedPage.getGuardCount() > 0) {
+          modifiedPage.releaseGuard();
+        }
+        modifiedPage.close();
+      }
+      // If page IS in cache, cache will manage it - just drop our reference
     }
   }
 
@@ -594,7 +656,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private PageContainer getMostRecentPageContainer(IndexType indexType, long recordPageKey,
       @NonNegative int indexNumber, @NonNegative int revisionNumber) {
     if (indexType == IndexType.PATH_SUMMARY) {
-      return mostRecentPathSummaryPageContainer.indexType == indexType
+      return mostRecentPathSummaryPageContainer != null
+          && mostRecentPathSummaryPageContainer.indexType == indexType
           && mostRecentPathSummaryPageContainer.indexNumber == indexNumber
           && mostRecentPathSummaryPageContainer.recordPageKey == recordPageKey
           && mostRecentPathSummaryPageContainer.revisionNumber == revisionNumber
@@ -603,11 +666,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     var pageContainer =
-        mostRecentPageContainer.indexType == indexType && mostRecentPageContainer.recordPageKey == recordPageKey
+        mostRecentPageContainer != null
+            && mostRecentPageContainer.indexType == indexType && mostRecentPageContainer.recordPageKey == recordPageKey
             && mostRecentPageContainer.indexNumber == indexNumber
             && mostRecentPageContainer.revisionNumber == revisionNumber ? mostRecentPageContainer.pageContainer : null;
     if (pageContainer == null) {
-      pageContainer = secondMostRecentPageContainer.indexType == indexType
+      pageContainer = secondMostRecentPageContainer != null
+          && secondMostRecentPageContainer.indexType == indexType
           && secondMostRecentPageContainer.recordPageKey == recordPageKey
           && secondMostRecentPageContainer.indexNumber == indexNumber
           && secondMostRecentPageContainer.revisionNumber == revisionNumber
@@ -836,7 +901,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    *
    * @author Johannes Lichtenberger
    */
-  static final class IndirectPageTrieWriter {
+  static final class TrieWriter {
     
     /**
      * Prepare the previous revision root page and retrieve the next {@link RevisionRootPage}.

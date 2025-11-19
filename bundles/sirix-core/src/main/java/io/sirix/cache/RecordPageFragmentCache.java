@@ -36,10 +36,10 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
           assert page != null;
           
           // CRITICAL: Check guard count before closing
-          if (key.getGuardCount() > 0) {
+          if (page.getGuardCount() > 0) {
             // Page fragment is actively guarded - DO NOT close
             LOGGER.trace("RecordPageFragmentCache: Fragment {} has active guards ({}), skipping close (cause={})",
-                key.getKey(), key.getGuardCount(), cause);
+                key.getKey(), page.getGuardCount(), cause);
             return;
           }
           
@@ -64,7 +64,7 @@ public final class RecordPageFragmentCache implements Cache<PageReference, KeyVa
                     .maximumWeight(maxWeight)
                     .weigher((PageReference key, KeyValueLeafPage value) -> {
                       // Guarded fragments have zero weight (won't be evicted)
-                      if (key.getGuardCount() > 0) {
+                      if (value.getGuardCount() > 0) {
                         return 0;
                       }
                       return (int) value.getActualMemorySize();

@@ -28,10 +28,10 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
           assert page != null;
           
           // CRITICAL: Check guard count before closing
-          if (key.getGuardCount() > 0) {
+          if (page.getGuardCount() > 0) {
             // Page is actively guarded - DO NOT close
             LOGGER.trace("RecordPageCache: Page {} has active guards ({}), skipping close (cause={})",
-                key.getKey(), key.getGuardCount(), cause);
+                key.getKey(), page.getGuardCount(), cause);
             return;
           }
           
@@ -49,7 +49,7 @@ public final class RecordPageCache implements Cache<PageReference, KeyValueLeafP
                     .maximumWeight(maxWeight)
                     .weigher((PageReference key, KeyValueLeafPage value) -> {
                       // Guarded pages have zero weight (won't be evicted)
-                      if (key.getGuardCount() > 0) {
+                      if (value.getGuardCount() > 0) {
                         return 0;
                       }
                       // Use actual memory segment sizes for tracking

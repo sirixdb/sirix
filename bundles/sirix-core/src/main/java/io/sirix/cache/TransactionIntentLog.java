@@ -147,7 +147,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     bufferManager.getPageCache().cleanUp();
     
     // Close all pages in TIL
-    // CRITICAL: Must force-unpin before closing to release memory segments
+    // CRITICAL: Must release guards before closing to allow pages to close
     int totalContainers = list.size();
     int kvLeafContainers = 0;
     int page0Count = 0;
@@ -162,11 +162,17 @@ public final class TransactionIntentLog implements AutoCloseable {
           page0Count++;
         }
         
+        // CRITICAL FIX: Release all guards before closing
+        // Pages in TIL may have guards from when they were in cache
+        while (completePage.getGuardCount() > 0) {
+          completePage.releaseGuard();
+        }
+        
         // TIL owns these pages exclusively - must close them
         completePage.close();
         if (!completePage.isClosed()) {
-          LOGGER.error("TIL.clear(): FAILED to close complete page {} ({}) rev={}",
-              completePage.getPageKey(), completePage.getIndexType(), completePage.getRevision());
+          LOGGER.error("TIL.clear(): FAILED to close complete page {} ({}) rev={} guardCount={}",
+              completePage.getPageKey(), completePage.getIndexType(), completePage.getRevision(), completePage.getGuardCount());
           skippedAlreadyClosed++;
         } else {
           closedComplete++;
@@ -179,11 +185,16 @@ public final class TransactionIntentLog implements AutoCloseable {
           page0Count++;
         }
         
+        // CRITICAL FIX: Release all guards before closing
+        while (modifiedPage.getGuardCount() > 0) {
+          modifiedPage.releaseGuard();
+        }
+        
         // TIL owns these pages exclusively - must close them
         modifiedPage.close();
         if (!modifiedPage.isClosed()) {
-          LOGGER.error("TIL.clear(): FAILED to close modified page {} ({}) rev={}",
-              modifiedPage.getPageKey(), modifiedPage.getIndexType(), modifiedPage.getRevision());
+          LOGGER.error("TIL.clear(): FAILED to close modified page {} ({}) rev={} guardCount={}",
+              modifiedPage.getPageKey(), modifiedPage.getIndexType(), modifiedPage.getRevision(), modifiedPage.getGuardCount());
           skippedAlreadyClosed++;
         } else {
           closedModified++;
@@ -221,7 +232,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     bufferManager.getPageCache().cleanUp();
     
     // Close pages to release segments
-    // CRITICAL: Must force-unpin before closing to release memory segments
+    // CRITICAL: Must release guards before closing to allow pages to close
     int closedComplete = 0;
     int closedModified = 0;
     int page0Count = 0;
@@ -236,12 +247,17 @@ public final class TransactionIntentLog implements AutoCloseable {
           page0Count++;
         }
         
-        // CRITICAL: Use forceCloseForTIL to atomically unpin all transactions and close
+        // CRITICAL FIX: Release all guards before closing
+        // Pages in TIL may have guards from when they were in cache
+        while (kvCompletePage.getGuardCount() > 0) {
+          kvCompletePage.releaseGuard();
+        }
+        
         // TIL owns these pages exclusively - must close them regardless of pin count
         kvCompletePage.close();
         if (!kvCompletePage.isClosed()) {
-          LOGGER.error("TIL.close(): FAILED to close complete page {} ({}) rev={}",
-              kvCompletePage.getPageKey(), kvCompletePage.getIndexType(), kvCompletePage.getRevision());
+          LOGGER.error("TIL.close(): FAILED to close complete page {} ({}) rev={} guardCount={}",
+              kvCompletePage.getPageKey(), kvCompletePage.getIndexType(), kvCompletePage.getRevision(), kvCompletePage.getGuardCount());
           failedCloses++;
         } else {
           closedComplete++;
@@ -254,11 +270,15 @@ public final class TransactionIntentLog implements AutoCloseable {
           page0Count++;
         }
         
-        // CRITICAL: Use forceCloseForTIL to atomically unpin all transactions and close
+        // CRITICAL FIX: Release all guards before closing
+        while (kvModifiedPage.getGuardCount() > 0) {
+          kvModifiedPage.releaseGuard();
+        }
+        
         kvModifiedPage.close();
         if (!kvModifiedPage.isClosed()) {
-          LOGGER.error("TIL.close(): FAILED to close modified page {} ({}) rev={}",
-              kvModifiedPage.getPageKey(), kvModifiedPage.getIndexType(), kvModifiedPage.getRevision());
+          LOGGER.error("TIL.close(): FAILED to close modified page {} ({}) rev={} guardCount={}",
+              kvModifiedPage.getPageKey(), kvModifiedPage.getIndexType(), kvModifiedPage.getRevision(), kvModifiedPage.getGuardCount());
           failedCloses++;
         } else {
           closedModified++;

@@ -156,14 +156,14 @@ public final class JsonShredderTest {
   @Disabled
   @Test
   public void testChicagoDescendantAxis() {
-//    if (Files.notExists(PATHS.PATH1.getFile())) {
-//      logger.info("start");
-//      final var jsonPath = JSON.resolve("cityofchicago.json");
-//      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
-//      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-//        createResource(jsonPath, database, false);
-//      }
-//    }
+    if (Files.notExists(PATHS.PATH1.getFile())) {
+      logger.info("start");
+      final var jsonPath = JSON.resolve("cityofchicago.json");
+      Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+      try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+        createResource(jsonPath, database, false);
+      }
+    }
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx()) {
@@ -247,7 +247,7 @@ public final class JsonShredderTest {
                                                  .byteHandlerPipeline(new ByteHandlerPipeline(new LZ4Compressor()))
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx(262_144 << 3)) {
+         final var trx = manager.beginNodeTrx(100_000)) {
       trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
 
       if (doTraverse) {

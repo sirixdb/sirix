@@ -11,7 +11,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import java.time.Instant;
 import java.util.Optional;
 
-public interface NodeTrx extends NodeReadOnlyTrx, AutoCloseable {
+public interface NodeTrx extends NodeReadOnlyTrx {
 
   /**
    * Commit all modifications of the exclusive write transaction. Even commit if there are no
