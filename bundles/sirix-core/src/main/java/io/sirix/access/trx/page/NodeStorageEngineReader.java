@@ -75,6 +75,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private record RecordPage(int index, IndexType indexType, long recordPageKey, int revision,
                             PageReference pageReference, KeyValueLeafPage page) {
   }
+
   /**
    * Page reader exclusively assigned to this transaction.
    */
@@ -138,12 +139,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   /**
    * Current page guard - protects the page where cursor is currently positioned.
-   * 
+   * <p>
    * Guard lifecycle:
    * - Acquired when cursor moves to a page
    * - Released when cursor moves to a DIFFERENT page
    * - Released on transaction close
-   * 
+   * <p>
    * This matches database cursor semantics: only the "current" page is guarded.
    * Node keys are primitives (copied from MemorySegments), so old pages can be
    * evicted after cursor moves away.
@@ -210,7 +211,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     revisionNumber = revision;
     rootPage = revisionRootPageReader.loadRevisionRootPage(this, revision);
     namePage = revisionRootPageReader.getNamePage(this, rootPage);
-    
+
     // Register with epoch tracker for MVCC-aware eviction
     this.epochTicket = resourceSession.getRevisionEpochTracker().register(revision);
   }
@@ -483,21 +484,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // First: Check cached pages.
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && isMostRecentlyReadPathSummaryPage(indexLogKey)) {
       var page = pathSummaryRecordPage.page();
-      
+
       // Fast path: Validate page directly without going through cache
       // This is the whole point of having a local cache - avoid cache lookups
       if (!page.isClosed()) {
-        // Page is still valid - acquire guard directly
-        page.acquireGuard();
-        
-        // Single-guard: Replace current guard
-        if (currentPageGuard == null || currentPageGuard.page() != page) {
-          closeCurrentPageGuard();
-          currentPageGuard = PageGuard.fromAcquired(page);
-        } else {
-          // Already guarding this page - release extra
-          page.releaseGuard();
-        }
+        closeCurrentPageGuard();
+        currentPageGuard = new PageGuard(page);
+
         return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
       } else {
         // Page was closed/evicted - clear stale reference
@@ -513,21 +506,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                                        indexLogKey.getRevisionNumber());
     if (cachedPage != null) {
       var page = cachedPage.page();
-      
+
       // Fast path: Validate page directly without going through cache
       // This is the whole point of having a local cache - avoid cache lookups
       if (!page.isClosed()) {
-        // Page is still valid - acquire guard directly
-        page.acquireGuard();
-        
-        // Single-guard: Replace current guard
-        if (currentPageGuard == null || currentPageGuard.page() != page) {
-          closeCurrentPageGuard();
-          currentPageGuard = PageGuard.fromAcquired(page);
-        } else {
-          // Already guarding this page - release extra
-          page.releaseGuard();
-        }
+        closeCurrentPageGuard();
+        currentPageGuard = new PageGuard(page);
+
         return new PageReferenceToPage(cachedPage.pageReference, page);
       } else {
         // Page was closed/evicted - clear stale reference
@@ -567,7 +552,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY
           && page instanceof KeyValueLeafPage kvp) {
         LOGGER.debug("[PATH_SUMMARY-NORMAL]   -> Got page from cache: pageKey={}, revision={}",
-                     kvp.getPageKey(), kvp.getRevision());
+                     kvp.getPageKey(),
+                     kvp.getRevision());
       }
 
       // CRITICAL: Handle case where page doesn't exist (e.g., temporal queries accessing non-existent revisions)
@@ -595,58 +581,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     var loadedPage =
         (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(pageReferenceToRecordPage);
 
-    if (loadedPage != null) {
-      // Add to cache
-      resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, loadedPage);
-      
-      // CRITICAL: Acquire guard atomically from cache
-      var guardedPage = resourceBufferManager.getRecordPageCache().getAndGuard(pageReferenceToRecordPage);
-      
-      if (guardedPage != null && guardedPage == loadedPage) {
-        // Successfully guarded
-        // Single-guard: Replace current guard
-        if (currentPageGuard == null || currentPageGuard.page() != loadedPage) {
-          closeCurrentPageGuard();
-          currentPageGuard = PageGuard.fromAcquired(loadedPage);
-        } else {
-          // Already guarding this page - release extra
-          loadedPage.releaseGuard();
-        }
-      } else if (guardedPage != null && guardedPage != loadedPage) {
-        // CRITICAL: Different page in cache - another thread added different instance
-        // Our loadedPage is orphaned - close it to prevent leak
-        if (!loadedPage.isClosed()) {
-          loadedPage.close();
-        }
-        // Use the cached page instead
-        if (currentPageGuard == null || currentPageGuard.page() != guardedPage) {
-          closeCurrentPageGuard();
-          currentPageGuard = PageGuard.fromAcquired(guardedPage);
-        } else {
-          // Already guarding cached page - release extra
-          guardedPage.releaseGuard();
-        }
-        // Update loadedPage reference to the cached one
-        loadedPage = guardedPage;
-      } else {
-        // guardedPage is null - cache remove happened, very rare
-        LOGGER.warn("Failed to guard PATH_SUMMARY bypass page: key={}, loaded={}, cached=null",
-            pageReferenceToRecordPage.getKey(), 
-            System.identityHashCode(loadedPage));
-        // Close orphaned page
-        if (!loadedPage.isClosed()) {
-          loadedPage.close();
-        }
-        loadedPage = null;  // Will return null below
-      }
-
-      if (DEBUG_PATH_SUMMARY && loadedPage != null) {
-        LOGGER.debug("[PATH_SUMMARY-BYPASS]   -> Loaded from disk and cached: pageKey={}, revision={}",
-                     loadedPage.getPageKey(), loadedPage.getRevision());
-      }
+    if (loadedPage == null) {
+      return null;
     }
 
+    // Add to cache
+    resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, loadedPage);
+
+    closeCurrentPageGuard();
+    currentPageGuard = new PageGuard(loadedPage);
+
     setMostRecentlyReadRecordPage(indexLogKey, pageReferenceToRecordPage, loadedPage);
+
     return new PageReferenceToPage(pageReferenceToRecordPage, loadedPage);
   }
 
@@ -672,14 +618,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case DEWEYID_TO_RECORDID -> mostRecentDeweyIdPage;
       default -> null;
     };
-    
+
     // Verify it matches the requested page
     if (candidate != null && candidate.recordPageKey == recordPageKey && candidate.revision == revision) {
       return candidate;
     }
     return null;
   }
-  
+
   /**
    * Set the most recent page for a given index type and index number.
    */
@@ -734,7 +680,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
       default -> null;
     };
-    
+
     // Close the replaced page if it's orphaned (not in cache)
     if (previous != null && previous != page) {
       closeMostRecentPageIfOrphaned(previous);
@@ -745,39 +691,48 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Close a mostRecent page if orphaned (evicted from cache).
    * If the page is still in cache, cache will close it on eviction.
    * If the page is NOT in cache (orphaned), we must close it explicitly.
-   * 
-   * NOTE: We do NOT release guards here because the `mostRecent` fields are just references
-   * to pages - they don't own guards. Guards are owned by `currentPageGuard`.
+   * <p>
+   * NOTE: We do NOT release guards here because:
+   * 1. mostRecent fields are just references - they don't "own" guards
+   * 2. Guards are owned by currentPageGuard (released when navigating away)
+   * 3. The guardCount might include guards from OTHER transactions - we can't release those
+   * 4. If a page has lingering guards, it means another transaction is using it - that's fine
    */
   private void closeMostRecentPageIfOrphaned(RecordPage recordPage) {
     if (recordPage == null) {
       return;
     }
-    
+
     KeyValueLeafPage page = recordPage.page();
     if (page == null || page.isClosed()) {
       return;
     }
-    
-    // Do NOT release guards - mostRecent pages don't own guards
-    // Guards are managed by currentPageGuard only
-    
+
     // Check if page is still in cache
     KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(recordPage.pageReference);
-    
+
     if (cachedPage == page) {
-      // Page is in cache - cache will close it on eviction
-      // Guard released, no further action needed
+      // Page is in cache - cache will close it when guards reach 0
+      // Do nothing - just drop our reference
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-        LOGGER.debug("[CLEANUP] Released guard on mostRecent Page 0 ({}) - still in cache", page.getIndexType());
+        LOGGER.debug("[CLEANUP] Page 0 ({}) still in cache with {} guards - cache will handle it",
+                     page.getIndexType(),
+                     page.getGuardCount());
       }
     } else {
-      // Page is NOT in cache (orphaned) - we must close it explicitly
-      if (!page.isClosed()) {
+      // Page is NOT in cache (orphaned) - close only if no guards
+      if (!page.isClosed() && page.getGuardCount() == 0) {
         page.close();
-        
+
         if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-          LOGGER.debug("[CLEANUP] Released guard and closed orphaned mostRecent Page 0 ({}) - not in cache", page.getIndexType());
+          LOGGER.debug("[CLEANUP] Closed orphaned Page 0 ({}) - not in cache, no guards", page.getIndexType());
+        }
+      } else if (page.getGuardCount() > 0) {
+        // Page has guards from other transactions - can't close it
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+          LOGGER.debug("[CLEANUP] Page 0 ({}) not in cache but has {} guards - skipping close",
+                       page.getIndexType(),
+                       page.getGuardCount());
         }
       }
     }
@@ -787,74 +742,65 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private Page getFromBufferManager(@NonNull IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
     if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
       LOGGER.debug("[PATH_SUMMARY-CACHE-LOOKUP] Looking up in cache: PageRef(key={}, logKey={}), requestedRevision={}",
-                   pageReferenceToRecordPage.getKey(), pageReferenceToRecordPage.getLogKey(),
+                   pageReferenceToRecordPage.getKey(),
+                   pageReferenceToRecordPage.getLogKey(),
                    indexLogKey.getRevisionNumber());
     }
 
-    // CRITICAL: Use atomic getAndGuard() to prevent race with ClockSweeper
-    // Between cache.get() and guard acquisition, ClockSweeper could evict the page
-    // Note: getAndGuard() returns null for closed pages (no guard acquired)
-    KeyValueLeafPage recordPageFromBuffer = resourceBufferManager.getRecordPageCache().getAndGuard(pageReferenceToRecordPage);
+    // CRITICAL FIX: Use compute() to atomically load page, preventing concurrent fragment loading deadlocks
+    // Problem: When multiple transactions have cache miss on same page, they ALL load fragments concurrently
+    // This causes deadlocks when acquiring guards on fragments in different orders
+    // Solution: Use compute() to ensure only ONE thread loads fragments while others wait
     
-    if (recordPageFromBuffer == null) {
-      // Cache miss - load outside of compute
-      var kvPage = (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(pageReferenceToRecordPage);
+    KeyValueLeafPage page = resourceBufferManager.getRecordPageCache().asMap().compute(pageReferenceToRecordPage, (ref, existing) -> {
+      if (existing != null && !existing.isClosed()) {
+        // Cache HIT - mark accessed
+        existing.markAccessed();
+        
+        if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
+          LOGGER.debug("[PATH_SUMMARY-CACHE-LOOKUP]   -> Cache HIT: pageKey={}, revision={}",
+                       existing.getPageKey(),
+                       existing.getRevision());
+        }
+        return existing;
+      }
       
-      if (kvPage != null) {
+      // Cache MISS - load fragments and combine  
+      // NOTE: Fragment guards are acquired during load and released in finally block
+      // We don't acquire a guard on the combined page here - that's done outside compute()
+      KeyValueLeafPage loadedPage = (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(ref);
+      
+      if (loadedPage != null) {
         if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
           LOGGER.debug("[PATH_SUMMARY-CACHE-LOOKUP]   -> Loaded from disk: pageKey={}, revision={}",
-                       kvPage.getPageKey(), kvPage.getRevision());
+                       loadedPage.getPageKey(),
+                       loadedPage.getRevision());
         }
-        
-        // Try to install in cache (putIfAbsent handles race)
-        resourceBufferManager.getRecordPageCache().putIfAbsent(pageReferenceToRecordPage, kvPage);
-        
-        // ATOMIC: Get from cache with guard acquired
-        recordPageFromBuffer = resourceBufferManager.getRecordPageCache().getAndGuard(pageReferenceToRecordPage);
-        if (recordPageFromBuffer == null) {
-          // Another thread removed it - use our loaded page and acquire guard manually
-          kvPage.acquireGuard();
-          recordPageFromBuffer = kvPage;
-        } else if (recordPageFromBuffer != kvPage) {
-          // CRITICAL: Another thread won the race and added a different page instance
-          // Our kvPage is orphaned - close it to prevent leak
-          if (!kvPage.isClosed()) {
-            kvPage.close();
-          }
-        }
-        
-        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageFromBuffer.getPageKey() == 0) {
-          LOGGER.debug("Page 0 added to RecordPageCache: {} rev={} instance={}",
-                       recordPageFromBuffer.getIndexType(),
-                       recordPageFromBuffer.getRevision(),
-                       " PageRef(key=" + pageReferenceToRecordPage.getKey() + ", logKey="
-                           + pageReferenceToRecordPage.getLogKey() + ", db="
-                           + pageReferenceToRecordPage.getDatabaseId() + ", res="
-                           + pageReferenceToRecordPage.getResourceId() + ")"
-                           + " (instance=" + System.identityHashCode(recordPageFromBuffer) + ")");
-        }
-      }
-    } else {
-      if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
-        LOGGER.debug("[PATH_SUMMARY-CACHE-LOOKUP]   -> Cache HIT: pageKey={}, revision={}",
-                     recordPageFromBuffer.getPageKey(), recordPageFromBuffer.getRevision());
-      }
-    }
 
-    if (recordPageFromBuffer != null) {
-      pageReferenceToRecordPage.setPage(recordPageFromBuffer);
-      assert !recordPageFromBuffer.isClosed();
-      
-      // Single-guard: Wrap the already-guarded page (guard was acquired by getAndGuard())
-      if (currentPageGuard == null || currentPageGuard.page() != recordPageFromBuffer) {
-        closeCurrentPageGuard();
-        currentPageGuard = PageGuard.fromAcquired(recordPageFromBuffer);
-      } else {
-        // Same page as current guard - release the extra guard we just acquired
-        recordPageFromBuffer.releaseGuard();
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && loadedPage.getPageKey() == 0) {
+          LOGGER.debug("Page 0 added to RecordPageCache: {} rev={} instance={}",
+                       loadedPage.getIndexType(),
+                       loadedPage.getRevision(),
+                       " PageRef(key=" + ref.getKey() + ", logKey="
+                           + ref.getLogKey() + ", db=" + ref.getDatabaseId()
+                           + ", res=" + ref.getResourceId() + ")" + " (instance="
+                           + System.identityHashCode(loadedPage) + ")");
+        }
+        
+        loadedPage.markAccessed();
       }
-      
-      return recordPageFromBuffer;
+      return loadedPage;
+    });
+
+    if (page != null) {
+      pageReferenceToRecordPage.setPage(page);
+      assert !page.isClosed();
+
+      // PageGuard will acquire the guard - no need to do it manually
+      closeCurrentPageGuard();
+      currentPageGuard = new PageGuard(page);
+
+      return page;
     }
 
     return null;
@@ -864,12 +810,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       KeyValueLeafPage recordPage) {
     // Single-guard: Guard is already managed by caller (getFromBufferManager/getInMemoryPageInstance)
     // No additional guard management needed here
-    
+
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
       if (pathSummaryRecordPage != null) {
         if (DEBUG_PATH_SUMMARY && recordPage != null) {
-          LOGGER.debug("[PATH_SUMMARY-REPLACE] Replacing old pathSummaryRecordPage: oldPageKey={}, newPageKey={}, trxIntentLog={}",
-                       pathSummaryRecordPage.page.getPageKey(), recordPage.getPageKey(), (trxIntentLog != null));
+          LOGGER.debug(
+              "[PATH_SUMMARY-REPLACE] Replacing old pathSummaryRecordPage: oldPageKey={}, newPageKey={}, trxIntentLog={}",
+              pathSummaryRecordPage.page.getPageKey(),
+              recordPage.getPageKey(),
+              (trxIntentLog != null));
         }
 
         if (trxIntentLog == null) {
@@ -890,7 +839,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           if (!pathSummaryRecordPage.page.isClosed()) {
             if (DEBUG_PATH_SUMMARY) {
               LOGGER.debug("[PATH_SUMMARY-REPLACE]   -> Write trx: Closing bypassed page pageKey={}, revision={}",
-                           pathSummaryRecordPage.page.getPageKey(), pathSummaryRecordPage.page.getRevision());
+                           pathSummaryRecordPage.page.getPageKey(),
+                           pathSummaryRecordPage.page.getRevision());
             }
             pathSummaryRecordPage.page.close();
           }
@@ -934,6 +884,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     // Fragments already guarded by getPageFragments() - no need to guard again
     try {
+      // CRITICAL FIX: Close old swizzled page before replacing with combined page
+      // Combined pages created by combineRecordPages() are NEW instances that bypass cache
+      // If we don't close the old swizzled page, it becomes a ghost page that leaks
+      Page oldSwizzledPage = pageReferenceToRecordPage.getPage();
+      if (oldSwizzledPage instanceof KeyValueLeafPage oldKvp && !oldKvp.isClosed()) {
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && oldKvp.getPageKey() == 0) {
+          LOGGER.debug("[COMBINE] Closing old swizzled Page 0 before combining: " + oldKvp.getIndexType() 
+                       + " rev=" + oldKvp.getRevision() + " instance=" + System.identityHashCode(oldKvp));
+        }
+        oldKvp.close();
+      }
+      
       final Page completePage = versioningApproach.combineRecordPages(result.pages(), maxRevisionsToRestore, this);
       pageReferenceToRecordPage.setPage(completePage);
       assert !completePage.isClosed();
@@ -949,113 +911,52 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
       return completePage;
     } finally {
-      // Release guard on first fragment (only the first fragment has a guard from getAndGuard)
-      // Subsequent fragments from getPreviousPageFragments() don't have guards
-      if (!result.pages().isEmpty()) {
-        ((KeyValueLeafPage) result.pages().get(0)).releaseGuard();
+      // Release guards on ALL fragments after combining
+      // All fragments were guarded during combining to prevent ClockSweeper eviction
+      // Now that combining is complete, release guards to allow cache management
+      
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.debug("[FINALLY] Releasing guards on {} fragments", result.pages().size());
       }
       
-      // Close orphaned fragments (not in cache after combining)
-      closeOrphanedFragments(pageReferenceToRecordPage,
-                            result.pages(),
-                            result.originalKeys(),
-                            result.storageKeyForFirstFragment());
-    }
-  }
-
-  /**
-   * Close fragment pages that are not in cache after page combining.
-   * 
-   * After combining fragments into a complete page, the fragment pages may have been
-   * evicted from cache. If so, we must close them explicitly to prevent leaks.
-   */
-  public void closeOrphanedFragments(PageReference pageReference, List<KeyValuePage<DataRecord>> pages,
-      List<PageFragmentKey> originalPageFragmentKeys, long storageKeyForFirstFragment) {
-    if (pages.isEmpty()) {
-      return;
-    }
-
-    // DIAGNOSTIC: Check for duplicate instances in pages list
-    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      var instanceCounts = new java.util.HashMap<Integer, Integer>();
-      for (var page : pages) {
-        if (((KeyValueLeafPage) page).getPageKey() == 0) {
-          int hash = System.identityHashCode(page);
-          instanceCounts.merge(hash, 1, Integer::sum);
-        }
-      }
-      for (var entry : instanceCounts.entrySet()) {
-        if (entry.getValue() > 1) {
-          LOGGER.debug("WARNING: Fragment instance " + entry.getKey() + " appears " + entry.getValue()
-                           + " times in pages list!");
-        }
-      }
-    }
-
-    LOGGER.debug("closeOrphanedFragments: " + pages.size() + " fragments, trxIntentLog=" + (trxIntentLog != null));
-
-    // Track which unique page instances we've processed to avoid duplicates
-    var processedPages = new java.util.HashSet<KeyValueLeafPage>();
-
-    var mostRecentPageFragment = (KeyValueLeafPage) pages.getFirst();
-
-    final var fragmentRef0 =
-        new PageReference().setKey(storageKeyForFirstFragment).setDatabaseId(databaseId).setResourceId(resourceId);
-
-    var existing = resourceBufferManager.getRecordPageFragmentCache().get(fragmentRef0);
-    if (existing != null && existing == mostRecentPageFragment) {
-      // Fragment still in cache - cache will close it on eviction
-      // No action needed
-    } else {
-      // Fragment not in cache - close it explicitly to prevent leak
-      // It was either: (a) evicted and closed by removalListener (close is idempotent), OR
-      //                (b) never added to cache (needs closing now)
-      mostRecentPageFragment.close();
-    }
-    
-    LOGGER.debug("  Fragment 0 processed");
-
-    // Cache older fragments using their ORIGINAL storage keys (file offsets)
-    for (int i = 1; i < pages.size(); i++) {
-      var pageFragment = (KeyValueLeafPage) pages.get(i);
-
-      // DIAGNOSTIC
-      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && pageFragment.getPageKey() == 0) {
-        LOGGER.debug(
-            "  Older fragment " + i + ": Page 0 " + pageFragment.getIndexType() + " rev=" + pageFragment.getRevision()
-                + " instance=" + System.identityHashCode(pageFragment)
-                + " hasOriginalKey=" + (i - 1 < originalPageFragmentKeys.size()));
-      }
-
-      // Process each unique page instance once
-      if (processedPages.add(pageFragment)) {
-        // Check if in cache
-        if (i - 1 < originalPageFragmentKeys.size()) {
-          var originalFragmentKey = originalPageFragmentKeys.get(i - 1);
-          final var olderFragmentRef =
-              new PageReference().setKey(originalFragmentKey.key()).setDatabaseId(databaseId).setResourceId(resourceId);
-
-          var existingOlder = resourceBufferManager.getRecordPageFragmentCache().get(olderFragmentRef);
-          if (existingOlder != null && existingOlder == pageFragment) {
-            // Fragment still in cache - cache will close it on eviction
-            // No action needed
-          } else {
-            // Fragment not in cache - close it explicitly
-            // It was either: (a) evicted and closed by removalListener (close is idempotent), OR
-            //                (b) never added to cache (needs closing now)
-            pageFragment.close();
-          }
-        } else {
-          // No original key - never cached, close explicitly
-          pageFragment.close();
+      for (int i = 0; i < result.pages().size(); i++) {
+        KeyValuePage<DataRecord> fragment = result.pages().get(i);
+        KeyValueLeafPage kvPage = (KeyValueLeafPage) fragment;
+        
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
+          LOGGER.debug("[FINALLY] Fragment {}: {} rev={} guardCount={} BEFORE release",
+              i, kvPage.getIndexType(), kvPage.getRevision(), kvPage.getGuardCount());
         }
         
-        LOGGER.debug("  Fragment " + i + " processed (rev=" + pageFragment.getRevision() + ")");
-      } else {
-        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && pageFragment.getPageKey() == 0) {
-          LOGGER.debug("  Fragment " + i + " SKIPPED (already processed this instance)");
+        kvPage.releaseGuard();
+        
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
+          LOGGER.debug("[FINALLY] Fragment {}: {} rev={} guardCount={} AFTER release",
+              i, kvPage.getIndexType(), kvPage.getRevision(), kvPage.getGuardCount());
         }
+        
+        assert kvPage.getGuardCount() == 0 : 
+            "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
       }
+      
+      // Note: We do NOT close fragments here. They remain in cache for potential reuse
+      // by other transactions. ClockSweeper will evict/close them based on:
+      // - Memory pressure (weight-based eviction)
+      // - Access patterns (hot bit / second-chance algorithm)  
+      // - Revision watermarks (can't evict if active readers need them)
+      
+      // DIAGNOSTIC: Verify all fragment guards were properly released
+      // Debug logging disabled - too verbose for production
+      // if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      //   for (int i = 0; i < result.pages().size(); i++) {
+      //     KeyValuePage<DataRecord> fragment = result.pages().get(i);
+      //     KeyValueLeafPage kvPage = (KeyValueLeafPage) fragment;
+      //     if (kvPage.getPageKey() == 0) {
+      //       LOGGER.debug("[POST-FINALLY] Fragment {}: {} rev={} instance={} guardCount={} (should be 0)",
+      //           i, kvPage.getIndexType(), kvPage.getRevision(), System.identityHashCode(kvPage), kvPage.getGuardCount());
+      //     }
+      //   }
+      // }
     }
   }
 
@@ -1071,22 +972,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         var kvLeafPage = ((KeyValueLeafPage) page);
         if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
           LOGGER.debug("[PATH_SUMMARY-SWIZZLED] Found swizzled page: pageKey={}, revision={}",
-                       kvLeafPage.getPageKey(), kvLeafPage.getRevision());
+                       kvLeafPage.getPageKey(),
+                       kvLeafPage.getRevision());
         }
-        
+
         // Fast path: Use swizzled page directly if still valid
         // Swizzled pages are already in memory - just need to acquire guard
         if (!kvLeafPage.isClosed()) {
-          kvLeafPage.acquireGuard();
-          
-          // Single-guard: Replace current guard
-          if (currentPageGuard == null || currentPageGuard.page() != kvLeafPage) {
-            closeCurrentPageGuard();
-            currentPageGuard = PageGuard.fromAcquired(kvLeafPage);
-          } else {
-            // Already guarding this page - release extra
-            kvLeafPage.releaseGuard();
-          }
+          closeCurrentPageGuard();
+          currentPageGuard = new PageGuard(kvLeafPage);
         } else {
           // Swizzled page was closed - need to reload
           pageReferenceToRecordPage.setPage(null);  // Clear stale swizzled reference
@@ -1138,38 +1032,27 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final var pageReferenceWithKey =
         new PageReference().setKey(originalStorageKey).setDatabaseId(databaseId).setResourceId(resourceId);
 
-    // CRITICAL: Use atomic getAndGuard() to prevent race with ClockSweeper
-    // Note: getAndGuard() returns null for closed pages (no guard acquired)
-    KeyValuePage<DataRecord> page = resourceBufferManager.getRecordPageFragmentCache().getAndGuard(pageReferenceWithKey);
+    // Get from cache or load - cache handles race conditions atomically
+    KeyValueLeafPage page = resourceBufferManager.getRecordPageFragmentCache()
+        .get(pageReferenceWithKey, (key, existing) -> {
+          if (existing != null && !existing.isClosed()) {
+            // Cache hit - return existing page
+            return existing;
+          }
+          // Cache miss - load from disk and cache will store it
+          KeyValueLeafPage loadedPage = (KeyValueLeafPage) pageReader.read(key, resourceSession.getResourceConfig());
+          
+          if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && loadedPage.getPageKey() == 0) {
+            LOGGER.debug("FRAGMENT Page 0 loaded and cached: " + loadedPage.getIndexType() + " rev=" + loadedPage.getRevision() 
+                         + " instance=" + System.identityHashCode(loadedPage));
+          }
+          
+          return loadedPage;
+        });
     
-    if (page == null) {
-      // Cache miss - load from disk
-      var kvPage = (KeyValueLeafPage) pageReader.read(pageReferenceWithKey, resourceSession.getResourceConfig());
-      
-      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
-        LOGGER.debug("FRAGMENT Page 0 loaded: " + kvPage.getIndexType() + " rev=" + kvPage.getRevision() + " (instance="
-                         + System.identityHashCode(kvPage) + ", fromCache=false)");
-      }
-      
-      // Add to cache
-      resourceBufferManager.getRecordPageFragmentCache().putIfAbsent(pageReferenceWithKey, kvPage);
-      
-      // ATOMIC: Get from cache with guard acquired
-      page = resourceBufferManager.getRecordPageFragmentCache().getAndGuard(pageReferenceWithKey);
-      if (page == null) {
-        // Another thread removed it - use our loaded page and acquire guard manually
-        kvPage.acquireGuard();
-        page = kvPage;
-      } else if (page != kvPage) {
-        // CRITICAL: Another thread added a different page instance
-        // Our kvPage is orphaned - close it to prevent leak
-        if (!kvPage.isClosed()) {
-          kvPage.close();
-        }
-        // Use the cached page (guard already acquired by getAndGuard)
-      }
-    }
-    
+    // Acquire guard for this transaction
+    page.acquireGuard();
+
     assert !page.isClosed();
     pages.add(page);
 
@@ -1198,51 +1081,39 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final var pageReference =
         new PageReference().setKey(pageFragmentKey.key()).setDatabaseId(databaseId).setResourceId(resourceId);
 
-    // CRITICAL: Check cache with compute to get atomic cache hit handling
-    final var pageFromCache =
-        resourceBufferManager.getRecordPageFragmentCache().get(pageReference, (key, existingPage) -> {
-          if (existingPage != null && !existingPage.isClosed()) {
-            // Cache HIT
-            assert pageFragmentKey.revision() == existingPage.getRevision() :
-                "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + existingPage.getRevision();
-            return existingPage;
-          }
-          // Cache MISS: Return null, we'll load async below
-          return null;
-        });
+    // Try to get from cache with guard
+    KeyValueLeafPage pageFromCache = resourceBufferManager.getRecordPageFragmentCache().getAndGuard(pageReference);
 
     if (pageFromCache != null) {
+      assert pageFragmentKey.revision() == pageFromCache.getRevision() :
+          "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + pageFromCache.getRevision();
       return CompletableFuture.completedFuture(pageFromCache);
     }
 
-    // Cache miss - load async and add to cache when complete
+    // Cache miss - load async, let cache handle storage, then acquire guard
     final var reader = resourceSession.createReader();
-    return (CompletableFuture<KeyValuePage<DataRecord>>) reader.readAsync(pageReference,
-                                                                          resourceSession.getResourceConfig())
-                                                               .whenComplete((page, _) -> {
-                                                                 reader.close();
-                                                                 assert pageFragmentKey.revision()
-                                                                     == ((KeyValuePage<DataRecord>) page).getRevision() :
-                                                                     "Revision mismatch: key="
-                                                                         + pageFragmentKey.revision() + ", page="
-                                                                         + ((KeyValuePage<DataRecord>) page).getRevision();
-                                                                 // Add to cache using compute to handle race conditions
-                                                                 resourceBufferManager.getRecordPageFragmentCache()
-                                                                                      .get(pageReference,
-                                                                                           (key, existingPage) -> {
-                                                                                             if (existingPage != null
-                                                                                                 && !existingPage.isClosed()) {
-                                                                                               // Another thread loaded it - use existing
-                                                                                               return existingPage;
-                                                                                             }
-                                                                                             // We're first - cache our loaded page
-                                                                                             return (KeyValueLeafPage) page;
-                                                                                           });
-                                                               });
+    return reader.readAsync(pageReference, resourceSession.getResourceConfig())
+                 .thenApply(page -> {
+                   reader.close();
+                   assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) page).getRevision() :
+                       "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + ((KeyValuePage<DataRecord>) page).getRevision();
+                   
+                   // Get or store in cache atomically
+                   KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageFragmentCache()
+                       .get(pageReference, (key, existing) -> {
+                         if (existing != null && !existing.isClosed()) {
+                           return existing;  // Another thread cached it
+                         }
+                         return (KeyValueLeafPage) page;  // Cache our loaded page
+                       });
+                   
+                   // Acquire guard for this transaction
+                   cachedPage.acquireGuard();
+                   return (KeyValuePage<DataRecord>) cachedPage;
+                 });
   }
 
-  static <T> CompletableFuture<List<T>> sequence(
-      List<CompletableFuture<T>> listOfCompletableFutures) {
+  static <T> CompletableFuture<List<T>> sequence(List<CompletableFuture<T>> listOfCompletableFutures) {
     return CompletableFuture.allOf(listOfCompletableFutures.toArray(new CompletableFuture[0]))
                             .thenApply(_ -> listOfCompletableFutures.stream()
                                                                     .map(CompletableFuture::join)
@@ -1384,7 +1255,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   /**
    * Close the current page guard if one is active.
    * Should be called before fetching a different page or when transaction closes.
-   * 
+   * <p>
    * Package-private to allow NodeStorageEngineWriter to release guards before TIL operations.
    */
   void closeCurrentPageGuard() {
@@ -1398,7 +1269,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       currentPageGuard = null;
     }
   }
-  
+
   /**
    * Get the page that the current page guard is protecting.
    * Used by NodeStorageEngineWriter for acquiring additional guards on the current page.
@@ -1414,10 +1285,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (!isClosed) {
       // Close current page guard
       closeCurrentPageGuard();
-      
+
       // Deregister from epoch tracker (allow eviction of pages from this revision)
       resourceSession.getRevisionEpochTracker().deregister(epochTicket);
-      
+
       if (trxIntentLog == null) {
         pageReader.close();
       }

@@ -161,12 +161,38 @@ public final class ClockSweeper implements Runnable {
           // ATOMIC EVICTION: Evict within compute() while holding per-key lock
           try {
             page.incrementVersion();
-            page.reset(); // Clear data, keep MemorySegments
-            
-            // Optionally release physical memory via madvise
-            // (allocator.reset() would do this)
-            
             ref.setPage(null);
+            
+            // CRITICAL: Close the page to release resources and return segments to allocator
+            // This must be done AFTER removing from cache to ensure no other thread sees a closed page in cache
+            if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+              LOGGER.debug("ClockSweeper[{}] evicting Page 0: {} rev={} instance={} guardCount={} before close",
+                  shardIndex, page.getIndexType(), page.getRevision(), System.identityHashCode(page), page.getGuardCount());
+            }
+            
+            page.close();
+            
+            // CRITICAL FIX: Verify page was actually closed
+            // If close() returned early due to guards acquired after our check, keep page in cache
+            boolean actuallyClosedPage = page.isClosed();
+            
+            if (!actuallyClosedPage) {
+              // RACE DETECTED: Another thread acquired guard between our check and close()
+              // close() returned early, but we're about to remove from cache - this would leak!
+              // Solution: Keep page in cache and skip this eviction cycle
+              if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+                LOGGER.debug("ClockSweeper[{}] RACE DETECTED: Page 0 {} rev={} instance={} guardCount={} - NOT closed, keeping in cache",
+                    shardIndex, page.getIndexType(), page.getRevision(), System.identityHashCode(page), page.getGuardCount());
+              }
+              pagesSkippedByGuard.incrementAndGet();
+              return page; // Keep in cache - another thread is using it
+            }
+            
+            if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+              LOGGER.debug("ClockSweeper[{}] evicted Page 0: {} rev={} instance={} closed={}",
+                  shardIndex, page.getIndexType(), page.getRevision(), System.identityHashCode(page), actuallyClosedPage);
+            }
+            
             pagesEvicted.incrementAndGet();
             
             if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && pagesEvicted.get() % 100 == 0) {
@@ -175,7 +201,7 @@ public final class ClockSweeper implements Runnable {
                   pagesSkippedByWatermark.get(), pagesSkippedByGuard.get());
             }
             
-            return null; // Remove from cache
+            return null; // Remove from cache - page was successfully closed
           } catch (Exception e) {
             LOGGER.error("ClockSweeper[{}] failed to evict page {}", shardIndex, page.getPageKey(), e);
             return page; // Keep in cache on error

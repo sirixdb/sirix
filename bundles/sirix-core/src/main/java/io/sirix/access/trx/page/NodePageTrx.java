@@ -809,16 +809,18 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
     final VersioningType versioningType = pageRtx.resourceSession.getResourceConfig().versioningType;
     final int mileStoneRevision = pageRtx.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
     
-    // Fragments already guarded by getPageFragments() - no need to guard again
+    // All fragments are guarded by getPageFragments() to prevent eviction during combining
     try {
       return versioningType.combineRecordPagesForModification(result.pages(), mileStoneRevision, this, reference, log);
     } finally {
-      // Release fragment guards (acquired in getPageFragments)
+      // Release guards on ALL fragments after combining
       for (var page : result.pages()) {
-        ((io.sirix.page.KeyValueLeafPage) page).releaseGuard();
+        io.sirix.page.KeyValueLeafPage kvPage = (io.sirix.page.KeyValueLeafPage) page;
+        kvPage.releaseGuard();
+        assert kvPage.getGuardCount() == 0 : 
+            "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
       }
-      
-      pageRtx.closeOrphanedFragments(reference, result.pages(), result.originalKeys(), result.storageKeyForFirstFragment());
+      // Note: Fragments remain in cache for potential reuse. ClockSweeper will evict them when appropriate.
     }
   }
 

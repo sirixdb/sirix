@@ -141,9 +141,9 @@ public final class BufferManagerImpl implements BufferManager {
   
   /**
    * Stop all global ClockSweeper threads.
-   * Called when BufferManager is shut down (last database closes).
+   * Called when BufferManager is shut down (last database closes) or when clearing all caches.
    */
-  private synchronized void stopClockSweepers() {
+  public synchronized void stopClockSweepers() {
     for (ClockSweeper sweeper : clockSweepers) {
       sweeper.stop();
     }
@@ -177,16 +177,16 @@ public final class BufferManagerImpl implements BufferManager {
 
   @Override
   public void clearAllCaches() {
-    // TODO: Update after implementing guard-based system
-    // Clear all caches - removal listeners will handle page cleanup
-    
     if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
       LOGGER.debug("clearAllCaches(): RecordCache={}, FragmentCache={}, PageCache={}", 
           recordPageCache.asMap().size(), recordPageFragmentCache.asMap().size(), 
           pageCache.asMap().size());
     }
     
-    // Just clear the caches - removal listener will close pages
+    // Clear all caches synchronously - ShardedPageCache.clear() will close all pages
+    // NOTE: We do NOT stop ClockSweeper here! It continues running like PostgreSQL bgwriter.
+    // The clear() operations are synchronous and will close pages immediately.
+    // ClockSweeper will handle future evictions as new pages are loaded.
     pageCache.clear();
     recordPageCache.clear();
     recordPageFragmentCache.clear();
@@ -194,6 +194,10 @@ public final class BufferManagerImpl implements BufferManager {
     redBlackTreeNodeCache.clear();
     namesCache.clear();
     pathSummaryCache.clear();
+    
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("clearAllCaches(): all caches cleared");
+    }
   }
   
   @Override
@@ -207,7 +211,7 @@ public final class BufferManagerImpl implements BufferManager {
     int removedFromPageCache = 0;
     int removedFromRevisionCache = 0;
     
-    // Clear RecordPageCache - collect keys then remove atomically
+    // Clear RecordPageCache - close pages BEFORE removing from cache
     var recordKeysToRemove = new java.util.ArrayList<PageReference>();
     for (var entry : recordPageCache.asMap().entrySet()) {
       if (entry.getKey().getDatabaseId() == databaseId) {
@@ -215,11 +219,19 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : recordKeysToRemove) {
+      KeyValueLeafPage page = recordPageCache.get(key);
+      if (page != null && !page.isClosed()) {
+        // CRITICAL: Force-release all guards to ensure page can be closed and memory returned
+        while (page.getGuardCount() > 0) {
+          page.releaseGuard();
+        }
+        page.close();  // Close page to release memory segments to allocator
+      }
       recordPageCache.remove(key);
       removedFromRecordCache++;
     }
     
-    // Clear RecordPageFragmentCache
+    // Clear RecordPageFragmentCache - close fragments BEFORE removing from cache
     var fragmentKeysToRemove = new java.util.ArrayList<PageReference>();
     for (var entry : recordPageFragmentCache.asMap().entrySet()) {
       if (entry.getKey().getDatabaseId() == databaseId) {
@@ -227,6 +239,14 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : fragmentKeysToRemove) {
+      KeyValueLeafPage page = recordPageFragmentCache.get(key);
+      if (page != null && !page.isClosed()) {
+        // CRITICAL: Force-release all guards to ensure fragment can be closed and memory returned
+        while (page.getGuardCount() > 0) {
+          page.releaseGuard();
+        }
+        page.close();  // Close fragment to release memory segments to allocator
+      }
       recordPageFragmentCache.remove(key);
       removedFromFragmentCache++;
     }
@@ -272,7 +292,7 @@ public final class BufferManagerImpl implements BufferManager {
     int removedFromPageCache = 0;
     int removedFromRevisionCache = 0;
     
-    // Clear RecordPageCache - collect keys then remove atomically
+    // Clear RecordPageCache - close pages BEFORE removing from cache
     var recordKeysToRemove = new java.util.ArrayList<PageReference>();
     for (var entry : recordPageCache.asMap().entrySet()) {
       var key = entry.getKey();
@@ -281,11 +301,19 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : recordKeysToRemove) {
+      KeyValueLeafPage page = recordPageCache.get(key);
+      if (page != null && !page.isClosed()) {
+        // CRITICAL: Force-release all guards to ensure page can be closed and memory returned
+        while (page.getGuardCount() > 0) {
+          page.releaseGuard();
+        }
+        page.close();  // Close page to release memory segments to allocator
+      }
       recordPageCache.remove(key);
       removedFromRecordCache++;
     }
     
-    // Clear RecordPageFragmentCache
+    // Clear RecordPageFragmentCache - close fragments BEFORE removing from cache
     var fragmentKeysToRemove = new java.util.ArrayList<PageReference>();
     for (var entry : recordPageFragmentCache.asMap().entrySet()) {
       var key = entry.getKey();
@@ -294,6 +322,14 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : fragmentKeysToRemove) {
+      KeyValueLeafPage page = recordPageFragmentCache.get(key);
+      if (page != null && !page.isClosed()) {
+        // CRITICAL: Force-release all guards to ensure fragment can be closed and memory returned
+        while (page.getGuardCount() > 0) {
+          page.releaseGuard();
+        }
+        page.close();  // Close fragment to release memory segments to allocator
+      }
       recordPageFragmentCache.remove(key);
       removedFromFragmentCache++;
     }

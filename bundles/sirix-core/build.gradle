@@ -56,7 +56,6 @@ test {
     jvmArgs = [
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
-        '-Dsirix.debug.memory.leaks=true'
     ]
     // Pass through diagnostic system properties
     systemProperty "sirix.debug.path.summary", System.getProperty("sirix.debug.path.summary", "false")

@@ -115,6 +115,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private final StackTraceElement[] creationStackTrace;
 
   /**
+   * Get the creation stack trace for leak diagnostics.
+   * @return stack trace from constructor, or null if DEBUG_MEMORY_LEAKS disabled
+   */
+  public StackTraceElement[] getCreationStackTrace() {
+    return creationStackTrace;
+  }
+
+  /**
    * The current revision.
    */
   private int revision;
@@ -1270,10 +1278,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * Pages with active guards cannot be evicted.
    */
   public void acquireGuard() {
-    int newCount = guardCount.incrementAndGet();
-    if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-      LOGGER.debug("[GUARD-ACQUIRE] Page 0 ({}) guardCount={}", indexType, newCount);
-    }
+    guardCount.incrementAndGet();
+    // Debug logging disabled - too verbose for production
+    // if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
+    //   LOGGER.debug("[GUARD-ACQUIRE] Page 0 ({}) guardCount={}", indexType, guardCount.get());
+    // }
   }
 
   /**
@@ -1281,9 +1290,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   public void releaseGuard() {
     int newCount = guardCount.decrementAndGet();
-    if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-      LOGGER.debug("[GUARD-RELEASE] Page 0 ({}) guardCount={}", indexType, newCount);
-    }
+    assert newCount >= 0 : "Guard count cannot be negative";
+    // Debug logging disabled - too verbose for production
+    // if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
+    //   LOGGER.debug("[GUARD-RELEASE] Page 0 ({}) guardCount={}", indexType, newCount);
+    // }
   }
 
   /**
@@ -1347,8 +1358,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     bytes = null;
     hashCode = null;
     
-    // Reset guard count (should already be 0, but ensure it)
-    guardCount.set(0);
+    // CRITICAL: Guard count MUST be 0 before reset
+    int currentGuardCount = guardCount.get();
+    if (currentGuardCount != 0) {
+      throw new IllegalStateException(
+          String.format("CRITICAL BUG: reset() called on page with active guards! " +
+              "Page %d (%s) rev=%d guardCount=%d - this will cause guard count corruption!",
+              recordPageKey, indexType, revision, currentGuardCount));
+    }
     hash = 0;
     
     // Clear HOT bit

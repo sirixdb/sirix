@@ -557,17 +557,23 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
    * Print diagnostic information about pool state.
    */
   public void printPoolDiagnostics() {
-    System.out.println("\n========== MEMORY SEGMENT POOL DIAGNOSTICS ==========");
-    for (int i = 0; i < SEGMENT_SIZES.length; i++) {
-      System.out.println(
-          "Pool " + i + " (size " + SEGMENT_SIZES[i] + "): " + poolSizes[i].get() + " segments available");
+    if (!LOGGER.isDebugEnabled()) {
+      return;
     }
-    System.out.println("Physical memory: " + (physicalMemoryBytes.get() / (1024 * 1024)) + " MB / " + 
-                       (maxBufferSize.get() / (1024 * 1024)) + " MB limit");
-    System.out.println("Borrowed segments: " + borrowedSegments.size());
-    System.out.println("Virtual regions: " + virtualRegions.length + " x " + 
-                       (VIRTUAL_REGION_SIZE / (1024 * 1024 * 1024)) + " GB");
-    System.out.println("====================================================\n");
+    
+    LOGGER.debug("\n========== MEMORY SEGMENT POOL DIAGNOSTICS ==========");
+    for (int i = 0; i < SEGMENT_SIZES.length; i++) {
+      LOGGER.debug("Pool {} (size {}): {} segments available", 
+                   i, SEGMENT_SIZES[i], poolSizes[i].get());
+    }
+    LOGGER.debug("Physical memory: {} MB / {} MB limit",
+                 physicalMemoryBytes.get() / (1024 * 1024),
+                 maxBufferSize.get() / (1024 * 1024));
+    LOGGER.debug("Borrowed segments: {}", borrowedSegments.size());
+    LOGGER.debug("Virtual regions: {} x {} GB",
+                 virtualRegions.length,
+                 VIRTUAL_REGION_SIZE / (1024 * 1024 * 1024));
+    LOGGER.debug("====================================================\n");
   }
 
   @Override
@@ -874,10 +880,10 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     allocator.init(1L << 30);
 
     MemorySegment segment4KB = allocator.allocate(4096);
-    System.out.println("Allocated 4KB segment: " + segment4KB);
+    LOGGER.info("Allocated 4KB segment: {}", segment4KB);
 
     MemorySegment segment128KB = allocator.allocate(131072);
-    System.out.println("Allocated 128KB segment: " + segment128KB);
+    LOGGER.info("Allocated 128KB segment: {}", segment128KB);
 
     allocator.release(segment4KB);
     allocator.release(segment128KB);

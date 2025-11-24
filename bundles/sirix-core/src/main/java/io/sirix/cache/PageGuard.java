@@ -52,17 +52,6 @@ public final class PageGuard implements AutoCloseable {
   }
 
   /**
-   * Wrap a page that already has a guard acquired.
-   * Used when page was returned from cache.getAndGuard().
-   *
-   * @param page the page with guard already acquired
-   * @return PageGuard wrapper that will release the pre-acquired guard
-   */
-  public static PageGuard fromAcquired(KeyValueLeafPage page) {
-    return new PageGuard(page, false);
-  }
-
-  /**
    * Get the guarded page.
    *
    * @return the page

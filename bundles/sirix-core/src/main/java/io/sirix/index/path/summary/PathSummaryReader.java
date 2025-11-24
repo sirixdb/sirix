@@ -37,6 +37,8 @@ import it.unimi.dsi.fastutil.longs.LongHash;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import org.checkerframework.checker.index.qual.NonNegative;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.*;
@@ -50,6 +52,8 @@ import static java.util.Objects.requireNonNull;
  */
 @SuppressWarnings({ "unused", "UnusedReturnValue" })
 public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(PathSummaryReader.class);
 
   // DEBUG FLAG: Enable with -Dsirix.debug.path.summary=true
   private static final boolean DEBUG_PATH_SUMMARY = 
@@ -114,9 +118,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
     if (pathSummaryData == null || pageReadTrx.hasTrxIntentLog()) {
       if (DEBUG_PATH_SUMMARY) {
-        System.err.println("[PATH_SUMMARY-INIT] Initializing pathNodeMapping: " +
-                           "hasTrxIntentLog=" + pageReadTrx.hasTrxIntentLog() +
-                           ", revision=" + pageReadTrx.getRevisionNumber());
+        LOGGER.debug("[PATH_SUMMARY-INIT] Initializing pathNodeMapping: hasTrxIntentLog={}, revision={}",
+                     pageReadTrx.hasTrxIntentLog(), pageReadTrx.getRevisionNumber());
       }
       
       currentNode =
@@ -148,8 +151,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         }
 
         if (DEBUG_PATH_SUMMARY) {
-          System.err.println("[PATH_SUMMARY-INIT]   -> Loaded " + nodesLoaded + " nodes into pathNodeMapping, " +
-                             "arraySize=" + pathNodeMapping.length);
+          LOGGER.debug("[PATH_SUMMARY-INIT]   -> Loaded {} nodes into pathNodeMapping, arraySize={}",
+                       nodesLoaded, pathNodeMapping.length);
         }
 
         moveToDocumentRoot();
@@ -163,8 +166,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       }
     } else {
       if (DEBUG_PATH_SUMMARY) {
-        System.err.println("[PATH_SUMMARY-INIT] Using cached pathSummaryData from revision " + 
-                           pageReadTrx.getRevisionNumber());
+        LOGGER.debug("[PATH_SUMMARY-INIT] Using cached pathSummaryData from revision {}",
+                     pageReadTrx.getRevisionNumber());
       }
       currentNode = pathSummaryData.currentNode();
       pathNodeMapping = pathSummaryData.pathNodeMapping();
@@ -204,11 +207,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   // package private, only used in writer to keep the mapping always up-to-date
   void putMapping(final @NonNegative long pathNodeKey, final StructNode node) {
     if (DEBUG_PATH_SUMMARY) {
-      String nodeInfo = "nodeKey=" + pathNodeKey;
       if (node instanceof PathNode pn) {
-        nodeInfo += ", refCount=" + pn.getReferences() + ", level=" + pn.getLevel();
+        LOGGER.debug("[PATH_SUMMARY-PUT-MAPPING] Updating cache: nodeKey={}, refCount={}, level={}",
+                     pathNodeKey, pn.getReferences(), pn.getLevel());
+      } else {
+        LOGGER.debug("[PATH_SUMMARY-PUT-MAPPING] Updating cache: nodeKey={}", pathNodeKey);
       }
-      System.err.println("[PATH_SUMMARY-PUT-MAPPING] Updating cache: " + nodeInfo);
     }
     
     if (pathNodeKey >= pathNodeMapping.length) {
@@ -445,22 +449,21 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
       if (node != null) {
         if (DEBUG_PATH_SUMMARY) {
-          System.err.println("[PATH_SUMMARY-MOVETO] Found in pathNodeMapping: nodeKey=" + nodeKey);
+          LOGGER.debug("[PATH_SUMMARY-MOVETO] Found in pathNodeMapping: nodeKey={}", nodeKey);
         }
         currentNode = node;
         return true;
       } else {
         if (DEBUG_PATH_SUMMARY) {
-          System.err.println("[PATH_SUMMARY-MOVETO] NOT in pathNodeMapping: nodeKey=" + nodeKey +
-                             ", arrayLength=" + pathNodeMapping.length +
-                             ", init=" + init);
+          LOGGER.debug("[PATH_SUMMARY-MOVETO] NOT in pathNodeMapping: nodeKey={}, arrayLength={}, init={}",
+                       nodeKey, pathNodeMapping.length, init);
         }
         return false;
       }
     }
 
     if (DEBUG_PATH_SUMMARY) {
-      System.err.println("[PATH_SUMMARY-MOVETO] Loading from page (init=" + init + "): nodeKey=" + nodeKey);
+      LOGGER.debug("[PATH_SUMMARY-MOVETO] Loading from page (init={}): nodeKey={}", init, nodeKey);
     }
 
     // Remember old node and fetch new one.
@@ -474,17 +477,18 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
     if (newNode == null) {
       if (DEBUG_PATH_SUMMARY) {
-        System.err.println("[PATH_SUMMARY-MOVETO]   -> Failed to load from page: nodeKey=" + nodeKey);
+        LOGGER.debug("[PATH_SUMMARY-MOVETO]   -> Failed to load from page: nodeKey={}", nodeKey);
       }
       currentNode = oldNode;
       return false;
     } else {
       if (DEBUG_PATH_SUMMARY) {
-        String nodeInfo = "nodeKey=" + nodeKey;
         if (newNode instanceof PathNode pn) {
-          nodeInfo += ", refCount=" + pn.getReferences() + ", level=" + pn.getLevel();
+          LOGGER.debug("[PATH_SUMMARY-MOVETO]   -> Loaded from page: nodeKey={}, refCount={}, level={}",
+                       nodeKey, pn.getReferences(), pn.getLevel());
+        } else {
+          LOGGER.debug("[PATH_SUMMARY-MOVETO]   -> Loaded from page: nodeKey={}", nodeKey);
         }
-        System.err.println("[PATH_SUMMARY-MOVETO]   -> Loaded from page: " + nodeInfo);
       }
       currentNode = newNode;
       return true;

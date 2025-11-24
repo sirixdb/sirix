@@ -102,10 +102,41 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       KeyValueLeafPage newPage = mappingFunction.apply(k, existingValue);
       if (newPage != null && !newPage.isClosed()) {
         newPage.markAccessed(); // Set HOT bit for newly loaded page
+        
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && newPage.getPageKey() == 0) {
+          LOGGER.debug("[CACHE-COMPUTE] Page 0 computed and caching: {} rev={} instance={} guardCount={}",
+              newPage.getIndexType(), newPage.getRevision(), System.identityHashCode(newPage), newPage.getGuardCount());
+        }
       }
       return newPage;
     });
+    
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page != null && page.getPageKey() == 0) {
+      // Verify it's actually in cache
+      KeyValueLeafPage cached = map.get(key);
+      boolean inCache = (cached == page);
+      LOGGER.debug("[CACHE-VERIFY] Page 0 after compute: {} rev={} instance={} inCache={} cachedInstance={}",
+          page.getIndexType(), page.getRevision(), System.identityHashCode(page), inCache,
+          cached != null ? System.identityHashCode(cached) : "null");
+    }
+    
     return page;
+  }
+
+  @Override
+  public KeyValueLeafPage getAndGuard(PageReference key) {
+    // ATOMIC: Get page and acquire guard atomically using compute()
+    // This prevents race where ClockSweeper evicts between get() and acquireGuard()
+    return map.compute(key, (k, existingValue) -> {
+      if (existingValue != null && !existingValue.isClosed()) {
+        // ATOMIC: mark accessed AND acquire guard while holding map lock for this key
+        existingValue.markAccessed();
+        existingValue.acquireGuard();
+        return existingValue;
+      }
+      // Not in cache or closed - return null
+      return null;
+    });
   }
 
   @Override
@@ -113,7 +144,7 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
     if (value == null) {
       throw new NullPointerException("Cannot cache null page");
     }
-    
+
     value.markAccessed(); // Set HOT bit BEFORE inserting to ensure it's marked
     map.put(key, value);
   }
@@ -125,7 +156,17 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
     }
     
     value.markAccessed(); // Set HOT bit BEFORE attempting insert
-    map.putIfAbsent(key, value);
+    KeyValueLeafPage existing = map.putIfAbsent(key, value);
+    
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && value.getPageKey() == 0) {
+      if (existing == null) {
+        LOGGER.debug("[CACHE-ADD] Page 0 added to cache: {} rev={} instance={} guardCount={}",
+            value.getIndexType(), value.getRevision(), System.identityHashCode(value), value.getGuardCount());
+      } else {
+        LOGGER.debug("[CACHE-SKIP] Page 0 NOT added (already exists): {} rev={} newInstance={} existingInstance={}",
+            value.getIndexType(), value.getRevision(), System.identityHashCode(value), System.identityHashCode(existing));
+      }
+    }
     // If a value already exists, our value wasn't inserted (another thread won the race)
     // but marking it hot is still harmless
   }
@@ -137,13 +178,61 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       // CRITICAL: Iterate over snapshot to avoid concurrent modification during iteration
       java.util.List<KeyValueLeafPage> snapshot = new java.util.ArrayList<>(map.values());
       
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.debug("ShardedPageCache.clear(): {} pages in snapshot", snapshot.size());
+      }
+      
+      int closedCount = 0;
+      int guardedCount = 0;
+      int alreadyClosedCount = 0;
+      
       // Try to close all pages
       // Note: close() is synchronized and checks guardCount internally
       // Guarded pages will NOT be closed (close() returns early if guardCount > 0)
       for (KeyValueLeafPage page : snapshot) {
-        if (!page.isClosed()) {
-          page.close(); // Skips if guarded
+        boolean wasClosedBefore = page.isClosed();
+        int guardCount = page.getGuardCount();
+        
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+          LOGGER.debug("  ShardedPageCache.clear(): Page 0 ({}) rev={} instance={} guardCount={} closed={}",
+              page.getIndexType(), page.getRevision(), System.identityHashCode(page), 
+              guardCount, wasClosedBefore);
         }
+        
+        if (wasClosedBefore) {
+          alreadyClosedCount++;
+          continue;
+        }
+        
+        // CRITICAL: Force-release all guards before closing to ensure memory segments are returned
+        // Guards prevent eviction during normal operation, but during cache clear we MUST reclaim memory
+        while (page.getGuardCount() > 0) {
+          page.releaseGuard();
+        }
+        
+        // Attempt to close
+        page.close();
+        
+        boolean closedNow = page.isClosed();
+        if (closedNow) {
+          closedCount++;
+          if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+            if (guardCount > 0) {
+              LOGGER.debug("  ShardedPageCache.clear(): Page 0 closed (force-released {} guards)", guardCount);
+            } else {
+              LOGGER.debug("  ShardedPageCache.clear(): Page 0 closed successfully");
+            }
+          }
+        } else {
+          guardedCount++;
+          LOGGER.error("  ShardedPageCache.clear(): Page {} ({}) rev={} instance={} FAILED to close even after force-releasing {} guards!",
+              page.getPageKey(), page.getIndexType(), page.getRevision(), System.identityHashCode(page), guardCount);
+        }
+      }
+      
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        LOGGER.debug("ShardedPageCache.clear(): closed={}, guarded={}, alreadyClosed={}", 
+            closedCount, guardedCount, alreadyClosedCount);
       }
       
       // Clear the map
@@ -160,10 +249,19 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   @Override
   public void remove(PageReference key) {
     KeyValueLeafPage page = map.remove(key);
-    if (page != null && !page.isClosed()) {
-      // close() is synchronized and idempotent
-      page.close();
+    
+    // DIAGNOSTIC: Track when Page 0s are removed from cache
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page != null && page.getPageKey() == 0) {
+      StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+      String caller = stack.length > 2 ? stack[2].getMethodName() : "unknown";
+      LOGGER.warn("[CACHE-REMOVE] Page 0 ({}) rev={} instance={} guardCount={} closed={} - removed by {} WITHOUT closing (intentional for TIL)",
+          page.getIndexType(), page.getRevision(), System.identityHashCode(page), 
+          page.getGuardCount(), page.isClosed(), caller);
     }
+    
+    // NOTE: We do NOT close pages here by design
+    // This method is called when pages are moved to TransactionIntentLog (TIL takes ownership)
+    // TIL will close the pages when the transaction commits/aborts
   }
 
   @Override
@@ -200,28 +298,6 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
     clear();
   }
 
-  /**
-   * Get a page and atomically acquire a guard on it.
-   * This prevents the race where ClockSweeper evicts a page between
-   * cache lookup and guard acquisition.
-   *
-   * @param key the page reference key
-   * @return page with guard already acquired, or null if not in cache or closed
-   */
-  public KeyValueLeafPage getAndGuard(PageReference key) {
-    return map.compute(key, (k, existingValue) -> {
-      if (existingValue != null && !existingValue.isClosed()) {
-        // ATOMIC: mark accessed AND acquire guard while holding map lock for this key
-        existingValue.markAccessed();
-        existingValue.acquireGuard();
-        return existingValue;
-      }
-      // Not in cache or closed - return null (don't return closed page!)
-      // CRITICAL: If page is closed, we must NOT acquire guard and must NOT return it
-      // Returning null signals to caller that they need to load from disk
-      return null;
-    });
-  }
 
   /**
    * Get the number of shards (always 1 in simplified design).

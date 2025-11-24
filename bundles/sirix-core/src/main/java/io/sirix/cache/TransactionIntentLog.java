@@ -20,6 +20,10 @@ public final class TransactionIntentLog implements AutoCloseable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(TransactionIntentLog.class);
 
+  // DEBUG FLAG: Enable with -Dsirix.debug.memory.leaks=true
+  private static final boolean DEBUG_MEMORY_LEAKS = 
+    Boolean.getBoolean("sirix.debug.memory.leaks");
+
   /**
    * The collection to hold the maps.
    */
@@ -46,8 +50,8 @@ public final class TransactionIntentLog implements AutoCloseable {
     list = new ArrayList<>(maxInMemoryCapacity);
     
     // DIAGNOSTIC: Track TIL creation
-    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      LOGGER.debug("TIL CREATED: instance={} (maxCapacity={})", System.identityHashCode(this), maxInMemoryCapacity);
+    if (DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("[TIL-CREATE] instance={} (maxCapacity={})", System.identityHashCode(this), maxInMemoryCapacity);
     }
   }
 
@@ -82,23 +86,17 @@ public final class TransactionIntentLog implements AutoCloseable {
     // The hash depends on key/logKey which we'll modify below
     key.clearCachedHash();
     
-    // Remove from RecordPageCache (full pages)
+    // Remove from RecordPageCache (full pages only)
+    // TIL is taking ownership of the complete page in PageContainer
     bufferManager.getRecordPageCache().remove(key);
     
-    // Remove from RecordPageFragmentCache (fragments)
-    bufferManager.getRecordPageFragmentCache().remove(key);
-
-    // Remove all page fragments from cache
-    List<PageFragmentKey> pageFragments = key.getPageFragments();
-    if (pageFragments != null && !pageFragments.isEmpty()) {
-      for (PageFragmentKey fragmentKey : pageFragments) {
-        PageReference fragmentRef = new PageReference()
-            .setKey(fragmentKey.key())
-            .setDatabaseId(fragmentKey.databaseId())
-            .setResourceId(fragmentKey.resourceId());
-        bufferManager.getRecordPageFragmentCache().remove(fragmentRef);
-      }
-    }
+    // NOTE: We do NOT remove from RecordPageFragmentCache
+    // Fragments are SHARED across multiple transactions and revisions
+    // Even after combining into a complete page, fragments may still be:
+    // 1. In use by other concurrent transactions
+    // 2. Needed for other revisions
+    // 3. Being accessed by ongoing operations
+    // ClockSweeper will evict them when safe (guardCount == 0 && not hot)
     
     // Remove from PageCache (other page types)
     bufferManager.getPageCache().remove(key);
@@ -110,15 +108,37 @@ public final class TransactionIntentLog implements AutoCloseable {
     list.add(value);
     logKey++;
     
+    // CRITICAL: Release guards on pages added to TIL
+    // TIL pages are transaction-private and not visible to other transactions
+    // so they don't need guard protection anymore
+    if (value.getComplete() instanceof KeyValueLeafPage completePage) {
+      int guardCount = completePage.getGuardCount();
+      if (guardCount > 0) {
+        completePage.releaseGuard();
+        assert completePage.getGuardCount() == 0 : 
+            "Page had guardCount=" + guardCount + ", after release should be 0 but is " + completePage.getGuardCount();
+      }
+    }
+    if (value.getModified() instanceof KeyValueLeafPage modifiedPage && modifiedPage != value.getComplete()) {
+      int guardCount = modifiedPage.getGuardCount();
+      if (guardCount > 0) {
+        modifiedPage.releaseGuard();
+        assert modifiedPage.getGuardCount() == 0 : 
+            "Page had guardCount=" + guardCount + ", after release should be 0 but is " + modifiedPage.getGuardCount();
+      }
+    }
+    
     // Diagnostic logging for leak detection
-    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+    if (DEBUG_MEMORY_LEAKS) {
       if (value.getComplete() instanceof KeyValueLeafPage completePage) {
-        LOGGER.debug("TIL.put: complete page {} type={} rev={}", 
-            completePage.getPageKey(), completePage.getIndexType(), completePage.getRevision());
+        LOGGER.debug("[TIL-PUT] complete page: pageKey={}, indexType={}, rev={}, instance={}, guardCount={}", 
+            completePage.getPageKey(), completePage.getIndexType(), completePage.getRevision(),
+            System.identityHashCode(completePage), completePage.getGuardCount());
       }
       if (value.getModified() instanceof KeyValueLeafPage modifiedPage && modifiedPage != value.getComplete()) {
-        LOGGER.debug("TIL.put: modified page {} type={} rev={}", 
-            modifiedPage.getPageKey(), modifiedPage.getIndexType(), modifiedPage.getRevision());
+        LOGGER.debug("[TIL-PUT] modified page: pageKey={}, indexType={}, rev={}, instance={}, guardCount={}", 
+            modifiedPage.getPageKey(), modifiedPage.getIndexType(), modifiedPage.getRevision(),
+            System.identityHashCode(modifiedPage), modifiedPage.getGuardCount());
       }
     }
   }
@@ -133,8 +153,8 @@ public final class TransactionIntentLog implements AutoCloseable {
     int closedModified = 0;
     int skippedAlreadyClosed = 0;
     
-    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      LOGGER.debug("TIL.clear() starting with {} containers", list.size());
+    if (DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("[TIL-CLEAR] Starting with {} containers", list.size());
     }
     
     logKey = 0;
@@ -204,8 +224,10 @@ public final class TransactionIntentLog implements AutoCloseable {
     list.clear();
     
     // Log TIL cleanup for diagnostics
-    LOGGER.debug("TIL.clear() processed {} containers ({} KeyValueLeafPages, {} Page0s), closed {} complete + {} modified pages, failed {} closes",
-        totalContainers, kvLeafContainers, page0Count, closedComplete, closedModified, skippedAlreadyClosed);
+    if (DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("[TIL-CLEAR] Processed {} containers ({} KeyValueLeafPages, {} Page0s), closed {} complete + {} modified, failed {}",
+          totalContainers, kvLeafContainers, page0Count, closedComplete, closedModified, skippedAlreadyClosed);
+    }
   }
 
   /**
@@ -220,8 +242,8 @@ public final class TransactionIntentLog implements AutoCloseable {
   @Override
   public void close() {
     int initialSize = list.size();
-    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      LOGGER.debug("TIL.close() starting with {} containers", initialSize);
+    if (DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("[TIL-CLOSE] Starting with {} containers", initialSize);
     }
     
     // CRITICAL: Force completion of ALL pending async removal listeners
@@ -287,18 +309,34 @@ public final class TransactionIntentLog implements AutoCloseable {
     }
     
     // Log TIL cleanup for diagnostics
-    LOGGER.debug("TIL.close() processed {} containers ({} Page0s), closed {} complete + {} modified pages, failed {} closes",
-        initialSize, page0Count, closedComplete, closedModified, failedCloses);
+    if (DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("[TIL-CLOSE] Processed {} containers ({} Page0s), closed {} complete + {} modified, failed {}",
+          initialSize, page0Count, closedComplete, closedModified, failedCloses);
+    }
     
     logKey = 0;
     list.clear();
+  }
+  
+  /**
+   * Get the number of containers in the TIL.
+   */
+  public int size() {
+    return list.size();
+  }
+  
+  /**
+   * Get the log key (for diagnostics).
+   */
+  public int getLogKey() {
+    return logKey;
   }
   
   @Override
   @SuppressWarnings("deprecation")
   protected void finalize() {
     // DIAGNOSTIC: Detect if TIL is GC'd without being closed
-    if (!list.isEmpty() && KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+    if (!list.isEmpty() && DEBUG_MEMORY_LEAKS) {
       LOGGER.warn("⚠️  TIL FINALIZED WITHOUT CLEAR: instance={} with {} containers still in list!", 
           System.identityHashCode(this), list.size());
     }

@@ -160,6 +160,19 @@ public final class ConcurrentAxisTest {
                             " closed=" + closed1 + "/" + closed2 + "/" + closed3 + 
                             " instance=" + System.identityHashCode(page) + 
                             " obj=" + page.getClass().getSimpleName() + "@" + Integer.toHexString(System.identityHashCode(page)));
+          
+          // DIAGNOSTIC: Print creation stack trace for leaked pages
+          var creationStack = page.getCreationStackTrace();
+          if (creationStack != null) {
+            System.err.println("      Created at:");
+            // Skip first 2 frames (getStackTrace, constructor), show next 10 frames
+            for (int i = 2; i < Math.min(creationStack.length, 12); i++) {
+              var frame = creationStack[i];
+              System.err.println("        " + frame.getClassName() + "." + frame.getMethodName() + 
+                                "(" + frame.getFileName() + ":" + frame.getLineNumber() + ")");
+            }
+          }
+          
           idx++;
         }
         
@@ -313,22 +326,31 @@ public final class ConcurrentAxisTest {
     final var firstRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     final var secondRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
     final var thirdRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
-    final Axis axis =
-        new NestedAxis(
-            new NestedAxis(
-                new ConcurrentAxis<>(firstConcurrRtx,
-                    new FilterAxis<>(new DescendantAxis(firstRtx, IncludeSelf.YES),
-                        new XmlNameFilter(firstRtx, "regions"))),
-                new ConcurrentAxis<>(secondConcurrRtx,
-                    new FilterAxis<>(new ChildAxis(secondRtx), new XmlNameFilter(secondRtx, "africa")))),
-            new ConcurrentAxis<>(thirdConcurrRtx,
-                new FilterAxis<>(new DescendantAxis(thirdRtx, IncludeSelf.YES), new XmlNameFilter(thirdRtx, "location"))));
+    try {
+      final Axis axis =
+          new NestedAxis(
+              new NestedAxis(
+                  new ConcurrentAxis<>(firstConcurrRtx,
+                      new FilterAxis<>(new DescendantAxis(firstRtx, IncludeSelf.YES),
+                          new XmlNameFilter(firstRtx, "regions"))),
+                  new ConcurrentAxis<>(secondConcurrRtx,
+                      new FilterAxis<>(new ChildAxis(secondRtx), new XmlNameFilter(secondRtx, "africa")))),
+              new ConcurrentAxis<>(thirdConcurrRtx,
+                  new FilterAxis<>(new DescendantAxis(thirdRtx, IncludeSelf.YES), new XmlNameFilter(thirdRtx, "location"))));
 
-    for (int i = 0; i < resultNumber; i++) {
-      assertTrue(axis.hasNext());
-      axis.nextLong();
+      for (int i = 0; i < resultNumber; i++) {
+        assertTrue(axis.hasNext());
+        axis.nextLong();
+      }
+      assertFalse(axis.hasNext());
+    } finally {
+      firstConcurrRtx.close();
+      secondConcurrRtx.close();
+      thirdConcurrRtx.close();
+      firstRtx.close();
+      secondRtx.close();
+      thirdRtx.close();
     }
-    assertFalse(axis.hasNext());
   }
 
   /**
@@ -341,20 +363,24 @@ public final class ConcurrentAxisTest {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
     final var firstConcurrRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
-    final var axis = new NestedAxis(
-        new NestedAxis(
-            new ConcurrentAxis<>(firstConcurrRtx,
-                new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
-                    new XmlNameFilter(holder.getXmlNodeReadTrx(), "regions"))),
-            new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XmlNameFilter(firstConcurrRtx, "africa"))),
-        new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
-            new XmlNameFilter(firstConcurrRtx, "location")));
+    try {
+      final var axis = new NestedAxis(
+          new NestedAxis(
+              new ConcurrentAxis<>(firstConcurrRtx,
+                  new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
+                      new XmlNameFilter(holder.getXmlNodeReadTrx(), "regions"))),
+              new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XmlNameFilter(firstConcurrRtx, "africa"))),
+          new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
+              new XmlNameFilter(firstConcurrRtx, "location")));
 
-    for (int i = 0; i < resultNumber; i++) {
-      assertTrue(axis.hasNext());
-      axis.nextLong();
+      for (int i = 0; i < resultNumber; i++) {
+        assertTrue(axis.hasNext());
+        axis.nextLong();
+      }
+      assertFalse(axis.hasNext());
+    } finally {
+      firstConcurrRtx.close();
     }
-    assertFalse(axis.hasNext());
   }
 
   /**
@@ -367,20 +393,24 @@ public final class ConcurrentAxisTest {
     /* query: //regions/africa//location */
     final int resultNumber = 55;
     final var firstConcurrRtx = holder.getResourceSession().beginNodeReadOnlyTrx();
-    final var axis = new NestedAxis(
-        new NestedAxis(
-            new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
-                new XmlNameFilter(firstConcurrRtx, "regions")),
-            new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XmlNameFilter(firstConcurrRtx, "africa"))),
-        new ConcurrentAxis<>(firstConcurrRtx,
-            new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
-                new XmlNameFilter(holder.getXmlNodeReadTrx(), "location"))));
+    try {
+      final var axis = new NestedAxis(
+          new NestedAxis(
+              new FilterAxis<>(new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
+                  new XmlNameFilter(firstConcurrRtx, "regions")),
+              new FilterAxis<>(new ChildAxis(firstConcurrRtx), new XmlNameFilter(firstConcurrRtx, "africa"))),
+          new ConcurrentAxis<>(firstConcurrRtx,
+              new FilterAxis<>(new DescendantAxis(holder.getXmlNodeReadTrx(), IncludeSelf.YES),
+                  new XmlNameFilter(holder.getXmlNodeReadTrx(), "location"))));
 
-    for (int i = 0; i < resultNumber; i++) {
-      assertTrue(axis.hasNext());
-      axis.nextLong();
+      for (int i = 0; i < resultNumber; i++) {
+        assertTrue(axis.hasNext());
+        axis.nextLong();
+      }
+      assertFalse(axis.hasNext());
+    } finally {
+      firstConcurrRtx.close();
     }
-    assertFalse(axis.hasNext());
   }
 
   /*

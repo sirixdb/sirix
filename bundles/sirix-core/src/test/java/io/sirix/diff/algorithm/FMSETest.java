@@ -17,6 +17,8 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
@@ -34,6 +36,8 @@ import java.util.function.Predicate;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class FMSETest {
+  private static final Logger LOGGER = LoggerFactory.getLogger(FMSETest.class);
+  
   private static final Path RESOURCES = Paths.get("src", "test", "resources");
 
   private static final Path XMLINSERTFIRST = RESOURCES.resolve("revXMLsInsert");
@@ -258,10 +262,12 @@ public final class FMSETest {
           final DetailedDiff detDiff = new DetailedDiff(diff);
           @SuppressWarnings("unchecked")
           final List<Difference> differences = detDiff.getAllDifferences();
-          for (final Difference difference : differences) {
-            System.err.println("***********************");
-            System.err.println(difference);
-            System.err.println("***********************");
+          if (!differences.isEmpty()) {
+            LOGGER.error("***********************");
+            for (final Difference difference : differences) {
+              LOGGER.error("XML Difference: {}", difference);
+            }
+            LOGGER.error("***********************");
           }
 
           Assert.assertTrue("pieces of XML are similar " + diff, diff.similar());

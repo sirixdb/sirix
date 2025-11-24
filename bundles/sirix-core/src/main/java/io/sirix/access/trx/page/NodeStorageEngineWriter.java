@@ -90,6 +90,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private static final Logger LOGGER = LoggerFactory.getLogger(NodeStorageEngineWriter.class);
 
+  // DEBUG FLAG: Enable with -Dsirix.debug.memory.leaks=true
+  private static final boolean DEBUG_MEMORY_LEAKS = 
+    Boolean.getBoolean("sirix.debug.memory.leaks");
+
   private BytesOut<?> bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
 
   /**
@@ -374,14 +378,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     page.commit(this);
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
 
-    // DIAGNOSTIC: Track Page 0 closes during commit
-    if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && container.getComplete() instanceof io.sirix.page.KeyValueLeafPage completePage && completePage.getPageKey() == 0) {
-      LOGGER.debug("NodeStorageEngineWriter.commit closing complete Page 0: instance={}", System.identityHashCode(completePage));
+    // DIAGNOSTIC: Track page closes during commit
+    if (DEBUG_MEMORY_LEAKS && container.getComplete() instanceof io.sirix.page.KeyValueLeafPage completePage) {
+      LOGGER.debug("[WRITER-COMMIT] Closing complete page: pageKey={}, indexType={}, instance={}",
+                   completePage.getPageKey(), completePage.getIndexType(), System.identityHashCode(completePage));
     }
     container.getComplete().close();
     
-    if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page instanceof io.sirix.page.KeyValueLeafPage kvPage && kvPage.getPageKey() == 0) {
-      LOGGER.debug("NodeStorageEngineWriter.commit closing modified Page 0: instance={}", System.identityHashCode(kvPage));
+    if (DEBUG_MEMORY_LEAKS && page instanceof io.sirix.page.KeyValueLeafPage kvPage) {
+      LOGGER.debug("[WRITER-COMMIT] Closing modified page: pageKey={}, indexType={}, instance={}",
+                   kvPage.getPageKey(), kvPage.getIndexType(), System.identityHashCode(kvPage));
     }
     page.close();
 
@@ -427,6 +433,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // CRITICAL: Release current page guard BEFORE TIL.clear()
       // If guard is on a TIL page, the page won't close (guardCount > 0 check)
       pageRtx.closeCurrentPageGuard();
+      
+      if (DEBUG_MEMORY_LEAKS) {
+        LOGGER.debug("[WRITER-COMMIT] Clearing TIL with {} entries before commit", log.size());
+      }
       
       // Clear TransactionIntentLog - closes all modified pages
       log.clear();
@@ -517,6 +527,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public UberPage rollback() {
     pageRtx.assertNotClosed();
+    
+    if (DEBUG_MEMORY_LEAKS) {
+      LOGGER.debug("[WRITER-ROLLBACK] Rolling back transaction with {} TIL entries", log.size());
+    }
     
     // CRITICAL: Release current page guard BEFORE TIL.clear()
     // If guard is on a TIL page, the page won't close (guardCount > 0 check)
@@ -749,6 +763,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                 ? allocator.allocate(SIXTYFOUR_KB) 
                 : null
         );
+        
+        if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
+          LOGGER.debug("[WRITER-CREATE] Created Page 0 pair: indexType={}, rev={}, complete={}, modify={}",
+                       indexType, pageRtx.getRevisionNumber(), 
+                       System.identityHashCode(completePage), System.identityHashCode(modifyPage));
+        }
+        
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
         appendLogRecord(reference, pageContainer);
         return pageContainer;
@@ -794,16 +815,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final VersioningType versioningType = pageRtx.resourceSession.getResourceConfig().versioningType;
     final int mileStoneRevision = pageRtx.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
     
-    // Fragments already guarded by getPageFragments() - no need to guard again
+    // All fragments are guarded by getPageFragments() to prevent eviction during combining
     try {
       return versioningType.combineRecordPagesForModification(result.pages(), mileStoneRevision, this, reference, log);
     } finally {
-      // Release fragment guards (acquired in getPageFragments)
+      // Release guards on ALL fragments after combining
       for (var page : result.pages()) {
-        ((io.sirix.page.KeyValueLeafPage) page).releaseGuard();
+        io.sirix.page.KeyValueLeafPage kvPage = (io.sirix.page.KeyValueLeafPage) page;
+        kvPage.releaseGuard();
+        assert kvPage.getGuardCount() == 0 : 
+            "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
       }
-      
-      pageRtx.closeOrphanedFragments(reference, result.pages(), result.originalKeys(), result.storageKeyForFirstFragment());
+      // Note: Fragments remain in cache for potential reuse. ClockSweeper will evict them when appropriate.
     }
   }
 
