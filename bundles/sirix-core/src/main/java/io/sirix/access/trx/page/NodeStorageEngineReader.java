@@ -708,6 +708,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return;
     }
 
+    // Check if page is still in cache
+    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(recordPage.pageReference);
+
+    if (cachedPage == page) {
+      // Page is in cache - cache will close it when guards reach 0
+      // Do nothing - just drop our reference
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
+        LOGGER.debug("[CLEANUP] Page 0 ({}) still in cache with {} guards - cache will handle it",
+                     page.getIndexType(),
+                     page.getGuardCount());
+      }
+    } else {
       // Page is NOT in cache (orphaned) - close only if no guards
       if (!page.isClosed() && page.getGuardCount() == 0) {
         page.close();
@@ -723,6 +735,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                        page.getGuardCount());
         }
       }
+    }
   }
 
   @Nullable
