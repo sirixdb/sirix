@@ -708,18 +708,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return;
     }
 
-    // Check if page is still in cache
-    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(recordPage.pageReference);
-
-    if (cachedPage == page) {
-      // Page is in cache - cache will close it when guards reach 0
-      // Do nothing - just drop our reference
-      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-        LOGGER.debug("[CLEANUP] Page 0 ({}) still in cache with {} guards - cache will handle it",
-                     page.getIndexType(),
-                     page.getGuardCount());
-      }
-    } else {
       // Page is NOT in cache (orphaned) - close only if no guards
       if (!page.isClosed() && page.getGuardCount() == 0) {
         page.close();
@@ -735,7 +723,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                        page.getGuardCount());
         }
       }
-    }
   }
 
   @Nullable
@@ -747,15 +734,19 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                    indexLogKey.getRevisionNumber());
     }
 
-    // CRITICAL FIX: Use compute() to atomically load page, preventing concurrent fragment loading deadlocks
-    // Problem: When multiple transactions have cache miss on same page, they ALL load fragments concurrently
-    // This causes deadlocks when acquiring guards on fragments in different orders
-    // Solution: Use compute() to ensure only ONE thread loads fragments while others wait
+    // CRITICAL FIX: Use compute() to atomically load page AND acquire guard, preventing eviction races.
+    // Problem 1: When multiple transactions have cache miss on same page, they ALL load fragments concurrently
+    //           This causes deadlocks when acquiring guards on fragments in different orders
+    // Problem 2: When compute() returns, the per-key lock is released. Another thread (ClockSweeper)
+    //           could evict the page between compute() returning and guard acquisition.
+    // Solution: Use compute() to ensure only ONE thread loads fragments, AND acquire guard inside compute()
+    //           to prevent eviction before we return.
     
     KeyValueLeafPage page = resourceBufferManager.getRecordPageCache().asMap().compute(pageReferenceToRecordPage, (ref, existing) -> {
       if (existing != null && !existing.isClosed()) {
-        // Cache HIT - mark accessed
+        // Cache HIT - mark accessed and acquire guard INSIDE compute() to prevent eviction race
         existing.markAccessed();
+        existing.acquireGuard(); // Acquire guard atomically while per-key lock is held
         
         if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
           LOGGER.debug("[PATH_SUMMARY-CACHE-LOOKUP]   -> Cache HIT: pageKey={}, revision={}",
@@ -767,7 +758,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       
       // Cache MISS - load fragments and combine  
       // NOTE: Fragment guards are acquired during load and released in finally block
-      // We don't acquire a guard on the combined page here - that's done outside compute()
       KeyValueLeafPage loadedPage = (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(ref);
       
       if (loadedPage != null) {
@@ -788,17 +778,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         }
         
         loadedPage.markAccessed();
+        loadedPage.acquireGuard(); // Acquire guard atomically while per-key lock is held
       }
       return loadedPage;
     });
 
     if (page != null) {
       pageReferenceToRecordPage.setPage(page);
-      assert !page.isClosed();
+      // Guard already acquired inside compute(), no need to assert - page can't be closed
 
-      // PageGuard will acquire the guard - no need to do it manually
+      // Wrap in PageGuard for auto-release, but DON'T re-acquire (already acquired in compute())
       closeCurrentPageGuard();
-      currentPageGuard = new PageGuard(page);
+      currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
 
       return page;
     }

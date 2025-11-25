@@ -52,6 +52,17 @@ public final class PageGuard implements AutoCloseable {
   }
 
   /**
+   * Wrap an already-guarded page without re-acquiring the guard.
+   * Use this when the guard was acquired inside a compute() block to prevent eviction races.
+   *
+   * @param page the page that already has an acquired guard
+   * @return a new PageGuard wrapper (guard is NOT re-acquired)
+   */
+  public static PageGuard wrapAlreadyGuarded(KeyValueLeafPage page) {
+    return new PageGuard(page, false);
+  }
+
+  /**
    * Get the guarded page.
    *
    * @return the page

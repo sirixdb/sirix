@@ -88,88 +88,97 @@ public final class NodePageTest {
                                                         pageReadTrx.getRevisionNumber(),
                                                         arena.allocate(SIXTYFOUR_KB),
                                                         null);
-    assertEquals(0L, page1.getPageKey());
+    KeyValueLeafPage page2 = null;
+    try {
+      assertEquals(0L, page1.getPageKey());
 
-    // Create ResourceConfiguration for testing
-    final var config = pageReadTrx.getResourceSession().getResourceConfig();
-    
-    // Create MemorySegment with all fields in correct order matching ElementNode.CORE_LAYOUT
-    final BytesOut<?> nodeData = Bytes.elasticOffHeapByteBuffer();
-    
-    // Write NodeDelegate fields (16 bytes)
-    nodeData.writeLong(1);                              // parentKey - offset 0
-    nodeData.writeInt(Constants.NULL_REVISION_NUMBER);  // previousRevision - offset 8
-    nodeData.writeInt(0);                               // lastModifiedRevision - offset 12
-    
-    // Write StructNode fields (32 bytes)
-    nodeData.writeLong(4L);                             // rightSiblingKey - offset 16
-    nodeData.writeLong(3L);                             // leftSiblingKey - offset 24
-    nodeData.writeLong(12L);                            // firstChildKey - offset 32
-    nodeData.writeLong(12L);                            // lastChildKey - offset 40
-    
-    // Write NameNode fields (20 bytes)
-    nodeData.writeLong(1L);                             // pathNodeKey - offset 48
-    nodeData.writeInt(6);                               // prefixKey - offset 56
-    nodeData.writeInt(7);                               // localNameKey - offset 60
-    nodeData.writeInt(5);                               // uriKey - offset 64
-    
-    // Write optional fields
-    if (config.storeChildCount()) {
-      nodeData.writeLong(1L);                           // childCount - offset 68
+      // Create ResourceConfiguration for testing
+      final var config = pageReadTrx.getResourceSession().getResourceConfig();
+      
+      // Create MemorySegment with all fields in correct order matching ElementNode.CORE_LAYOUT
+      final BytesOut<?> nodeData = Bytes.elasticOffHeapByteBuffer();
+      
+      // Write NodeDelegate fields (16 bytes)
+      nodeData.writeLong(1);                              // parentKey - offset 0
+      nodeData.writeInt(Constants.NULL_REVISION_NUMBER);  // previousRevision - offset 8
+      nodeData.writeInt(0);                               // lastModifiedRevision - offset 12
+      
+      // Write StructNode fields (32 bytes)
+      nodeData.writeLong(4L);                             // rightSiblingKey - offset 16
+      nodeData.writeLong(3L);                             // leftSiblingKey - offset 24
+      nodeData.writeLong(12L);                            // firstChildKey - offset 32
+      nodeData.writeLong(12L);                            // lastChildKey - offset 40
+      
+      // Write NameNode fields (20 bytes)
+      nodeData.writeLong(1L);                             // pathNodeKey - offset 48
+      nodeData.writeInt(6);                               // prefixKey - offset 56
+      nodeData.writeInt(7);                               // localNameKey - offset 60
+      nodeData.writeInt(5);                               // uriKey - offset 64
+      
+      // Write optional fields
+      if (config.storeChildCount()) {
+        nodeData.writeLong(1L);                           // childCount - offset 68
+      }
+      if (config.hashType != HashType.NONE) {
+        nodeData.writeLong(0);                            // hash placeholder - offset 76
+        nodeData.writeLong(0);                            // descendantCount - offset 84
+      }
+      
+      // Create ElementNode from MemorySegment
+      final MemorySegment segment = (MemorySegment) nodeData.asBytesIn().getUnderlying();
+      final LongArrayList attributeKeys = new LongArrayList();
+      attributeKeys.add(88L);
+      attributeKeys.add(87L);
+      final LongArrayList namespaceKeys = new LongArrayList();
+      namespaceKeys.add(99L);
+      namespaceKeys.add(98L);
+      
+      final ElementNode node1 = new ElementNode(segment, 0L, SirixDeweyID.newRootID(), 
+                                                 config, attributeKeys, namespaceKeys, 
+                                                 new QNm("a", "b", "c"));
+      
+      // Compute and set hash
+      var bytes = Bytes.elasticOffHeapByteBuffer();
+      node1.setHash(node1.computeHash(bytes));
+      
+      assertEquals(0L, node1.getNodeKey());
+      page1.setRecord(node1);
+
+      final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
+      final PagePersister pagePersister = new PagePersister();
+      pagePersister.serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
+                                  data,
+                                  page1,
+                                  SerializationType.DATA);
+      page2 =
+          (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx.getResourceSession().getResourceConfig(),
+                                                           Bytes.wrapForRead(data.toByteArray()),
+                                                           SerializationType.DATA);
+      // assertEquals(position, out.position());
+      final ElementNode element = (ElementNode) pageReadTrx.getValue(page2, 0L);
+
+      assertEquals(0L, pageReadTrx.getValue(page2, 0L).getNodeKey());
+      assertEquals(1L, element.getParentKey());
+      assertEquals(12L, element.getFirstChildKey());
+      assertEquals(3L, element.getLeftSiblingKey());
+      assertEquals(4L, element.getRightSiblingKey());
+      assertEquals(1, element.getChildCount());
+      assertEquals(2, element.getAttributeCount());
+      assertEquals(2, element.getNamespaceCount());
+      assertEquals(88L, element.getAttributeKey(0));
+      assertEquals(87L, element.getAttributeKey(1));
+      assertEquals(99L, element.getNamespaceKey(0));
+      assertEquals(98L, element.getNamespaceKey(1));
+      assertEquals(5, ((NameNode) pageReadTrx.getValue(page2, 0L)).getURIKey());
+      assertEquals(6, ((NameNode) pageReadTrx.getValue(page2, 0L)).getPrefixKey());
+      assertEquals(7, ((NameNode) pageReadTrx.getValue(page2, 0L)).getLocalNameKey());
+      // typeKey is not persisted, so we don't test it
+    } finally {
+      // Close pages to prevent page leaks
+      page1.close();
+      if (page2 != null) {
+        page2.close();
+      }
     }
-    if (config.hashType != HashType.NONE) {
-      nodeData.writeLong(0);                            // hash placeholder - offset 76
-      nodeData.writeLong(0);                            // descendantCount - offset 84
-    }
-    
-    // Create ElementNode from MemorySegment
-    final MemorySegment segment = (MemorySegment) nodeData.asBytesIn().getUnderlying();
-    final LongArrayList attributeKeys = new LongArrayList();
-    attributeKeys.add(88L);
-    attributeKeys.add(87L);
-    final LongArrayList namespaceKeys = new LongArrayList();
-    namespaceKeys.add(99L);
-    namespaceKeys.add(98L);
-    
-    final ElementNode node1 = new ElementNode(segment, 0L, SirixDeweyID.newRootID(), 
-                                               config, attributeKeys, namespaceKeys, 
-                                               new QNm("a", "b", "c"));
-    
-    // Compute and set hash
-    var bytes = Bytes.elasticOffHeapByteBuffer();
-    node1.setHash(node1.computeHash(bytes));
-    
-    assertEquals(0L, node1.getNodeKey());
-    page1.setRecord(node1);
-
-    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
-    final PagePersister pagePersister = new PagePersister();
-    pagePersister.serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
-                                data,
-                                page1,
-                                SerializationType.DATA);
-    final KeyValueLeafPage page2 =
-        (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx.getResourceSession().getResourceConfig(),
-                                                         Bytes.wrapForRead(data.toByteArray()),
-                                                         SerializationType.DATA);
-    // assertEquals(position, out.position());
-    final ElementNode element = (ElementNode) pageReadTrx.getValue(page2, 0L);
-
-    assertEquals(0L, pageReadTrx.getValue(page2, 0L).getNodeKey());
-    assertEquals(1L, element.getParentKey());
-    assertEquals(12L, element.getFirstChildKey());
-    assertEquals(3L, element.getLeftSiblingKey());
-    assertEquals(4L, element.getRightSiblingKey());
-    assertEquals(1, element.getChildCount());
-    assertEquals(2, element.getAttributeCount());
-    assertEquals(2, element.getNamespaceCount());
-    assertEquals(88L, element.getAttributeKey(0));
-    assertEquals(87L, element.getAttributeKey(1));
-    assertEquals(99L, element.getNamespaceKey(0));
-    assertEquals(98L, element.getNamespaceKey(1));
-    assertEquals(5, ((NameNode) pageReadTrx.getValue(page2, 0L)).getURIKey());
-    assertEquals(6, ((NameNode) pageReadTrx.getValue(page2, 0L)).getPrefixKey());
-    assertEquals(7, ((NameNode) pageReadTrx.getValue(page2, 0L)).getLocalNameKey());
-    // typeKey is not persisted, so we don't test it
   }
 }

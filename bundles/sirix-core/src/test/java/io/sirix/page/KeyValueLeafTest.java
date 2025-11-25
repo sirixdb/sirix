@@ -3,6 +3,7 @@ package io.sirix.page;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.IndexType;
 import io.sirix.settings.Constants;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -18,10 +19,11 @@ class KeyValueLeafPageTest {
 
   private KeyValueLeafPage keyValueLeafPage;
 
-  private Arena arena = Arena.ofAuto();
+  private Arena arena;
 
   @BeforeEach
   void setUp() {
+    arena = Arena.ofConfined();
     long recordPageKey = 1L;
 
     keyValueLeafPage = new KeyValueLeafPage(recordPageKey,
@@ -30,6 +32,19 @@ class KeyValueLeafPageTest {
                                             1,
                                             arena.allocate(SIXTYFOUR_KB),
                                             null);
+  }
+
+  @AfterEach
+  void tearDown() {
+    // close() will handle memory properly - it knows memory was externally allocated via Arena
+    if (keyValueLeafPage != null) {
+      keyValueLeafPage.close();
+      keyValueLeafPage = null;
+    }
+    if (arena != null) {
+      arena.close();
+      arena = null;
+    }
   }
 
   @Test
@@ -288,7 +303,8 @@ class KeyValueLeafPageTest {
 
     try (var deweyIdArena = Arena.ofConfined()) {
       long recordPageKey = 1L;
-      keyValueLeafPage = new KeyValueLeafPage(recordPageKey,
+      // Use local variable instead of overwriting the field
+      KeyValueLeafPage deweyIdPage = new KeyValueLeafPage(recordPageKey,
                                               IndexType.DOCUMENT,
                                               new ResourceConfiguration.Builder("testResource").useDeweyIDs(true)
                                                                                                .build(),
@@ -296,17 +312,19 @@ class KeyValueLeafPageTest {
                                               deweyIdArena.allocate(SIXTYFOUR_KB),
                                               deweyIdArena.allocate(SIXTYFOUR_KB));
 
-      keyValueLeafPage.setDeweyId(deweyId1, 0);
-      keyValueLeafPage.setDeweyId(deweyId2, 1);
+      deweyIdPage.setDeweyId(deweyId1, 0);
+      deweyIdPage.setDeweyId(deweyId2, 1);
 
-      MemorySegment segment1 = keyValueLeafPage.getDeweyId(0);
-      MemorySegment segment2 = keyValueLeafPage.getDeweyId(1);
+      MemorySegment segment1 = deweyIdPage.getDeweyId(0);
+      MemorySegment segment2 = deweyIdPage.getDeweyId(1);
 
       assertNotNull(segment1);
       assertNotNull(segment2);
 
       assertArrayEquals(deweyId1, segment1.toArray(ValueLayout.JAVA_BYTE));
       assertArrayEquals(deweyId2, segment2.toArray(ValueLayout.JAVA_BYTE));
+
+      deweyIdPage.close();
     }
   }
 

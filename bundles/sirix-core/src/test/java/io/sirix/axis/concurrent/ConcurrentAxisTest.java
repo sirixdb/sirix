@@ -71,6 +71,10 @@ public final class ConcurrentAxisTest {
   @BeforeEach
   public void setUp() {
     try {
+      // CRITICAL: Clear Page 0 tracking set BEFORE test to ignore leaks from previous tests
+      // This ensures we only detect leaks from THIS test, not accumulated from the entire test suite
+      io.sirix.page.KeyValueLeafPage.ALL_PAGE_0_INSTANCES.clear();
+      
       // Capture finalizer count BEFORE test starts
       finalizerCountBeforeTest = io.sirix.page.KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
       

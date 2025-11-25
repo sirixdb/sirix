@@ -49,6 +49,7 @@ public class LRUCacheTest {
 
   @After
   public void tearDown() throws SirixException {
+    CacheTestHelper.tearDown();
     cache.close();
     CacheTestHelper.PAGE_READ_TRX.close();
     XmlTestHelper.closeEverything();

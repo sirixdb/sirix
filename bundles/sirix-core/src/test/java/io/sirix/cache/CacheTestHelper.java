@@ -50,7 +50,7 @@ public class CacheTestHelper {
 
   private static final int VERSIONSTORESTORE = 3;
 
-  private static Arena arena = Arena.ofConfined();
+  private static Arena arena;
 
   /**
    * Setup the cache.
@@ -59,6 +59,7 @@ public class CacheTestHelper {
    * @throws SirixException if setting up Sirix session fails
    */
   public static void setUp(final Cache<Long, PageContainer> cache) throws SirixException {
+    arena = Arena.ofConfined();
     PAGE_READ_TRX = Holder.openResourceSession().getResourceSession().beginPageReadOnlyTrx();
     PAGES = new KeyValueLeafPage[LRUCache.CACHE_CAPACITY + 1][VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
@@ -81,6 +82,29 @@ public class CacheTestHelper {
       }
       PAGES[i][0] = page;
       cache.put((long) i, PageContainer.getInstance(page, page));
+    }
+  }
+
+  /**
+   * Cleanup all pages created during setup.
+   * Must be called after tests to prevent page leaks.
+   */
+  public static void tearDown() {
+    if (PAGES != null) {
+      for (int i = 0; i < PAGES.length; i++) {
+        for (int j = 0; j < PAGES[i].length; j++) {
+          if (PAGES[i][j] != null) {
+            // close() will handle memory properly - it knows memory was externally allocated
+            PAGES[i][j].close();
+            PAGES[i][j] = null;
+          }
+        }
+      }
+      PAGES = null;
+    }
+    if (arena != null) {
+      arena.close();
+      arena = null;
     }
   }
 

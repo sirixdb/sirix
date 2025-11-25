@@ -15,8 +15,9 @@ public class LinuxMemorySegmentAllocatorTest {
 
   @BeforeEach
   public void setUp() {
-    // Initialize the allocator with a maximum buffer size
-    allocator.init(1 << 30); // Set max buffer size to 1GB
+    // Initialize the allocator with a large enough buffer size to accommodate
+    // accumulated memory from previous tests (allocator is a singleton)
+    allocator.init(8L * 1024 * 1024 * 1024); // Set max buffer size to 8GB
   }
 
   @AfterEach

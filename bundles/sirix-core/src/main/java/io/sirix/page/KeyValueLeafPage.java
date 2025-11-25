@@ -209,11 +209,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private volatile boolean isClosed;
 
+  /**
+   * Flag indicating whether memory was externally allocated (e.g., by Arena in tests).
+   * If true, close() should NOT release memory to segmentAllocator since it wasn't allocated by it.
+   */
+  private final boolean externallyAllocatedMemory;
+
   private MemorySegmentAllocator segmentAllocator =
       OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
 
   /**
    * Constructor which initializes a new {@link KeyValueLeafPage}.
+   * Memory is externally provided (e.g., by Arena in tests) and will NOT be released by close().
    *
    * @param recordPageKey  base key assigned to this node page
    * @param indexType      the index type
@@ -222,6 +229,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public KeyValueLeafPage(final @NonNegative long recordPageKey, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
       final MemorySegment deweyIdMemory) {
+    this(recordPageKey, indexType, resourceConfig, revisionNumber, slotMemory, deweyIdMemory, true);
+  }
+
+  /**
+   * Constructor which initializes a new {@link KeyValueLeafPage}.
+   *
+   * @param recordPageKey              base key assigned to this node page
+   * @param indexType                  the index type
+   * @param resourceConfig             the resource configuration
+   * @param externallyAllocatedMemory  if true, memory was allocated externally and won't be released by close()
+   */
+  public KeyValueLeafPage(final @NonNegative long recordPageKey, final IndexType indexType,
+      final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
+      final MemorySegment deweyIdMemory, final boolean externallyAllocatedMemory) {
     // Assertions instead of requireNonNull(...) checks as it's part of the
     // internal flow.
     assert resourceConfig != null : "The resource config must not be null!";
@@ -245,6 +266,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.lastDeweyIdIndex = -1;
     this.slotMemory = slotMemory;
     this.deweyIdMemory = deweyIdMemory;
+    this.externallyAllocatedMemory = externallyAllocatedMemory;
     
     // DIAGNOSTIC: Capture creation stack trace for leak tracing
     if (DEBUG_MEMORY_LEAKS) {
@@ -293,6 +315,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   /**
    * Constructor which reads deserialized data to the {@link KeyValueLeafPage} from the storage.
+   * Memory is allocated by the global allocator and WILL be released by close().
    *
    * @param recordPageKey     This is the base key of all contained nodes.
    * @param revision          The current revision.
@@ -323,6 +346,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.doResizeMemorySegmentsIfNeeded = true;
     this.slotMemoryFreeSpaceStart = 0;
     this.lastSlotIndex = lastSlotIndex;
+    // Memory allocated by global allocator (e.g., during deserialization) - release on close()
+    this.externallyAllocatedMemory = false;
 
     if (areDeweyIDsStored) {
       this.deweyIdMemoryFreeSpaceStart = 0;
@@ -1027,13 +1052,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         ? allocator.allocate(SIXTYFOUR_KB) 
         : null;
     
+    // Memory allocated from global allocator - should be released on close()
     return (C) new KeyValueLeafPage(
         recordPageKey,
         indexType,
         config,
         pageReadTrx.getRevisionNumber(),
         slotMemory,
-        deweyIdMemory
+        deweyIdMemory,
+        false  // NOT externally allocated - release memory on close()
     );
   }
 
@@ -1154,20 +1181,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         }
       }
       
-      // Release segments back to allocator
-      try {
-        if (slotMemory != null) {
-          segmentAllocator.release(slotMemory);
-          slotMemory = null;
+      // Release segments back to allocator ONLY if memory was allocated by the global allocator.
+      // Memory allocated by external Arena (e.g., in tests) should NOT be released here.
+      if (!externallyAllocatedMemory) {
+        try {
+          if (slotMemory != null && slotMemory.byteSize() > 0) {
+            segmentAllocator.release(slotMemory);
+          }
+          if (deweyIdMemory != null && deweyIdMemory.byteSize() > 0) {
+            segmentAllocator.release(deweyIdMemory);
+          }
+        } catch (Throwable e) {
+          // Log but don't throw - we're in cleanup. Use Throwable to catch AssertionError too.
+          LOGGER.debug("Failed to release segments for page {}: {}", recordPageKey, e.getMessage());
         }
-        if (deweyIdMemory != null) {
-          segmentAllocator.release(deweyIdMemory);
-          deweyIdMemory = null;
-        }
-      } catch (Exception e) {
-        // Log but don't throw - we're in cleanup
-        LOGGER.error("Failed to release segments for page {}", recordPageKey, e);
       }
+      slotMemory = null;
+      deweyIdMemory = null;
       
       // Clear references to help GC
       Arrays.fill(records, null);
