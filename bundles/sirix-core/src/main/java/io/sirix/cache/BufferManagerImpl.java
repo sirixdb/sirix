@@ -8,6 +8,35 @@ import io.sirix.page.interfaces.Page;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Global buffer manager for SirixDB page caching.
+ * <p>
+ * This component manages all page caches for a database, providing:
+ * <ul>
+ *   <li><b>Record page cache:</b> Full KeyValueLeafPages for data access</li>
+ *   <li><b>Fragment cache:</b> Page fragments for versioning reconstruction</li>
+ *   <li><b>Page cache:</b> Other page types (NamePage, RevisionRootPage, etc.)</li>
+ *   <li><b>Specialized caches:</b> RevisionRootPages, RBTree nodes, Names, PathSummary</li>
+ * </ul>
+ * <p>
+ * The buffer manager coordinates with background ClockSweeper threads for eviction,
+ * following the PostgreSQL bgwriter pattern. Eviction uses a second-chance clock
+ * algorithm with revision watermark protection for MVCC safety.
+ * <p>
+ * <b>Cache Architecture:</b>
+ * <ul>
+ *   <li>ShardedPageCache for KeyValueLeafPages (direct eviction control)</li>
+ *   <li>Caffeine-based caches for other page types</li>
+ *   <li>Global ClockSweeper threads for background eviction</li>
+ * </ul>
+ * <p>
+ * <b>Thread Safety:</b> All caches are thread-safe and support concurrent access
+ * from multiple transactions and ClockSweeper threads.
+ *
+ * @author Johannes Lichtenberger
+ * @see ShardedPageCache
+ * @see ClockSweeper
+ */
 public final class BufferManagerImpl implements BufferManager {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(BufferManagerImpl.class);
@@ -175,18 +204,14 @@ public final class BufferManagerImpl implements BufferManager {
     }
   }
 
+  /**
+   * Clears all caches, closing all cached pages.
+   * <p>
+   * This is typically called during database shutdown. ClockSweeper threads
+   * continue running (they handle future evictions as new pages are loaded).
+   */
   @Override
   public void clearAllCaches() {
-    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      LOGGER.debug("clearAllCaches(): RecordCache={}, FragmentCache={}, PageCache={}", 
-          recordPageCache.asMap().size(), recordPageFragmentCache.asMap().size(), 
-          pageCache.asMap().size());
-    }
-    
-    // Clear all caches synchronously - ShardedPageCache.clear() will close all pages
-    // NOTE: We do NOT stop ClockSweeper here! It continues running like PostgreSQL bgwriter.
-    // The clear() operations are synchronous and will close pages immediately.
-    // ClockSweeper will handle future evictions as new pages are loaded.
     pageCache.clear();
     recordPageCache.clear();
     recordPageFragmentCache.clear();
@@ -194,10 +219,6 @@ public final class BufferManagerImpl implements BufferManager {
     redBlackTreeNodeCache.clear();
     namesCache.clear();
     pathSummaryCache.clear();
-    
-    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      LOGGER.debug("clearAllCaches(): all caches cleared");
-    }
   }
   
   @Override

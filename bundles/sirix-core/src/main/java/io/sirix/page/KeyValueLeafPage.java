@@ -13,8 +13,8 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.page.interfaces.KeyValuePage;
-import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import io.sirix.settings.DiagnosticSettings;
 import io.sirix.utils.ArrayIterator;
 import io.sirix.utils.OS;
 import io.sirix.node.BytesOut;
@@ -53,9 +53,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
   private static final int INT_SIZE = Integer.BYTES;
   
-  // DEBUG FLAG: Enable with -Dsirix.debug.memory.leaks=true
-  public static final boolean DEBUG_MEMORY_LEAKS = 
-    Boolean.getBoolean("sirix.debug.memory.leaks");
+  /**
+   * Enable detailed memory leak tracking.
+   * Accessed via centralized {@link DiagnosticSettings#MEMORY_LEAK_TRACKING}.
+   * 
+   * @see DiagnosticSettings#isMemoryLeakTrackingEnabled()
+   */
+  public static final boolean DEBUG_MEMORY_LEAKS = DiagnosticSettings.MEMORY_LEAK_TRACKING;
   
   // DIAGNOSTIC COUNTERS (enabled via DEBUG_MEMORY_LEAKS)
   public static final java.util.concurrent.atomic.AtomicLong PAGES_CREATED = new java.util.concurrent.atomic.AtomicLong(0);
@@ -268,45 +272,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.deweyIdMemory = deweyIdMemory;
     this.externallyAllocatedMemory = externallyAllocatedMemory;
     
-    // DIAGNOSTIC: Capture creation stack trace for leak tracing
+    // Capture creation stack trace for leak tracing (only when diagnostics enabled)
     if (DEBUG_MEMORY_LEAKS) {
       this.creationStackTrace = Thread.currentThread().getStackTrace();
-      long created = PAGES_CREATED.incrementAndGet();
+      PAGES_CREATED.incrementAndGet();
       PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
-      boolean addedToLivePages = ALL_LIVE_PAGES.add(this);
-      if (!addedToLivePages) {
-        LOGGER.warn("⚠️  DUPLICATE ADD to ALL_LIVE_PAGES: Page {} ({}) rev={} instance={} totalCreated={}",
-            recordPageKey, indexType, revisionNumber, System.identityHashCode(this), created);
-      }
-      
-      // Track Page 0 creation source and register for cleanup
+      ALL_LIVE_PAGES.add(this);
       if (recordPageKey == 0) {
-        boolean wasAdded = ALL_PAGE_0_INSTANCES.add(this); // Register for explicit cleanup
-        
-        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
-        String source = "UNKNOWN";
-        String caller = "UNKNOWN";
-        for (int i = 0; i < Math.min(stack.length, 15); i++) {
-          String methodName = stack[i].getMethodName();
-          String className = stack[i].getClassName();
-          if (methodName.equals("createTree") || methodName.equals("prepareRecordPage")) {
-            source = "NEW_PAGE_CREATE";
-            caller = className + "." + methodName;
-            break;
-          } else if (methodName.equals("deserializePage") || methodName.equals("read")) {
-            source = "DISK_LOAD";
-            caller = className + "." + methodName;
-            break;
-          } else if (methodName.equals("newInstance") || methodName.equals("combineRecordPagesForModification")) {
-            source = "COMBINED";
-            caller = className + "." + methodName;
-            break;
-          }
-        }
-        
-        String addStatus = wasAdded ? "ADDED" : "DUPLICATE";
-        LOGGER.info("[CREATE] Page 0 from {} via {} ({}): {} rev={} instance={} totalCreated={}",
-            source, caller, addStatus, indexType, revisionNumber, System.identityHashCode(this), created);
+        ALL_PAGE_0_INSTANCES.add(this);
       }
     } else {
       this.creationStackTrace = null;
@@ -357,45 +330,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       this.lastDeweyIdIndex = -1;
     }
     
-    // DIAGNOSTIC: Capture creation stack trace for leak tracing
+    // Capture creation stack trace for leak tracing (only when diagnostics enabled)
     if (DEBUG_MEMORY_LEAKS) {
       this.creationStackTrace = Thread.currentThread().getStackTrace();
-      long created = PAGES_CREATED.incrementAndGet();
+      PAGES_CREATED.incrementAndGet();
       PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
-      boolean addedToLivePages = ALL_LIVE_PAGES.add(this);
-      if (!addedToLivePages) {
-        LOGGER.warn("⚠️  DUPLICATE ADD to ALL_LIVE_PAGES: Page {} ({}) rev={} instance={} totalCreated={}",
-            recordPageKey, indexType, revision, System.identityHashCode(this), created);
-      }
-      
-      // Track Page 0 creation source and register for cleanup
+      ALL_LIVE_PAGES.add(this);
       if (recordPageKey == 0) {
-        boolean wasAdded = ALL_PAGE_0_INSTANCES.add(this); // Register for explicit cleanup
-        
-        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
-        String source = "UNKNOWN";
-        String caller = "UNKNOWN";
-        for (int i = 0; i < Math.min(stack.length, 15); i++) {
-          String methodName = stack[i].getMethodName();
-          String className = stack[i].getClassName();
-          if (methodName.equals("createTree") || methodName.equals("prepareRecordPage")) {
-            source = "NEW_PAGE_CREATE";
-            caller = className + "." + methodName;
-            break;
-          } else if (methodName.equals("deserializePage") || methodName.equals("read")) {
-            source = "DISK_LOAD";
-            caller = className + "." + methodName;
-            break;
-          } else if (methodName.equals("newInstance") || methodName.equals("combineRecordPagesForModification")) {
-            source = "COMBINED";
-            caller = className + "." + methodName;
-            break;
-          }
-        }
-        
-        String addStatus = wasAdded ? "ADDED" : "DUPLICATE";
-        LOGGER.debug("[CREATE] Page 0 from {} via {} ({}): {} rev={} instance={} totalCreated={}",
-            source, caller, addStatus, indexType, revision, System.identityHashCode(this), created);
+        ALL_PAGE_0_INSTANCES.add(this);
       }
     } else {
       this.creationStackTrace = null;
@@ -1096,10 +1038,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return isClosed;
   }
 
+  /**
+   * Finalizer for detecting page leaks during development.
+   * <p>
+   * This method logs a warning if a page is garbage collected without being
+   * properly closed, indicating a potential memory leak. The warning is only
+   * generated when diagnostic settings are enabled.
+   * <p>
+   * <b>Note:</b> Finalizers are deprecated in modern Java. This is retained
+   * solely for leak detection during development and testing.
+   *
+   * @deprecated Finalizers are discouraged. This exists only for leak detection.
+   */
   @Override
-  @SuppressWarnings("emerging")
+  @Deprecated(forRemoval = false)
   protected void finalize() {
-    if (!isClosed) {
+    if (!isClosed && DEBUG_MEMORY_LEAKS) {
       PAGES_FINALIZED_WITHOUT_CLOSE.incrementAndGet();
       
       // Track by type and pageKey for detailed leak analysis
@@ -1108,103 +1062,85 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
       FINALIZED_BY_PAGE_KEY.computeIfAbsent(recordPageKey, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
       
-      // Print leak information with creation stack trace
-      StringBuilder leakMsg = new StringBuilder();
-      leakMsg.append(String.format("FINALIZER LEAK CAUGHT: Page %d (%s) revision=%d (instance=%d) - not closed explicitly!",
-          recordPageKey, indexType, revision, System.identityHashCode(this)));
-      
-      if (creationStackTrace != null) {
-        leakMsg.append("\n  Created at:");
-        // Skip first 2 frames (getStackTrace, constructor), show next 8 frames
-        for (int i = 2; i < Math.min(creationStackTrace.length, 10); i++) {
-          StackTraceElement frame = creationStackTrace[i];
-          leakMsg.append(String.format("\n    %s.%s(%s:%d)",
-              frame.getClassName(), frame.getMethodName(),
-              frame.getFileName(), frame.getLineNumber()));
+      // Log leak information (only when diagnostics enabled)
+      if (LOGGER.isWarnEnabled()) {
+        StringBuilder leakMsg = new StringBuilder();
+        leakMsg.append(String.format("Page leak detected: pageKey=%d, type=%s, revision=%d - not closed explicitly",
+            recordPageKey, indexType, revision));
+        
+        if (creationStackTrace != null && LOGGER.isDebugEnabled()) {
+          leakMsg.append("\n  Creation stack trace:");
+          for (int i = 2; i < Math.min(creationStackTrace.length, 8); i++) {
+            StackTraceElement frame = creationStackTrace[i];
+            leakMsg.append(String.format("\n    at %s.%s(%s:%d)",
+                frame.getClassName(), frame.getMethodName(),
+                frame.getFileName(), frame.getLineNumber()));
+          }
         }
+        LOGGER.warn(leakMsg.toString());
       }
-      
-      LOGGER.warn(leakMsg.toString());
-      
-      // NOTE: We don't call close() from finalizer because:
-      // 1. Finalizer runs on GC thread - race conditions with main threads
-      // 2. Modern Java discourages finalizers (deprecated)
-      // 3. MemorySegments are cleaned up when Arena/allocator is freed
-      // 
-      // This counter tracks pages that should have been explicitly closed.
-      // The real fix is in unpinAllPagesForTransaction() and TIL.clear()
     }
   }
 
+  /**
+   * Closes this page and releases associated memory resources.
+   * <p>
+   * This method is thread-safe and idempotent. If the page has active guards
+   * (indicating it's in use by a transaction), the close operation is skipped
+   * to prevent data corruption.
+   * <p>
+   * Memory segments allocated by the global allocator are returned to the pool.
+   * Externally allocated memory (e.g., test arenas) is not released.
+   */
   @Override
   public synchronized void close() {
-    // CRITICAL: synchronized to prevent race with acquireGuard/releaseGuard
-    if (!isClosed) {
-      // CRITICAL FIX: Check guard count before closing to prevent closing guarded pages
-      int currentGuardCount = guardCount.get();
-      if (currentGuardCount > 0) {
-        // Page is still guarded - cannot close yet
-        // This can happen if cache eviction tries to close a page that's still in use
-        LOGGER.warn("⚠️  GUARD PROTECTED: Attempted to close guarded page {} ({}) rev={} with guardCount={} - skipping close",
-            recordPageKey, indexType, revision, currentGuardCount);
-        return;
-      }
-      
-      if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-        boolean wasInLivePages = ALL_LIVE_PAGES.contains(this);
-        LOGGER.info("[CLOSE] Page 0 ({}) rev={} instance={} wasInLivePages={} guardCount={}",
-            indexType, revision, System.identityHashCode(this), wasInLivePages, currentGuardCount);
-      }
-      
-      isClosed = true;
-      
-      // DIAGNOSTIC: Verify isClosed was actually set
-      if (DEBUG_MEMORY_LEAKS && !isClosed) {
-        LOGGER.error("⚠️⚠️⚠️ CRITICAL: isClosed still false after setting to true! {} rev={} instance={}", 
-            indexType, revision, System.identityHashCode(this));
-      }
-      
-      // DIAGNOSTIC
-      if (DEBUG_MEMORY_LEAKS) {
-        long closedCount = PAGES_CLOSED.incrementAndGet();
-        PAGES_CLOSED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
-        boolean removed = ALL_LIVE_PAGES.remove(this);
-        
-        if (!removed) {
-          LOGGER.warn("⚠️  Page {} ({}) rev={} instance={} was NOT in ALL_LIVE_PAGES when closing! closedCount={}",
-              recordPageKey, indexType, revision, System.identityHashCode(this), closedCount);
-        }
-        
-        // Maintain Page 0 tracking for tests/debugging
-        if (recordPageKey == 0) {
-          ALL_PAGE_0_INSTANCES.remove(this);
-        }
-      }
-      
-      // Release segments back to allocator ONLY if memory was allocated by the global allocator.
-      // Memory allocated by external Arena (e.g., in tests) should NOT be released here.
-      if (!externallyAllocatedMemory) {
-        try {
-          if (slotMemory != null && slotMemory.byteSize() > 0) {
-            segmentAllocator.release(slotMemory);
-          }
-          if (deweyIdMemory != null && deweyIdMemory.byteSize() > 0) {
-            segmentAllocator.release(deweyIdMemory);
-          }
-        } catch (Throwable e) {
-          // Log but don't throw - we're in cleanup. Use Throwable to catch AssertionError too.
-          LOGGER.debug("Failed to release segments for page {}: {}", recordPageKey, e.getMessage());
-        }
-      }
-      slotMemory = null;
-      deweyIdMemory = null;
-      
-      // Clear references to help GC
-      Arrays.fill(records, null);
-      references.clear();
-      bytes = null;
-      hashCode = null;
+    if (isClosed) {
+      return;
     }
+
+    // Check guard count - pages in active use cannot be closed
+    int currentGuardCount = guardCount.get();
+    if (currentGuardCount > 0) {
+      if (LOGGER.isDebugEnabled()) {
+        LOGGER.debug("Close skipped for guarded page: pageKey={}, type={}, guardCount={}",
+            recordPageKey, indexType, currentGuardCount);
+      }
+      return;
+    }
+
+    isClosed = true;
+
+    // Update diagnostic counters if tracking is enabled
+    if (DEBUG_MEMORY_LEAKS) {
+      PAGES_CLOSED.incrementAndGet();
+      PAGES_CLOSED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      ALL_LIVE_PAGES.remove(this);
+      if (recordPageKey == 0) {
+        ALL_PAGE_0_INSTANCES.remove(this);
+      }
+    }
+
+    // Release memory segments to the allocator pool
+    if (!externallyAllocatedMemory) {
+      try {
+        if (slotMemory != null && slotMemory.byteSize() > 0) {
+          segmentAllocator.release(slotMemory);
+        }
+        if (deweyIdMemory != null && deweyIdMemory.byteSize() > 0) {
+          segmentAllocator.release(deweyIdMemory);
+        }
+      } catch (Throwable e) {
+        LOGGER.debug("Failed to release memory segments for page {}: {}", recordPageKey, e.getMessage());
+      }
+    }
+    slotMemory = null;
+    deweyIdMemory = null;
+
+    // Clear references to aid garbage collection
+    Arrays.fill(records, null);
+    references.clear();
+    bytes = null;
+    hashCode = null;
   }
 
   /**

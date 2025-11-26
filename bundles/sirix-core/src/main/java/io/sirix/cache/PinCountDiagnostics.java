@@ -10,11 +10,18 @@ import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * Diagnostic utility to analyze pin count distribution and memory usage across cached pages.
- * Used to identify memory leaks caused by pinning bugs vs cache eviction bugs.
- * 
- * @deprecated Will be replaced with GuardUsageDiagnostics
- * TODO: Remove this class after guard-based system is implemented
+ * Diagnostic utility for analyzing page cache memory distribution.
+ * <p>
+ * This utility provides insights into cached pages and their memory usage,
+ * helping identify potential memory leaks and cache efficiency issues.
+ * <p>
+ * <b>Note:</b> Pin counting has been replaced by guard-based page protection.
+ * The guard count mechanism (see {@link KeyValueLeafPage#getGuardCount()}) 
+ * now provides the primary protection against page eviction during active use.
+ *
+ * @author Johannes Lichtenberger
+ * @deprecated This class uses the legacy pin count terminology. Guard counts 
+ *             should be used for analyzing page protection status.
  */
 @Deprecated
 public class PinCountDiagnostics {
@@ -128,7 +135,7 @@ public class PinCountDiagnostics {
       totalMemoryBytes += memoryBytes;
     }
     
-    // TODO: Update to track guard counts instead of pin counts
+    // Guard counts are now managed per-page via KeyValueLeafPage.getGuardCount()
     return new DiagnosticReport(
         totalPages, 0, totalPages,
         totalMemoryBytes, 0, totalMemoryBytes,
@@ -180,9 +187,17 @@ public class PinCountDiagnostics {
    * Check for leaked pins when a transaction closes.
    * @deprecated Pin counts removed, use guard counts instead
    */
+  /**
+   * Check for leaked pins when a transaction closes.
+   * 
+   * @param bufferManager the buffer manager
+   * @param trxId the transaction ID
+   * @return empty list (guard counts are now per-page, not per-transaction)
+   * @deprecated Use guard counts on individual pages instead
+   */
   @Deprecated
   public static List<PagePinInfo> checkTransactionPins(BufferManager bufferManager, int trxId) {
-    // TODO: Update to check for leaked guards instead
+    // Guard protection is now per-page via KeyValueLeafPage.getGuardCount()
     return new ArrayList<>();
   }
   

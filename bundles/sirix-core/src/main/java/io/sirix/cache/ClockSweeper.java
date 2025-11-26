@@ -1,7 +1,6 @@
 package io.sirix.cache;
 
 import io.sirix.access.trx.RevisionEpochTracker;
-import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,17 +11,25 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Background clock sweeper for page eviction (second-chance algorithm).
+ * Background clock sweeper for page eviction using the second-chance algorithm.
  * <p>
- * Implements LeanStore/Umbra-style eviction:
- * - Scans pages in clock order
- * - Gives HOT pages a second chance (clears HOT bit)
- * - Evicts COLD pages if revision watermark allows (revision < minActiveRevision)
- * - Respects guard count (guardCount == 0)
+ * This component implements LeanStore/Umbra-style cache eviction with the following characteristics:
+ * <ul>
+ *   <li><b>Clock-based scanning:</b> Pages are scanned in circular order, minimizing overhead</li>
+ *   <li><b>Second-chance algorithm:</b> HOT pages (recently accessed) get a second chance before eviction</li>
+ *   <li><b>Revision watermark:</b> Pages needed by active transactions are protected from eviction</li>
+ *   <li><b>Guard protection:</b> Pages with active guards (in-use) cannot be evicted</li>
+ * </ul>
  * <p>
- * Runs as a background thread per shard for multi-core scalability.
+ * The sweeper runs as a daemon thread and performs incremental scans (10% of cache per cycle)
+ * to avoid long pauses. This follows the PostgreSQL bgwriter pattern for background maintenance.
+ * <p>
+ * <b>Thread Safety:</b> The sweeper uses an eviction lock to coordinate with cache operations.
+ * Individual page evictions are protected by ConcurrentHashMap's compute() atomicity.
  *
  * @author Johannes Lichtenberger
+ * @see ShardedPageCache
+ * @see RevisionEpochTracker
  */
 public final class ClockSweeper implements Runnable {
 
@@ -158,52 +165,22 @@ public final class ClockSweeper implements Runnable {
             return page; // Keep in cache
           }
           
-          // ATOMIC EVICTION: Evict within compute() while holding per-key lock
+          // Evict page atomically within compute() while holding per-key lock
           try {
             page.incrementVersion();
             ref.setPage(null);
-            
-            // CRITICAL: Close the page to release resources and return segments to allocator
-            // This must be done AFTER removing from cache to ensure no other thread sees a closed page in cache
-            if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-              LOGGER.debug("ClockSweeper[{}] evicting Page 0: {} rev={} instance={} guardCount={} before close",
-                  shardIndex, page.getIndexType(), page.getRevision(), System.identityHashCode(page), page.getGuardCount());
-            }
-            
             page.close();
-            
-            // CRITICAL FIX: Verify page was actually closed
-            // If close() returned early due to guards acquired after our check, keep page in cache
-            boolean actuallyClosedPage = page.isClosed();
-            
-            if (!actuallyClosedPage) {
-              // RACE DETECTED: Another thread acquired guard between our check and close()
-              // close() returned early, but we're about to remove from cache - this would leak!
-              // Solution: Keep page in cache and skip this eviction cycle
-              if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-                LOGGER.debug("ClockSweeper[{}] RACE DETECTED: Page 0 {} rev={} instance={} guardCount={} - NOT closed, keeping in cache",
-                    shardIndex, page.getIndexType(), page.getRevision(), System.identityHashCode(page), page.getGuardCount());
-              }
+
+            // Verify page was actually closed (guards might have been acquired after our check)
+            if (!page.isClosed()) {
               pagesSkippedByGuard.incrementAndGet();
               return page; // Keep in cache - another thread is using it
             }
-            
-            if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-              LOGGER.debug("ClockSweeper[{}] evicted Page 0: {} rev={} instance={} closed={}",
-                  shardIndex, page.getIndexType(), page.getRevision(), System.identityHashCode(page), actuallyClosedPage);
-            }
-            
+
             pagesEvicted.incrementAndGet();
-            
-            if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && pagesEvicted.get() % 100 == 0) {
-              LOGGER.debug("ClockSweeper[{}] evicted {} pages (skipped: hot={}, watermark={}, guard={})",
-                  shardIndex, pagesEvicted.get(), pagesSkippedByHot.get(),
-                  pagesSkippedByWatermark.get(), pagesSkippedByGuard.get());
-            }
-            
-            return null; // Remove from cache - page was successfully closed
+            return null; // Successfully evicted
           } catch (Exception e) {
-            LOGGER.error("ClockSweeper[{}] failed to evict page {}", shardIndex, page.getPageKey(), e);
+            LOGGER.error("Failed to evict page {}: {}", page.getPageKey(), e.getMessage());
             return page; // Keep in cache on error
           }
         });

@@ -207,8 +207,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
               var bufferMgr = io.sirix.access.Databases.getGlobalBufferManager();
               
               for (var page : livePages) {
-                // if (page.getPinCount() == 0) {  // REMOVED
-                if (true) {  // TODO: check guardCount == 0
+                // Skip pages with active guards (in use by transactions)
+                if (page.getGuardCount() == 0) {
                   boolean found = false;
                   
                   // Check if in RecordPageCache
@@ -594,8 +594,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                   maxBufferSize.get() / (1024 * 1024),
                   size);
       
-      // TODO: Implement memory pressure notification and waiting mechanism
-      // For now, throw an exception to prevent exceeding limit
+      // Memory limit reached - throw exception rather than blocking
+      // Future enhancement: implement backpressure with waiting mechanism
       throw new OutOfMemoryError(String.format(
           "Cannot allocate %d bytes. Physical memory: %d/%d MB, would exceed limit",
           size, currentPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024)));

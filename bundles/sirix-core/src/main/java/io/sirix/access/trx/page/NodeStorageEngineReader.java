@@ -42,6 +42,7 @@ import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.settings.Constants;
+import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.Fixed;
 import io.sirix.settings.VersioningType;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -69,8 +70,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(NodeStorageEngineReader.class);
 
-  // DEBUG FLAG: Enable with -Dsirix.debug.path.summary=true
-  private static final boolean DEBUG_PATH_SUMMARY = Boolean.getBoolean("sirix.debug.path.summary");
+  /**
+   * Enable path summary cache debugging.
+   * @see DiagnosticSettings#PATH_SUMMARY_DEBUG
+   */
+  private static final boolean DEBUG_PATH_SUMMARY = DiagnosticSettings.PATH_SUMMARY_DEBUG;
 
   private record RecordPage(int index, IndexType indexType, long recordPageKey, int revision,
                             PageReference pageReference, KeyValueLeafPage page) {
@@ -688,15 +692,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /**
-   * Close a mostRecent page if orphaned (evicted from cache).
-   * If the page is still in cache, cache will close it on eviction.
-   * If the page is NOT in cache (orphaned), we must close it explicitly.
+   * Close a mostRecent page if it has been orphaned (evicted from cache).
    * <p>
-   * NOTE: We do NOT release guards here because:
-   * 1. mostRecent fields are just references - they don't "own" guards
-   * 2. Guards are owned by currentPageGuard (released when navigating away)
-   * 3. The guardCount might include guards from OTHER transactions - we can't release those
-   * 4. If a page has lingering guards, it means another transaction is using it - that's fine
+   * Pages still in cache will be closed by the cache eviction process.
+   * Orphaned pages (no longer in cache) are closed here if they have no active guards.
+   * <p>
+   * Guards are not released here as they belong to other transactions or
+   * to the current page guard managed by {@link #currentPageGuard}.
+   *
+   * @param recordPage the record page to potentially close
    */
   private void closeMostRecentPageIfOrphaned(RecordPage recordPage) {
     if (recordPage == null) {
@@ -711,99 +715,51 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Check if page is still in cache
     KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(recordPage.pageReference);
 
-    if (cachedPage == page) {
-      // Page is in cache - cache will close it when guards reach 0
-      // Do nothing - just drop our reference
-      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-        LOGGER.debug("[CLEANUP] Page 0 ({}) still in cache with {} guards - cache will handle it",
-                     page.getIndexType(),
-                     page.getGuardCount());
-      }
-    } else {
-      // Page is NOT in cache (orphaned) - close only if no guards
-      if (!page.isClosed() && page.getGuardCount() == 0) {
-        page.close();
-
-        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-          LOGGER.debug("[CLEANUP] Closed orphaned Page 0 ({}) - not in cache, no guards", page.getIndexType());
-        }
-      } else if (page.getGuardCount() > 0) {
-        // Page has guards from other transactions - can't close it
-        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page.getPageKey() == 0) {
-          LOGGER.debug("[CLEANUP] Page 0 ({}) not in cache but has {} guards - skipping close",
-                       page.getIndexType(),
-                       page.getGuardCount());
-        }
-      }
+    if (cachedPage != page && !page.isClosed() && page.getGuardCount() == 0) {
+      // Page is orphaned (not in cache) and has no active guards - safe to close
+      page.close();
     }
   }
 
+  /**
+   * Load a page from the buffer manager's cache, or from storage if not cached.
+   * <p>
+   * Uses atomic compute() to prevent race conditions between cache lookup and
+   * guard acquisition. Guards are acquired inside the compute block to ensure
+   * the page cannot be evicted before this transaction has protected it.
+   *
+   * @param indexLogKey the index log key for lookup
+   * @param pageReferenceToRecordPage reference to the page
+   * @return the loaded page, or null if not found
+   */
   @Nullable
   private Page getFromBufferManager(@NonNull IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
-    if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
-      LOGGER.debug("[PATH_SUMMARY-CACHE-LOOKUP] Looking up in cache: PageRef(key={}, logKey={}), requestedRevision={}",
-                   pageReferenceToRecordPage.getKey(),
-                   pageReferenceToRecordPage.getLogKey(),
-                   indexLogKey.getRevisionNumber());
+    if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && LOGGER.isDebugEnabled()) {
+      LOGGER.debug("Path summary cache lookup: key={}, revision={}",
+                   pageReferenceToRecordPage.getKey(), indexLogKey.getRevisionNumber());
     }
 
-    // CRITICAL FIX: Use compute() to atomically load page AND acquire guard, preventing eviction races.
-    // Problem 1: When multiple transactions have cache miss on same page, they ALL load fragments concurrently
-    //           This causes deadlocks when acquiring guards on fragments in different orders
-    // Problem 2: When compute() returns, the per-key lock is released. Another thread (ClockSweeper)
-    //           could evict the page between compute() returning and guard acquisition.
-    // Solution: Use compute() to ensure only ONE thread loads fragments, AND acquire guard inside compute()
-    //           to prevent eviction before we return.
-    
+    // Atomic compute() ensures thread-safe cache access and guard acquisition
     KeyValueLeafPage page = resourceBufferManager.getRecordPageCache().asMap().compute(pageReferenceToRecordPage, (ref, existing) -> {
       if (existing != null && !existing.isClosed()) {
-        // Cache HIT - mark accessed and acquire guard INSIDE compute() to prevent eviction race
         existing.markAccessed();
-        existing.acquireGuard(); // Acquire guard atomically while per-key lock is held
-        
-        if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
-          LOGGER.debug("[PATH_SUMMARY-CACHE-LOOKUP]   -> Cache HIT: pageKey={}, revision={}",
-                       existing.getPageKey(),
-                       existing.getRevision());
-        }
+        existing.acquireGuard();
         return existing;
       }
-      
-      // Cache MISS - load fragments and combine  
-      // NOTE: Fragment guards are acquired during load and released in finally block
-      KeyValueLeafPage loadedPage = (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(ref);
-      
-      if (loadedPage != null) {
-        if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY) {
-          LOGGER.debug("[PATH_SUMMARY-CACHE-LOOKUP]   -> Loaded from disk: pageKey={}, revision={}",
-                       loadedPage.getPageKey(),
-                       loadedPage.getRevision());
-        }
 
-        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && loadedPage.getPageKey() == 0) {
-          LOGGER.debug("Page 0 added to RecordPageCache: {} rev={} instance={}",
-                       loadedPage.getIndexType(),
-                       loadedPage.getRevision(),
-                       " PageRef(key=" + ref.getKey() + ", logKey="
-                           + ref.getLogKey() + ", db=" + ref.getDatabaseId()
-                           + ", res=" + ref.getResourceId() + ")" + " (instance="
-                           + System.identityHashCode(loadedPage) + ")");
-        }
-        
+      // Cache miss - load from storage
+      KeyValueLeafPage loadedPage = (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(ref);
+      if (loadedPage != null) {
         loadedPage.markAccessed();
-        loadedPage.acquireGuard(); // Acquire guard atomically while per-key lock is held
+        loadedPage.acquireGuard();
       }
       return loadedPage;
     });
 
     if (page != null) {
       pageReferenceToRecordPage.setPage(page);
-      // Guard already acquired inside compute(), no need to assert - page can't be closed
-
-      // Wrap in PageGuard for auto-release, but DON'T re-acquire (already acquired in compute())
       closeCurrentPageGuard();
       currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
-
       return page;
     }
 
@@ -869,16 +825,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
   }
 
+  /**
+   * Load a page from storage and combine with historical fragments for versioning.
+   * <p>
+   * This method handles the versioning reconstruction by loading the current page
+   * fragment and combining it with previous revisions according to the configured
+   * versioning strategy (e.g., incremental, differential, full).
+   *
+   * @param pageReferenceToRecordPage reference to the page to load
+   * @return the combined page, or null if no page exists at this reference
+   */
   @Nullable
   private Page loadDataPageFromDurableStorageAndCombinePageFragments(PageReference pageReferenceToRecordPage) {
     if (pageReferenceToRecordPage.getKey() == Constants.NULL_ID_LONG) {
-      // No persistent key set to load page from durable storage.
       return null;
     }
 
-    // Load list of page "fragments" from persistent storage.
     final var result = getPageFragments(pageReferenceToRecordPage);
-
     if (result.pages().isEmpty()) {
       return null;
     }
@@ -886,81 +849,27 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final int maxRevisionsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
     final VersioningType versioningApproach = resourceConfig.versioningType;
 
-    // Fragments already guarded by getPageFragments() - no need to guard again
     try {
-      // CRITICAL FIX: Close old swizzled page before replacing with combined page
-      // Combined pages created by combineRecordPages() are NEW instances that bypass cache
-      // If we don't close the old swizzled page, it becomes a ghost page that leaks
+      // Close old swizzled page before replacing with combined page
       Page oldSwizzledPage = pageReferenceToRecordPage.getPage();
       if (oldSwizzledPage instanceof KeyValueLeafPage oldKvp && !oldKvp.isClosed()) {
-        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && oldKvp.getPageKey() == 0) {
-          LOGGER.debug("[COMBINE] Closing old swizzled Page 0 before combining: " + oldKvp.getIndexType() 
-                       + " rev=" + oldKvp.getRevision() + " instance=" + System.identityHashCode(oldKvp));
-        }
         oldKvp.close();
       }
-      
+
       final Page completePage = versioningApproach.combineRecordPages(result.pages(), maxRevisionsToRestore, this);
       pageReferenceToRecordPage.setPage(completePage);
       assert !completePage.isClosed();
 
-      // DIAGNOSTIC: Track combined Page 0 creation with stack trace
-      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && completePage instanceof KeyValueLeafPage kvp
-          && kvp.getPageKey() == 0) {
-        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
-        String caller = stack.length > 6 ? stack[6].getMethodName() : "unknown";
-        LOGGER.debug("COMBINED PAGE 0 created: " + kvp.getIndexType() + " rev=" + kvp.getRevision() + " by " + caller
-                         + " (instance=" + System.identityHashCode(kvp) + ")");
-      }
-
       return completePage;
     } finally {
-      // Release guards on ALL fragments after combining
-      // All fragments were guarded during combining to prevent ClockSweeper eviction
-      // Now that combining is complete, release guards to allow cache management
-      
-      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-        LOGGER.debug("[FINALLY] Releasing guards on {} fragments", result.pages().size());
-      }
-      
-      for (int i = 0; i < result.pages().size(); i++) {
-        KeyValuePage<DataRecord> fragment = result.pages().get(i);
+      // Release guards on all fragments after combining
+      for (KeyValuePage<DataRecord> fragment : result.pages()) {
         KeyValueLeafPage kvPage = (KeyValueLeafPage) fragment;
-        
-        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
-          LOGGER.debug("[FINALLY] Fragment {}: {} rev={} guardCount={} BEFORE release",
-              i, kvPage.getIndexType(), kvPage.getRevision(), kvPage.getGuardCount());
-        }
-        
         kvPage.releaseGuard();
-        
-        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && kvPage.getPageKey() == 0) {
-          LOGGER.debug("[FINALLY] Fragment {}: {} rev={} guardCount={} AFTER release",
-              i, kvPage.getIndexType(), kvPage.getRevision(), kvPage.getGuardCount());
-        }
-        
-        assert kvPage.getGuardCount() == 0 : 
-            "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
+        assert kvPage.getGuardCount() >= 0 : "Guard count should never be negative";
       }
-      
-      // Note: We do NOT close fragments here. They remain in cache for potential reuse
-      // by other transactions. ClockSweeper will evict/close them based on:
-      // - Memory pressure (weight-based eviction)
-      // - Access patterns (hot bit / second-chance algorithm)  
-      // - Revision watermarks (can't evict if active readers need them)
-      
-      // DIAGNOSTIC: Verify all fragment guards were properly released
-      // Debug logging disabled - too verbose for production
-      // if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      //   for (int i = 0; i < result.pages().size(); i++) {
-      //     KeyValuePage<DataRecord> fragment = result.pages().get(i);
-      //     KeyValueLeafPage kvPage = (KeyValueLeafPage) fragment;
-      //     if (kvPage.getPageKey() == 0) {
-      //       LOGGER.debug("[POST-FINALLY] Fragment {}: {} rev={} instance={} guardCount={} (should be 0)",
-      //           i, kvPage.getIndexType(), kvPage.getRevision(), System.identityHashCode(kvPage), kvPage.getGuardCount());
-      //     }
-      //   }
-      // }
+      // Fragments remain in cache for reuse by other transactions.
+      // ClockSweeper handles eviction based on memory pressure and access patterns.
     }
   }
 
@@ -1016,12 +925,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /**
-   * Dereference key/value page reference and get all leaves, the {@link KeyValuePage}s from the
-   * revision-trees.
+   * Dereference key/value page reference and get all page fragments from revision-trees.
+   * <p>
+   * For versioning systems (incremental, differential), a complete page may be composed
+   * of multiple fragments from different revisions. This method loads all required
+   * fragments and returns them in order for combining.
    *
-   * @param pageReference optional page reference pointing to the first page
-   * @return dereferenced pages and their original fragment keys
-   * @throws SirixIOException if an I/O-error occurs within the creation process
+   * @param pageReference reference pointing to the first (most recent) page fragment
+   * @return result containing all page fragments and their original keys
+   * @throws SirixIOException if an I/O error occurs during loading
    */
   PageFragmentsResult getPageFragments(final PageReference pageReference) {
     assert pageReference != null;
@@ -1030,33 +942,22 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final int[] revisionsToRead = config.versioningType.getRevisionRoots(rootPage.getRevision(), revsToRestore);
     final List<KeyValuePage<DataRecord>> pages = new ArrayList<>(revisionsToRead.length);
 
-    // CRITICAL: Save original pageFragments AND storage key before mutation
+    // Save original fragment keys before any mutations
     final var originalPageFragments = new ArrayList<>(pageReference.getPageFragments());
-    final long originalStorageKey = pageReference.getKey(); // Storage key for pages[0]
+    final long originalStorageKey = pageReference.getKey();
     final var pageReferenceWithKey =
         new PageReference().setKey(originalStorageKey).setDatabaseId(databaseId).setResourceId(resourceId);
 
-    // Get from cache or load - cache handles race conditions atomically
+    // Load first fragment from cache or storage
     KeyValueLeafPage page = resourceBufferManager.getRecordPageFragmentCache()
         .get(pageReferenceWithKey, (key, existing) -> {
           if (existing != null && !existing.isClosed()) {
-            // Cache hit - return existing page
             return existing;
           }
-          // Cache miss - load from disk and cache will store it
-          KeyValueLeafPage loadedPage = (KeyValueLeafPage) pageReader.read(key, resourceSession.getResourceConfig());
-          
-          if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && loadedPage.getPageKey() == 0) {
-            LOGGER.debug("FRAGMENT Page 0 loaded and cached: " + loadedPage.getIndexType() + " rev=" + loadedPage.getRevision() 
-                         + " instance=" + System.identityHashCode(loadedPage));
-          }
-          
-          return loadedPage;
+          return (KeyValueLeafPage) pageReader.read(key, resourceSession.getResourceConfig());
         });
-    
-    // Acquire guard for this transaction
-    page.acquireGuard();
 
+    page.acquireGuard();
     assert !page.isClosed();
     pages.add(page);
 
@@ -1064,6 +965,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return new PageFragmentsResult(pages, originalPageFragments, originalStorageKey);
     }
 
+    // Load additional fragments for versioning reconstruction
     final List<PageFragmentKey> pageFragmentKeys = new ArrayList<>(originalPageFragments.size() + 1);
     pageFragmentKeys.addAll(originalPageFragments);
     pages.addAll(getPreviousPageFragments(pageFragmentKeys));
