@@ -751,7 +751,8 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
             allocator.allocate(SIXTYFOUR_KB),
             getResourceSession().getResourceConfig().areDeweyIDsStored 
                 ? allocator.allocate(SIXTYFOUR_KB) 
-                : null
+                : null,
+            false  // Memory from allocator - release on close()
         );
         
         final KeyValueLeafPage modifyPage = new KeyValueLeafPage(
@@ -762,7 +763,8 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
             allocator.allocate(SIXTYFOUR_KB),
             getResourceSession().getResourceConfig().areDeweyIDsStored 
                 ? allocator.allocate(SIXTYFOUR_KB) 
-                : null
+                : null,
+            false  // Memory from allocator - release on close()
         );
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
         appendLogRecord(reference, pageContainer);

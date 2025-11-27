@@ -85,7 +85,8 @@ public final class PageUtils {
         resourceConfiguration,
         pageReadTrx.getRevisionNumber(),
         allocator.allocate(SIXTYFOUR_KB),
-        resourceConfiguration.areDeweyIDsStored ? allocator.allocate(SIXTYFOUR_KB) : null
+        resourceConfiguration.areDeweyIDsStored ? allocator.allocate(SIXTYFOUR_KB) : null,
+        false  // Memory from allocator - release on close()
     );
 
     final SirixDeweyID id = resourceConfiguration.areDeweyIDsStored ? SirixDeweyID.newRootID() : null;

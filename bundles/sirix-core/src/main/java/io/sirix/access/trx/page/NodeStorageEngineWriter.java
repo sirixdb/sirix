@@ -750,7 +750,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             allocator.allocate(SIXTYFOUR_KB),
             getResourceSession().getResourceConfig().areDeweyIDsStored 
                 ? allocator.allocate(SIXTYFOUR_KB) 
-                : null
+                : null,
+            false  // Memory from allocator - release on close()
         );
         
         final KeyValueLeafPage modifyPage = new KeyValueLeafPage(
@@ -761,7 +762,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             allocator.allocate(SIXTYFOUR_KB),
             getResourceSession().getResourceConfig().areDeweyIDsStored 
                 ? allocator.allocate(SIXTYFOUR_KB) 
-                : null
+                : null,
+            false  // Memory from allocator - release on close()
         );
         
         if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
