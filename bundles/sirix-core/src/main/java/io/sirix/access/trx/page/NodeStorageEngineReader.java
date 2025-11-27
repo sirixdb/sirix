@@ -695,10 +695,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Close a mostRecent page if it has been orphaned (evicted from cache).
    * <p>
    * Pages still in cache will be closed by the cache eviction process.
-   * Orphaned pages (no longer in cache) are closed here if they have no active guards.
+   * Orphaned pages (no longer in cache) need to have any remaining guards released
+   * and then be closed.
    * <p>
-   * Guards are not released here as they belong to other transactions or
-   * to the current page guard managed by {@link #currentPageGuard}.
+   * IMPORTANT: For orphaned pages (not in cache), any remaining guards must be from
+   * this transaction since:
+   * 1. Pages can only be evicted/replaced in cache if guardCount == 0
+   * 2. If a page has guards and is not in cache, those guards are from transactions
+   *    that hold mostRecent references to a page instance that was replaced in cache
+   * 3. When this transaction closes, we must release our guard to allow the page to close
    *
    * @param recordPage the record page to potentially close
    */
@@ -715,9 +720,24 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Check if page is still in cache
     KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageCache().get(recordPage.pageReference);
 
-    if (cachedPage != page && !page.isClosed() && page.getGuardCount() == 0) {
-      // Page is orphaned (not in cache) and has no active guards - safe to close
-      page.close();
+    if (cachedPage != page) {
+      // Page is orphaned (not in cache or replaced by different instance)
+      // This can happen when:
+      // 1. Cache evicted the page (only possible if guardCount was 0 at eviction time)
+      // 2. Another transaction replaced the page in cache with a new combined instance
+      //
+      // In case 2, our transaction may still have a guard on the old instance that
+      // needs to be released. Since this page is orphaned, no other active transaction
+      // can have guards on it (they would keep it in cache via compute()).
+      //
+      // Release any remaining guard (should be at most 1 from this transaction)
+      // and close the page.
+      if (page.getGuardCount() > 0) {
+        page.releaseGuard();
+      }
+      if (!page.isClosed() && page.getGuardCount() == 0) {
+        page.close();
+      }
     }
   }
 
