@@ -54,3 +54,10 @@ bundles/sirix-rest-api/.idea/compiler.xml
 # Diagnostic and profiling files
 memory-leak-diagnostic.log
 *.jfr
+
+# Large log files
+*.log
+testAllTenth-*.log
+fmse-*.log
+*-debug-*.log
+*-leak-analysis-*.log
