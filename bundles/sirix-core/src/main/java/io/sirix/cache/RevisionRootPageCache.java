@@ -29,30 +29,34 @@ package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.page.RevisionRootPage;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentMap;
+import java.util.function.BiFunction;
 
 /**
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
- *
  */
-public final class RevisionRootPageCache implements Cache<Integer, RevisionRootPage> {
-  private final com.github.benmanes.caffeine.cache.Cache<Integer, RevisionRootPage> pageCache;
+public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheKey, RevisionRootPage> {
+  private final com.github.benmanes.caffeine.cache.Cache<RevisionRootPageCacheKey, RevisionRootPage> cache;
 
   public RevisionRootPageCache(final int maxSize) {
-    pageCache =
-        Caffeine.newBuilder().maximumSize(maxSize).scheduler(scheduler).build();
+    cache = Caffeine.newBuilder()
+                    .initialCapacity(maxSize)
+                    .maximumSize(maxSize)
+                    .scheduler(scheduler)
+                    .build();
   }
 
   @Override
   public void clear() {
-    pageCache.invalidateAll();
+    cache.invalidateAll();
   }
 
   @Override
-  public RevisionRootPage get(Integer key) {
-    var revisionRootPage = pageCache.getIfPresent(key);
+  public RevisionRootPage get(RevisionRootPageCacheKey key) {
+    var revisionRootPage = cache.getIfPresent(key);
 
     if (revisionRootPage != null) {
       revisionRootPage = new RevisionRootPage(revisionRootPage, revisionRootPage.getRevision());
@@ -62,13 +66,80 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
   }
 
   @Override
-  public void put(Integer key, RevisionRootPage value) {
-    pageCache.put(key, value);
+  public RevisionRootPage get(RevisionRootPageCacheKey key,
+      BiFunction<? super RevisionRootPageCacheKey, ? super RevisionRootPage, ? extends RevisionRootPage> mappingFunction) {
+    return cache.asMap().compute(key, mappingFunction);
   }
 
   @Override
-  public void putAll(Map<? extends Integer, ? extends RevisionRootPage> map) {
-    pageCache.putAll(map);
+  public void putIfAbsent(RevisionRootPageCacheKey key, RevisionRootPage value) {
+    cache.asMap().putIfAbsent(key, value);
+  }
+
+  @Override
+  public void put(RevisionRootPageCacheKey key, @NonNull RevisionRootPage value) {
+    // CRITICAL FIX: Unswizzle all PageReferences before caching
+    // RevisionRootPage contains PageReferences that might have swizzled KeyValueLeafPage instances
+    // These swizzled pages prevent proper cleanup and cause memory leaks
+    // We must null out the page references so they don't keep KeyValueLeafPages alive
+    unswizzlePageReferences(value);
+    cache.put(key, value);
+  }
+  
+  /**
+   * Unswizzle all PageReferences in a RevisionRootPage before caching.
+   * This prevents swizzled KeyValueLeafPage instances from being kept alive
+   * by cached RevisionRootPages.
+   */
+  private void unswizzlePageReferences(RevisionRootPage revisionRootPage) {
+    // Unswizzle references to index trees (hold KeyValueLeafPage instances)
+    var nameRef = revisionRootPage.getNamePageReference();
+    if (nameRef != null && nameRef.getPage() instanceof io.sirix.page.NamePage namePage) {
+      // Unswizzle the NamePage's index tree references (hold KeyValueLeafPage Page 0s)
+      unswizzleIndexPageReferences(namePage);
+    }
+    
+    var pathSummaryRef = revisionRootPage.getPathSummaryPageReference();
+    if (pathSummaryRef != null && pathSummaryRef.getPage() instanceof io.sirix.page.PathSummaryPage pathSummaryPage) {
+      unswizzleIndexPageReferences(pathSummaryPage);
+    }
+    
+    var casRef = revisionRootPage.getCASPageReference();
+    if (casRef != null && casRef.getPage() instanceof io.sirix.page.CASPage casPage) {
+      unswizzleIndexPageReferences(casPage);
+    }
+    
+    var pathRef = revisionRootPage.getPathPageReference();
+    if (pathRef != null && pathRef.getPage() instanceof io.sirix.page.PathPage pathPage) {
+      unswizzleIndexPageReferences(pathPage);
+    }
+    
+    var documentRef = revisionRootPage.getIndirectDocumentIndexPageReference();
+    if (documentRef != null) {
+      documentRef.setPage(null);
+    }
+  }
+  
+  /**
+   * Unswizzle PageReferences in index pages (NamePage, PathPage, etc.)
+   * These pages contain references to KeyValueLeafPage instances that need to be unswizzled.
+   */
+  private void unswizzleIndexPageReferences(io.sirix.page.interfaces.Page indexPage) {
+    // Index pages extend AbstractForwardingPage which has getReferences()
+    for (var ref : indexPage.getReferences()) {
+      if (ref != null) {
+        ref.setPage(null);
+      }
+    }
+  }
+
+  @Override
+  public void putAll(Map<? extends RevisionRootPageCacheKey, ? extends RevisionRootPage> map) {
+    // CRITICAL FIX: Unswizzle all pages before caching
+    for (var value : map.values()) {
+      unswizzlePageReferences(value);
+    }
+    cache.putAll(map);
   }
 
   @Override
@@ -77,13 +148,18 @@ public final class RevisionRootPageCache implements Cache<Integer, RevisionRootP
   }
 
   @Override
-  public Map<Integer, RevisionRootPage> getAll(Iterable<? extends Integer> keys) {
-    return pageCache.getAllPresent(keys);
+  public Map<RevisionRootPageCacheKey, RevisionRootPage> getAll(Iterable<? extends RevisionRootPageCacheKey> keys) {
+    return cache.getAllPresent(keys);
   }
 
   @Override
-  public void remove(Integer key) {
-    pageCache.invalidate(key);
+  public void remove(RevisionRootPageCacheKey key) {
+    cache.invalidate(key);
+  }
+
+  @Override
+  public ConcurrentMap<RevisionRootPageCacheKey, RevisionRootPage> asMap() {
+    return cache.asMap();
   }
 
   @Override

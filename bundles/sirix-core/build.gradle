@@ -22,7 +22,6 @@ dependencies {
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections
     implementation implLibraries.integercompression
-    implementation implLibraries.chronicleBytes
     implementation implLibraries.fastObjectPool
     implementation implLibraries.zeroAllocationHashing
 
@@ -54,4 +53,19 @@ jar {
 
 test {
     useJUnitPlatform()
+    jvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+    ]
+    // Pass through diagnostic system properties
+    systemProperty "sirix.debug.path.summary", System.getProperty("sirix.debug.path.summary", "false")
+    systemProperty "sirix.debug.leak.diagnostics", System.getProperty("sirix.debug.leak.diagnostics", "false")
+    systemProperty "sirix.debug.memory.leaks", System.getProperty("sirix.debug.memory.leaks", "true")
+    systemProperty "sirix.debug.pin.counts", System.getProperty("sirix.debug.pin.counts", "false")
+    
+    // Show test output for diagnostics
+    testLogging {
+        showStandardStreams = true
+        exceptionFormat = 'full'
+    }
 }

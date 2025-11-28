@@ -2,8 +2,8 @@ package io.sirix.node;
 
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
-import net.openhft.chronicle.bytes.BytesIn;
-import net.openhft.chronicle.bytes.BytesOut;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
 
 /**
  * Copied from Kafka ByteUtils class.

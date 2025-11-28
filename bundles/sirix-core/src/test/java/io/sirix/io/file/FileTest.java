@@ -35,12 +35,12 @@ public class FileTest {
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.deleteEverything();
-    holder = Holder.openResourceManager();
+    holder = Holder.openResourceSession();
   }
 
   @Test
   public void testFirstRef() throws SirixException {
-    IOTestHelper.testReadWriteFirstRef(holder.getResourceManager().getResourceConfig());
+    IOTestHelper.testReadWriteFirstRef(holder.getResourceSession().getResourceConfig());
   }
 
   @After

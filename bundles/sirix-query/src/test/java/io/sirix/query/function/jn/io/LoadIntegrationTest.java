@@ -55,7 +55,7 @@ public final class LoadIntegrationTest extends TestCase {
 
       // Use Query to store a JSON string into the store.
       final var str = jsonArray.toAbsolutePath().toString();
-      final String query = STR."jn:load('mycol.jn','mydoc.jn','\{str}',true(),{\"commitMessage\": \"commitMessage\"})";
+      final String query = "jn:load('mycol.jn','mydoc.jn','" + str + "',true(),{\"commitMessage\": \"commitMessage\"})";
       new Query(chain, query).evaluate(ctx);
     }
   }
@@ -69,7 +69,7 @@ public final class LoadIntegrationTest extends TestCase {
 
       // Use Query to store a JSON string into the store.
       final var str = jsonArray.toAbsolutePath().toString();
-      final String query = STR."jn:load('mycol.jn','mydoc.jn','\{str}',true(),{\"commitMessage\": \"commitMessage\",\"commitTimestamp\": \"2021-05-01T00:00:00\"})";
+      final String query = "jn:load('mycol.jn','mydoc.jn','" + str + "',true(),{\"commitMessage\": \"commitMessage\",\"commitTimestamp\": \"2021-05-01T00:00:00\"})";
       new Query(chain, query).evaluate(ctx);
     }
   }
@@ -84,15 +84,15 @@ public final class LoadIntegrationTest extends TestCase {
       // Use Query to load multiple JSON files into the store.
       final var array = jsonArray.toAbsolutePath().toString();
       final var object = jsonObject.toAbsolutePath().toString();
-      final String query = STR."jn:load('mycol.jn',(),('\{array}','\{object}'))";
+      final String query = "jn:load('mycol.jn',(),('" + array + "','" + object + "'))";
       new Query(chain, query).evaluate(ctx);
 
       // Use Query to add a JSON file to the collection.
-      final String queryAdd = STR."jn:load('mycol.jn',(),'\{array}',false())";
+      final String queryAdd = "jn:load('mycol.jn',(),'" + array + "',false())";
       new Query(chain, queryAdd).evaluate(ctx);
 
       // Use Query to add JSON files to the collection.
-      final String queryAddStrings = STR."jn:load('mycol.jn',(),('\{array}','\{object}'),false())";
+      final String queryAddStrings = "jn:load('mycol.jn',(),('" + array + "','" + object + "'),false())";
       new Query(chain, queryAddStrings).evaluate(ctx);
     }
   }

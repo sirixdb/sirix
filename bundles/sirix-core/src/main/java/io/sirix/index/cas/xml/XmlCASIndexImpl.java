@@ -1,7 +1,7 @@
 package io.sirix.index.cas.xml;
 
 import io.sirix.access.DatabaseType;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
 import io.sirix.index.cas.CASIndexBuilderFactory;
@@ -21,14 +21,14 @@ public final class XmlCASIndexImpl implements XmlCASIndex {
 
   @Override
   public XmlCASIndexBuilder createBuilder(XmlNodeReadOnlyTrx rtx,
-      PageTrx pageTrx, PathSummaryReader pathSummaryReader,
+      StorageEngineWriter pageTrx, PathSummaryReader pathSummaryReader,
       IndexDef indexDef) {
     final var indexBuilderDelegate = casIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
     return new XmlCASIndexBuilder(indexBuilderDelegate, rtx);
   }
 
   @Override
-  public XmlCASIndexListener createListener(PageTrx pageTrx,
+  public XmlCASIndexListener createListener(StorageEngineWriter pageTrx,
       PathSummaryReader pathSummaryReader, IndexDef indexDef) {
     final var indexListenerDelegate = casIndexListenerFactory.create(pageTrx, pathSummaryReader, indexDef);
     return new XmlCASIndexListener(indexListenerDelegate);

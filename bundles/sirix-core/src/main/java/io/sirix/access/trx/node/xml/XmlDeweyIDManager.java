@@ -1,7 +1,7 @@
 package io.sirix.access.trx.node.xml;
 
 import io.sirix.access.trx.node.AbstractDeweyIDManager;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.axis.LevelOrderAxis;
 import io.sirix.exception.SirixException;
 import io.sirix.index.IndexType;
@@ -14,7 +14,7 @@ import io.sirix.node.xml.ElementNode;
 final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx> {
   private final InternalXmlNodeTrx nodeTrx;
 
-  private final PageTrx pageTrx;
+  private final StorageEngineWriter pageTrx;
 
   public XmlDeweyIDManager(InternalXmlNodeTrx nodeTrx) {
     super(nodeTrx);

@@ -75,12 +75,12 @@ public final class OpenRevisionsTest {
 
   @Test
   public void test() throws IOException, QueryException {
-    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().close();
+    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXmlNodeTrx());
+    holder.getXmlNodeTrx().close();
 
     final Instant revisionTwoTimestamp;
 
-    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx(1)) {
+    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx(1)) {
       revisionTwoTimestamp = rtx.getRevisionTimestamp();
     }
 

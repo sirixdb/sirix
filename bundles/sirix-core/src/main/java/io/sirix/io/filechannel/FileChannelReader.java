@@ -24,7 +24,7 @@ package io.sirix.io.filechannel;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.AbstractReader;
 import io.sirix.io.IOStorage;
@@ -44,7 +44,7 @@ import java.nio.channels.FileChannel;
 import java.time.Instant;
 
 /**
- * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.
+ * File Reader. Used for {@link StorageEngineReader} to provide read only access on a RandomAccessFile.
  *
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
@@ -102,7 +102,7 @@ public final class FileChannelReader extends AbstractReader {
       buffer.flip();
       final byte[] page = buffer.array();
 
-      // Perform byte operations.
+      // Perform byte operations (deserialize will also fixup PageReference IDs)
       return deserialize(resourceConfiguration, page);
     } catch (final IOException e) {
       throw new SirixIOException(e);

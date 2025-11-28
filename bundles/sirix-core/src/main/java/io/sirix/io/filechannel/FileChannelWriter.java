@@ -23,12 +23,13 @@ package io.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.*;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.ByteArrayOutputStream;
@@ -74,7 +75,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   private boolean isFirstUberPage;
 
-  private final Bytes<ByteBuffer> byteBufferBytes = Bytes.elasticHeapByteBuffer(1_000);
+  private final BytesOut<?> byteBufferBytes = Bytes.elasticOffHeapByteBuffer(1_000);
 
   /**
    * Constructor.
@@ -98,10 +99,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
-  public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx, final int revision) {
+  public Writer truncateTo(final StorageEngineReader pageReadOnlyTrx, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
-          cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
+          cache.get(revision, _ -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
 
       // Read page from file.
       final var buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
@@ -121,7 +122,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   @Override
   public FileChannelWriter write(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
-      final Page page, final Bytes<ByteBuffer> bufferedBytes) {
+      final Page page, final BytesOut<?> bufferedBytes) {
     try {
       final long offset = getOffset(bufferedBytes);
       return writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, offset);
@@ -130,7 +131,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
   }
 
-  private long getOffset(Bytes<ByteBuffer> bufferedBytes) throws IOException {
+  private long getOffset(BytesOut<?> bufferedBytes) throws IOException {
     final long fileSize = dataFileChannel.size();
     long offset;
 
@@ -147,7 +148,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   @NonNull
   private FileChannelWriter writePageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, final Page page, final Bytes<ByteBuffer> bufferedBytes, long offset) {
+      final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
@@ -265,7 +266,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   @Override
   public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, final Page page, final Bytes<ByteBuffer> bufferedBytes) {
+      final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes) {
     try {
       if (bufferedBytes.writePosition() > 0) {
         flushBuffer(bufferedBytes);
@@ -276,7 +277,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       isFirstUberPage = false;
       writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
 
-      @SuppressWarnings("DataFlowIssue") final var buffer = bufferedBytes.underlyingObject().rewind();
+      @SuppressWarnings("DataFlowIssue") final var buffer = ((ByteBuffer) bufferedBytes.underlyingObject()).rewind();
       buffer.limit((int) bufferedBytes.readLimit());
       dataFileChannel.write(buffer, 0L);
       dataFileChannel.force(false);
@@ -288,7 +289,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     return this;
   }
 
-  private void flushBuffer(Bytes<ByteBuffer> bufferedBytes) throws IOException {
+  private void flushBuffer(BytesOut<?> bufferedBytes) throws IOException {
     final long fileSize = dataFileChannel.size();
     long offset;
 
@@ -299,7 +300,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       offset = fileSize;
     }
 
-    @SuppressWarnings("DataFlowIssue") final var buffer = bufferedBytes.underlyingObject().rewind();
+    @SuppressWarnings("DataFlowIssue") final var buffer = ((ByteBuffer) bufferedBytes.underlyingObject()).rewind();
     buffer.limit((int) bufferedBytes.readLimit());
     dataFileChannel.write(buffer, offset);
     bufferedBytes.clear();
