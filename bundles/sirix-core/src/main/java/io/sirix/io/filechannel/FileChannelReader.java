@@ -71,12 +71,33 @@ public final class FileChannelReader extends AbstractReader {
   private final Cache<Integer, RevisionFileData> cache;
   
   /**
-   * ThreadLocal reusable direct ByteBuffer for reading page data.
-   * Using direct buffer avoids heap allocation and enables zero-copy path.
-   * Initial size: 128KB (typical compressed page size).
+   * Striped buffer pool for reading page data - virtual-thread-friendly.
+   * 
+   * <p>Unlike ThreadLocal which creates one buffer per thread (problematic with millions
+   * of virtual threads), this uses a fixed number of buffers with striping.
+   * Memory usage is bounded: O(STRIPE_COUNT) not O(num_threads).
+   * 
+   * <p>The entire read-deserialize operation is synchronized on the stripe lock,
+   * ensuring the buffer isn't reused until we're completely done with it.
    */
-  private static final ThreadLocal<ByteBuffer> READ_BUFFER = 
-      ThreadLocal.withInitial(() -> ByteBuffer.allocateDirect(128 * 1024).order(ByteOrder.nativeOrder()));
+  private static final int STRIPE_COUNT = Runtime.getRuntime().availableProcessors() * 2;
+  private static final ByteBuffer[] READ_BUFFERS = new ByteBuffer[STRIPE_COUNT];
+  private static final Object[] STRIPE_LOCKS = new Object[STRIPE_COUNT];
+  
+  static {
+    for (int i = 0; i < STRIPE_COUNT; i++) {
+      STRIPE_LOCKS[i] = new Object();
+      READ_BUFFERS[i] = ByteBuffer.allocateDirect(128 * 1024).order(ByteOrder.nativeOrder());
+    }
+  }
+  
+  /**
+   * Get stripe index for current thread.
+   * Works correctly with both platform and virtual threads.
+   */
+  private static int getStripeIndex() {
+    return (int) (Thread.currentThread().threadId() % STRIPE_COUNT);
+  }
 
   /**
    * Constructor.
@@ -95,43 +116,48 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   public Page read(final @NonNull PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
-    try {
-      final long position = reference.getKey();
-      
-      // Read page length header (4 bytes)
-      ByteBuffer headerBuffer = READ_BUFFER.get();
-      headerBuffer.clear().limit(4);
-      dataFileChannel.read(headerBuffer, position);
-      headerBuffer.flip();
-      final int dataLength = headerBuffer.getInt();
-      
-      // Get or grow the read buffer if needed
-      ByteBuffer dataBuffer = READ_BUFFER.get();
-      if (dataBuffer.capacity() < dataLength) {
-        // Grow buffer with headroom to reduce future reallocations
-        int newSize = Math.max(dataLength, dataBuffer.capacity() * 2);
-        dataBuffer = ByteBuffer.allocateDirect(newSize).order(ByteOrder.nativeOrder());
-        READ_BUFFER.set(dataBuffer);
+    final int stripe = getStripeIndex();
+    
+    // Synchronize on stripe lock for the ENTIRE read-deserialize operation.
+    // This ensures the buffer isn't reused until deserialization is complete.
+    // Safe with virtual threads: memory bounded by STRIPE_COUNT, not thread count.
+    synchronized (STRIPE_LOCKS[stripe]) {
+      try {
+        final long position = reference.getKey();
+        
+        // Read page length header (4 bytes)
+        ByteBuffer buffer = READ_BUFFERS[stripe];
+        buffer.clear().limit(4);
+        dataFileChannel.read(buffer, position);
+        buffer.flip();
+        final int dataLength = buffer.getInt();
+        
+        // Grow buffer if needed (rare - only for very large pages)
+        if (buffer.capacity() < dataLength) {
+          int newSize = Math.max(dataLength, buffer.capacity() * 2);
+          buffer = ByteBuffer.allocateDirect(newSize).order(ByteOrder.nativeOrder());
+          READ_BUFFERS[stripe] = buffer;
+        }
+        
+        // Read page data
+        buffer.clear().limit(dataLength);
+        dataFileChannel.read(buffer, position + 4);
+        buffer.flip();
+        
+        // Deserialize while holding the lock (buffer safe until we return)
+        if (byteHandler.supportsMemorySegments()) {
+          // Zero-copy: wrap direct ByteBuffer as MemorySegment
+          MemorySegment segment = MemorySegment.ofBuffer(buffer);
+          return deserializeFromSegment(resourceConfiguration, segment);
+        } else {
+          // Fallback: copy to byte array for stream-based decompression
+          final byte[] page = new byte[dataLength];
+          buffer.get(page);
+          return deserialize(resourceConfiguration, page);
+        }
+      } catch (final IOException e) {
+        throw new SirixIOException(e);
       }
-      
-      // Read page data
-      dataBuffer.clear().limit(dataLength);
-      dataFileChannel.read(dataBuffer, position + 4);
-      dataBuffer.flip();
-      
-      // Use zero-copy MemorySegment path if ByteHandler supports it
-      if (byteHandler.supportsMemorySegments()) {
-        // Wrap the direct ByteBuffer as a MemorySegment (zero-copy!)
-        MemorySegment segment = MemorySegment.ofBuffer(dataBuffer);
-        return deserializeFromSegment(resourceConfiguration, segment);
-      } else {
-        // Fallback: copy to byte array for stream-based decompression
-        final byte[] page = new byte[dataLength];
-        dataBuffer.get(page);
-        return deserialize(resourceConfiguration, page);
-      }
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
     }
   }
 
@@ -146,41 +172,44 @@ public final class FileChannelReader extends AbstractReader {
 
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
-    try {
-      final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
+    final int stripe = getStripeIndex();
+    
+    // Synchronize entire read-deserialize operation (Loom-safe)
+    synchronized (STRIPE_LOCKS[stripe]) {
+      try {
+        final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
-      // Read page length header using reusable buffer
-      ByteBuffer headerBuffer = READ_BUFFER.get();
-      headerBuffer.clear().limit(4);
-      dataFileChannel.read(headerBuffer, dataFileOffset);
-      headerBuffer.flip();
-      final int dataLength = headerBuffer.getInt();
+        // Read page length header
+        ByteBuffer buffer = READ_BUFFERS[stripe];
+        buffer.clear().limit(4);
+        dataFileChannel.read(buffer, dataFileOffset);
+        buffer.flip();
+        final int dataLength = buffer.getInt();
 
-      // Get or grow the read buffer if needed
-      ByteBuffer dataBuffer = READ_BUFFER.get();
-      if (dataBuffer.capacity() < dataLength) {
-        int newSize = Math.max(dataLength, dataBuffer.capacity() * 2);
-        dataBuffer = ByteBuffer.allocateDirect(newSize).order(ByteOrder.nativeOrder());
-        READ_BUFFER.set(dataBuffer);
+        // Grow buffer if needed
+        if (buffer.capacity() < dataLength) {
+          int newSize = Math.max(dataLength, buffer.capacity() * 2);
+          buffer = ByteBuffer.allocateDirect(newSize).order(ByteOrder.nativeOrder());
+          READ_BUFFERS[stripe] = buffer;
+        }
+        
+        // Read page data
+        buffer.clear().limit(dataLength);
+        dataFileChannel.read(buffer, dataFileOffset + 4);
+        buffer.flip();
+
+        // Deserialize while holding the lock
+        if (byteHandler.supportsMemorySegments()) {
+          MemorySegment segment = MemorySegment.ofBuffer(buffer);
+          return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, segment);
+        } else {
+          final byte[] page = new byte[dataLength];
+          buffer.get(page);
+          return (RevisionRootPage) deserialize(resourceConfiguration, page);
+        }
+      } catch (IOException e) {
+        throw new SirixIOException(e);
       }
-      
-      // Read page data
-      dataBuffer.clear().limit(dataLength);
-      dataFileChannel.read(dataBuffer, dataFileOffset + 4);
-      dataBuffer.flip();
-
-      // Use zero-copy MemorySegment path if ByteHandler supports it
-      if (byteHandler.supportsMemorySegments()) {
-        MemorySegment segment = MemorySegment.ofBuffer(dataBuffer);
-        return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, segment);
-      } else {
-        // Fallback: copy to byte array
-        final byte[] page = new byte[dataLength];
-        dataBuffer.get(page);
-        return (RevisionRootPage) deserialize(resourceConfiguration, page);
-      }
-    } catch (IOException e) {
-      throw new SirixIOException(e);
     }
   }
 
