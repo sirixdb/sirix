@@ -53,10 +53,25 @@ jar {
 
 test {
     useJUnitPlatform()
-    jvmArgs = [
+    
+    // Add async-profiler if ASYNC_PROFILER env var is set
+    // Usage: ASYNC_PROFILER=/path/to/async-profiler PROFILE_EVENT=cpu|alloc PROFILE_OUTPUT=/tmp/profile.txt ./gradlew test
+    def profilerPath = System.getenv("ASYNC_PROFILER")
+    def profileEvent = System.getenv("PROFILE_EVENT") ?: "cpu"
+    def profileOutput = System.getenv("PROFILE_OUTPUT") ?: "/tmp/sirix-profile.txt"
+    
+    def baseArgs = [
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--enable-native-access=ALL-UNNAMED',
     ]
+    
+    if (profilerPath) {
+        baseArgs.add("-agentpath:${profilerPath}/lib/libasyncProfiler.so=start,event=${profileEvent},file=${profileOutput},collapsed")
+        println "Profiling enabled: event=${profileEvent}, output=${profileOutput}"
+    }
+    
+    jvmArgs = baseArgs
     // Pass through diagnostic system properties
     systemProperty "sirix.debug.path.summary", System.getProperty("sirix.debug.path.summary", "false")
     systemProperty "sirix.debug.leak.diagnostics", System.getProperty("sirix.debug.leak.diagnostics", "false")
