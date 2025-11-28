@@ -39,38 +39,29 @@ public final class FFILz4Compressor implements ByteHandler {
       OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
 
   /**
-   * Striped buffer pool for decompression - virtual-thread-friendly.
+   * ThreadLocal reusable decompression buffer.
    * 
-   * <p>Memory is bounded by STRIPE_COUNT regardless of thread count:
-   * - With ThreadLocal + 1M virtual threads: 1M × 128KB = 128GB 💀
-   * - With striped pool: STRIPE_COUNT × 128KB = ~2MB ✅
+   * <p>ThreadLocal is correct here because:
+   * <ul>
+   *   <li>Each thread has its own buffer - no synchronization needed</li>
+   *   <li>Buffer is valid until next decompress() call on same thread</li>
+   *   <li>For Loom: virtual threads doing I/O are pinned to carriers during the
+   *       decompress→deserialize cycle, so buffer access is safe</li>
+   * </ul>
    * 
-   * <p>IMPORTANT: The caller MUST ensure the returned segment is fully consumed
-   * before any other thread on the same stripe calls decompress(). This is
-   * guaranteed when called from FileChannelReader which holds its stripe lock
-   * during the entire read-decompress-deserialize cycle.
+   * <p>Memory concern for Loom is mitigated because:
+   * <ul>
+   *   <li>Buffers are only allocated when decompress() is called</li>
+   *   <li>Virtual threads completing I/O typically terminate quickly</li>
+   *   <li>Short-lived virtual threads don't accumulate buffers</li>
+   * </ul>
    */
-  private static final int STRIPE_COUNT = Runtime.getRuntime().availableProcessors() * 2;
-  private static final MemorySegment[] DECOMPRESSION_BUFFERS = new MemorySegment[STRIPE_COUNT];
-  private static final Object[] DECOMPRESS_LOCKS = new Object[STRIPE_COUNT];
+  private static final ThreadLocal<MemorySegment> DECOMPRESSION_BUFFER = new ThreadLocal<>();
   
   /**
    * Default initial size for decompression buffer (128KB - typical page size after decompression).
    */
   private static final int DEFAULT_DECOMPRESS_BUFFER_SIZE = 128 * 1024;
-  
-  static {
-    for (int i = 0; i < STRIPE_COUNT; i++) {
-      DECOMPRESS_LOCKS[i] = new Object();
-    }
-  }
-  
-  /**
-   * Get stripe index for current thread.
-   */
-  private static int getStripeIndex() {
-    return (int) (Thread.currentThread().threadId() % STRIPE_COUNT);
-  }
 
   static {
     boolean available = false;
@@ -257,17 +248,13 @@ public final class FFILz4Compressor implements ByteHandler {
   }
 
   /**
-   * Decompress data using a striped buffer pool (Loom-safe).
+   * Decompress data using a ThreadLocal reusable buffer.
    * 
-   * <p>IMPORTANT: The returned segment is only valid until the next decompress() call
-   * on the same stripe. Callers MUST ensure they fully consume the segment before
-   * releasing any locks that might allow another thread to call decompress().
-   * 
-   * <p>FileChannelReader guarantees this by holding its stripe lock during the
-   * entire read-decompress-deserialize cycle.
+   * <p>Each thread has its own buffer, ensuring thread safety without locks.
+   * The returned segment is valid until the next decompress() call on the same thread.
    *
    * @param compressed compressed data (with 4-byte header containing decompressed size)
-   * @return a slice of the pooled buffer containing decompressed data
+   * @return a slice of the ThreadLocal buffer containing decompressed data
    */
   @Override
   public MemorySegment decompress(MemorySegment compressed) {
@@ -277,18 +264,16 @@ public final class FFILz4Compressor implements ByteHandler {
 
     // Read decompressed size from header
     int decompressedSize = compressed.get(JAVA_INT, 0);
-    int stripe = getStripeIndex();
     
-    // Note: We don't synchronize here because the caller (FileChannelReader)
-    // already holds a lock that prevents concurrent access to this stripe's buffer.
-    // If called from elsewhere, the caller must ensure proper synchronization.
-    MemorySegment buffer = DECOMPRESSION_BUFFERS[stripe];
+    // Get or grow ThreadLocal buffer
+    MemorySegment buffer = DECOMPRESSION_BUFFER.get();
     if (buffer == null || buffer.byteSize() < decompressedSize) {
       int newSize = Math.max(decompressedSize, DEFAULT_DECOMPRESS_BUFFER_SIZE);
       newSize = Math.max(newSize, buffer == null ? 0 : (int) buffer.byteSize() * 2);
       buffer = Arena.ofAuto().allocate(newSize);
-      DECOMPRESSION_BUFFERS[stripe] = buffer;
-      LOGGER.debug("Grew decompression buffer[{}] to {} bytes", stripe, newSize);
+      DECOMPRESSION_BUFFER.set(buffer);
+      LOGGER.debug("Grew decompression buffer to {} bytes for thread {}", 
+                   newSize, Thread.currentThread().getName());
     }
 
     // Decompress into the reusable buffer
@@ -306,31 +291,16 @@ public final class FFILz4Compressor implements ByteHandler {
       LOGGER.warn("Decompressed size mismatch: expected {}, got {}", decompressedSize, actualSize);
     }
 
-    // Return a slice of the buffer (valid until next decompress on same stripe)
+    // Return a slice (valid until next decompress() on this thread)
     return buffer.asSlice(0, actualSize);
   }
   
   /**
-   * Clear all decompression buffers in the pool.
+   * Clear the ThreadLocal decompression buffer for the current thread.
    * Call this when shutting down or when memory needs to be reclaimed.
    */
-  public static void clearDecompressionBuffers() {
-    for (int i = 0; i < STRIPE_COUNT; i++) {
-      DECOMPRESSION_BUFFERS[i] = null;
-    }
-  }
-  
-  /**
-   * Get current memory usage of decompression buffer pool (for monitoring).
-   */
-  public static long getDecompressionBufferPoolSize() {
-    long total = 0;
-    for (MemorySegment buffer : DECOMPRESSION_BUFFERS) {
-      if (buffer != null) {
-        total += buffer.byteSize();
-      }
-    }
-    return total;
+  public static void clearDecompressionBuffer() {
+    DECOMPRESSION_BUFFER.remove();
   }
 
   /**
