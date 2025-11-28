@@ -95,21 +95,37 @@ public final class PageGuard implements AutoCloseable {
   /**
    * Release the guard.
    * Throws FrameReusedException if the page version changed (indicating the frame was recycled).
+   * <p>
+   * NOTE: This method is resilient to guards being force-released by cache.clear().
+   * If the page is already closed or has no guards, the release is skipped.
    */
   @Override
   public void close() {
     if (!closed) {
+      closed = true;  // Mark as closed first to prevent double-close
+      
+      // SAFETY CHECK: Don't release if page was already closed or guard was force-released
+      // This can happen when cache.clear() force-releases all guards during cleanup
+      if (page.isClosed()) {
+        // Page was closed (e.g., by cache.clear()) - nothing to release
+        return;
+      }
+      
+      if (page.getGuardCount() <= 0) {
+        // Guard was already released (e.g., by cache.clear() force-release)
+        // Don't try to release again - that would make guardCount negative
+        return;
+      }
+      
       page.releaseGuard();  // Release guard on PAGE
       int currentVersion = page.getVersion();
       if (currentVersion != versionAtFix) {
-        closed = true;
         throw new FrameReusedException(
             "Page frame was reused while guard was active: versionAtFix=" + versionAtFix +
             ", currentVersion=" + currentVersion +
             ", pageKey=" + page.getPageKey() +
             ", revision=" + page.getRevision());
       }
-      closed = true;
     }
   }
 }

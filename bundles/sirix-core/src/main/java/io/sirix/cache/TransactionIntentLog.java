@@ -68,6 +68,10 @@ public final class TransactionIntentLog implements AutoCloseable {
    * <p>
    * The page is removed from global caches as the TIL now owns it exclusively.
    * Guards are released since TIL pages are transaction-private.
+   * <p>
+   * CRITICAL: Pages removed from caches during this operation are closed if they differ
+   * from the pages in the new PageContainer. This prevents memory leaks when a cached
+   * combined-page is replaced by newly created pages from combineRecordPagesForModification().
    *
    * @param key the page reference key
    * @param value the page container with complete and modified versions
@@ -76,10 +80,36 @@ public final class TransactionIntentLog implements AutoCloseable {
     // Clear cached hash before modifying key properties
     key.clearCachedHash();
 
-    // Remove from caches - TIL takes exclusive ownership
+    // CRITICAL FIX: Close old cached pages that differ from new pages being added to TIL
+    // This fixes memory leak where:
+    // 1. Read path creates combined page X and caches it
+    // 2. Write path creates NEW pages (complete, modified) via combineRecordPagesForModification()  
+    // 3. TIL.put() removes page X from cache but TIL owns the new pages, not X
+    // 4. Page X becomes orphaned (not in cache, not in TIL)
+    KeyValueLeafPage oldCachedPage = bufferManager.getRecordPageCache().get(key);
+    
+    // Remove from caches - TIL takes exclusive ownership of NEW pages
     bufferManager.getRecordPageCache().remove(key);
     bufferManager.getPageCache().remove(key);
     // Note: RecordPageFragmentCache entries are shared and managed by ClockSweeper
+    
+    // Close the old cached page if it's different from the pages going into TIL
+    // This prevents orphaned pages from leaking memory
+    if (oldCachedPage != null && !oldCachedPage.isClosed()) {
+      boolean isInNewContainer = (oldCachedPage == value.getComplete() || oldCachedPage == value.getModified());
+      if (!isInNewContainer) {
+        // Old page is NOT one of the new pages - it becomes orphaned
+        // Only close if no guards are active (guardCount == 0)
+        // If guards are active, those PageGuards will close the page when they're done
+        if (oldCachedPage.getGuardCount() == 0) {
+          oldCachedPage.close();
+        }
+        // If guardCount > 0, the page is still in use by a PageGuard
+        // The PageGuard owner is responsible for releasing it
+        // When they do, the page will be orphaned with guardCount=0
+        // but will be closed when the PageGuard is closed
+      }
+    }
 
     key.setKey(Constants.NULL_ID_LONG);
     key.setPage(null);

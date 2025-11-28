@@ -26,8 +26,10 @@ import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import io.sirix.Holder;
+import io.sirix.LeakDetectionRule;
 import io.sirix.XmlTestHelper;
 import io.sirix.exception.SirixException;
 import io.sirix.settings.Fixed;
@@ -38,6 +40,9 @@ import java.util.Random;
  * Test a bunch of modification methods.
  */
 public final class OverallTest {
+
+  @Rule
+  public LeakDetectionRule leakDetection = new LeakDetectionRule();
 
   /**
    * Used for random number generator.
@@ -155,7 +160,10 @@ public final class OverallTest {
 
   @After
   public void tearDown() throws SirixException {
-    holder.close();
+    // Ensure all resources are properly closed
+    if (holder != null) {
+      holder.close();
+    }
     XmlTestHelper.closeEverything();
   }
 
