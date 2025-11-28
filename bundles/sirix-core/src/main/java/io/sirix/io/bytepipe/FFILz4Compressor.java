@@ -38,6 +38,24 @@ public final class FFILz4Compressor implements ByteHandler {
   private static final MemorySegmentAllocator ALLOCATOR =
       OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
 
+  /**
+   * ThreadLocal reusable decompression buffer to avoid per-page allocation.
+   * Each thread gets its own buffer that grows as needed and is reused across page reads.
+   * 
+   * <p>This is safe because I/O threads in Sirix are platform threads with bounded count.
+   * The buffer remains valid until the next decompress() call on the same thread,
+   * which matches the usage pattern (deserialize immediately after decompress).
+   * 
+   * <p>Note: If virtual threads are used for I/O in the future, consider using
+   * explicit buffer management or a different pooling strategy.
+   */
+  private static final ThreadLocal<MemorySegment> DECOMPRESSION_BUFFER = new ThreadLocal<>();
+  
+  /**
+   * Default initial size for decompression buffer (128KB - typical page size after decompression).
+   */
+  private static final int DEFAULT_DECOMPRESS_BUFFER_SIZE = 128 * 1024;
+
   static {
     boolean available = false;
     MethodHandle compress = null;
@@ -223,11 +241,12 @@ public final class FFILz4Compressor implements ByteHandler {
   }
 
   /**
-   * Decompress data and return a new MemorySegment with decompressed data.
-   * Uses Arena.global() for large sizes that exceed pool limits.
+   * Decompress data using a ThreadLocal reusable buffer to avoid per-page allocation.
+   * The buffer is grown as needed and reused across page reads on the same thread.
    *
    * @param compressed compressed data (with 4-byte header containing decompressed size)
-   * @return decompressed data in a MemorySegment
+   * @return a slice of the ThreadLocal buffer containing decompressed data
+   *         (valid until next decompress call on this thread)
    */
   @Override
   public MemorySegment decompress(MemorySegment compressed) {
@@ -237,14 +256,22 @@ public final class FFILz4Compressor implements ByteHandler {
 
     // Read decompressed size from header
     int decompressedSize = compressed.get(JAVA_INT, 0);
+    
+    // Get or grow ThreadLocal buffer
+    MemorySegment buffer = DECOMPRESSION_BUFFER.get();
+    if (buffer == null || buffer.byteSize() < decompressedSize) {
+      int newSize = Math.max(decompressedSize, DEFAULT_DECOMPRESS_BUFFER_SIZE);
+      newSize = Math.max(newSize, buffer == null ? 0 : (int) buffer.byteSize() * 2);
+      buffer = Arena.ofAuto().allocate(newSize);
+      DECOMPRESSION_BUFFER.set(buffer);
+      LOGGER.debug("Grew decompression buffer to {} bytes for thread {}", 
+                   newSize, Thread.currentThread().getName());
+    }
 
-    // Allocate from pool if size permits, otherwise use global arena
-    MemorySegment decompressed = Arena.ofAuto().allocate(decompressedSize);
-
-    // Decompress
+    // Decompress into the reusable buffer
     int actualSize = decompressSegment(
         compressed.asSlice(4),
-        decompressed,
+        buffer,
         (int) compressed.byteSize() - 4
     );
 
@@ -256,7 +283,16 @@ public final class FFILz4Compressor implements ByteHandler {
       LOGGER.warn("Decompressed size mismatch: expected {}, got {}", decompressedSize, actualSize);
     }
 
-    return decompressed.asSlice(0, actualSize);
+    // Return a slice of the buffer (valid until next decompress call on this thread)
+    return buffer.asSlice(0, actualSize);
+  }
+  
+  /**
+   * Clear the ThreadLocal decompression buffer for the current thread.
+   * Call this when shutting down or when memory needs to be reclaimed.
+   */
+  public static void clearDecompressionBuffer() {
+    DECOMPRESSION_BUFFER.remove();
   }
 
   /**
