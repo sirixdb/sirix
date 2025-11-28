@@ -66,8 +66,11 @@ public abstract class AbstractReader implements Reader {
   }
 
   /**
-   * Zero-copy deserialization using MemorySegments.
-   * Requires ByteHandler to support MemorySegment operations.
+   * Zero-copy deserialization using MemorySegments with Loom-friendly buffer pooling.
+   * 
+   * <p>Uses the scoped decompression API to ensure decompression buffers are returned
+   * to the pool after deserialization completes. This bounds memory usage by pool size
+   * (typically 2×CPU cores) rather than thread count.
    *
    * @param resourceConfiguration resource configuration
    * @param compressedPage compressed page data
@@ -79,20 +82,20 @@ public abstract class AbstractReader implements Reader {
       throw new UnsupportedOperationException("ByteHandler does not support MemorySegment operations");
     }
 
-    // Decompress directly into MemorySegment (NO copies!)
-    MemorySegment decompressed = byteHandler.decompress(compressedPage);
-
-    // Deserialize directly from MemorySegment
-    Page deserializedPage = pagePersister.deserializePage(resourceConfiguration, 
-                                          new MemorySegmentBytesIn(decompressed), 
-                                          type);
-    
-    // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page
-    if (resourceConfiguration != null) {
-      io.sirix.page.PageUtils.fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+    // Use scoped decompression - buffer returned to pool when try block exits
+    try (var decompressionResult = byteHandler.decompressScoped(compressedPage)) {
+      // Deserialize directly from MemorySegment
+      Page deserializedPage = pagePersister.deserializePage(resourceConfiguration, 
+                                            new MemorySegmentBytesIn(decompressionResult.segment()), 
+                                            type);
+      
+      // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page
+      if (resourceConfiguration != null) {
+        io.sirix.page.PageUtils.fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+      }
+      
+      return deserializedPage;
     }
-    
-    return deserializedPage;
   }
 
   @Override

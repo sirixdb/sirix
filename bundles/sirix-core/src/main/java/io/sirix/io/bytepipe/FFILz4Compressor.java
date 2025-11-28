@@ -39,29 +39,22 @@ public final class FFILz4Compressor implements ByteHandler {
       OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
 
   /**
-   * ThreadLocal reusable decompression buffer.
-   * 
-   * <p>ThreadLocal is correct here because:
-   * <ul>
-   *   <li>Each thread has its own buffer - no synchronization needed</li>
-   *   <li>Buffer is valid until next decompress() call on same thread</li>
-   *   <li>For Loom: virtual threads doing I/O are pinned to carriers during the
-   *       decompress→deserialize cycle, so buffer access is safe</li>
-   * </ul>
-   * 
-   * <p>Memory concern for Loom is mitigated because:
-   * <ul>
-   *   <li>Buffers are only allocated when decompress() is called</li>
-   *   <li>Virtual threads completing I/O typically terminate quickly</li>
-   *   <li>Short-lived virtual threads don't accumulate buffers</li>
-   * </ul>
-   */
-  private static final ThreadLocal<MemorySegment> DECOMPRESSION_BUFFER = new ThreadLocal<>();
-  
-  /**
    * Default initial size for decompression buffer (128KB - typical page size after decompression).
    */
   private static final int DEFAULT_DECOMPRESS_BUFFER_SIZE = 128 * 1024;
+  
+  /**
+   * Bounded pool of decompression buffers - Loom-friendly.
+   * 
+   * <p>Unlike ThreadLocal which creates one buffer per thread (memory explosion with
+   * millions of virtual threads), this pool has a fixed size of 2×CPU cores.
+   * 
+   * <p>When all buffers are in use, a new one is allocated (not pooled). This ensures
+   * progress under high concurrency while keeping memory bounded for typical loads.
+   */
+  private static final int POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
+  private static final java.util.concurrent.ArrayBlockingQueue<MemorySegment> BUFFER_POOL = 
+      new java.util.concurrent.ArrayBlockingQueue<>(POOL_SIZE);
 
   static {
     boolean available = false;
@@ -248,35 +241,22 @@ public final class FFILz4Compressor implements ByteHandler {
   }
 
   /**
-   * Decompress data using a ThreadLocal reusable buffer.
+   * Decompress data using the scoped pool pattern.
    * 
-   * <p>Each thread has its own buffer, ensuring thread safety without locks.
-   * The returned segment is valid until the next decompress() call on the same thread.
-   *
-   * @param compressed compressed data (with 4-byte header containing decompressed size)
-   * @return a slice of the ThreadLocal buffer containing decompressed data
+   * @deprecated Use {@link #decompressScoped(MemorySegment)} instead for Loom compatibility.
+   *             This method allocates a new buffer that must be managed by the caller.
    */
   @Override
+  @Deprecated(forRemoval = true)
   public MemorySegment decompress(MemorySegment compressed) {
+    // For backwards compatibility, allocate a fresh buffer (caller manages lifecycle)
     if (!NATIVE_LZ4_AVAILABLE) {
       throw new UnsupportedOperationException("Native LZ4 not available");
     }
 
-    // Read decompressed size from header
     int decompressedSize = compressed.get(JAVA_INT, 0);
-    
-    // Get or grow ThreadLocal buffer
-    MemorySegment buffer = DECOMPRESSION_BUFFER.get();
-    if (buffer == null || buffer.byteSize() < decompressedSize) {
-      int newSize = Math.max(decompressedSize, DEFAULT_DECOMPRESS_BUFFER_SIZE);
-      newSize = Math.max(newSize, buffer == null ? 0 : (int) buffer.byteSize() * 2);
-      buffer = Arena.ofAuto().allocate(newSize);
-      DECOMPRESSION_BUFFER.set(buffer);
-      LOGGER.debug("Grew decompression buffer to {} bytes for thread {}", 
-                   newSize, Thread.currentThread().getName());
-    }
+    MemorySegment buffer = Arena.ofAuto().allocate(decompressedSize);
 
-    // Decompress into the reusable buffer
     int actualSize = decompressSegment(
         compressed.asSlice(4),
         buffer,
@@ -287,20 +267,93 @@ public final class FFILz4Compressor implements ByteHandler {
       throw new RuntimeException("LZ4 decompression failed: " + actualSize);
     }
 
+    return buffer.asSlice(0, actualSize);
+  }
+
+  /**
+   * Decompress data using a pooled buffer with explicit lifecycle (Loom-friendly).
+   * 
+   * <p>Memory is bounded by pool size (2×CPU cores), not thread count.
+   * When pool is exhausted, a fresh buffer is allocated (not pooled).
+   * 
+   * <p>The returned result MUST be closed after use:
+   * <pre>{@code
+   * try (var result = compressor.decompressScoped(compressed)) {
+   *     Page page = deserialize(result.segment());
+   * } // Buffer returned to pool
+   * }</pre>
+   *
+   * @param compressed compressed data (with 4-byte header containing decompressed size)
+   * @return scoped result; must be closed to return buffer to pool
+   */
+  @Override
+  public DecompressionResult decompressScoped(MemorySegment compressed) {
+    if (!NATIVE_LZ4_AVAILABLE) {
+      throw new UnsupportedOperationException("Native LZ4 not available");
+    }
+
+    int decompressedSize = compressed.get(JAVA_INT, 0);
+    
+    // Try to get a buffer from pool (non-blocking)
+    MemorySegment buffer = BUFFER_POOL.poll();
+    boolean fromPool = (buffer != null);
+    
+    // If pool empty or buffer too small, allocate fresh
+    if (buffer == null || buffer.byteSize() < decompressedSize) {
+      int newSize = Math.max(decompressedSize, DEFAULT_DECOMPRESS_BUFFER_SIZE);
+      if (buffer != null) {
+        // Return undersized buffer to pool, allocate new
+        BUFFER_POOL.offer(buffer);
+        newSize = Math.max(newSize, (int) buffer.byteSize() * 2);
+      }
+      buffer = Arena.ofAuto().allocate(newSize);
+      fromPool = false;
+      LOGGER.debug("Allocated decompression buffer of {} bytes (pool size: {})", 
+                   newSize, BUFFER_POOL.size());
+    }
+
+    // Decompress
+    int actualSize = decompressSegment(
+        compressed.asSlice(4),
+        buffer,
+        (int) compressed.byteSize() - 4
+    );
+
+    if (actualSize < 0) {
+      // Return buffer to pool on error
+      BUFFER_POOL.offer(buffer);
+      throw new RuntimeException("LZ4 decompression failed: " + actualSize);
+    }
+
     if (actualSize != decompressedSize) {
       LOGGER.warn("Decompressed size mismatch: expected {}, got {}", decompressedSize, actualSize);
     }
 
-    // Return a slice (valid until next decompress() on this thread)
-    return buffer.asSlice(0, actualSize);
+    // Create result with releaser that returns buffer to pool
+    final MemorySegment poolBuffer = buffer;
+    final boolean shouldReturn = fromPool || BUFFER_POOL.size() < POOL_SIZE;
+    
+    return new DecompressionResult(
+        buffer.asSlice(0, actualSize),
+        shouldReturn ? () -> BUFFER_POOL.offer(poolBuffer) : null
+    );
   }
   
   /**
-   * Clear the ThreadLocal decompression buffer for the current thread.
+   * Clear all buffers from the pool.
    * Call this when shutting down or when memory needs to be reclaimed.
    */
-  public static void clearDecompressionBuffer() {
-    DECOMPRESSION_BUFFER.remove();
+  public static void clearPool() {
+    BUFFER_POOL.clear();
+  }
+  
+  /**
+   * Get current pool statistics for monitoring.
+   * 
+   * @return number of buffers currently in pool
+   */
+  public static int getPoolSize() {
+    return BUFFER_POOL.size();
   }
 
   /**
