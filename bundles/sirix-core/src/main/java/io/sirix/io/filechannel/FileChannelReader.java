@@ -38,6 +38,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
@@ -68,6 +69,14 @@ public final class FileChannelReader extends AbstractReader {
   private final FileChannel revisionsOffsetFileChannel;
 
   private final Cache<Integer, RevisionFileData> cache;
+  
+  /**
+   * ThreadLocal reusable direct ByteBuffer for reading page data.
+   * Using direct buffer avoids heap allocation and enables zero-copy path.
+   * Initial size: 128KB (typical compressed page size).
+   */
+  private static final ThreadLocal<ByteBuffer> READ_BUFFER = 
+      ThreadLocal.withInitial(() -> ByteBuffer.allocateDirect(128 * 1024).order(ByteOrder.nativeOrder()));
 
   /**
    * Constructor.
@@ -87,23 +96,40 @@ public final class FileChannelReader extends AbstractReader {
 
   public Page read(final @NonNull PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
-      // Read page from file.
-      ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
-
       final long position = reference.getKey();
-      dataFileChannel.read(buffer, position);
-
-      buffer.flip();
-      final int dataLength = buffer.getInt();
-
-      buffer = ByteBuffer.allocate(dataLength).order(ByteOrder.nativeOrder());
-
-      dataFileChannel.read(buffer, position + 4);
-      buffer.flip();
-      final byte[] page = buffer.array();
-
-      // Perform byte operations (deserialize will also fixup PageReference IDs)
-      return deserialize(resourceConfiguration, page);
+      
+      // Read page length header (4 bytes)
+      ByteBuffer headerBuffer = READ_BUFFER.get();
+      headerBuffer.clear().limit(4);
+      dataFileChannel.read(headerBuffer, position);
+      headerBuffer.flip();
+      final int dataLength = headerBuffer.getInt();
+      
+      // Get or grow the read buffer if needed
+      ByteBuffer dataBuffer = READ_BUFFER.get();
+      if (dataBuffer.capacity() < dataLength) {
+        // Grow buffer with headroom to reduce future reallocations
+        int newSize = Math.max(dataLength, dataBuffer.capacity() * 2);
+        dataBuffer = ByteBuffer.allocateDirect(newSize).order(ByteOrder.nativeOrder());
+        READ_BUFFER.set(dataBuffer);
+      }
+      
+      // Read page data
+      dataBuffer.clear().limit(dataLength);
+      dataFileChannel.read(dataBuffer, position + 4);
+      dataBuffer.flip();
+      
+      // Use zero-copy MemorySegment path if ByteHandler supports it
+      if (byteHandler.supportsMemorySegments()) {
+        // Wrap the direct ByteBuffer as a MemorySegment (zero-copy!)
+        MemorySegment segment = MemorySegment.ofBuffer(dataBuffer);
+        return deserializeFromSegment(resourceConfiguration, segment);
+      } else {
+        // Fallback: copy to byte array for stream-based decompression
+        final byte[] page = new byte[dataLength];
+        dataBuffer.get(page);
+        return deserialize(resourceConfiguration, page);
+      }
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -123,19 +149,36 @@ public final class FileChannelReader extends AbstractReader {
     try {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
-      ByteBuffer buffer = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
-      dataFileChannel.read(buffer, dataFileOffset);
-      buffer.flip();
-      final int dataLength = buffer.getInt();
+      // Read page length header using reusable buffer
+      ByteBuffer headerBuffer = READ_BUFFER.get();
+      headerBuffer.clear().limit(4);
+      dataFileChannel.read(headerBuffer, dataFileOffset);
+      headerBuffer.flip();
+      final int dataLength = headerBuffer.getInt();
 
-      buffer = ByteBuffer.allocateDirect(dataLength).order(ByteOrder.nativeOrder());
-      dataFileChannel.read(buffer, dataFileOffset + 4);
-      buffer.flip();
-      final byte[] page = new byte[dataLength];
-      buffer.get(page);
+      // Get or grow the read buffer if needed
+      ByteBuffer dataBuffer = READ_BUFFER.get();
+      if (dataBuffer.capacity() < dataLength) {
+        int newSize = Math.max(dataLength, dataBuffer.capacity() * 2);
+        dataBuffer = ByteBuffer.allocateDirect(newSize).order(ByteOrder.nativeOrder());
+        READ_BUFFER.set(dataBuffer);
+      }
+      
+      // Read page data
+      dataBuffer.clear().limit(dataLength);
+      dataFileChannel.read(dataBuffer, dataFileOffset + 4);
+      dataBuffer.flip();
 
-      // Perform byte operations.
-      return (RevisionRootPage) deserialize(resourceConfiguration, page);
+      // Use zero-copy MemorySegment path if ByteHandler supports it
+      if (byteHandler.supportsMemorySegments()) {
+        MemorySegment segment = MemorySegment.ofBuffer(dataBuffer);
+        return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, segment);
+      } else {
+        // Fallback: copy to byte array
+        final byte[] page = new byte[dataLength];
+        dataBuffer.get(page);
+        return (RevisionRootPage) deserialize(resourceConfiguration, page);
+      }
     } catch (IOException e) {
       throw new SirixIOException(e);
     }
