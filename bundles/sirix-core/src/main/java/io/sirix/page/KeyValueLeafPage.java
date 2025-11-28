@@ -464,6 +464,94 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     setData(data, slotNumber, slotOffsets, slotMemory);
   }
 
+  /**
+   * Set slot data by copying directly from a source MemorySegment.
+   * This is the zero-copy path that avoids intermediate byte[] allocations during deserialization.
+   *
+   * <p>Memory layout written to slotMemory: [length (4 bytes)][data (dataSize bytes)]</p>
+   *
+   * <p>This method is optimized for the page deserialization hot path where we can copy
+   * directly from the decompressed page data segment to the target slot memory without
+   * creating temporary byte[] arrays.</p>
+   *
+   * @param source the source MemorySegment containing the data
+   * @param sourceOffset the byte offset within source where data starts
+   * @param dataSize the number of bytes to copy (must be &gt; 0)
+   * @param slotNumber the slot number (0 to Constants.NDP_NODE_COUNT-1)
+   * @throws IllegalArgumentException if dataSize &lt;= 0 or slotNumber out of range
+   * @throws IndexOutOfBoundsException if source bounds would be exceeded
+   */
+  public void setSlotDirect(MemorySegment source, long sourceOffset, int dataSize, int slotNumber) {
+    // Validate inputs
+    if (dataSize <= 0) {
+      throw new IllegalArgumentException("dataSize must be positive: " + dataSize);
+    }
+    if (slotNumber < 0 || slotNumber >= Constants.NDP_NODE_COUNT) {
+      throw new IllegalArgumentException("slotNumber out of range: " + slotNumber);
+    }
+    if (sourceOffset < 0 || sourceOffset + dataSize > source.byteSize()) {
+      throw new IndexOutOfBoundsException(
+          String.format("Source bounds exceeded: offset=%d, size=%d, segmentSize=%d",
+              sourceOffset, dataSize, source.byteSize()));
+    }
+
+    int requiredSize = INT_SIZE + dataSize;  // 4 bytes for length prefix + actual data
+    int currentOffset = slotOffsets[slotNumber];
+    int sizeDelta = 0;
+
+    // Check if resizing is needed
+    if (!hasEnoughSpace(slotOffsets, slotMemory, requiredSize)) {
+      int newSize = Math.max(
+          (int) slotMemory.byteSize() * 2,
+          (int) slotMemory.byteSize() + requiredSize
+      );
+      slotMemory = resizeMemorySegment(slotMemory, newSize, slotOffsets, true);
+    }
+
+    if (currentOffset >= 0) {
+      // Existing slot - check if size changed
+      int alignedOffset = alignOffset(currentOffset);
+      int currentSize = INT_SIZE + slotMemory.get(ValueLayout.JAVA_INT, alignedOffset);
+
+      if (currentSize == requiredSize) {
+        // Same size - overwrite in place (fast path)
+        slotMemory.set(ValueLayout.JAVA_INT, alignedOffset, dataSize);
+        MemorySegment.copy(source, sourceOffset, slotMemory, alignedOffset + INT_SIZE, dataSize);
+        return;
+      }
+      sizeDelta = requiredSize - currentSize;
+      slotOffsets[slotNumber] = alignOffset(currentOffset);
+    } else {
+      // New slot - find free space
+      currentOffset = findFreeSpaceForSlots(requiredSize, true);
+      slotOffsets[slotNumber] = alignOffset(currentOffset);
+      updateLastSlotIndex(slotNumber, true);
+    }
+
+    // Perform shifting if size changed for existing slot
+    if (sizeDelta != 0) {
+      shiftSlotMemory(slotNumber, sizeDelta, slotOffsets, slotMemory);
+    }
+
+    // Write length prefix
+    int alignedOffset = alignOffset(currentOffset);
+    slotMemory.set(ValueLayout.JAVA_INT, alignedOffset, dataSize);
+
+    // Verify the write
+    int verifiedSize = slotMemory.get(ValueLayout.JAVA_INT, alignedOffset);
+    if (verifiedSize != dataSize) {
+      throw new IllegalStateException(
+          String.format("Slot size verification failed: expected=%d, actual=%d (slot: %d, offset: %d)",
+              dataSize, verifiedSize, slotNumber, alignedOffset));
+    }
+
+    // Copy data directly from source segment to slot memory (ZERO-COPY from caller's perspective!)
+    MemorySegment.copy(source, sourceOffset, slotMemory, alignedOffset + INT_SIZE, dataSize);
+
+    // Update free space tracking
+    updateFreeSpaceStart(slotOffsets, slotMemory, true);
+  }
+
   private MemorySegment setData(Object data, int slotNumber, int[] offsets, MemorySegment memory) {
     if (data == null) {
       return null;

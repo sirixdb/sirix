@@ -55,7 +55,7 @@ import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import io.sirix.node.BytesOut;
 import io.sirix.node.BytesIn;
-import io.sirix.node.BytesOut;
+import io.sirix.node.MemorySegmentBytesIn;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.ByteArrayOutputStream;
@@ -155,6 +155,13 @@ public enum PageKind {
           final int normalEntrySize = source.readInt();
           var setBit = -1;
 
+          // Check if source supports zero-copy (is MemorySegment-based)
+          // This avoids creating temporary byte[] arrays for each slot
+          final boolean useZeroCopy = source instanceof MemorySegmentBytesIn;
+          final MemorySegment sourceSegment = useZeroCopy 
+              ? ((MemorySegmentBytesIn) source).getSource() 
+              : null;
+
           for (int index = 0; index < normalEntrySize; index++) {
             setBit = entriesBitmap.nextSetBit(setBit + 1);
             assert setBit >= 0;
@@ -162,10 +169,17 @@ public enum PageKind {
             final int dataSize = source.readInt();
             assert dataSize > 0;
 
-            final byte[] data = new byte[dataSize];
-            source.read(data);
-
-            page.setSlot(data, setBit);
+            if (useZeroCopy) {
+              // Zero-copy path: copy directly from source segment to slot memory
+              // This eliminates per-slot byte[] allocations (major GC pressure reduction)
+              page.setSlotDirect(sourceSegment, source.position(), dataSize, setBit);
+              source.skip(dataSize);
+            } else {
+              // Fallback path: use intermediate byte[] (for non-MemorySegment sources)
+              final byte[] data = new byte[dataSize];
+              source.read(data);
+              page.setSlot(data, setBit);
+            }
           }
 
           final int overlongEntrySize = source.readInt();

@@ -98,6 +98,16 @@ public interface BytesIn<T> {
     void position(long newPosition);
     
     /**
+     * Skip forward by the specified number of bytes.
+     * This is equivalent to {@code position(position() + bytes)} but may be more efficient.
+     * 
+     * @param bytes number of bytes to skip (must be non-negative)
+     * @throws IllegalArgumentException if bytes is negative
+     * @throws IndexOutOfBoundsException if skip would exceed the data bounds
+     */
+    void skip(long bytes);
+    
+    /**
      * Get the remaining bytes from current position.
      * @return the number of remaining bytes
      */

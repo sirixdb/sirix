@@ -127,6 +127,20 @@ public class MemorySegmentBytesIn implements BytesIn<MemorySegment> {
     }
     
     @Override
+    public void skip(long bytes) {
+        if (bytes < 0) {
+            throw new IllegalArgumentException("Cannot skip negative bytes: " + bytes);
+        }
+        long newPosition = position + bytes;
+        if (newPosition > memorySegment.byteSize()) {
+            throw new IndexOutOfBoundsException(
+                String.format("Skip would exceed segment bounds: position=%d, skip=%d, size=%d",
+                    position, bytes, memorySegment.byteSize()));
+        }
+        position = newPosition;
+    }
+    
+    @Override
     public long remaining() {
         return memorySegment.byteSize() - position;
     }
