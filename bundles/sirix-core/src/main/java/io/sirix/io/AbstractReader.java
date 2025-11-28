@@ -9,7 +9,6 @@ import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
-import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
 
 import java.io.ByteArrayInputStream;
@@ -17,8 +16,6 @@ import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 
 public abstract class AbstractReader implements Reader {
-
-  private final BytesOut<?> wrappedForRead = Bytes.allocateElasticOnHeap(10_000);
 
   protected final ByteHandler byteHandler;
 
@@ -39,21 +36,24 @@ public abstract class AbstractReader implements Reader {
   }
 
   public Page deserialize(ResourceConfiguration resourceConfiguration, byte[] page) throws IOException {
-    // Use MemorySegment path if supported (zero-copy)
+    // Use MemorySegment path if supported (zero-copy decompression)
     if (byteHandler.supportsMemorySegments()) {
       MemorySegment segment = MemorySegment.ofArray(page);
       return deserializeFromSegment(resourceConfiguration, segment);
     }
     
-    // Fallback to stream-based approach
-    byte[] bytes;
+    // Fallback to stream-based approach for non-MemorySegment ByteHandlers
+    byte[] decompressedBytes;
     try (final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page))) {
-      bytes = inputStream.readAllBytes();
+      decompressedBytes = inputStream.readAllBytes();
     }
-    wrappedForRead.clear(); // Clear before writing to ensure clean state
-    wrappedForRead.write(bytes);
-    final var deserializedPage = pagePersister.deserializePage(resourceConfiguration, wrappedForRead.asBytesIn(), type);
-    wrappedForRead.clear();
+    
+    // Zero-copy wrap: MemorySegment backed directly by the byte array
+    final var deserializedPage = pagePersister.deserializePage(
+        resourceConfiguration, 
+        Bytes.wrapForRead(decompressedBytes), 
+        type
+    );
     
     // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page.
     // This follows PostgreSQL pattern where BufferTag context (tablespace, database, relation)

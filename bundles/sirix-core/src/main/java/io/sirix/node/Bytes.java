@@ -1,6 +1,5 @@
 package io.sirix.node;
 
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 
@@ -53,26 +52,52 @@ public final class Bytes {
     }
     
     /**
-     * Factory method to wrap a byte array for reading.
-     * @param data the byte array to wrap
+     * Factory method to wrap a byte array for reading (zero-copy).
+     * Uses MemorySegment.ofArray() to create a segment backed by the array directly,
+     * avoiding any data copying. The MemorySegmentBytesIn uses unaligned access methods
+     * so alignment is not required.
+     * 
+     * @param data the byte array to wrap (must not be modified while reading)
      * @return a BytesIn instance for reading
      */
     public static BytesIn<MemorySegment> wrapForRead(byte[] data) {
-        // Ensure alignment for long values (8 bytes)
-        MemorySegment segment = Arena.ofAuto().allocate(data.length, 8);
-        segment.asByteBuffer().put(data).flip();
+        // Zero-copy: MemorySegment backed directly by the array
+        // MemorySegmentBytesIn uses JAVA_*_UNALIGNED layouts, so alignment is not required
+        return new MemorySegmentBytesIn(MemorySegment.ofArray(data));
+    }
+    
+    /**
+     * Factory method to wrap an existing MemorySegment for reading (zero-copy).
+     * This is the most efficient path when the data is already in a MemorySegment.
+     * 
+     * @param segment the MemorySegment to wrap
+     * @return a BytesIn instance for reading
+     */
+    public static BytesIn<MemorySegment> wrapForRead(MemorySegment segment) {
         return new MemorySegmentBytesIn(segment);
     }
     
     /**
      * Factory method to wrap a ByteBuffer for reading.
+     * If the buffer has a backing array, uses zero-copy wrapping.
+     * Otherwise, copies the data to a new array.
+     * 
      * @param buffer the ByteBuffer to wrap
      * @return a BytesIn instance for reading
      */
     public static BytesIn<MemorySegment> wrapForRead(ByteBuffer buffer) {
-        byte[] data = new byte[buffer.remaining()];
-        buffer.get(data);
-        return wrapForRead(data);
+        if (buffer.hasArray()) {
+            // Zero-copy path for heap buffers with backing array
+            int offset = buffer.arrayOffset() + buffer.position();
+            int length = buffer.remaining();
+            MemorySegment segment = MemorySegment.ofArray(buffer.array()).asSlice(offset, length);
+            return new MemorySegmentBytesIn(segment);
+        } else {
+            // Fallback: copy data for direct buffers without backing array
+            byte[] data = new byte[buffer.remaining()];
+            buffer.get(data);
+            return wrapForRead(data);
+        }
     }
     
     /**
