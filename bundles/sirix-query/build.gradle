@@ -49,4 +49,33 @@ test {
     useJUnitPlatform()
     systemProperty "io.brackit.query.debug", System.getProperty("io.brackit.query.debug")
     systemProperty "io.brackit.query.debugDir", System.getProperty("io.brackit.query.debugDir")
+    
+    // Async-profiler support
+    def profilerPath = System.getenv("ASYNC_PROFILER")
+    def profileEvent = System.getenv("PROFILE_EVENT") ?: "cpu"
+    def profileOutput = System.getenv("PROFILE_OUTPUT") ?: "/tmp/sirix-query-profile.html"
+    
+    // JFR profiling: set JFR_PROFILE=1 to enable
+    def jfrProfile = System.getenv("JFR_PROFILE")
+    def jfrOutput = System.getenv("JFR_OUTPUT") ?: "/tmp/sirix-query-flight.jfr"
+    
+    def baseArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--enable-native-access=ALL-UNNAMED',
+        '-XX:+UnlockDiagnosticVMOptions',
+        '-XX:+DebugNonSafepoints',
+    ]
+    
+    if (profilerPath) {
+        baseArgs.add("-agentpath:${profilerPath}/lib/libasyncProfiler.so=start,event=${profileEvent},file=${profileOutput}")
+        println "Async-profiler enabled: event=${profileEvent}, output=${profileOutput}"
+    }
+    
+    if (jfrProfile) {
+        baseArgs.add("-XX:StartFlightRecording=duration=300s,filename=${jfrOutput},settings=profile")
+        println "JFR profiling enabled: output=${jfrOutput}"
+    }
+    
+    jvmArgs = baseArgs
 }

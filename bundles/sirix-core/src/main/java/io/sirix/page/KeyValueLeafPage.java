@@ -1453,6 +1453,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // This allows immediate cleanup of memory for normal records (which are copied to slotMemory).
     // For overflow records, we copy to a persistent arena since they need to outlive this method.
     try (var tempArena = Arena.ofConfined()) {
+      // PERFORMANCE OPTIMIZATION: Reuse a single buffer for all records instead of allocating per-record.
+      // Initial size of 256 bytes covers most nodes; will grow automatically if needed.
+      // This eliminates ~N allocations where N = number of non-null records.
+      var reusableOut = new MemorySegmentBytesOut(tempArena, 256);
+      
       for (final DataRecord record : records) {
         if (record == null) {
           continue;
@@ -1460,11 +1465,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         final var recordID = record.getNodeKey();
         final var offset = StorageEngineReader.recordPageOffset(recordID);
 
-        // Must be either a normal record or one which requires an overflow page.
-        // Use confined arena for temporary serialization
-        var out = new MemorySegmentBytesOut(tempArena, 60);
-        recordPersister.serialize(out, record, resourceConfiguration);
-        final var buffer = out.getDestination();
+        // Clear buffer for reuse (reset position to 0, keeps capacity)
+        reusableOut.clear();
+        
+        // Serialize into the reusable buffer
+        recordPersister.serialize(reusableOut, record, resourceConfiguration);
+        final var buffer = reusableOut.getDestination();
         
         if (buffer.byteSize() > PageConstants.MAX_RECORD_SIZE) {
           // Overflow page: copy to byte array for storage

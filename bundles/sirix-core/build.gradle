@@ -58,17 +58,28 @@ test {
     // Usage: ASYNC_PROFILER=/path/to/async-profiler PROFILE_EVENT=cpu|alloc PROFILE_OUTPUT=/tmp/profile.txt ./gradlew test
     def profilerPath = System.getenv("ASYNC_PROFILER")
     def profileEvent = System.getenv("PROFILE_EVENT") ?: "cpu"
-    def profileOutput = System.getenv("PROFILE_OUTPUT") ?: "/tmp/sirix-profile.txt"
+    def profileOutput = System.getenv("PROFILE_OUTPUT") ?: "/tmp/sirix-profile.html"
+    
+    // JFR profiling: set JFR_PROFILE=1 to enable
+    def jfrProfile = System.getenv("JFR_PROFILE")
+    def jfrOutput = System.getenv("JFR_OUTPUT") ?: "/tmp/sirix-flight.jfr"
     
     def baseArgs = [
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
         '--enable-native-access=ALL-UNNAMED',
+        '-XX:+UnlockDiagnosticVMOptions',
+        '-XX:+DebugNonSafepoints',
     ]
     
     if (profilerPath) {
-        baseArgs.add("-agentpath:${profilerPath}/lib/libasyncProfiler.so=start,event=${profileEvent},file=${profileOutput},collapsed")
-        println "Profiling enabled: event=${profileEvent}, output=${profileOutput}"
+        baseArgs.add("-agentpath:${profilerPath}/lib/libasyncProfiler.so=start,event=${profileEvent},file=${profileOutput}")
+        println "Async-profiler enabled: event=${profileEvent}, output=${profileOutput}"
+    }
+    
+    if (jfrProfile) {
+        baseArgs.add("-XX:StartFlightRecording=duration=120s,filename=${jfrOutput},settings=profile")
+        println "JFR profiling enabled: output=${jfrOutput}"
     }
     
     jvmArgs = baseArgs
