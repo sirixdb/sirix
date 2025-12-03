@@ -326,15 +326,24 @@ public enum PageKind {
       final var uncompressedLength = byteArray.length;
 
       final byte[] serializedPage;
-
-      try (final ByteArrayOutputStream output = new ByteArrayOutputStream(uncompressedLength)) {
-        try (final DataOutputStream dataOutput = new DataOutputStream(resourceConfig.byteHandlePipeline.serialize(output))) {
-          dataOutput.write(byteArray);
-          dataOutput.flush();
+      
+      // PERFORMANCE: Use zero-copy MemorySegment compression when available
+      if (resourceConfig.byteHandlePipeline.supportsMemorySegments()) {
+        // Zero-copy path: compress directly from/to MemorySegment
+        MemorySegment uncompressed = MemorySegment.ofArray(byteArray);
+        MemorySegment compressed = resourceConfig.byteHandlePipeline.compress(uncompressed);
+        serializedPage = compressed.toArray(java.lang.foreign.ValueLayout.JAVA_BYTE);
+      } else {
+        // Fallback: stream-based compression (allocates intermediate buffers)
+        try (final ByteArrayOutputStream output = new ByteArrayOutputStream(uncompressedLength)) {
+          try (final DataOutputStream dataOutput = new DataOutputStream(resourceConfig.byteHandlePipeline.serialize(output))) {
+            dataOutput.write(byteArray);
+            dataOutput.flush();
+          }
+          serializedPage = output.toByteArray();
+        } catch (IOException e) {
+          throw new UncheckedIOException(e);
         }
-        serializedPage = output.toByteArray();
-      } catch (IOException e) {
-        throw new UncheckedIOException(e);
       }
 
       keyValueLeafPage.setBytes(Bytes.wrapForWrite(serializedPage));

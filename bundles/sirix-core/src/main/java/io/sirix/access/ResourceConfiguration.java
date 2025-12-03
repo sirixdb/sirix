@@ -38,6 +38,7 @@ import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerKind;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.bytepipe.LZ4Compressor;
 import io.sirix.node.NodeSerializerImpl;
 import io.sirix.node.interfaces.RecordSerializer;
@@ -731,7 +732,9 @@ public final class ResourceConfiguration {
       this.resource = requireNonNull(resource);
       pathSummary = true;
       storeChildCount = true;
-      byteHandler = new ByteHandlerPipeline(new LZ4Compressor()); // new Encryptor(path));
+      // Use stream-based LZ4 for compatibility (LZ4 block format)
+      // FFI LZ4 uses different format and is currently only used internally for zero-copy paths
+      byteHandler = new ByteHandlerPipeline(new LZ4Compressor());
     }
 
     /**

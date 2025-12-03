@@ -2,6 +2,7 @@ package io.sirix.io.bytepipe;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -16,6 +17,9 @@ public final class ByteHandlerPipeline implements ByteHandler {
 
   /** Pipeline for all byte handlers. */
   private final List<ByteHandler> byteHandlers;
+  
+  /** Cached result of supportsMemorySegments check. */
+  private final boolean memorySegmentSupport;
 
   /**
    * Copy constructor.
@@ -27,6 +31,7 @@ public final class ByteHandlerPipeline implements ByteHandler {
     for (final ByteHandler handler : pipeline.byteHandlers) {
       byteHandlers.add(handler.getInstance());
     }
+    this.memorySegmentSupport = checkMemorySegmentSupport();
   }
 
   /**
@@ -41,6 +46,21 @@ public final class ByteHandlerPipeline implements ByteHandler {
     if (parts != null) {
       Collections.addAll(byteHandlers, parts);
     }
+    this.memorySegmentSupport = checkMemorySegmentSupport();
+  }
+  
+  private boolean checkMemorySegmentSupport() {
+    // Pipeline supports MemorySegment if all handlers support it
+    // For single-handler pipelines (common case), this is straightforward
+    if (byteHandlers.isEmpty()) {
+      return false;
+    }
+    for (final ByteHandler handler : byteHandlers) {
+      if (!handler.supportsMemorySegments()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @Override
@@ -59,6 +79,57 @@ public final class ByteHandlerPipeline implements ByteHandler {
       pipeData = part.deserialize(pipeData);
     }
     return pipeData;
+  }
+  
+  @Override
+  public boolean supportsMemorySegments() {
+    return memorySegmentSupport;
+  }
+  
+  @Override
+  public MemorySegment compress(MemorySegment source) {
+    if (!memorySegmentSupport) {
+      throw new UnsupportedOperationException("MemorySegment compression not supported - not all handlers support it");
+    }
+    
+    // Apply handlers in order (compression pipeline)
+    MemorySegment result = source;
+    for (final ByteHandler handler : byteHandlers) {
+      result = handler.compress(result);
+    }
+    return result;
+  }
+  
+  @Override
+  public MemorySegment decompress(MemorySegment compressed) {
+    if (!memorySegmentSupport) {
+      throw new UnsupportedOperationException("MemorySegment decompression not supported - not all handlers support it");
+    }
+    
+    // Apply handlers in reverse order (decompression pipeline)
+    MemorySegment result = compressed;
+    for (int i = byteHandlers.size() - 1; i >= 0; i--) {
+      result = byteHandlers.get(i).decompress(result);
+    }
+    return result;
+  }
+  
+  @Override
+  public DecompressionResult decompressScoped(MemorySegment compressed) {
+    if (!memorySegmentSupport) {
+      throw new UnsupportedOperationException("Scoped decompression not supported - not all handlers support it");
+    }
+    
+    // For single-handler case (common), delegate directly
+    if (byteHandlers.size() == 1) {
+      return byteHandlers.getFirst().decompressScoped(compressed);
+    }
+    
+    // For multi-handler pipeline, we need to chain decompressions
+    // This is complex because intermediate buffers need management
+    // For now, use the non-scoped approach for multi-handler
+    MemorySegment result = decompress(compressed);
+    return new DecompressionResult(result, null);
   }
 
   /**

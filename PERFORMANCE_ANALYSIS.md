@@ -59,20 +59,36 @@ for (final DataRecord record : records) {
 
 **Impact:** Eliminates ~N allocations per page where N = number of non-null records.
 
+### 2. ByteHandlerPipeline MemorySegment Support (COMPLETED)
+
+**File:** `ByteHandlerPipeline.java`
+
+Added full MemorySegment support to the compression pipeline:
+- `supportsMemorySegments()` - checks if all handlers support zero-copy
+- `compress(MemorySegment)` - zero-copy compression pipeline
+- `decompress(MemorySegment)` - zero-copy decompression pipeline
+- `decompressScoped(MemorySegment)` - Loom-friendly decompression with buffer pooling
+
+### 3. FFI LZ4 Heap-to-Native Handling (COMPLETED)
+
+**File:** `FFILz4Compressor.java`
+
+Fixed FFI LZ4 compressor to handle both heap and native MemorySegments:
+- Automatically copies heap segments to native memory for FFI calls
+- Enables future zero-copy compression when data is already in native memory
+
 ## Recommended Future Optimizations
 
-### 2. Use FFI LZ4 Compression (HIGH IMPACT)
+### 1. Enable Zero-Copy FFI LZ4 Compression (HIGH IMPACT)
 
-**Current:** `LZ4Compressor` uses stream-based API (`LZ4BlockOutputStream`) which creates overhead.
+The infrastructure is now in place for zero-copy compression. To enable:
+- Modify serialization to write directly to native MemorySegments
+- Use `FFILz4Compressor` as default when native library available
+- Requires careful format compatibility with existing data
 
-**Recommendation:** Modify `PageKind.serializePage()` to use `FFILz4Compressor.compress(MemorySegment)` directly:
-- Zero-copy compression using Foreign Function API
-- Eliminates `ByteArrayOutputStream` and `DataOutputStream` allocations
-- Could reduce compression path allocations by ~300+ per test run
+**Implementation effort:** Medium - format compatibility concerns
 
-**Implementation effort:** Medium - requires refactoring serialization path
-
-### 3. Reduce Hash Computation Overhead (MEDIUM IMPACT)
+### 2. Reduce Hash Computation Overhead (MEDIUM IMPACT)
 
 `rollingAdd` and `adaptHashesWithAdd` consume significant CPU time.
 
@@ -81,7 +97,7 @@ for (final DataRecord record : records) {
 - Batch hash updates instead of per-node
 - Use SIMD-accelerated hashing if available
 
-### 4. Optimize Node Navigation (MEDIUM IMPACT)
+### 3. Optimize Node Navigation (MEDIUM IMPACT)
 
 `AbstractNodeReadOnlyTrx.moveTo` is a hot path.
 
@@ -89,7 +105,7 @@ for (final DataRecord record : records) {
 - Cache frequently accessed nodes
 - Reduce page dereferences in common navigation patterns
 
-### 5. Pool Allocation Strategy (LOW IMPACT)
+### 4. Pool Allocation Strategy (LOW IMPACT)
 
 Consider object pooling for:
 - `IndexLogKey` instances (132 allocations)

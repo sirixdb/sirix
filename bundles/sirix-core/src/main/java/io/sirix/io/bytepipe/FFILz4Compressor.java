@@ -205,6 +205,9 @@ public final class FFILz4Compressor implements ByteHandler {
   /**
    * Compress data and return a new MemorySegment with compressed data.
    * Uses a confined Arena for temporary compression buffer.
+   * 
+   * <p>Handles both heap and native MemorySegments. Heap segments are copied
+   * to native memory for FFI calls.
    *
    * @param source uncompressed data (can be heap or native)
    * @return compressed data in a MemorySegment
@@ -220,14 +223,24 @@ public final class FFILz4Compressor implements ByteHandler {
 
     // Use Arena for temporary compression buffer
     try (Arena arena = Arena.ofConfined()) {
+      // FFI requires native memory - copy heap segments to native
+      MemorySegment nativeSource;
+      if (source.isNative()) {
+        nativeSource = source;
+      } else {
+        // Copy heap segment to native memory for FFI call
+        nativeSource = arena.allocate(srcSize);
+        MemorySegment.copy(source, 0, nativeSource, 0, srcSize);
+      }
+      
       // Allocate temporary buffer with header space
       MemorySegment tempCompressed = arena.allocate(maxDstSize + 4);
 
       // Write decompressed size header (for decompression)
       tempCompressed.set(JAVA_INT, 0, srcSize);
 
-      // Compress (source must be off-heap/native memory)
-      int compressedSize = compressSegment(source, tempCompressed.asSlice(4));
+      // Compress (source is now guaranteed native memory)
+      int compressedSize = compressSegment(nativeSource, tempCompressed.asSlice(4));
       if (compressedSize <= 0) {
         throw new RuntimeException("LZ4 compression failed: " + compressedSize);
       }
@@ -255,19 +268,32 @@ public final class FFILz4Compressor implements ByteHandler {
     }
 
     int decompressedSize = compressed.get(JAVA_INT, 0);
-    MemorySegment buffer = Arena.ofAuto().allocate(decompressedSize);
+    
+    // Use confined arena for temporary native copy if source is heap
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment nativeCompressed;
+      if (compressed.isNative()) {
+        nativeCompressed = compressed;
+      } else {
+        // Copy heap segment to native memory for FFI call
+        nativeCompressed = arena.allocate(compressed.byteSize());
+        MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
+      }
+      
+      MemorySegment buffer = Arena.ofAuto().allocate(decompressedSize);
 
-    int actualSize = decompressSegment(
-        compressed.asSlice(4),
-        buffer,
-        (int) compressed.byteSize() - 4
-    );
+      int actualSize = decompressSegment(
+          nativeCompressed.asSlice(4),
+          buffer,
+          (int) nativeCompressed.byteSize() - 4
+      );
 
-    if (actualSize < 0) {
-      throw new RuntimeException("LZ4 decompression failed: " + actualSize);
+      if (actualSize < 0) {
+        throw new RuntimeException("LZ4 decompression failed: " + actualSize);
+      }
+
+      return buffer.asSlice(0, actualSize);
     }
-
-    return buffer.asSlice(0, actualSize);
   }
 
   /**
@@ -312,31 +338,49 @@ public final class FFILz4Compressor implements ByteHandler {
                    newSize, BUFFER_POOL.size());
     }
 
-    // Decompress
-    int actualSize = decompressSegment(
-        compressed.asSlice(4),
-        buffer,
-        (int) compressed.byteSize() - 4
-    );
-
-    if (actualSize < 0) {
-      // Return buffer to pool on error
-      BUFFER_POOL.offer(buffer);
-      throw new RuntimeException("LZ4 decompression failed: " + actualSize);
+    // FFI requires native memory - handle heap segments
+    MemorySegment nativeCompressed;
+    Arena tempArena = null;
+    if (compressed.isNative()) {
+      nativeCompressed = compressed;
+    } else {
+      // Copy heap segment to native memory for FFI call
+      tempArena = Arena.ofConfined();
+      nativeCompressed = tempArena.allocate(compressed.byteSize());
+      MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
     }
-
-    if (actualSize != decompressedSize) {
-      LOGGER.warn("Decompressed size mismatch: expected {}, got {}", decompressedSize, actualSize);
-    }
-
-    // Create result with releaser that returns buffer to pool
-    final MemorySegment poolBuffer = buffer;
-    final boolean shouldReturn = fromPool || BUFFER_POOL.size() < POOL_SIZE;
     
-    return new DecompressionResult(
-        buffer.asSlice(0, actualSize),
-        shouldReturn ? () -> BUFFER_POOL.offer(poolBuffer) : null
-    );
+    try {
+      // Decompress
+      int actualSize = decompressSegment(
+          nativeCompressed.asSlice(4),
+          buffer,
+          (int) nativeCompressed.byteSize() - 4
+      );
+
+      if (actualSize < 0) {
+        // Return buffer to pool on error
+        BUFFER_POOL.offer(buffer);
+        throw new RuntimeException("LZ4 decompression failed: " + actualSize);
+      }
+
+      if (actualSize != decompressedSize) {
+        LOGGER.warn("Decompressed size mismatch: expected {}, got {}", decompressedSize, actualSize);
+      }
+
+      // Create result with releaser that returns buffer to pool
+      final MemorySegment poolBuffer = buffer;
+      final boolean shouldReturn = fromPool || BUFFER_POOL.size() < POOL_SIZE;
+      
+      return new DecompressionResult(
+          buffer.asSlice(0, actualSize),
+          shouldReturn ? () -> BUFFER_POOL.offer(poolBuffer) : null
+      );
+    } finally {
+      if (tempArena != null) {
+        tempArena.close();
+      }
+    }
   }
   
   /**
