@@ -141,6 +141,24 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
         return this;
     }
 
+    /**
+     * Write the contents of a MemorySegment into this BytesOut without creating
+     * an intermediate byte array. This is used by zero-copy compression paths
+     * to avoid an extra heap allocation when the compressed data is already
+     * represented as a MemorySegment.
+     *
+     * @param segment the segment to copy from
+     * @return this BytesOut for chaining
+     */
+    public BytesOut<MemorySegment> write(MemorySegment segment) {
+        long length = segment.byteSize();
+        long currentPos = growingSegment.position();
+        growingSegment.ensureCapacity(currentPos + length);
+        MemorySegment.copy(segment, 0, growingSegment.getSegment(), currentPos, length);
+        growingSegment.setPosition(currentPos + length);
+        return this;
+    }
+
     @Override
     public BytesOut<MemorySegment> write(long position, ByteBuffer buffer, int bufferPosition, int length) {
         long oldPos = growingSegment.position();

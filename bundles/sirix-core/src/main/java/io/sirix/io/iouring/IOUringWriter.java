@@ -29,8 +29,10 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.io.*;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
+import io.sirix.node.MemorySegmentBytesIn;
 import one.jasyncfio.AsyncFile;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -38,11 +40,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -156,6 +158,35 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     return offset;
   }
 
+  private byte[] buildSerializedPage(final ResourceConfiguration resourceConfiguration, final Page page) throws IOException {
+    final BytesIn<?> uncompressedBytes = byteBufferBytes.bytesForRead();
+
+    if (page instanceof KeyValueLeafPage keyValueLeafPage && keyValueLeafPage.getBytes() != null) {
+      // Use cached compressed bytes when available
+      return keyValueLeafPage.getBytes().toByteArray();
+    }
+
+    final var pipeline = resourceConfiguration.byteHandlePipeline;
+
+    if (pipeline.supportsMemorySegments() && uncompressedBytes instanceof MemorySegmentBytesIn segmentIn) {
+      MemorySegment compressedSegment = pipeline.compress(segmentIn.getSource());
+      return segmentToByteArray(compressedSegment);
+    }
+
+    final byte[] byteArray = uncompressedBytes.toByteArray();
+
+    try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length);
+         final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
+      dataOutput.write(byteArray);
+      dataOutput.flush();
+      return output.toByteArray();
+    }
+  }
+
+  private static byte[] segmentToByteArray(MemorySegment segment) {
+    return segment.toArray(java.lang.foreign.ValueLayout.JAVA_BYTE);
+  }
+
   @NonNull
   private IOUringWriter writePageReference(final ResourceConfiguration resourceConfiguration,
       final PageReference pageReference, final Page page, BytesOut<?> bufferedBytes, long offset) {
@@ -174,24 +205,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     try {
       // Serialize page.
       pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
-
-      // Serialize page.
-      pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
-
-      final byte[] serializedPage;
-
-      final var byteArray = byteBufferBytes.toByteArray();
-      if (page instanceof KeyValueLeafPage) {
-        serializedPage = byteArray;
-      } else {
-        try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
-          try (final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
-            dataOutput.write(byteArray);
-            dataOutput.flush();
-          }
-          serializedPage = output.toByteArray();
-        }
-      }
+      final byte[] serializedPage = buildSerializedPage(resourceConfiguration, page);
 
       byteBufferBytes.clear();
 

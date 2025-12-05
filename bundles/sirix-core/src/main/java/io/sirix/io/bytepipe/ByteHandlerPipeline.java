@@ -125,11 +125,25 @@ public final class ByteHandlerPipeline implements ByteHandler {
       return byteHandlers.getFirst().decompressScoped(compressed);
     }
     
-    // For multi-handler pipeline, we need to chain decompressions
-    // This is complex because intermediate buffers need management
-    // For now, use the non-scoped approach for multi-handler
-    MemorySegment result = decompress(compressed);
-    return new DecompressionResult(result, null);
+    // Multi-handler chaining: decompress in reverse order while reusing buffers.
+    // We only return the final buffer; intermediates are released immediately.
+    MemorySegment current = compressed;
+    Runnable releaser = null;
+
+    for (int i = byteHandlers.size() - 1; i >= 0; i--) {
+      ByteHandler handler = byteHandlers.get(i);
+      try (DecompressionResult result = handler.decompressScoped(current)) {
+        // release previous buffer, keep the latest
+        if (releaser != null) {
+          releaser.run();
+        }
+        current = result.segment();
+        releaser = result.releaser();
+      }
+    }
+
+    final Runnable finalReleaser = releaser;
+    return new DecompressionResult(current, finalReleaser);
   }
 
   /**

@@ -267,7 +267,7 @@ public final class FFILz4Compressor implements ByteHandler {
       throw new UnsupportedOperationException("Native LZ4 not available");
     }
 
-    int decompressedSize = compressed.get(JAVA_INT, 0);
+    int decompressedSize = compressed.get(JAVA_INT_UNALIGNED, 0);
     
     // Use confined arena for temporary native copy if source is heap
     try (Arena arena = Arena.ofConfined()) {
@@ -318,7 +318,7 @@ public final class FFILz4Compressor implements ByteHandler {
       throw new UnsupportedOperationException("Native LZ4 not available");
     }
 
-    int decompressedSize = compressed.get(JAVA_INT, 0);
+    int decompressedSize = compressed.get(JAVA_INT_UNALIGNED, 0);
     
     // Try to get a buffer from pool (non-blocking)
     MemorySegment buffer = BUFFER_POOL.poll();

@@ -723,6 +723,11 @@ public final class ResourceConfiguration {
     private BinaryEncodingVersion binaryEncodingVersion = BINARY_ENCODING_VERSION;
 
     /**
+     * If true, require native LZ4 support; otherwise builder will fall back to the stream LZ4 compressor.
+     */
+    private boolean requireNativeLz4 = false;
+
+    /**
      * Constructor, setting the mandatory fields.
      *
      * @param resource the name of the resource
@@ -732,9 +737,7 @@ public final class ResourceConfiguration {
       this.resource = requireNonNull(resource);
       pathSummary = true;
       storeChildCount = true;
-      // Use stream-based LZ4 for compatibility (LZ4 block format)
-      // FFI LZ4 uses different format and is currently only used internally for zero-copy paths
-      byteHandler = new ByteHandlerPipeline(new LZ4Compressor());
+      byteHandler = selectDefaultByteHandler();
     }
 
     /**
@@ -746,6 +749,27 @@ public final class ResourceConfiguration {
     public Builder storageType(final StorageType type) {
       this.type = requireNonNull(type);
       return this;
+    }
+
+    /**
+     * Require native LZ4 support; if native is unavailable, builder throws.
+     *
+     * @param requireNative flag to enforce native LZ4
+     * @return builder
+     */
+    public Builder requireNativeLz4(boolean requireNative) {
+      this.requireNativeLz4 = requireNative;
+      return this;
+    }
+
+    private ByteHandlerPipeline selectDefaultByteHandler() {
+      if (FFILz4Compressor.isNativeAvailable()) {
+        return new ByteHandlerPipeline(new FFILz4Compressor());
+      }
+      if (requireNativeLz4) {
+        throw new IllegalStateException("Native LZ4 required but not available");
+      }
+      return new ByteHandlerPipeline(new LZ4Compressor());
     }
 
     /**

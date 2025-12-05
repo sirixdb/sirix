@@ -10,6 +10,8 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Analyze where the "live" pages are - cache vs swizzled-only.
@@ -98,11 +100,13 @@ public class LivePageAnalysisTest {
       }
       
       // Check how many live pages are in each cache
-      long liveInRecordCache = KeyValueLeafPage.ALL_LIVE_PAGES.stream()
+      List<KeyValueLeafPage> liveSnapshot = new ArrayList<>(KeyValueLeafPage.ALL_LIVE_PAGES);
+
+      long liveInRecordCache = liveSnapshot.stream()
           .filter(p -> bufferManager.getRecordPageCache().asMap().containsValue(p))
           .count();
       
-      long liveInFragmentCache = KeyValueLeafPage.ALL_LIVE_PAGES.stream()
+      long liveInFragmentCache = liveSnapshot.stream()
           .filter(p -> bufferManager.getRecordPageFragmentCache().asMap().containsValue(p))
           .count();
       
@@ -138,7 +142,7 @@ public class LivePageAnalysisTest {
         System.err.println("   - Will NOT be unpinned by unpinAllPagesForTransaction()");
         
         System.err.println("\nThese pages:");
-        KeyValueLeafPage.ALL_LIVE_PAGES.stream()
+      liveSnapshot.stream()
             .filter(p -> !bufferManager.getRecordPageCache().asMap().containsValue(p))
             .filter(p -> !bufferManager.getRecordPageFragmentCache().asMap().containsValue(p))
             // TODO: Filter by guard count

@@ -36,6 +36,7 @@ import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
 
 import java.lang.foreign.MemorySegment;
 import io.sirix.io.Reader;
@@ -62,7 +63,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.*;
 
@@ -322,31 +322,15 @@ public enum PageKind {
 
       keyValueLeafPage.setHashCode(Reader.hashFunction.hashBytes(sink.bytesForRead().toByteArray()).asBytes());
 
-      final var byteArray = sink.bytesForRead().toByteArray();
-      final var uncompressedLength = byteArray.length;
+      final BytesIn<?> uncompressedBytes = sink.bytesForRead();
+      final byte[] uncompressedArray = uncompressedBytes.toByteArray();
 
-      final byte[] serializedPage;
-      
-      // PERFORMANCE: Use zero-copy MemorySegment compression when available
-      if (resourceConfig.byteHandlePipeline.supportsMemorySegments()) {
-        // Zero-copy path: compress directly from/to MemorySegment
-        MemorySegment uncompressed = MemorySegment.ofArray(byteArray);
-        MemorySegment compressed = resourceConfig.byteHandlePipeline.compress(uncompressed);
-        serializedPage = compressed.toArray(java.lang.foreign.ValueLayout.JAVA_BYTE);
-      } else {
-        // Fallback: stream-based compression (allocates intermediate buffers)
-        try (final ByteArrayOutputStream output = new ByteArrayOutputStream(uncompressedLength)) {
-          try (final DataOutputStream dataOutput = new DataOutputStream(resourceConfig.byteHandlePipeline.serialize(output))) {
-            dataOutput.write(byteArray);
-            dataOutput.flush();
-          }
-          serializedPage = output.toByteArray();
-        } catch (IOException e) {
-          throw new UncheckedIOException(e);
-        }
-      }
+      final byte[] compressedPage =
+          compress(resourceConfig, uncompressedBytes, uncompressedArray, sink.writePosition());
 
-      keyValueLeafPage.setBytes(Bytes.wrapForWrite(serializedPage));
+      // Cache compressed form for writers, but leave the sink unmodified (uncompressed)
+      // so in-memory round-trips that bypass the ByteHandler still work.
+      keyValueLeafPage.setBytes(Bytes.wrapForWrite(compressedPage));
     }
   },
 
@@ -883,6 +867,42 @@ public enum PageKind {
    */
   public byte getID() {
     return id;
+  }
+
+  /**
+   * Compress the serialized page using the configured {@link ByteHandlerPipeline} and write the
+   * compressed bytes back to the provided sink. Uses the MemorySegment path when available to
+   * avoid intermediate byte[] allocations.
+   */
+  private static byte[] compress(ResourceConfiguration resourceConfig,
+                                 BytesIn<?> uncompressedBytes,
+                                 byte[] uncompressedArray,
+                                 long uncompressedLength) {
+    final ByteHandlerPipeline pipeline = resourceConfig.byteHandlePipeline;
+
+    if (pipeline.supportsMemorySegments() && uncompressedBytes instanceof MemorySegmentBytesIn segmentIn) {
+      MemorySegment uncompressedSegment = segmentIn.getSource().asSlice(0, uncompressedLength);
+      MemorySegment compressedSegment = pipeline.compress(uncompressedSegment);
+      return segmentToByteArray(compressedSegment);
+    }
+
+    final byte[] compressedBytes = compressViaStream(pipeline, uncompressedArray);
+    return compressedBytes;
+  }
+
+  private static byte[] compressViaStream(ByteHandlerPipeline pipeline, byte[] uncompressedArray) {
+    try (final ByteArrayOutputStream output = new ByteArrayOutputStream(uncompressedArray.length);
+         final DataOutputStream dataOutput = new DataOutputStream(pipeline.serialize(output))) {
+      dataOutput.write(uncompressedArray);
+      dataOutput.flush();
+      return output.toByteArray();
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  private static byte[] segmentToByteArray(MemorySegment segment) {
+    return segment.toArray(java.lang.foreign.ValueLayout.JAVA_BYTE);
   }
 
   /**
