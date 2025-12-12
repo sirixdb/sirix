@@ -43,15 +43,18 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   private final ConcurrentHashMap<PageReference, KeyValueLeafPage> map = new ConcurrentHashMap<>();
   private final ReentrantLock evictionLock = new ReentrantLock();
   private final Shard shard; // Single shard instance (simplified design)
+  private final long maxWeightBytes;
+  private final java.util.concurrent.atomic.AtomicLong currentWeightBytes = new java.util.concurrent.atomic.AtomicLong(0L);
 
   /**
    * Create a new page cache.
    *
    * @param shardCount unused (kept for API compatibility)
    */
-  public ShardedPageCache(int shardCount) {
+  public ShardedPageCache(int shardCount, long maxWeightBytes) {
     this.shard = new Shard(map, evictionLock);
-    LOGGER.info("Created ShardedPageCache (simplified single-map design)");
+    this.maxWeightBytes = maxWeightBytes;
+    LOGGER.info("Created ShardedPageCache (simplified single-map design) with maxWeight={} bytes", maxWeightBytes);
   }
 
   /**
@@ -59,6 +62,33 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
    */
   public Shard getShard(PageReference ref) {
     return shard;
+  }
+  
+  /**
+   * Current tracked weight of cached pages in bytes.
+   */
+  long getCurrentWeightBytes() {
+    return currentWeightBytes.get();
+  }
+
+  /**
+   * Callback for eviction: adjust the tracked weight.
+   */
+  void onEvicted(KeyValueLeafPage page, long pageWeight) {
+    if (pageWeight <= 0) {
+      return;
+    }
+    currentWeightBytes.addAndGet(-pageWeight);
+  }
+
+  /**
+   * Compute the weight (bytes) of a cached page.
+   */
+  long weightOf(KeyValueLeafPage page) {
+    if (page == null) {
+      return 0L;
+    }
+    return page.getActualMemorySize();
   }
   
   /**
@@ -102,6 +132,18 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       KeyValueLeafPage newPage = mappingFunction.apply(k, existingValue);
       if (newPage != null && !newPage.isClosed()) {
         newPage.markAccessed(); // Set HOT bit for newly loaded page
+
+        // Adjust tracked weight (replace closed entry if present)
+        long newWeight = weightOf(newPage);
+        if (existingValue != null) {
+          long existingWeight = weightOf(existingValue);
+          if (existingWeight > 0) {
+            currentWeightBytes.addAndGet(-existingWeight);
+          }
+        }
+        if (newWeight > 0) {
+          currentWeightBytes.addAndGet(newWeight);
+        }
         
         if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && newPage.getPageKey() == 0) {
           LOGGER.debug("[CACHE-COMPUTE] Page 0 computed and caching: {} rev={} instance={} guardCount={}",
@@ -110,6 +152,8 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       }
       return newPage;
     });
+    
+    evictIfOverBudget();
     
     if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page != null && page.getPageKey() == 0) {
       // Verify it's actually in cache
@@ -146,7 +190,18 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
     }
 
     value.markAccessed(); // Set HOT bit BEFORE inserting to ensure it's marked
-    map.put(key, value);
+    map.compute(key, (k, existing) -> {
+      long delta = weightOf(value);
+      if (existing != null) {
+        delta -= weightOf(existing);
+      }
+      if (delta != 0) {
+        currentWeightBytes.addAndGet(delta);
+      }
+      return value;
+    });
+
+    evictIfOverBudget();
   }
 
   @Override
@@ -169,6 +224,14 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
     }
     // If a value already exists, our value wasn't inserted (another thread won the race)
     // but marking it hot is still harmless
+
+    if (existing == null) {
+      long newWeight = weightOf(value);
+      if (newWeight > 0) {
+        currentWeightBytes.addAndGet(newWeight);
+      }
+      evictIfOverBudget();
+    }
   }
 
   @Override
@@ -240,6 +303,7 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       // This is acceptable for shutdown scenarios (typical clear() use case)
       // If guards are leaked, those pages will be orphaned in memory
       map.clear();
+      currentWeightBytes.set(0L);
       shard.clockHand = 0;
     } finally {
       evictionLock.unlock();
@@ -257,6 +321,13 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       LOGGER.warn("[CACHE-REMOVE] Page 0 ({}) rev={} instance={} guardCount={} closed={} - removed by {} WITHOUT closing (intentional for TIL)",
           page.getIndexType(), page.getRevision(), System.identityHashCode(page), 
           page.getGuardCount(), page.isClosed(), caller);
+    }
+    
+    if (page != null) {
+      long weight = weightOf(page);
+      if (weight > 0) {
+        currentWeightBytes.addAndGet(-weight);
+      }
     }
     
     // NOTE: We do NOT close pages here by design
@@ -315,6 +386,103 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
    */
   public long size() {
     return map.size();
+  }
+
+  /**
+   * Evict cold, unguarded pages until the cache is within the configured memory budget.
+   * Uses a simple two-pass approach per page: first clears HOT bit, then evicts on the next pass.
+   * This keeps enforcement cheap and virtual-thread friendly.
+   */
+  private void evictIfOverBudget() {
+    if (maxWeightBytes <= 0) {
+      return;
+    }
+
+    // Fast path without locking
+    if (currentWeightBytes.get() <= maxWeightBytes) {
+      return;
+    }
+
+    if (!evictionLock.tryLock()) {
+      return; // Avoid blocking writers; ClockSweeper will also evict
+    }
+
+    try {
+      var iterator = map.entrySet().iterator();
+      while (currentWeightBytes.get() > maxWeightBytes && iterator.hasNext()) {
+        var entry = iterator.next();
+        PageReference ref = entry.getKey();
+
+        // Keep eviction atomic with respect to other cache operations
+        map.compute(ref, (k, page) -> {
+          if (page == null) {
+            return null;
+          }
+
+          // First pass: clear HOT bit
+          if (page.isHot()) {
+            page.clearHot();
+            return page;
+          }
+
+          // Skip guarded pages
+          if (page.getGuardCount() > 0) {
+            if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && LOGGER.isDebugEnabled()) {
+              LOGGER.debug("Eviction skipped: guarded page key={} type={} rev={} guards={} hot={}",
+                  page.getPageKey(), page.getIndexType(), page.getRevision(), page.getGuardCount(), page.isHot());
+            }
+            return page;
+          }
+
+          long pageWeight = weightOf(page);
+          try {
+            page.incrementVersion();
+            ref.setPage(null);
+            page.close();
+
+            if (!page.isClosed()) {
+              return page; // Could not close (guard acquired concurrently)
+            }
+
+            if (pageWeight > 0) {
+              currentWeightBytes.addAndGet(-pageWeight);
+            }
+
+            return null; // Successfully evicted
+          } catch (Exception e) {
+            LOGGER.error("Failed to evict page {} during budget enforcement: {}", page.getPageKey(), e.getMessage());
+            return page;
+          }
+        });
+      }
+      
+      // If we still exceed budget and diagnostics enabled, log a small sample of guarded pages.
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && currentWeightBytes.get() > maxWeightBytes && LOGGER.isWarnEnabled()) {
+        logGuardedPagesSample();
+      }
+    } finally {
+      evictionLock.unlock();
+    }
+  }
+
+  /**
+   * Log a small sample of guarded pages to help track down guard leaks.
+   */
+  private void logGuardedPagesSample() {
+    int logged = 0;
+    for (KeyValueLeafPage page : map.values()) {
+      if (page.getGuardCount() > 0) {
+        LOGGER.warn("Guarded page prevents eviction: key={} type={} rev={} guards={} hot={}",
+            page.getPageKey(), page.getIndexType(), page.getRevision(), page.getGuardCount(), page.isHot());
+        if (++logged >= 5) {
+          break; // limit noise
+        }
+      }
+    }
+    if (logged == 0 && LOGGER.isDebugEnabled()) {
+      LOGGER.debug("No guarded pages found, but cache over budget. CurrentWeight={} MaxWeight={}",
+          currentWeightBytes.get(), maxWeightBytes);
+    }
   }
 
   /**

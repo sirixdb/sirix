@@ -6,6 +6,10 @@ import java.nio.ByteBuffer;
 /**
  * Utility class to replace Chronicle Bytes factory methods.
  * Provides factory methods for creating BytesOut instances.
+ * <p>
+ * <b>Memory Optimization:</b> All BytesOut instances created here use a thread-local
+ * shared Arena (via GrowingMemorySegment) to avoid Arena.ofAuto() proliferation
+ * during high-throughput operations like JSON shredding.
  */
 public final class Bytes {
     
@@ -16,9 +20,11 @@ public final class Bytes {
     /**
      * Factory method to create an elastic off-heap MemorySegment-based BytesOut.
      * Uses GrowingMemorySegment with 8-byte aligned memory for optimal performance.
-     * The returned BytesOut should be used with try-with-resources to ensure proper cleanup.
+     * <p>
+     * Memory is allocated from a thread-local shared Arena to minimize GC overhead.
+     * 
      * @param initialCapacity the initial capacity
-     * @return a new BytesOut instance that must be closed after use
+     * @return a new BytesOut instance
      */
     public static BytesOut<MemorySegment> elasticOffHeapByteBuffer(int initialCapacity) {
         return new MemorySegmentBytesOut(initialCapacity);
@@ -27,8 +33,10 @@ public final class Bytes {
     /**
      * Factory method to create an elastic off-heap MemorySegment-based BytesOut.
      * Uses GrowingMemorySegment with 8-byte aligned memory for optimal performance.
-     * The returned BytesOut should be used with try-with-resources to ensure proper cleanup.
-     * @return a new BytesOut instance with default capacity that must be closed after use
+     * <p>
+     * Memory is allocated from a thread-local shared Arena to minimize GC overhead.
+     * 
+     * @return a new BytesOut instance with default capacity
      */
     public static BytesOut<MemorySegment> elasticOffHeapByteBuffer() {
         return new MemorySegmentBytesOut();

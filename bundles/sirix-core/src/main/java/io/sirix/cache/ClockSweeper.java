@@ -36,6 +36,7 @@ public final class ClockSweeper implements Runnable {
   private static final Logger LOGGER = LoggerFactory.getLogger(ClockSweeper.class);
 
   private final ShardedPageCache.Shard shard;
+  private final ShardedPageCache cache;
   private final RevisionEpochTracker epochTracker;
   private final AtomicBoolean running = new AtomicBoolean(true);
   private final int sweepIntervalMs;
@@ -60,9 +61,10 @@ public final class ClockSweeper implements Runnable {
    * @param databaseId database ID to filter pages
    * @param resourceId resource ID to filter pages
    */
-  public ClockSweeper(ShardedPageCache.Shard shard, RevisionEpochTracker epochTracker,
+  public ClockSweeper(ShardedPageCache.Shard shard, ShardedPageCache cache, RevisionEpochTracker epochTracker,
                       int sweepIntervalMs, int shardIndex, long databaseId, long resourceId) {
     this.shard = shard;
+    this.cache = cache;
     this.epochTracker = epochTracker;
     this.sweepIntervalMs = sweepIntervalMs;
     this.shardIndex = shardIndex;
@@ -155,6 +157,10 @@ public final class ClockSweeper implements Runnable {
           
           // ATOMIC: Check guard count (PRIMARY protection)
           if (page.getGuardCount() > 0) {
+            if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && LOGGER.isDebugEnabled()) {
+              LOGGER.debug("ClockSweeper[{}] skip guarded page key={} type={} rev={} guards={}",
+                  shardIndex, page.getPageKey(), page.getIndexType(), page.getRevision(), page.getGuardCount());
+            }
             pagesSkippedByGuard.incrementAndGet();
             return page; // Keep in cache
           }
@@ -167,6 +173,8 @@ public final class ClockSweeper implements Runnable {
           
           // Evict page atomically within compute() while holding per-key lock
           try {
+            long pageWeight = cache.weightOf(page);
+
             page.incrementVersion();
             ref.setPage(null);
             page.close();
@@ -177,6 +185,7 @@ public final class ClockSweeper implements Runnable {
               return page; // Keep in cache - another thread is using it
             }
 
+            cache.onEvicted(page, pageWeight);
             pagesEvicted.incrementAndGet();
             return null; // Successfully evicted
           } catch (Exception e) {

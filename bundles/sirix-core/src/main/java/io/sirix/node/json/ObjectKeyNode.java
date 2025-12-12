@@ -84,14 +84,14 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
       // NodeDelegate fields
       ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
-      ValueLayout.JAVA_INT.withName("previousRevision"),              // offset 8
-      ValueLayout.JAVA_INT.withName("lastModifiedRevision"),          // offset 12
+      ValueLayout.JAVA_INT_UNALIGNED.withName("previousRevision"),              // offset 8
+      ValueLayout.JAVA_INT_UNALIGNED.withName("lastModifiedRevision"),          // offset 12
       // Fixed ObjectKeyNode fields
       ValueLayout.JAVA_LONG_UNALIGNED.withName("pathNodeKey"),                  // offset 16
       ValueLayout.JAVA_LONG_UNALIGNED.withName("rightSiblingKey"),              // offset 24
       ValueLayout.JAVA_LONG_UNALIGNED.withName("leftSiblingKey"),               // offset 32
       ValueLayout.JAVA_LONG_UNALIGNED.withName("firstChildKey"),                // offset 40
-      ValueLayout.JAVA_INT.withName("nameKey")                        // offset 48
+      ValueLayout.JAVA_INT_UNALIGNED.withName("nameKey")                        // offset 48
   );
 
   /**

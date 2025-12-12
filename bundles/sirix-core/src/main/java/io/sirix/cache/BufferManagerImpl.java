@@ -63,8 +63,8 @@ public final class BufferManagerImpl implements BufferManager {
       int maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxRBTreeNodeCache, 
       int maxNamesCacheSize, int maxPathSummaryCacheSize) {
     // Use simplified ShardedPageCache (single HashMap) for KeyValueLeafPage caches
-    recordPageCache = new ShardedPageCache(1);  // Simplified: no actual sharding
-    recordPageFragmentCache = new ShardedPageCache(1);
+    recordPageCache = new ShardedPageCache(1, maxRecordPageCacheWeight);  // Simplified: no actual sharding
+    recordPageFragmentCache = new ShardedPageCache(1, maxRecordPageFragmentCacheWeight);
     
     // Keep Caffeine PageCache for mixed page types (NamePage, UberPage, etc.)
     pageCache = new PageCache(maxPageCachWeight);
@@ -138,7 +138,7 @@ public final class BufferManagerImpl implements BufferManager {
       ShardedPageCache.Shard shard = recordCache.getShard(new PageReference());
       
       ClockSweeper sweeper = new ClockSweeper(
-          shard, globalEpochTracker, sweepIntervalMs, 0, 0, 0);  // databaseId=0, resourceId=0 means "all"
+          shard, recordCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0);  // databaseId=0, resourceId=0 means "all"
       
       Thread thread = new Thread(sweeper, "ClockSweeper-RecordPage-GLOBAL");
       thread.setDaemon(true);
@@ -155,7 +155,7 @@ public final class BufferManagerImpl implements BufferManager {
       ShardedPageCache.Shard shard = fragmentCache.getShard(new PageReference());
       
       ClockSweeper sweeper = new ClockSweeper(
-          shard, globalEpochTracker, sweepIntervalMs, 0, 0, 0);  // databaseId=0, resourceId=0 means "all"
+          shard, fragmentCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0);  // databaseId=0, resourceId=0 means "all"
       
       Thread thread = new Thread(sweeper, "ClockSweeper-FragmentPage-GLOBAL");
       thread.setDaemon(true);

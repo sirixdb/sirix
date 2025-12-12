@@ -94,8 +94,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
       // NodeDelegate fields
       ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
-      ValueLayout.JAVA_INT.withName("previousRevision"),              // offset 8
-      ValueLayout.JAVA_INT.withName("lastModifiedRevision"),          // offset 12
+      ValueLayout.JAVA_INT_UNALIGNED.withName("previousRevision"),              // offset 8
+      ValueLayout.JAVA_INT_UNALIGNED.withName("lastModifiedRevision"),          // offset 12
       // StructNode fields
       ValueLayout.JAVA_LONG_UNALIGNED.withName("rightSiblingKey"),              // offset 16
       ValueLayout.JAVA_LONG_UNALIGNED.withName("leftSiblingKey"),               // offset 24
@@ -103,9 +103,9 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
       ValueLayout.JAVA_LONG_UNALIGNED.withName("lastChildKey"),                 // offset 40
       // NameNode fields
       ValueLayout.JAVA_LONG_UNALIGNED.withName("pathNodeKey"),                  // offset 48
-      ValueLayout.JAVA_INT.withName("prefixKey"),                     // offset 56
-      ValueLayout.JAVA_INT.withName("localNameKey"),                  // offset 60
-      ValueLayout.JAVA_INT.withName("uriKey")                         // offset 64
+      ValueLayout.JAVA_INT_UNALIGNED.withName("prefixKey"),                     // offset 56
+      ValueLayout.JAVA_INT_UNALIGNED.withName("localNameKey"),                  // offset 60
+      ValueLayout.JAVA_INT_UNALIGNED.withName("uriKey")                         // offset 64
   );
 
   /**

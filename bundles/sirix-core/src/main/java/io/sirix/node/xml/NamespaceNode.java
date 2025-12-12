@@ -80,13 +80,13 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node {
   public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
       // NodeDelegate fields
       ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
-      ValueLayout.JAVA_INT.withName("previousRevision"),              // offset 8
-      ValueLayout.JAVA_INT.withName("lastModifiedRevision"),          // offset 12
+      ValueLayout.JAVA_INT_UNALIGNED.withName("previousRevision"),              // offset 8
+      ValueLayout.JAVA_INT_UNALIGNED.withName("lastModifiedRevision"),          // offset 12
       // NameNode fields
       ValueLayout.JAVA_LONG_UNALIGNED.withName("pathNodeKey"),                  // offset 16
-      ValueLayout.JAVA_INT.withName("prefixKey"),                     // offset 24
-      ValueLayout.JAVA_INT.withName("localNameKey"),                  // offset 28
-      ValueLayout.JAVA_INT.withName("uriKey")                         // offset 32
+      ValueLayout.JAVA_INT_UNALIGNED.withName("prefixKey"),                     // offset 24
+      ValueLayout.JAVA_INT_UNALIGNED.withName("localNameKey"),                  // offset 28
+      ValueLayout.JAVA_INT_UNALIGNED.withName("uriKey")                         // offset 32
   );
 
   // VarHandles for type-safe field access

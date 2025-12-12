@@ -80,10 +80,10 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode {
    * Core layout (always present) - 48 bytes total
    */
   public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
-      // NodeDelegate fields
+      // NodeDelegate fields - all UNALIGNED for heap-backed segment compatibility
       ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
-      ValueLayout.JAVA_INT.withName("previousRevision"),              // offset 8
-      ValueLayout.JAVA_INT.withName("lastModifiedRevision"),          // offset 12
+      ValueLayout.JAVA_INT_UNALIGNED.withName("previousRevision"),              // offset 8
+      ValueLayout.JAVA_INT_UNALIGNED.withName("lastModifiedRevision"),          // offset 12
       // StructNode fields
       ValueLayout.JAVA_LONG_UNALIGNED.withName("rightSiblingKey"),              // offset 16
       ValueLayout.JAVA_LONG_UNALIGNED.withName("leftSiblingKey"),               // offset 24

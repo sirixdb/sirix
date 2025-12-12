@@ -90,8 +90,8 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
       // NodeDelegate fields
       ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
-      ValueLayout.JAVA_INT.withName("previousRevision"),              // offset 8
-      ValueLayout.JAVA_INT.withName("lastModifiedRevision"),          // offset 12
+      ValueLayout.JAVA_INT_UNALIGNED.withName("previousRevision"),              // offset 8
+      ValueLayout.JAVA_INT_UNALIGNED.withName("lastModifiedRevision"),          // offset 12
       // StructNode fields (siblings only, no children for value nodes)
       ValueLayout.JAVA_LONG_UNALIGNED.withName("rightSiblingKey"),              // offset 16
       ValueLayout.JAVA_LONG_UNALIGNED.withName("leftSiblingKey")                // offset 24

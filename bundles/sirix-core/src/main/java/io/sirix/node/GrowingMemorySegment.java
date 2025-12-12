@@ -6,22 +6,30 @@ import java.lang.foreign.ValueLayout;
 
 /**
  * A wrapper around MemorySegment that automatically grows when writes exceed the current capacity.
- * Uses off-heap memory with proper 8-byte alignment to enable efficient aligned access.
- * This ensures all long fields can be accessed using JAVA_LONG instead of JAVA_LONG_UNALIGNED.
+ * <p>
+ * <b>Memory Management:</b> Uses heap-backed MemorySegments (via MemorySegment.ofArray) for
+ * temporary buffers. This avoids Arena.ofAuto() proliferation while ensuring memory is properly
+ * reclaimed by GC when the segment is no longer referenced.
+ * <p>
+ * All node classes use UNALIGNED ValueLayouts, so heap-backed segments work correctly
+ * without alignment requirements.
  */
 public class GrowingMemorySegment {
     private static final int INITIAL_CAPACITY = 1024; // 1KB initial size
     private static final int GROWTH_FACTOR = 2; // Double the size when growing
-    private static final long ALIGNMENT = 8; // 8-byte alignment for long fields
+    private static final long ALIGNMENT = 8; // 8-byte alignment for arena-backed segments
     
     private final Arena arena;
     private MemorySegment segment;
     private long position;
     private long capacity;
     
+    // Flag to indicate if we're using heap-backed segments (no arena management needed)
+    private final boolean heapBacked;
+    
     /**
      * Create a new GrowingMemorySegment with default initial capacity.
-     * Uses off-heap memory with 8-byte alignment.
+     * Uses heap-backed memory for efficient GC reclamation.
      */
     public GrowingMemorySegment() {
         this(INITIAL_CAPACITY);
@@ -29,26 +37,31 @@ public class GrowingMemorySegment {
     
     /**
      * Create a new GrowingMemorySegment with specified initial capacity.
-     * Uses off-heap memory with 8-byte alignment.
-     * 
-     * Uses Arena.ofAuto() for automatic memory management. The arena will be
-     * cleaned up automatically by the garbage collector when no longer reachable.
+     * Uses heap-backed memory (MemorySegment.ofArray) for efficient GC reclamation.
+     * This avoids Arena.ofAuto() proliferation and direct buffer exhaustion.
      * 
      * @param initialCapacity the initial capacity in bytes
      */
     public GrowingMemorySegment(int initialCapacity) {
-        this(Arena.ofAuto(), initialCapacity);
+        this.arena = null; // No arena needed for heap-backed segments
+        this.heapBacked = true;
+        this.capacity = initialCapacity;
+        // Use heap-backed segment - no Arena needed, GC handles cleanup
+        this.segment = MemorySegment.ofArray(new byte[initialCapacity]);
+        this.position = 0;
     }
     
     /**
      * Create a new GrowingMemorySegment with specified Arena and initial capacity.
      * Uses off-heap memory with 8-byte alignment.
+     * The caller is responsible for managing the arena's lifecycle.
      * 
      * @param arena the arena to use for memory allocation
      * @param initialCapacity the initial capacity in bytes
      */
     public GrowingMemorySegment(Arena arena, int initialCapacity) {
         this.arena = arena;
+        this.heapBacked = false;
         this.capacity = initialCapacity;
         // Allocate with explicit 8-byte alignment for optimal performance
         this.segment = arena.allocate(initialCapacity, ALIGNMENT);
@@ -57,10 +70,7 @@ public class GrowingMemorySegment {
     
     /**
      * Create a new GrowingMemorySegment from an existing MemorySegment.
-     * Copies data from the existing segment to new off-heap aligned memory.
-     * 
-     * Uses Arena.ofAuto() for automatic memory management. The arena will be
-     * cleaned up automatically by the garbage collector when no longer reachable.
+     * Copies data to a heap-backed segment for efficient GC reclamation.
      * 
      * @param existingSegment the existing segment to copy data from
      */
@@ -70,10 +80,11 @@ public class GrowingMemorySegment {
             throw new IllegalArgumentException("Segment too large to convert to growing segment");
         }
         
-        this.arena = Arena.ofAuto();
+        this.arena = null;
+        this.heapBacked = true;
         this.capacity = size;
-        // Allocate with explicit 8-byte alignment
-        this.segment = arena.allocate(size, ALIGNMENT);
+        // Use heap-backed segment
+        this.segment = MemorySegment.ofArray(new byte[(int) size]);
         this.position = 0;
         
         // Copy data from existing segment
@@ -94,7 +105,6 @@ public class GrowingMemorySegment {
     
     /**
      * Grow the segment to accommodate the required capacity.
-     * Maintains 8-byte alignment for all allocations.
      * 
      * @param requiredCapacity the minimum required capacity
      */
@@ -109,16 +119,23 @@ public class GrowingMemorySegment {
             newCapacity = Integer.MAX_VALUE;
         }
         
-        // Allocate new larger segment with proper alignment
-        MemorySegment newSegment = arena.allocate(newCapacity, ALIGNMENT);
+        // Allocate new larger segment
+        MemorySegment newSegment;
+        if (heapBacked) {
+            // Use heap-backed segment - old segment is GC'd automatically
+            newSegment = MemorySegment.ofArray(new byte[(int) newCapacity]);
+        } else {
+            // Use arena-allocated segment with proper alignment
+            newSegment = arena.allocate(newCapacity, ALIGNMENT);
+        }
         
-        // Copy existing data to new segment (copy up to current capacity, not position)
+        // Copy existing data to new segment (copy up to current position)
         long bytesToCopy = Math.min(position, capacity);
         if (bytesToCopy > 0) {
             MemorySegment.copy(segment, 0, newSegment, 0, bytesToCopy);
         }
         
-        // Update references
+        // Update references (old segment is GC'd for heap-backed, or stays in arena)
         this.segment = newSegment;
         this.capacity = newCapacity;
     }
@@ -197,8 +214,8 @@ public class GrowingMemorySegment {
      */
     public MemorySegment getUsedSegment() {
         if (position == 0) {
-            // Return an empty aligned segment
-            return arena.allocate(0, ALIGNMENT);
+            // Return an empty segment - use heap-backed for safety
+            return MemorySegment.ofArray(new byte[0]);
         }
         return segment.asSlice(0, position);
     }
@@ -305,11 +322,16 @@ public class GrowingMemorySegment {
     
     /**
      * Check if this segment is still alive.
-     * With Arena.ofAuto(), the segment remains alive as long as it's reachable.
+     * For heap-backed segments, the segment is always alive as long as it's reachable.
+     * For arena-backed segments, checks the arena's scope.
      * 
-     * @return true, since auto arenas remain alive while reachable
+     * @return true if the segment is still valid
      */
     public boolean isAlive() {
+        if (heapBacked) {
+            // Heap-backed segments are always alive while reachable
+            return true;
+        }
         return arena.scope().isAlive();
     }
 }
