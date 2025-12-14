@@ -6,6 +6,7 @@ import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Pipeline to handle bytes before stored in the backend.
@@ -128,22 +129,31 @@ public final class ByteHandlerPipeline implements ByteHandler {
     // Multi-handler chaining: decompress in reverse order while reusing buffers.
     // We only return the final buffer; intermediates are released immediately.
     MemorySegment current = compressed;
+    MemorySegment backingBuffer = null;
     Runnable releaser = null;
 
     for (int i = byteHandlers.size() - 1; i >= 0; i--) {
       ByteHandler handler = byteHandlers.get(i);
-      try (DecompressionResult result = handler.decompressScoped(current)) {
-        // release previous buffer, keep the latest
-        if (releaser != null) {
-          releaser.run();
-        }
-        current = result.segment();
-        releaser = result.releaser();
+      DecompressionResult result = handler.decompressScoped(current);
+      
+      // Release previous buffer (if any), keep the latest
+      if (releaser != null) {
+        releaser.run();
       }
+      
+      current = result.segment();
+      backingBuffer = result.backingBuffer();
+      releaser = result.releaser();
     }
 
     final Runnable finalReleaser = releaser;
-    return new DecompressionResult(current, finalReleaser);
+    final MemorySegment finalBackingBuffer = backingBuffer;
+    return new DecompressionResult(
+        current,                      // segment
+        finalBackingBuffer,           // backingBuffer (for zero-copy ownership transfer)
+        finalReleaser,                // releaser
+        new AtomicBoolean(false)      // ownershipTransferred
+    );
   }
 
   /**

@@ -22,10 +22,10 @@
 package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import io.sirix.api.StorageEngineReader;
 import io.sirix.page.interfaces.Page;
 
 import java.io.IOException;
@@ -48,7 +48,29 @@ public final class PagePersister {
    */
   public @NonNull Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
       final SerializationType type) throws IOException {
-    return PageKind.getKind(source.readByte()).deserializePage(resourceConfiguration, source, type);
+    return deserializePage(resourceConfiguration, source, type, null);
+  }
+
+  /**
+   * Deserialize page with optional DecompressionResult for zero-copy support.
+   * 
+   * <p>When decompressionResult is provided, KeyValueLeafPages can take ownership
+   * of the decompression buffer and use it directly as slotMemory, eliminating
+   * per-slot copy operations.
+   *
+   * @param resourceConfiguration the resource configuration
+   * @param source source to read from
+   * @param type the serialization type
+   * @param decompressionResult optional decompression result for zero-copy (may be null)
+   * @return {@link Page} instance
+   * @throws IOException if an exception during deserialization of a page occurs
+   */
+  public @NonNull Page deserializePage(
+      final ResourceConfiguration resourceConfiguration, 
+      final BytesIn<?> source,
+      final SerializationType type,
+      final ByteHandler.DecompressionResult decompressionResult) throws IOException {
+    return PageKind.getKind(source.readByte()).deserializePage(resourceConfiguration, source, type, decompressionResult);
   }
 
   /**

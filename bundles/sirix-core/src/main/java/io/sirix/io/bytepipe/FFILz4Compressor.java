@@ -297,20 +297,24 @@ public final class FFILz4Compressor implements ByteHandler {
   }
 
   /**
-   * Decompress data using a pooled buffer with explicit lifecycle (Loom-friendly).
+   * Decompress data using the unified allocator for zero-copy page support.
    * 
-   * <p>Memory is bounded by pool size (2×CPU cores), not thread count.
-   * When pool is exhausted, a fresh buffer is allocated (not pooled).
+   * <p>Unlike the pool-based approach, this allocates from the MemorySegmentAllocator
+   * which allows buffer lifetime to match page lifetime for zero-copy deserialization.
+   * When a page takes ownership via {@link DecompressionResult#transferOwnership()},
+   * the buffer becomes the page's slotMemory directly without copying.
    * 
-   * <p>The returned result MUST be closed after use:
+   * <p>Memory is still bounded because the allocator uses tiered pools internally.
+   * 
+   * <p>The returned result MUST be closed after use (unless ownership is transferred):
    * <pre>{@code
    * try (var result = compressor.decompressScoped(compressed)) {
    *     Page page = deserialize(result.segment());
-   * } // Buffer returned to pool
+   * } // Buffer returned to allocator
    * }</pre>
    *
    * @param compressed compressed data (with 4-byte header containing decompressed size)
-   * @return scoped result; must be closed to return buffer to pool
+   * @return scoped result; must be closed to return buffer to allocator
    */
   @Override
   public DecompressionResult decompressScoped(MemorySegment compressed) {
@@ -320,23 +324,9 @@ public final class FFILz4Compressor implements ByteHandler {
 
     int decompressedSize = compressed.get(JAVA_INT_UNALIGNED, 0);
     
-    // Try to get a buffer from pool (non-blocking)
-    MemorySegment buffer = BUFFER_POOL.poll();
-    boolean fromPool = (buffer != null);
-    
-    // If pool empty or buffer too small, allocate fresh
-    if (buffer == null || buffer.byteSize() < decompressedSize) {
-      int newSize = Math.max(decompressedSize, DEFAULT_DECOMPRESS_BUFFER_SIZE);
-      if (buffer != null) {
-        // Return undersized buffer to pool, allocate new
-        BUFFER_POOL.offer(buffer);
-        newSize = Math.max(newSize, (int) buffer.byteSize() * 2);
-      }
-      buffer = Arena.ofAuto().allocate(newSize);
-      fromPool = false;
-      LOGGER.debug("Allocated decompression buffer of {} bytes (pool size: {})", 
-                   newSize, BUFFER_POOL.size());
-    }
+    // Use unified allocator - buffer lifetime matches page lifetime for zero-copy
+    // This replaces the pool-based approach to enable ownership transfer
+    MemorySegment buffer = ALLOCATOR.allocate(decompressedSize);
 
     // FFI requires native memory - handle heap segments
     MemorySegment nativeCompressed;
@@ -359,8 +349,8 @@ public final class FFILz4Compressor implements ByteHandler {
       );
 
       if (actualSize < 0) {
-        // Return buffer to pool on error
-        BUFFER_POOL.offer(buffer);
+        // Release buffer on error
+        ALLOCATOR.release(buffer);
         throw new RuntimeException("LZ4 decompression failed: " + actualSize);
       }
 
@@ -368,13 +358,18 @@ public final class FFILz4Compressor implements ByteHandler {
         LOGGER.warn("Decompressed size mismatch: expected {}, got {}", decompressedSize, actualSize);
       }
 
-      // Create result with releaser that returns buffer to pool
-      final MemorySegment poolBuffer = buffer;
-      final boolean shouldReturn = fromPool || BUFFER_POOL.size() < POOL_SIZE;
+      // Create result with:
+      // - segment: the actual decompressed data slice
+      // - backingBuffer: the full buffer for zero-copy ownership transfer
+      // - releaser: returns buffer to allocator (called unless ownership transferred)
+      // - ownershipTransferred: tracks if page took ownership
+      final MemorySegment backingBuffer = buffer;
       
       return new DecompressionResult(
-          buffer.asSlice(0, actualSize),
-          shouldReturn ? () -> BUFFER_POOL.offer(poolBuffer) : null
+          buffer.asSlice(0, actualSize),   // segment (may be smaller than allocated)
+          backingBuffer,                    // backingBuffer (full allocation)
+          () -> ALLOCATOR.release(backingBuffer),  // releaser
+          new java.util.concurrent.atomic.AtomicBoolean(false)  // ownershipTransferred
       );
     } finally {
       if (tempArena != null) {

@@ -36,6 +36,7 @@ import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
+import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 
 import java.lang.foreign.MemorySegment;
@@ -78,7 +79,7 @@ public enum PageKind {
     @Override
     @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
-        final SerializationType type) {
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
@@ -86,118 +87,137 @@ public enum PageKind {
           final long recordPageKey = Utils.getVarLong(source);
           final int revision = source.readInt();
           final IndexType indexType = IndexType.getType(source.readByte());
+          final int lastSlotIndex = source.readInt();
+
+          // Read slot offsets array (int[512] = 2048 bytes)
+          final int[] slotOffsets = new int[Constants.NDP_NODE_COUNT];
+          for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+            slotOffsets[i] = source.readInt();
+          }
+
+          // Read slotMemory size
+          final int slotMemorySize = source.readInt();
+
+          // ZERO-COPY: Slice decompression buffer directly as slotMemory
+          // This eliminates per-slot MemorySegment.copy() calls (major performance win)
+          final boolean canZeroCopy = decompressionResult != null && source instanceof MemorySegmentBytesIn;
+          final MemorySegment slotMemory;
+          final MemorySegment backingBuffer;
+          final Runnable backingBufferReleaser;
+
+          if (canZeroCopy) {
+            // Zero-copy path: slice decompression buffer directly
+            final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
+            slotMemory = sourceSegment.asSlice(source.position(), slotMemorySize);
+            source.skip(slotMemorySize);
+
+            // Transfer buffer ownership to page
+            backingBufferReleaser = decompressionResult.transferOwnership();
+            backingBuffer = decompressionResult.backingBuffer();
+          } else {
+            // Fallback: allocate and copy (for non-MemorySegment sources or no decompressionResult)
+            MemorySegmentAllocator allocator = OS.isWindows() 
+                ? WindowsMemorySegmentAllocator.getInstance() 
+                : LinuxMemorySegmentAllocator.getInstance();
+            slotMemory = allocator.allocate(slotMemorySize);
+            
+            // Copy slot data
+            if (source instanceof MemorySegmentBytesIn msSource) {
+              MemorySegment.copy(msSource.getSource(), source.position(), slotMemory, 0, slotMemorySize);
+              source.skip(slotMemorySize);
+            } else {
+              byte[] slotData = new byte[slotMemorySize];
+              source.read(slotData);
+              MemorySegment.copy(slotData, 0, slotMemory, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, slotMemorySize);
+            }
+            backingBuffer = null;
+            backingBufferReleaser = null;
+          }
+
+          // Read dewey ID data if stored
           final boolean areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
           final RecordSerializer recordPersister = resourceConfig.recordPersister;
-          final Map<Long, PageReference> references = new LinkedHashMap<>();
-          final int slotsMemorySize = source.readInt();
-          final int lastSlotIndex = source.readInt();
-          final int deweyIdsMemorySize;
+          final int[] deweyIdOffsets;
+          final MemorySegment deweyIdMemory;
           final int lastDeweyIdIndex;
 
           if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
-            deweyIdsMemorySize = source.readInt();
             lastDeweyIdIndex = source.readInt();
+
+            // Read dewey ID offsets array (int[512] = 2048 bytes)
+            deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
+            for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+              deweyIdOffsets[i] = source.readInt();
+            }
+
+            // Read deweyIdMemory size and data
+            final int deweyIdMemorySize = source.readInt();
+            
+            if (canZeroCopy && deweyIdMemorySize > 1) {
+              // Zero-copy for dewey IDs too (part of same backing buffer)
+              final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
+              deweyIdMemory = sourceSegment.asSlice(source.position(), deweyIdMemorySize);
+              source.skip(deweyIdMemorySize);
+            } else if (deweyIdMemorySize > 1) {
+              // Allocate and copy
+              MemorySegmentAllocator allocator = OS.isWindows() 
+                  ? WindowsMemorySegmentAllocator.getInstance() 
+                  : LinuxMemorySegmentAllocator.getInstance();
+              deweyIdMemory = allocator.allocate(deweyIdMemorySize);
+              
+              if (source instanceof MemorySegmentBytesIn msSource) {
+                MemorySegment.copy(msSource.getSource(), source.position(), deweyIdMemory, 0, deweyIdMemorySize);
+                source.skip(deweyIdMemorySize);
+              } else {
+                byte[] deweyData = new byte[deweyIdMemorySize];
+                source.read(deweyData);
+                MemorySegment.copy(deweyData, 0, deweyIdMemory, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, deweyIdMemorySize);
+              }
+            } else {
+              deweyIdMemory = null;
+              source.skip(1); // Skip placeholder byte
+            }
           } else {
-            deweyIdsMemorySize = -1;
+            deweyIdOffsets = null;
+            deweyIdMemory = null;
             lastDeweyIdIndex = -1;
           }
 
-          // Direct allocation (no pool)
-          MemorySegmentAllocator allocator = OS.isWindows() 
-              ? WindowsMemorySegmentAllocator.getInstance() 
-              : LinuxMemorySegmentAllocator.getInstance();
-          
-          MemorySegment slotMemory = allocator.allocate(slotsMemorySize);
-          MemorySegment deweyIdMemory = (deweyIdsMemorySize > 0) 
-              ? allocator.allocate(deweyIdsMemorySize) 
-              : null;
-          
-          var page = new KeyValueLeafPage(
-              recordPageKey,
-              revision,
-              indexType,
-              resourceConfig,
-              areDeweyIDsStored,
-              recordPersister,
-              references,
-              slotMemory,
-              deweyIdMemory,
-              lastSlotIndex,
-              lastDeweyIdIndex
-          );
-
-          if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer serializer) {
-            final var deweyIdsBitmap = SerializationType.deserializeBitSet(source);
-            final int deweyIdsSize = source.readInt();
-            boolean hasDeweyIds = deweyIdsSize != 0;
-
-            if (hasDeweyIds) {
-              var setBit = -1;
-              byte[] deweyId = null;
-
-              for (int index = 0; index < deweyIdsSize; index++) {
-                setBit = deweyIdsBitmap.nextSetBit(setBit + 1);
-
-                assert setBit >= 0;
-
-                if (recordPageKey == 0 && setBit == 0) {
-                  continue; // No document root.
-                }
-
-                deweyId = serializer.deserializeDeweyID(source, deweyId, resourceConfig);
-                page.setDeweyId(deweyId, setBit);
-              }
-            }
-          }
-
+          // Read bitmaps (needed for slot presence checking)
           final var entriesBitmap = SerializationType.deserializeBitSet(source);
           final var overlongEntriesBitmap = SerializationType.deserializeBitSet(source);
-          final int normalEntrySize = source.readInt();
-          var setBit = -1;
 
-          // Check if source supports zero-copy (is MemorySegment-based)
-          // This avoids creating temporary byte[] arrays for each slot
-          final boolean useZeroCopy = source instanceof MemorySegmentBytesIn;
-          final MemorySegment sourceSegment = useZeroCopy 
-              ? ((MemorySegmentBytesIn) source).getSource() 
-              : null;
-
-          for (int index = 0; index < normalEntrySize; index++) {
-            setBit = entriesBitmap.nextSetBit(setBit + 1);
-            assert setBit >= 0;
-
-            final int dataSize = source.readInt();
-            assert dataSize > 0;
-
-            if (useZeroCopy) {
-              // Zero-copy path: copy directly from source segment to slot memory
-              // This eliminates per-slot byte[] allocations (major GC pressure reduction)
-              page.setSlotDirect(sourceSegment, source.position(), dataSize, setBit);
-              source.skip(dataSize);
-            } else {
-              // Fallback path: use intermediate byte[] (for non-MemorySegment sources)
-              final byte[] data = new byte[dataSize];
-              source.read(data);
-              page.setSlot(data, setBit);
-            }
-          }
-
+          // Read overlong entries
           final int overlongEntrySize = source.readInt();
-
-          setBit = -1;
+          final Map<Long, PageReference> references = new LinkedHashMap<>(overlongEntrySize);
+          var setBit = -1;
 
           for (int index = 0; index < overlongEntrySize; index++) {
             setBit = overlongEntriesBitmap.nextSetBit(setBit + 1);
             assert setBit >= 0;
-            // recordPageKey * Constants.NDP_NODE_COUNT + setBit;
             final long key = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + setBit;
             final PageReference reference = new PageReference();
-
             reference.setKey(source.readLong());
             references.put(key, reference);
           }
 
-          return page;
+          // Create page - use the zero-copy constructor for both paths
+          // (it properly handles slotOffsets; backingBuffer/releaser can be null for non-zero-copy)
+          return new KeyValueLeafPage(
+              recordPageKey,
+              revision,
+              indexType,
+              resourceConfig,
+              slotOffsets,
+              slotMemory,
+              lastSlotIndex,
+              deweyIdOffsets,
+              deweyIdMemory,
+              lastDeweyIdIndex,
+              references,
+              backingBuffer,
+              backingBufferReleaser
+          );
         }
         default -> throw new IllegalStateException();
       }
@@ -227,62 +247,65 @@ public enum PageKind {
       // Add references to overflow pages if necessary.
       keyValueLeafPage.addReferences(resourceConfig);
 
-      int usedSlotsMemorySize = keyValueLeafPage.getUsedSlotsSize();
-
-      if (usedSlotsMemorySize == 0) {
-        usedSlotsMemorySize = 1;
-      }
-
       // Write page key.
       Utils.putVarLong(sink, recordPageKey);
       // Write revision number.
       sink.writeInt(keyValueLeafPage.getRevision());
       // Write index type.
       sink.writeByte(indexType.getID());
-      // Write used slot memory size.
-      sink.writeInt(usedSlotsMemorySize);
-      // Write last slot offset.
+      // Write last slot index.
       sink.writeInt(keyValueLeafPage.getLastSlotIndex());
 
-      // Write dewey IDs.
-      if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer persistence) {
-        int usedDeweyIdMemorySize = keyValueLeafPage.getUsedDeweyIdSize();
+      // Write slot offsets array (int[512] = 2048 bytes) - enables zero-copy deserialization
+      final int[] slotOffsets = keyValueLeafPage.getSlotOffsets();
+      for (int offset : slotOffsets) {
+        sink.writeInt(offset);
+      }
 
-        if (usedDeweyIdMemorySize == 0) {
-          usedDeweyIdMemorySize = MemorySegmentAllocator.SEGMENT_SIZES[0]; // No dewey IDs stored, still reserve minimum size bytes (4096).
-        }
+      // Write slotMemory region - BULK COPY
+      int slotMemoryUsedSize = keyValueLeafPage.getUsedSlotsSize();
+      if (slotMemoryUsedSize == 0) {
+        slotMemoryUsedSize = 1;
+      }
+      sink.writeInt(slotMemoryUsedSize);
+      
+      // Bulk copy slotMemory (fast path - single copy instead of per-slot)
+      final MemorySegment slotMem = keyValueLeafPage.getSlotMemory();
+      final byte[] slotBytes = new byte[slotMemoryUsedSize];
+      MemorySegment.copy(slotMem, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, slotBytes, 0, slotMemoryUsedSize);
+      sink.write(slotBytes);
 
-        sink.writeInt(usedDeweyIdMemorySize);
+      // Write dewey ID data if stored
+      if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
+        // Write last dewey ID index
         sink.writeInt(keyValueLeafPage.getLastDeweyIdIndex());
-
-        var deweyIdsBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-        for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-          if (keyValueLeafPage.getDeweyId(i) != null) {
-            deweyIdsBitmap.set(i);
-          }
+        
+        // Write dewey ID offsets array (int[512] = 2048 bytes)
+        final int[] deweyIdOffsets = keyValueLeafPage.getDeweyIdOffsets();
+        for (int offset : deweyIdOffsets) {
+          sink.writeInt(offset);
         }
-        SerializationType.serializeBitSet(sink, deweyIdsBitmap);
-        sink.writeInt(deweyIdsBitmap.cardinality());
-
-        boolean first = true;
-        byte[] previousDeweyId = null;
-
-        for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-          byte[] deweyId = keyValueLeafPage.getDeweyIdAsByteArray(i);
-          if (deweyId != null) {
-            if (first) {
-              first = false;
-              persistence.serializeDeweyID(sink, deweyId, null, resourceConfig);
-            } else {
-              persistence.serializeDeweyID(sink, previousDeweyId, deweyId, resourceConfig);
-            }
-            previousDeweyId = deweyId;
-          }
+        
+        // Write deweyIdMemory region - BULK COPY
+        int deweyIdMemoryUsedSize = keyValueLeafPage.getUsedDeweyIdSize();
+        if (deweyIdMemoryUsedSize == 0) {
+          deweyIdMemoryUsedSize = 1;
+        }
+        sink.writeInt(deweyIdMemoryUsedSize);
+        
+        final MemorySegment deweyMem = keyValueLeafPage.getDeweyIdMemory();
+        if (deweyMem != null) {
+          final byte[] deweyBytes = new byte[deweyIdMemoryUsedSize];
+          MemorySegment.copy(deweyMem, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, deweyBytes, 0, deweyIdMemoryUsedSize);
+          sink.write(deweyBytes);
+        } else {
+          // Write a single byte placeholder if no dewey ID memory
+          sink.writeByte((byte) 0);
         }
       }
 
+      // Write bitmaps (still needed for slot presence checking in getSlot())
       var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
         if (keyValueLeafPage.isSlotSet(i)) {
           entriesBitmap.set(i);
@@ -298,20 +321,6 @@ public enum PageKind {
         overlongEntriesBitmap.set(pageOffset);
       }
       SerializationType.serializeBitSet(sink, overlongEntriesBitmap);
-
-      // Write normal entries.
-      sink.writeInt(entriesBitmap.cardinality());
-      for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-        var data = keyValueLeafPage.getSlotAsByteArray(i);
-
-        if (data != null) {
-          assert entriesBitmap.get(i);
-          assert keyValueLeafPage.isSlotSet(i);
-          final int length = data.length;
-          sink.writeInt(length);
-          sink.write(data);
-        }
-      }
 
       // Write overlong entries.
       sink.writeInt(overlongEntriesSortedByKey.size());
@@ -341,7 +350,7 @@ public enum PageKind {
     @Override
     @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
-        final SerializationType type) {
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
@@ -394,7 +403,7 @@ public enum PageKind {
     @Override
     @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
-        final SerializationType type) {
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
@@ -426,7 +435,7 @@ public enum PageKind {
     @Override
     @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
-        final SerializationType type) {
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
@@ -459,7 +468,7 @@ public enum PageKind {
     @Override
     @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
-        final SerializationType type) {
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
@@ -565,7 +574,7 @@ public enum PageKind {
     @Override
     @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
-        final @NonNull SerializationType type) {
+        final @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
@@ -621,7 +630,7 @@ public enum PageKind {
   CASPAGE((byte) 8, CASPage.class) {
     @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
-        final SerializationType type) {
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
@@ -670,7 +679,7 @@ public enum PageKind {
     @Override
     @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
-        final SerializationType type) {
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
@@ -705,7 +714,7 @@ public enum PageKind {
   PATHPAGE((byte) 10, PathPage.class) {
     @Override
     public Page deserializePage(@NonNull ResourceConfiguration resourceConfiguration, BytesIn<?> source,
-        @NonNull SerializationType type) {
+        @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
       switch (binaryVersion) {
         case V0 -> {
@@ -751,7 +760,7 @@ public enum PageKind {
   DEWEYIDPAGE((byte) 11, DeweyIDPage.class) {
     @Override
     public Page deserializePage(@NonNull ResourceConfiguration resourceConfiguration, BytesIn<?> source,
-        @NonNull SerializationType type) {
+        @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
@@ -919,11 +928,28 @@ public enum PageKind {
    * Deserialize page.
    *
    * @param resourceConfiguration the resource configuration
-   * @param source                {@link BytesOut<?>} instance
+   * @param source                {@link BytesIn} instance
+   * @return page instance implementing the {@link Page} interface
+   */
+  public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
+      final SerializationType type) {
+    return deserializePage(resourceConfiguration, source, type, null);
+  }
+
+  /**
+   * Deserialize page with optional DecompressionResult for zero-copy support.
+   * 
+   * <p>When decompressionResult is provided, KeyValueLeafPages can take ownership
+   * of the decompression buffer and use it directly as slotMemory.
+   *
+   * @param resourceConfiguration the resource configuration
+   * @param source                {@link BytesIn} instance
+   * @param type                  serialization type
+   * @param decompressionResult   optional decompression result for zero-copy (may be null)
    * @return page instance implementing the {@link Page} interface
    */
   public abstract Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
-      final SerializationType type);
+      final SerializationType type, final ByteHandler.DecompressionResult decompressionResult);
 
   /**
    * Public method to get the related page based on the identifier.

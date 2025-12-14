@@ -54,6 +54,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private static final int INT_SIZE = Integer.BYTES;
   
   /**
+   * Unaligned int layout for zero-copy deserialization.
+   * When slotMemory is a slice of the decompression buffer, it may not be 4-byte aligned.
+   */
+  private static final ValueLayout.OfInt JAVA_INT_UNALIGNED = ValueLayout.JAVA_INT.withByteAlignment(1);
+  
+  /**
    * Enable detailed memory leak tracking.
    * Accessed via centralized {@link DiagnosticSettings#MEMORY_LEAK_TRACKING}.
    * 
@@ -223,6 +229,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
 
   /**
+   * Backing buffer from decompression (for zero-copy deserialization).
+   * When non-null, this buffer contains the slotMemory as a slice and must be released on close().
+   * This enables true zero-copy where the decompressed data becomes the page's storage directly.
+   */
+  private MemorySegment backingBuffer;
+
+  /**
+   * Releaser to return backing buffer to allocator.
+   * Called on close() to return the decompression buffer to the allocator pool.
+   */
+  private Runnable backingBufferReleaser;
+
+  /**
    * Constructor which initializes a new {@link KeyValueLeafPage}.
    * Memory is externally provided (e.g., by Arena in tests) and will NOT be released by close().
    *
@@ -329,6 +348,94 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       this.deweyIdMemoryFreeSpaceStart = 0;
       this.lastDeweyIdIndex = -1;
     }
+    
+    // Capture creation stack trace for leak tracing (only when diagnostics enabled)
+    if (DEBUG_MEMORY_LEAKS) {
+      this.creationStackTrace = Thread.currentThread().getStackTrace();
+      PAGES_CREATED.incrementAndGet();
+      PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      ALL_LIVE_PAGES.add(this);
+      if (recordPageKey == 0) {
+        ALL_PAGE_0_INSTANCES.add(this);
+      }
+    } else {
+      this.creationStackTrace = null;
+    }
+  }
+
+  /**
+   * Zero-copy constructor - slotMemory IS a slice of the decompression buffer.
+   * The backing buffer is released when this page is closed.
+   * 
+   * <p>This constructor enables true zero-copy page deserialization where the
+   * decompressed data becomes the page's storage directly, eliminating the
+   * per-slot MemorySegment.copy() calls that were a major performance bottleneck.
+   *
+   * @param recordPageKey           base key assigned to this node page
+   * @param revision                the current revision
+   * @param indexType               the index type
+   * @param resourceConfig          the resource configuration
+   * @param slotOffsets             pre-loaded slot offset array from serialized data
+   * @param slotMemory              slice of decompression buffer (NOT copied)
+   * @param lastSlotIndex           index of the last slot
+   * @param deweyIdOffsets          pre-loaded dewey ID offset array (or null)
+   * @param deweyIdMemory           slice for dewey IDs (or null)
+   * @param lastDeweyIdIndex        index of the last dewey ID slot
+   * @param references              overflow page references
+   * @param backingBuffer           full decompression buffer (for lifecycle management)
+   * @param backingBufferReleaser   returns buffer to allocator on close()
+   */
+  public KeyValueLeafPage(
+      final long recordPageKey,
+      final int revision,
+      final IndexType indexType,
+      final ResourceConfiguration resourceConfig,
+      final int[] slotOffsets,
+      final MemorySegment slotMemory,
+      final int lastSlotIndex,
+      final int[] deweyIdOffsets,
+      final MemorySegment deweyIdMemory,
+      final int lastDeweyIdIndex,
+      final Map<Long, PageReference> references,
+      final MemorySegment backingBuffer,
+      final Runnable backingBufferReleaser
+  ) {
+    this.recordPageKey = recordPageKey;
+    this.revision = revision;
+    this.indexType = indexType;
+    this.resourceConfig = resourceConfig;
+    this.recordPersister = resourceConfig.recordPersister;
+    this.areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
+    
+    // Zero-copy: use provided arrays and memory segments directly
+    this.slotOffsets = slotOffsets;
+    this.slotMemory = slotMemory;
+    this.lastSlotIndex = lastSlotIndex;
+    
+    this.deweyIdOffsets = deweyIdOffsets != null ? deweyIdOffsets : new int[Constants.NDP_NODE_COUNT];
+    if (deweyIdOffsets == null) {
+      Arrays.fill(this.deweyIdOffsets, -1);
+    }
+    this.deweyIdMemory = deweyIdMemory;
+    this.lastDeweyIdIndex = lastDeweyIdIndex;
+    
+    // Zero-copy: slotMemory is part of backingBuffer, track for release
+    this.backingBuffer = backingBuffer;
+    this.backingBufferReleaser = backingBufferReleaser;
+    
+    // If we have a backing buffer, it owns the memory (zero-copy path)
+    // Otherwise, slotMemory was allocated separately and should be released via allocator
+    this.externallyAllocatedMemory = (backingBuffer != null);
+    
+    this.references = references != null ? references : new ConcurrentHashMap<>();
+    this.records = new DataRecord[Constants.NDP_NODE_COUNT];
+    
+    // Zero-copy pages are read-only snapshots, don't resize
+    this.doResizeMemorySegmentsIfNeeded = false;
+    
+    // Free space tracking not needed for read-only zero-copy pages
+    this.slotMemoryFreeSpaceStart = 0;
+    this.deweyIdMemoryFreeSpaceStart = 0;
     
     // Capture creation stack trace for leak tracing (only when diagnostics enabled)
     if (DEBUG_MEMORY_LEAKS) {
@@ -707,6 +814,48 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return lastDeweyIdIndex;
   }
 
+  /**
+   * Get the slot offsets array for zero-copy serialization.
+   * Each element is the byte offset within slotMemory where the slot's data begins,
+   * or -1 if the slot is empty.
+   * 
+   * @return the slot offsets array (do not modify)
+   */
+  public int[] getSlotOffsets() {
+    return slotOffsets;
+  }
+
+  /**
+   * Get the slot memory segment for zero-copy serialization.
+   * Contains the raw serialized slot data.
+   * 
+   * @return the slot memory segment
+   */
+  public MemorySegment getSlotMemory() {
+    return slotMemory;
+  }
+
+  /**
+   * Get the dewey ID offsets array for zero-copy serialization.
+   * Each element is the byte offset within deweyIdMemory where the dewey ID's data begins,
+   * or -1 if empty.
+   * 
+   * @return the dewey ID offsets array (do not modify)
+   */
+  public int[] getDeweyIdOffsets() {
+    return deweyIdOffsets;
+  }
+
+  /**
+   * Get the dewey ID memory segment for zero-copy serialization.
+   * Contains the raw serialized dewey ID data.
+   * 
+   * @return the dewey ID memory segment (may be null if not stored)
+   */
+  public MemorySegment getDeweyIdMemory() {
+    return deweyIdMemory;
+  }
+
   MemorySegment resizeMemorySegment(MemorySegment oldMemory, int newSize, int[] offsets, boolean isSlotMemory) {
     MemorySegment newMemory = segmentAllocator.allocate(newSize);
     MemorySegment.copy(oldMemory, 0, newMemory, 0, oldMemory.byteSize());
@@ -872,9 +1021,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Read the length from the first 4 bytes at the offset
+    // Use unaligned access because zero-copy slices may not be 4-byte aligned
     int length;
     try {
-      length = slotMemory.get(ValueLayout.JAVA_INT, slotOffset);
+      length = slotMemory.get(JAVA_INT_UNALIGNED, slotOffset);
     } catch (Exception e) {
       throw new IllegalStateException(String.format(
           "Failed to read length at offset %d (page %d, slot %d, memory size %d)",
@@ -1035,7 +1185,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     if (deweyIdOffset < 0) {
       return null;
     }
-    int deweyIdLength = deweyIdMemory.get(ValueLayout.JAVA_INT, deweyIdOffset);
+    // Use unaligned access because zero-copy slices may not be 4-byte aligned
+    int deweyIdLength = deweyIdMemory.get(JAVA_INT_UNALIGNED, deweyIdOffset);
     deweyIdOffset += INT_SIZE;
     return deweyIdMemory.asSlice(deweyIdOffset, deweyIdLength);
   }
@@ -1179,6 +1330,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * <p>
    * Memory segments allocated by the global allocator are returned to the pool.
    * Externally allocated memory (e.g., test arenas) is not released.
+   * <p>
+   * For zero-copy pages, the backing buffer (from decompression) is released
+   * via the backingBufferReleaser callback.
    */
   @Override
   public synchronized void close() {
@@ -1208,8 +1362,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
     }
 
-    // Release memory segments to the allocator pool
-    if (!externallyAllocatedMemory) {
+    // Release backing buffer for zero-copy pages (has priority over segment release)
+    if (backingBufferReleaser != null) {
+      try {
+        backingBufferReleaser.run();
+      } catch (Throwable e) {
+        LOGGER.debug("Failed to release backing buffer for page {}: {}", recordPageKey, e.getMessage());
+      }
+      backingBufferReleaser = null;
+      backingBuffer = null;
+      // For zero-copy pages, slotMemory is a slice of backingBuffer, don't release separately
+      slotMemory = null;
+      deweyIdMemory = null;
+    } else if (!externallyAllocatedMemory) {
+      // Release memory segments to the allocator pool (non-zero-copy path)
       try {
         if (slotMemory != null && slotMemory.byteSize() > 0) {
           segmentAllocator.release(slotMemory);
@@ -1220,9 +1386,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       } catch (Throwable e) {
         LOGGER.debug("Failed to release memory segments for page {}: {}", recordPageKey, e.getMessage());
       }
+      slotMemory = null;
+      deweyIdMemory = null;
     }
-    slotMemory = null;
-    deweyIdMemory = null;
 
     // Clear references to aid garbage collection
     Arrays.fill(records, null);

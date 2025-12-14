@@ -71,6 +71,10 @@ public abstract class AbstractReader implements Reader {
    * <p>Uses the scoped decompression API to ensure decompression buffers are returned
    * to the pool after deserialization completes. This bounds memory usage by pool size
    * (typically 2×CPU cores) rather than thread count.
+   * 
+   * <p>For KeyValueLeafPages, the page may take ownership of the decompression buffer
+   * via {@link ByteHandler.DecompressionResult#transferOwnership()}, enabling true
+   * zero-copy where the decompressed data becomes the page's slotMemory directly.
    *
    * @param resourceConfiguration resource configuration
    * @param compressedPage compressed page data
@@ -82,12 +86,17 @@ public abstract class AbstractReader implements Reader {
       throw new UnsupportedOperationException("ByteHandler does not support MemorySegment operations");
     }
 
-    // Use scoped decompression - buffer returned to pool when try block exits
-    try (var decompressionResult = byteHandler.decompressScoped(compressedPage)) {
-      // Deserialize directly from MemorySegment
-      Page deserializedPage = pagePersister.deserializePage(resourceConfiguration, 
-                                            new MemorySegmentBytesIn(decompressionResult.segment()), 
-                                            type);
+    // Decompress - ownership may be transferred to page for zero-copy
+    var decompressionResult = byteHandler.decompressScoped(compressedPage);
+    
+    try {
+      // Pass DecompressionResult to enable zero-copy for KeyValueLeafPages
+      Page deserializedPage = pagePersister.deserializePage(
+          resourceConfiguration, 
+          new MemorySegmentBytesIn(decompressionResult.segment()), 
+          type,
+          decompressionResult  // For zero-copy ownership transfer
+      );
       
       // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page
       if (resourceConfiguration != null) {
@@ -95,6 +104,10 @@ public abstract class AbstractReader implements Reader {
       }
       
       return deserializedPage;
+    } finally {
+      // Only release if ownership wasn't transferred (for non-KVLP pages or fallback path)
+      // The close() method checks ownershipTransferred internally
+      decompressionResult.close();
     }
   }
 
