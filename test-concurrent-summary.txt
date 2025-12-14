@@ -1,9 +1,0 @@
-ConcurrentAxisTest > testSeriellNew() STANDARD_OUT
-ConcurrentAxisTest > testSeriellNew() STANDARD_ERROR
-ConcurrentAxisTest > testSeriellNew() STANDARD_OUT
-ConcurrentAxisTest > testSeriellNew() STANDARD_ERROR
-ConcurrentAxisTest > testSeriellOld() STANDARD_OUT
-ConcurrentAxisTest > testSeriellOld() STANDARD_ERROR
-ConcurrentAxisTest > testSeriellOld() STANDARD_OUT
-ConcurrentAxisTest > testSeriellOld() STANDARD_ERROR
-ConcurrentAxisTest > testPartConcurrentDescAxis1() > repetition 1 of 10 STANDARD_OUT

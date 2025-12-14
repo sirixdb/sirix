@@ -63,8 +63,8 @@ public final class BufferManagerImpl implements BufferManager {
       int maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxRBTreeNodeCache, 
       int maxNamesCacheSize, int maxPathSummaryCacheSize) {
     // Use simplified ShardedPageCache (single HashMap) for KeyValueLeafPage caches
-    recordPageCache = new ShardedPageCache(1, maxRecordPageCacheWeight);  // Simplified: no actual sharding
-    recordPageFragmentCache = new ShardedPageCache(1, maxRecordPageFragmentCacheWeight);
+    recordPageCache = new ShardedPageCache(maxRecordPageCacheWeight);  // Simplified: no actual sharding
+    recordPageFragmentCache = new ShardedPageCache(maxRecordPageFragmentCacheWeight);
     
     // Keep Caffeine PageCache for mixed page types (NamePage, UberPage, etc.)
     pageCache = new PageCache(maxPageCachWeight);
