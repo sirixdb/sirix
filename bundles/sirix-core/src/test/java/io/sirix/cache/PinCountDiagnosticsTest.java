@@ -18,8 +18,8 @@ import java.nio.file.Paths;
 import static org.junit.Assert.*;
 
 /**
- * Diagnostic test to analyze pin count leaks.
- * Run with: -Dsirix.debug.pin.counts=true
+ * Diagnostic test to analyze guard/pin count leaks.
+ * Run with: -Dsirix.debug.guard.tracking=true
  */
 public class PinCountDiagnosticsTest {
 
@@ -46,8 +46,8 @@ public class PinCountDiagnosticsTest {
    */
   @Test
   public void testPinCountLeakDiagnostics() {
-    // Enable pin count debugging
-    System.setProperty("sirix.debug.pin.counts", "true");
+    // Enable guard tracking (successor to pin count debugging)
+    System.setProperty("sirix.debug.guard.tracking", "true");
     
     try {
       // Create database with Chicago Twitter data
@@ -169,7 +169,7 @@ public class PinCountDiagnosticsTest {
           System.err.println("  " + numPages + " pages with pinCount=" + pinCount));
       
     } finally {
-      System.clearProperty("sirix.debug.pin.counts");
+      System.clearProperty("sirix.debug.guard.tracking");
     }
   }
   
@@ -178,7 +178,7 @@ public class PinCountDiagnosticsTest {
    */
   @Test
   public void testPathSummaryPinCounts() {
-    System.setProperty("sirix.debug.pin.counts", "true");
+    System.setProperty("sirix.debug.guard.tracking", "true");
     System.setProperty("sirix.debug.path.summary", "true");
     
     try {
@@ -251,7 +251,7 @@ public class PinCountDiagnosticsTest {
       }
       
     } finally {
-      System.clearProperty("sirix.debug.pin.counts");
+      System.clearProperty("sirix.debug.guard.tracking");
       System.clearProperty("sirix.debug.path.summary");
     }
   }

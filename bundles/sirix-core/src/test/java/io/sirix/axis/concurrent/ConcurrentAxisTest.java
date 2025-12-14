@@ -34,6 +34,7 @@ import io.sirix.axis.filter.xml.XmlNameFilter;
 import io.sirix.index.IndexType;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.service.xml.shredder.XmlShredder;
+import io.sirix.settings.DiagnosticSettings;
 import io.sirix.service.xml.xpath.XPathAxis;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,9 +49,11 @@ import static org.junit.jupiter.api.Assertions.*;
 /** Test {@link ConcurrentAxis}. */
 public final class ConcurrentAxisTest {
 
-  /** DEBUG FLAG: Enable with -Dsirix.debug.leak.diagnostics=true */
-  private static final boolean DEBUG_LEAK_DIAGNOSTICS = 
-    Boolean.getBoolean("sirix.debug.leak.diagnostics");
+  /**
+   * Debug flag for memory leak diagnostics.
+   * @see DiagnosticSettings#MEMORY_LEAK_TRACKING
+   */
+  private static final boolean DEBUG_LEAK_DIAGNOSTICS = DiagnosticSettings.MEMORY_LEAK_TRACKING;
 
   /** XML file name to test. */
   private static final String XMLFILE = "10mb.xml";
@@ -71,10 +74,6 @@ public final class ConcurrentAxisTest {
   @BeforeEach
   public void setUp() {
     try {
-      // CRITICAL: Clear Page 0 tracking set BEFORE test to ignore leaks from previous tests
-      // This ensures we only detect leaks from THIS test, not accumulated from the entire test suite
-      io.sirix.page.KeyValueLeafPage.ALL_PAGE_0_INSTANCES.clear();
-      
       // Capture finalizer count BEFORE test starts
       finalizerCountBeforeTest = io.sirix.page.KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
       

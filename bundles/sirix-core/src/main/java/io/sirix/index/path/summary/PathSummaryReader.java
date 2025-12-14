@@ -31,6 +31,7 @@ import io.sirix.node.json.JsonDocumentRootNode;
 import io.sirix.node.xml.XmlDocumentRootNode;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.settings.Constants;
+import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
 import it.unimi.dsi.fastutil.longs.LongHash;
@@ -55,9 +56,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(PathSummaryReader.class);
 
-  // DEBUG FLAG: Enable with -Dsirix.debug.path.summary=true
-  private static final boolean DEBUG_PATH_SUMMARY = 
-    Boolean.getBoolean("sirix.debug.path.summary");
+  /**
+   * Debug flag for path summary operations.
+   * @see DiagnosticSettings#PATH_SUMMARY_DEBUG
+   */
+  private static final boolean DEBUG_PATH_SUMMARY = DiagnosticSettings.PATH_SUMMARY_DEBUG;
 
   /**
    * Strong reference to currently selected node.

@@ -45,7 +45,7 @@ public class FragmentCacheVerificationTest {
    */
   @Test
   public void testFragmentCacheIsScanned() {
-    System.setProperty("sirix.debug.pin.counts", "true");
+    System.setProperty("sirix.debug.guard.tracking", "true");
     
     try {
       final var databaseFile = JsonTestHelper.PATHS.PATH1.getFile();
@@ -120,7 +120,7 @@ public class FragmentCacheVerificationTest {
       System.err.println("✅ No pinned pages in either cache");
       
     } finally {
-      System.clearProperty("sirix.debug.pin.counts");
+      System.clearProperty("sirix.debug.guard.tracking");
     }
   }
 }

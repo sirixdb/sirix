@@ -49,7 +49,7 @@ public class LivePageAnalysisTest {
   @Test
   public void testAnalyzeLivePages() {
     System.setProperty("sirix.debug.memory.leaks", "true");
-    System.setProperty("sirix.debug.pin.counts", "true");
+    System.setProperty("sirix.debug.guard.tracking", "true");
     
     try {
       // Execute a simple axis operation
@@ -167,7 +167,7 @@ public class LivePageAnalysisTest {
       
     } finally {
       System.clearProperty("sirix.debug.memory.leaks");
-      System.clearProperty("sirix.debug.pin.counts");
+      System.clearProperty("sirix.debug.guard.tracking");
     }
   }
 }

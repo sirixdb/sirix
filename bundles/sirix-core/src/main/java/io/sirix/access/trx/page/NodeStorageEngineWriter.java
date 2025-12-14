@@ -35,6 +35,8 @@ import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
+import io.sirix.io.SerializationBufferPool;
+import io.sirix.node.PooledBytesOut;
 import io.sirix.utils.OS;
 import io.sirix.index.IndexType;
 import io.sirix.io.Writer;
@@ -47,6 +49,7 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
+import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.Fixed;
 import io.sirix.settings.VersioningType;
 import io.sirix.node.BytesOut;
@@ -90,9 +93,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private static final Logger LOGGER = LoggerFactory.getLogger(NodeStorageEngineWriter.class);
 
-  // DEBUG FLAG: Enable with -Dsirix.debug.memory.leaks=true
-  private static final boolean DEBUG_MEMORY_LEAKS = 
-    Boolean.getBoolean("sirix.debug.memory.leaks");
+  /**
+   * Debug flag for memory leak tracking.
+   * @see DiagnosticSettings#MEMORY_LEAK_TRACKING
+   */
+  private static final boolean DEBUG_MEMORY_LEAKS = DiagnosticSettings.MEMORY_LEAK_TRACKING;
 
   private BytesOut<?> bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
 
@@ -495,11 +500,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
        .map(PageContainer::getModified)
        .filter(page -> page instanceof KeyValueLeafPage)
        .forEach(page -> {
+         // Use pooled buffer instead of creating new Arena.ofAuto() per page
+         var pooledSeg = SerializationBufferPool.INSTANCE.acquire();
          try {
-           final var bytes = Bytes.elasticOffHeapByteBuffer(60_000);
+           var bytes = new PooledBytesOut(pooledSeg);
            PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
          } catch (final Exception e) {
            throw new SirixIOException(e);
+         } finally {
+           SerializationBufferPool.INSTANCE.release(pooledSeg);
          }
        });
   }

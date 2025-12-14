@@ -3,6 +3,7 @@ package io.sirix.cache;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.PageReference;
+import io.sirix.settings.DiagnosticSettings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -177,8 +178,12 @@ public class PinCountDiagnostics {
   /**
    * Print diagnostic report to logger if debug flag is enabled.
    */
+  /**
+   * Print diagnostic report to logger if guard tracking is enabled.
+   * @see DiagnosticSettings#GUARD_TRACKING
+   */
   public static void printIfEnabled(String label, DiagnosticReport report) {
-    if (Boolean.getBoolean("sirix.debug.pin.counts")) {
+    if (DiagnosticSettings.GUARD_TRACKING) {
       LOGGER.info("\n{}\n{}", label, report.toString());
     }
   }
@@ -207,7 +212,7 @@ public class PinCountDiagnostics {
    */
   @Deprecated
   public static void warnOnTransactionClose(BufferManager bufferManager, int trxId) {
-    if (!Boolean.getBoolean("sirix.debug.pin.counts")) {
+    if (!DiagnosticSettings.GUARD_TRACKING) {
       return;
     }
     
