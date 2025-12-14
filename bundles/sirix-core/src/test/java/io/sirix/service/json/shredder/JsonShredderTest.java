@@ -210,7 +210,7 @@ public final class JsonShredderTest {
   // Use Shenandoah or ZGC
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
   @Test
-  //@Disabled
+  @Disabled
   public void testShredderAndTraverseChicago() {
     logger.info("start");
     final var jsonPath = JSON.resolve("cityofchicago.json");
