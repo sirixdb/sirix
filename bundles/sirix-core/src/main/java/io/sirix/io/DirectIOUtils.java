@@ -1,14 +1,12 @@
 package io.sirix.io;
 
-import net.openhft.chronicle.core.OS;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 
 public final class DirectIOUtils {
-  public static final int BLOCK_SIZE = OS.pageSize();
+  public static final int BLOCK_SIZE = 4096; // Standard page size
 
   /**
    * Allocates a block aligned direct byte buffer. The size of the returned

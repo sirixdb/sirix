@@ -21,25 +21,22 @@
 
 package io.sirix.node.json;
 
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.hashing.LongHashFunction;
+import io.sirix.node.NodeTestHelper;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
 import io.sirix.api.Database;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
@@ -48,7 +45,7 @@ import static org.junit.Assert.*;
  */
 public class ObjectBooleanNodeTest {
 
-  private PageTrx pageTrx;
+  private StorageEngineWriter pageTrx;
 
   private Database<JsonResourceSession> database;
 
@@ -66,29 +63,38 @@ public class ObjectBooleanNodeTest {
 
   @Test
   public void test() throws IOException {
-    // Create empty node.
     final boolean boolValue = true;
-    final NodeDelegate del = new NodeDelegate(13,
-                                              14,
-                                              LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER,
-                                              0,
-                                              SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del,
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               0L,
-                                                               0L);
-    final ObjectBooleanNode node = new ObjectBooleanNode(boolValue, strucDel);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    
+    // Create data in the correct serialization format with size prefix and padding
+    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + value][end padding]
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
+    
+    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.OBJECT_BOOLEAN_VALUE);
+    long startPos = data.writePosition();
+    // NodeDelegate fields
+    data.writeLong(14); // parentKey
+    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
+    data.writeInt(0); // lastModifiedRevision
+    // Value
+    data.writeBoolean(boolValue);
+    
+    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    
+    // Deserialize to create properly initialized node
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
+    final ObjectBooleanNode node = (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(
+        bytesIn, 13L, null, pageTrx.getResourceSession().getResourceConfig());
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final ObjectBooleanNode node2 =
-        (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(data, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
+    final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
+    data2.writeByte(NodeKind.OBJECT_BOOLEAN_VALUE.getId()); // Write NodeKind to ensure proper alignment
+    node.getKind().serialize(data2, node, pageTrx.getResourceSession().getResourceConfig());
+    var bytesIn2 = data2.asBytesIn();
+    bytesIn2.readByte(); // Skip NodeKind byte
+    final ObjectBooleanNode node2 = (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(
+        bytesIn2, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

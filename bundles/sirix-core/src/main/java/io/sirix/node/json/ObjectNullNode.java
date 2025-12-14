@@ -25,26 +25,117 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 package io.sirix.node.json;
 
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import io.sirix.node.NodeKind;
-import io.sirix.node.delegates.StructNodeDelegate;
+import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableObjectNullNode;
+import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.StructNode;
+import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.settings.Fixed;
+import net.openhft.hashing.LongHashFunction;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
+
+import java.lang.foreign.MemoryLayout;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.lang.invoke.VarHandle;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * JSON Object Null node.
+ *
+ * <p><strong>All instances are backed by MemorySegment for consistent memory layout.</strong></p>
+ * <p><strong>Uses MemoryLayout and VarHandles for type-safe field access.</strong></p>
+ * 
+ * @author Johannes Lichtenberger
  */
-public final class ObjectNullNode extends AbstractNullNode {
+public final class ObjectNullNode implements StructNode, ImmutableJsonNode {
+
+  // MemorySegment layout with FIXED offsets (hash moved to end):
+  // NodeDelegate data (16 bytes):
+  //   - parentKey (8 bytes)            - offset 0
+  //   - previousRevision (4 bytes)     - offset 8
+  //   - lastModifiedRevision (4 bytes) - offset 12
+  // Fixed StructNode fields (32 bytes):
+  //   - rightSiblingKey (8 bytes)      - offset 16
+  //   - leftSiblingKey (8 bytes)       - offset 24
+  //   - firstChildKey (8 bytes)        - offset 32
+  //   - lastChildKey (8 bytes)         - offset 40
+  // Optional fields:
+  //   - childCount (8 bytes)           - offset 48 (if storeChildCount)
+  //   - hash (8 bytes)                 - offset 48/56 (if hashType != NONE)
+  //   - descendantCount (8 bytes)      - after hash (if hashType != NONE)
 
   /**
-   * Constructor.
-   *
-   * @param structNodeDelegate {@link StructNodeDelegate} to be set
+   * Core layout (always present) - 16 bytes total
+   * Note: Object value nodes are object properties and only have a parent (no siblings, no children)
    */
-  public ObjectNullNode(final StructNodeDelegate structNodeDelegate) {
-    super(structNodeDelegate);
+  public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
+      // NodeDelegate fields only (object properties don't have siblings)
+      ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
+      ValueLayout.JAVA_INT_UNALIGNED.withName("previousRevision"),              // offset 8
+      ValueLayout.JAVA_INT_UNALIGNED.withName("lastModifiedRevision")           // offset 12
+      // Null value has no data - just the type information
+  );
+
+  /**
+   * Optional hash layout (only when hashType != NONE) - 8 bytes for value nodes
+   * Note: childCount and descendantCount are not stored for leaf nodes (always 0)
+   */
+  public static final MemoryLayout HASH_LAYOUT = MemoryLayout.structLayout(
+      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash")                          // offset 16
+  );
+
+  // VarHandles for type-safe field access
+  private static final VarHandle PARENT_KEY_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("parentKey"));
+  private static final VarHandle PREVIOUS_REVISION_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("previousRevision"));
+  private static final VarHandle LAST_MODIFIED_REVISION_HANDLE = 
+      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("lastModifiedRevision"));
+
+  // All nodes are MemorySegment-based
+  private final MemorySegment segment;
+  private final long nodeKey;
+  private final ResourceConfiguration resourceConfig;
+  
+  // DeweyID support (stored separately, not in MemorySegment)
+  private SirixDeweyID sirixDeweyID;
+  private byte[] deweyIDBytes;
+  
+  // Cached hash value (computed on-demand, not stored in MemorySegment)
+  private long cachedHash = 0;
+
+  /**
+   * Constructor for MemorySegment-based ObjectNullNode
+   *
+   * @param segment        the MemorySegment containing all node data
+   * @param nodeKey        the node key (record ID)
+   * @param resourceConfig the resource configuration
+   */
+  public ObjectNullNode(final MemorySegment segment, final long nodeKey, final byte[] deweyID,
+      final ResourceConfiguration resourceConfig) {
+    this(segment, nodeKey, deweyID != null ? new SirixDeweyID(deweyID) : null, resourceConfig);
+    this.deweyIDBytes = deweyID;
+  }
+
+  public ObjectNullNode(final MemorySegment segment, final long nodeKey, final SirixDeweyID id,
+      final ResourceConfiguration resourceConfig) {
+    this.segment = segment;
+    this.nodeKey = nodeKey;
+    this.sirixDeweyID = id;
+    this.resourceConfig = resourceConfig;
   }
 
   @Override
@@ -53,7 +144,247 @@ public final class ObjectNullNode extends AbstractNullNode {
   }
 
   @Override
-  public VisitResult acceptVisitor(JsonNodeVisitor visitor) {
+  public long getNodeKey() {
+    return nodeKey;
+  }
+
+  @Override
+  public long getParentKey() {
+    return (long) PARENT_KEY_HANDLE.get(segment, 0L);
+  }
+  
+  public void setParentKey(final long parentKey) {
+    PARENT_KEY_HANDLE.set(segment, 0L, parentKey);
+  }
+
+  @Override
+  public boolean hasParent() {
+    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public boolean isSameItem(@Nullable Node other) {
+    return other != null && other.getNodeKey() == nodeKey;
+  }
+
+  @Override
+  public void setTypeKey(final int typeKey) {
+    // Not supported for MemorySegment-backed JSON nodes
+  }
+
+  @Override
+  public void setDeweyID(final SirixDeweyID id) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = null; // Clear cached bytes
+  }
+
+  @Override
+  public void setPreviousRevision(final int revision) {
+    PREVIOUS_REVISION_HANDLE.set(segment, 0L, revision);
+  }
+
+  @Override
+  public void setLastModifiedRevision(final int revision) {
+    LAST_MODIFIED_REVISION_HANDLE.set(segment, 0L, revision);
+  }
+
+  @Override
+  public long getHash() {
+    // Value nodes don't store hash in MemorySegment, but cache it in memory
+    // If hash is 0 and hashing is enabled, compute it on-demand
+    if (cachedHash == 0 && resourceConfig.hashType != HashType.NONE) {
+      cachedHash = computeHash(Bytes.elasticOffHeapByteBuffer());
+    }
+    return cachedHash;
+  }
+
+  @Override
+  public void setHash(final long hash) {
+    // Value nodes don't store hash in MemorySegment, but cache it in memory
+    this.cachedHash = hash;
+  }
+
+  @Override
+  public long computeHash(final BytesOut<?> bytes) {
+    bytes.clear();
+    bytes.writeLong(getNodeKey())
+         .writeLong(getParentKey())
+         .writeByte(getKind().getId());
+
+    bytes.writeLong(getChildCount())
+         .writeLong(getDescendantCount())
+         .writeLong(getLeftSiblingKey())
+         .writeLong(getRightSiblingKey())
+         .writeLong(getFirstChildKey());
+
+    if (getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+      bytes.writeLong(getLastChildKey());
+    }
+
+    return getHashFunction().hashBytes(bytes.toByteArray());
+  }
+
+  @Override
+  public long getRightSiblingKey() {
+    // Object value nodes are object properties and don't have siblings
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+  
+  public void setRightSiblingKey(final long rightSibling) {
+    // Object value nodes don't have siblings - this is a no-op
+  }
+
+  @Override
+  public long getLeftSiblingKey() {
+    // Object value nodes are object properties and don't have siblings
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+  
+  public void setLeftSiblingKey(final long leftSibling) {
+    // Object value nodes don't have siblings - this is a no-op
+  }
+
+  @Override
+  public long getFirstChildKey() {
+    // Value nodes are leaf nodes and cannot have children
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+  
+  public void setFirstChildKey(final long firstChild) {
+    // Value nodes are leaf nodes - this is a no-op
+  }
+
+  @Override
+  public long getLastChildKey() {
+    // Value nodes are leaf nodes and cannot have children
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+  
+  public void setLastChildKey(final long lastChild) {
+    // Value nodes are leaf nodes - this is a no-op
+  }
+
+  @Override
+  public long getChildCount() {
+    // Value nodes are leaf nodes - always 0 children
+    return 0;
+  }
+  
+  public void setChildCount(final long childCount) {
+    // Value nodes are leaf nodes - no-op
+  }
+
+  @Override
+  public long getDescendantCount() {
+    // Value nodes have no descendants - return 0
+    // The parent's formula (descendantCount + 1) accounts for the node itself
+    return 0;
+  }
+  
+  public void setDescendantCount(final long descendantCount) {
+    // Value nodes are leaf nodes - no-op
+  }
+
+  @Override
+  public boolean hasFirstChild() {
+    return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public boolean hasLastChild() {
+    return getLastChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public void incrementChildCount() {
+    // No-op: value nodes are leaf nodes and cannot have children
+  }
+
+  @Override
+  public void decrementChildCount() {
+    // No-op: value nodes are leaf nodes and cannot have children
+  }
+
+  @Override
+  public void incrementDescendantCount() {
+    // No-op: value nodes are leaf nodes and cannot have descendants
+  }
+
+  @Override
+  public void decrementDescendantCount() {
+    // No-op: value nodes are leaf nodes and cannot have descendants
+  }
+
+  @Override
+  public boolean hasLeftSibling() {
+    return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public boolean hasRightSibling() {
+    return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    return (int) PREVIOUS_REVISION_HANDLE.get(segment, 0L);
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    return (int) LAST_MODIFIED_REVISION_HANDLE.get(segment, 0L);
+  }
+
+  public LongHashFunction getHashFunction() {
+    return resourceConfig.nodeHashFunction;
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    return sirixDeweyID;
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    if (deweyIDBytes == null && sirixDeweyID != null) {
+      deweyIDBytes = sirixDeweyID.toBytes();
+    }
+    return deweyIDBytes;
+  }
+
+  @Override
+  public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
     return visitor.visit(ImmutableObjectNullNode.of(this));
+  }
+
+  @Override
+  public @NonNull String toString() {
+    return MoreObjects.toStringHelper(this)
+                      .add("nodeKey", nodeKey)
+                      .add("parentKey", getParentKey())
+                      .add("previousRevision", getPreviousRevisionNumber())
+                      .add("lastModifiedRevision", getLastModifiedRevisionNumber())
+                      .add("rightSibling", getRightSiblingKey())
+                      .add("leftSibling", getLeftSiblingKey())
+                      .add("firstChild", getFirstChildKey())
+                      .add("lastChild", getLastChildKey())
+                      .add("childCount", getChildCount())
+                      .add("hash", getHash())
+                      .add("descendantCount", getDescendantCount())
+                      .toString();
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(nodeKey, getParentKey());
+  }
+
+  @Override
+  public boolean equals(final Object obj) {
+    if (!(obj instanceof final ObjectNullNode other))
+      return false;
+
+    return nodeKey == other.nodeKey
+        && getParentKey() == other.getParentKey();
   }
 }

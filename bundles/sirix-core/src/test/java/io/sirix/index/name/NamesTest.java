@@ -1,6 +1,6 @@
 package io.sirix.index.name;
 
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.node.HashCountEntryNode;
 import io.sirix.node.HashEntryNode;
@@ -15,7 +15,7 @@ import static org.testng.Assert.assertNotEquals;
 public final class NamesTest {
   @Test
   public void whenIndexExistsForAnotherString_createNewIndex() {
-    final PageTrx pageTrx = createPageTrxMock("FB");
+    final StorageEngineWriter pageTrx = createPageTrxMock("FB");
 
     final var names = Names.getInstance(0);
 
@@ -25,12 +25,12 @@ public final class NamesTest {
     assertNotEquals(fbIndex, EaIndex);
   }
 
-  private PageTrx createPageTrxMock(String name) {
+  private StorageEngineWriter createPageTrxMock(String name) {
     final var hashEntryNode = new HashEntryNode(2, 12, name);
     final var hashCountEntryNode = new HashCountEntryNode(3, 1);
 
     @SuppressWarnings("unchecked")
-    final PageTrx pageTrx = mock(PageTrx.class);
+    final StorageEngineWriter pageTrx = mock(StorageEngineWriter.class);
     when(pageTrx.createRecord(any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
         hashEntryNode);
     when(pageTrx.createRecord(any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
@@ -41,7 +41,7 @@ public final class NamesTest {
 
   @Test
   public void whenIndexExistsForSameString_createNoNewIndex() {
-    final PageTrx pageTrx = createPageTrxMock("FB");
+    final StorageEngineWriter pageTrx = createPageTrxMock("FB");
 
     final var names = Names.getInstance(0);
 
@@ -53,7 +53,7 @@ public final class NamesTest {
 
   @Test
   public void whenIndexExistsForSameString_increaseCounter() {
-    final PageTrx pageTrx = createPageTrxMock("FB");
+    final StorageEngineWriter pageTrx = createPageTrxMock("FB");
 
     final var names = Names.getInstance(0);
 
@@ -74,7 +74,7 @@ public final class NamesTest {
   public void whenNameIsSet_getNameReturnsName() {
     final var testName = "FB";
 
-    final PageTrx pageTrx = createPageTrxMock(testName);
+    final StorageEngineWriter pageTrx = createPageTrxMock(testName);
 
     final var names = Names.getInstance(0);
     final var index = names.setName(testName, pageTrx);

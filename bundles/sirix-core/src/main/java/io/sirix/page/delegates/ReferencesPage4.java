@@ -28,7 +28,7 @@ import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
-import net.openhft.chronicle.bytes.BytesIn;
+import io.sirix.node.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.util.ArrayList;
@@ -86,6 +86,8 @@ public final class ReferencesPage4 implements Page {
       final var pageReferenceToClone = pageToClone.getReferences().get(offset);
       pageReference.setKey(pageReferenceToClone.getKey());
       pageReference.setLogKey(pageReferenceToClone.getLogKey());
+      pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
+      pageReference.setResourceId(pageReferenceToClone.getResourceId());
       pageReference.setPage(pageReferenceToClone.getPage());
       pageReference.setPageFragments(pageReferenceToClone.getPageFragments());
       references.add(pageReference);
@@ -156,9 +158,8 @@ public final class ReferencesPage4 implements Page {
   }
 
   @Override
-  public Page clearPage() {
+  public void close() {
     offsets.clear();
     references.clear();
-    return this;
   }
 }

@@ -30,7 +30,6 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixException;
-import io.sirix.node.NodeKind;
 import io.sirix.service.AbstractSerializer;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.XMLToken;
@@ -118,7 +117,7 @@ public final class SAXSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
   @Override
   protected void emitRevisionStartNode(final @NonNull XmlNodeReadOnlyTrx rtx) {
     final int length = (revisions.length == 1 && revisions[0] < 0)
-        ? resMgr.getMostRecentRevisionNumber()
+        ? session.getMostRecentRevisionNumber()
         : revisions.length;
 
     if (length > 1) {
@@ -135,7 +134,7 @@ public final class SAXSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
   @Override
   protected void emitRevisionEndNode(final @NonNull XmlNodeReadOnlyTrx rtx) {
     final int length = (revisions.length == 1 && revisions[0] < 0)
-        ? (int) resMgr.getMostRecentRevisionNumber()
+        ? (int) session.getMostRecentRevisionNumber()
         : revisions.length;
 
     if (length > 1) {
@@ -271,7 +270,7 @@ public final class SAXSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
       contentHandler.startDocument();
 
       final int length = (revisions.length == 1 && revisions[0] < 0)
-          ? resMgr.getMostRecentRevisionNumber()
+          ? session.getMostRecentRevisionNumber()
           : revisions.length;
 
       if (length > 1) {
@@ -292,7 +291,7 @@ public final class SAXSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
   protected void emitEndDocument() {
     try {
       final int length = (revisions.length == 1 && revisions[0] < 0)
-          ? (int) resMgr.getMostRecentRevisionNumber()
+          ? (int) session.getMostRecentRevisionNumber()
           : revisions.length;
 
       if (length > 1) {
