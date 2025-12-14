@@ -759,22 +759,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                    pageReferenceToRecordPage.getKey(), indexLogKey.getRevisionNumber());
     }
 
-    // Atomic compute() ensures thread-safe cache access and guard acquisition
-    KeyValueLeafPage page = resourceBufferManager.getRecordPageCache().asMap().compute(pageReferenceToRecordPage, (ref, existing) -> {
-      if (existing != null && !existing.isClosed()) {
-        existing.markAccessed();
-        existing.acquireGuard();
-        return existing;
-      }
-
-      // Cache miss - load from storage
-      KeyValueLeafPage loadedPage = (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(ref);
-      if (loadedPage != null) {
-        loadedPage.markAccessed();
-        loadedPage.acquireGuard();
-      }
-      return loadedPage;
-    });
+    // Atomic: cache lookup + load + guard + weight tracking
+    KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
+        .getOrLoadAndGuard(pageReferenceToRecordPage,
+            ref -> (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(ref));
 
     if (page != null) {
       pageReferenceToRecordPage.setPage(page);
@@ -968,17 +956,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final var pageReferenceWithKey =
         new PageReference().setKey(originalStorageKey).setDatabaseId(databaseId).setResourceId(resourceId);
 
-    // Load first fragment from cache or storage
+    // Load first fragment atomically with guard
     KeyValueLeafPage page = resourceBufferManager.getRecordPageFragmentCache()
-        .get(pageReferenceWithKey, (key, existing) -> {
-          if (existing != null && !existing.isClosed()) {
-            return existing;
-          }
-          return (KeyValueLeafPage) pageReader.read(key, resourceSession.getResourceConfig());
-        });
+        .getOrLoadAndGuard(pageReferenceWithKey,
+            key -> (KeyValueLeafPage) pageReader.read(key, resourceSession.getResourceConfig()));
 
-    page.acquireGuard();
-    assert !page.isClosed();
+    assert page != null && !page.isClosed();
     pages.add(page);
 
     if (originalPageFragments.isEmpty() || page.size() == Constants.NDP_NODE_COUNT) {
@@ -1016,25 +999,20 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return CompletableFuture.completedFuture(pageFromCache);
     }
 
-    // Cache miss - load async, let cache handle storage, then acquire guard
+    // Cache miss - load async, then cache with atomic guard acquisition
     final var reader = resourceSession.createReader();
     return reader.readAsync(pageReference, resourceSession.getResourceConfig())
-                 .thenApply(page -> {
+                 .thenApply(loadedPage -> {
                    reader.close();
-                   assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) page).getRevision() :
-                       "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + ((KeyValuePage<DataRecord>) page).getRevision();
-                   
-                   // Get or store in cache atomically
+                   assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) loadedPage).getRevision() :
+                       "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + ((KeyValuePage<DataRecord>) loadedPage).getRevision();
+
+                   // Atomic cache-or-store with guard (handles race with other threads)
+                   // If another thread cached the page first, returns that cached page with guard.
+                   // Otherwise caches our loaded page with guard.
                    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageFragmentCache()
-                       .get(pageReference, (key, existing) -> {
-                         if (existing != null && !existing.isClosed()) {
-                           return existing;  // Another thread cached it
-                         }
-                         return (KeyValueLeafPage) page;  // Cache our loaded page
-                       });
-                   
-                   // Acquire guard for this transaction
-                   cachedPage.acquireGuard();
+                       .getOrLoadAndGuard(pageReference, _ -> (KeyValueLeafPage) loadedPage);
+
                    return (KeyValuePage<DataRecord>) cachedPage;
                  });
   }

@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 /**
  * Simple page cache with direct eviction control.
@@ -181,6 +182,39 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       // Not in cache or closed - return null
       return null;
     });
+  }
+
+  @Override
+  public KeyValueLeafPage getOrLoadAndGuard(PageReference key, Function<PageReference, KeyValueLeafPage> loader) {
+    // ATOMIC: Get page from cache or load via loader, acquiring guard atomically.
+    // This prevents race where ClockSweeper evicts between get() and acquireGuard().
+    // Also properly tracks weight for eviction (unlike direct asMap().compute() usage).
+    KeyValueLeafPage page = map.compute(key, (k, existing) -> {
+      if (existing != null && !existing.isClosed()) {
+        // Cache HIT - acquire guard atomically
+        existing.markAccessed();
+        existing.acquireGuard();
+        return existing;
+      }
+      // Cache MISS - load via loader
+      KeyValueLeafPage loaded = loader.apply(k);
+      if (loaded != null && !loaded.isClosed()) {
+        loaded.markAccessed();
+        loaded.acquireGuard();
+        // Track weight for eviction (fixes bypass bug from direct asMap().compute() usage)
+        long newWeight = weightOf(loaded);
+        if (existing != null) {
+          // Replace closed entry - subtract old weight
+          currentWeightBytes.addAndGet(-weightOf(existing));
+        }
+        if (newWeight > 0) {
+          currentWeightBytes.addAndGet(newWeight);
+        }
+      }
+      return loaded;
+    });
+    evictIfOverBudget();
+    return page;
   }
 
   @Override

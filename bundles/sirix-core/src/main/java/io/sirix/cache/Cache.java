@@ -28,6 +28,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 /**
  * Interface for all upcoming cache implementations. Can be a weak one, a LRU-based one or a
@@ -153,6 +154,22 @@ public interface Cache<K, V> {
     } catch (ClassCastException e) {
       throw new UnsupportedOperationException("getAndGuard() only supports KeyValueLeafPage values", e);
     }
+  }
+
+  /**
+   * Get page from cache or load via loader, atomically acquiring a guard.
+   * Prevents race between cache lookup and guard acquisition.
+   * Also handles weight tracking for ShardedPageCache.
+   * <p>
+   * This is the preferred method for page access when a loader is available.
+   *
+   * @param key the page reference key
+   * @param loader function to load page on cache miss (may return null)
+   * @return guarded page, or null if not found and loader returns null
+   * @throws UnsupportedOperationException if V is not KeyValueLeafPage
+   */
+  default V getOrLoadAndGuard(K key, Function<K, V> loader) {
+    throw new UnsupportedOperationException("getOrLoadAndGuard() only for KeyValueLeafPage caches");
   }
 
   /** Close a cache, might be a file handle for persistent caches. */
