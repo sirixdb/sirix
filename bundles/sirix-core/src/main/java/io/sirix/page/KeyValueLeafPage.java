@@ -1333,10 +1333,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   public void acquireGuard() {
     guardCount.incrementAndGet();
-    // Debug logging disabled - too verbose for production
-    // if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-    //   LOGGER.debug("[GUARD-ACQUIRE] Page 0 ({}) guardCount={}", indexType, guardCount.get());
-    // }
   }
 
   /**
@@ -1345,10 +1341,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public void releaseGuard() {
     int newCount = guardCount.decrementAndGet();
     assert newCount >= 0 : "Guard count cannot be negative";
-    // Debug logging disabled - too verbose for production
-    // if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-    //   LOGGER.debug("[GUARD-RELEASE] Page 0 ({}) guardCount={}", indexType, newCount);
-    // }
   }
 
   /**

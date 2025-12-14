@@ -384,13 +384,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
 
     // DIAGNOSTIC: Track page closes during commit
-    if (DEBUG_MEMORY_LEAKS && container.getComplete() instanceof io.sirix.page.KeyValueLeafPage completePage) {
+    if (DEBUG_MEMORY_LEAKS && container.getComplete() instanceof KeyValueLeafPage completePage) {
       LOGGER.debug("[WRITER-COMMIT] Closing complete page: pageKey={}, indexType={}, instance={}",
                    completePage.getPageKey(), completePage.getIndexType(), System.identityHashCode(completePage));
     }
     container.getComplete().close();
     
-    if (DEBUG_MEMORY_LEAKS && page instanceof io.sirix.page.KeyValueLeafPage kvPage) {
+    if (DEBUG_MEMORY_LEAKS && page instanceof KeyValueLeafPage kvPage) {
       LOGGER.debug("[WRITER-COMMIT] Closing modified page: pageKey={}, indexType={}, instance={}",
                    kvPage.getPageKey(), kvPage.getIndexType(), System.identityHashCode(kvPage));
     }
@@ -832,7 +832,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     } finally {
       // Release guards on ALL fragments after combining
       for (var page : result.pages()) {
-        io.sirix.page.KeyValueLeafPage kvPage = (io.sirix.page.KeyValueLeafPage) page;
+        KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
         kvPage.releaseGuard();
         assert kvPage.getGuardCount() == 0 : 
             "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
@@ -890,7 +890,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @SuppressWarnings("deprecation")
   protected void finalize() {
     // DIAGNOSTIC: Detect if NodeStorageEngineWriter is GC'd without being closed
-    if (!isClosed && io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+    if (!isClosed && KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
       LOGGER.warn("⚠️  NodeStorageEngineWriter FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL", 
           pageRtx.getTrxId(), System.identityHashCode(this), System.identityHashCode(log), log.getList().size());
     }

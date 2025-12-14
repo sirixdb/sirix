@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiFunction;
 
@@ -44,14 +45,13 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   private final ReentrantLock evictionLock = new ReentrantLock();
   private final Shard shard; // Single shard instance (simplified design)
   private final long maxWeightBytes;
-  private final java.util.concurrent.atomic.AtomicLong currentWeightBytes = new java.util.concurrent.atomic.AtomicLong(0L);
+  private final AtomicLong currentWeightBytes = new AtomicLong(0L);
 
   /**
    * Create a new page cache.
    *
-   * @param shardCount unused (kept for API compatibility)
    */
-  public ShardedPageCache(int shardCount, long maxWeightBytes) {
+  public ShardedPageCache(long maxWeightBytes) {
     this.shard = new Shard(map, evictionLock);
     this.maxWeightBytes = maxWeightBytes;
     LOGGER.info("Created ShardedPageCache (simplified single-map design) with maxWeight={} bytes", maxWeightBytes);
@@ -119,7 +119,7 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
 
   @Override
   public KeyValueLeafPage get(PageReference key, BiFunction<? super PageReference, ? super KeyValueLeafPage, ? extends KeyValueLeafPage> mappingFunction) {
-    // CRITICAL FIX: Wrap mappingFunction to only execute on cache MISS
+    // Wrap mappingFunction to only execute on cache MISS
     // The mappingFunction should only be called when value is null, not on every access!
     // This prevents guards from being acquired repeatedly (guard leaks)
     KeyValueLeafPage page = map.compute(key, (k, existingValue) -> {
