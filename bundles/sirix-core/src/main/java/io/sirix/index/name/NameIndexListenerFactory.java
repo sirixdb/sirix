@@ -3,7 +3,7 @@ package io.sirix.index.name;
 import static java.util.Objects.requireNonNull;
 
 import io.sirix.access.DatabaseType;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.RBTreeWriter;
@@ -18,7 +18,7 @@ public final class NameIndexListenerFactory {
     this.databaseType = databaseType;
   }
 
-  public NameIndexListener create(final PageTrx pageWriteTrx,
+  public NameIndexListener create(final StorageEngineWriter pageWriteTrx,
       final IndexDef indexDefinition) {
     final var includes = requireNonNull(indexDefinition.getIncluded());
     final var excludes = requireNonNull(indexDefinition.getExcluded());

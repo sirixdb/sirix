@@ -1,6 +1,6 @@
 package io.sirix.io;
 
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 
 import java.nio.ByteBuffer;
 
@@ -9,22 +9,25 @@ public final class BytesUtils {
     throw new AssertionError();
   }
 
-  public static void doWrite(Bytes<?> bytes, ByteBuffer toWrite) {
-    // No garbage when writing to Bytes from ByteBuffer.
-    bytes.clear();
-    bytes.write(bytes.writePosition(), toWrite, toWrite.position(), toWrite.limit());
+  public static void doWrite(BytesOut<?> bytes, ByteBuffer toWrite) {
+    // Write ByteBuffer content to BytesOut
+    byte[] buffer = new byte[toWrite.remaining()];
+    toWrite.get(buffer);
+    bytes.write(buffer);
   }
 
-  public static void doWrite(Bytes<?> bytes, byte[] toWrite) {
-    bytes.clear();
+  public static void doWrite(BytesOut<?> bytes, byte[] toWrite) {
     bytes.write(toWrite);
   }
 
-  public static ByteBuffer doRead(Bytes bytes) {
-    // No garbage when getting the underlying ByteBuffer.
-    assert bytes.underlyingObject() instanceof ByteBuffer;
-    final var byteBuffer = (ByteBuffer) bytes.underlyingObject();
-    return byteBuffer;
+  public static ByteBuffer doRead(BytesOut<?> bytes) {
+    // Get underlying destination from BytesOut
+    Object destination = bytes.getDestination();
+    if (destination instanceof ByteBuffer) {
+      return (ByteBuffer) destination;
+    }
+    // Fallback for other destination types
+    throw new UnsupportedOperationException("Unsupported destination type: " + destination.getClass());
   }
 
   /**

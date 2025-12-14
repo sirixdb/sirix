@@ -7,8 +7,8 @@ import com.google.gson.JsonParser;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import io.sirix.access.trx.node.InternalResourceSession;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -49,11 +49,11 @@ public final class JsonNodeReadOnlyTrxImpl
    *
    * @param resourceManager     the current {@link ResourceSession} the reader is bound to
    * @param trxId               ID of the reader
-   * @param pageReadTransaction {@link PageReadOnlyTrx} to interact with the page layer
+   * @param pageReadTransaction {@link StorageEngineReader} to interact with the page layer
    * @param documentNode        the document node
    */
   JsonNodeReadOnlyTrxImpl(final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-      final @NonNegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableJsonNode documentNode) {
+      final @NonNegative int trxId, final StorageEngineReader pageReadTransaction, final ImmutableJsonNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
   }
 
@@ -80,7 +80,7 @@ public final class JsonNodeReadOnlyTrxImpl
 
   @Override
   public List<JsonObject> getUpdateOperations() {
-    final var revisionNumber = pageReadOnlyTrx instanceof PageTrx ? getRevisionNumber() - 1 : getRevisionNumber();
+    final var revisionNumber = pageReadOnlyTrx instanceof StorageEngineWriter ? getRevisionNumber() - 1 : getRevisionNumber();
     final var updateOperationsFile = resourceSession.getResourceConfig()
                                                     .getResource()
                                                     .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
@@ -123,7 +123,7 @@ public final class JsonNodeReadOnlyTrxImpl
 
         final int revisionNumber;
 
-        if (pageReadOnlyTrx instanceof PageTrx) {
+        if (pageReadOnlyTrx instanceof StorageEngineWriter) {
           revisionNumber = getRevisionNumber() - 1;
         } else {
           revisionNumber = getRevisionNumber();

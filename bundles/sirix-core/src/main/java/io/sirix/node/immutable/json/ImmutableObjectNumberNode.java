@@ -4,7 +4,7 @@ import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.StructNode;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.json.NumberNode;
 import io.sirix.node.json.ObjectNumberNode;
 
@@ -48,7 +48,7 @@ public final class ImmutableObjectNumberNode extends AbstractImmutableJsonStruct
 
   @Override
   public StructNode structDelegate() {
-    return node.getStructNodeDelegate();
+    return node;
   }
 
   public Number getValue() {
@@ -61,7 +61,7 @@ public final class ImmutableObjectNumberNode extends AbstractImmutableJsonStruct
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     return node.computeHash(bytes);
   }
 }

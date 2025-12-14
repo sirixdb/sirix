@@ -8,7 +8,7 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableStructNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.node.xml.CommentNode;
 
@@ -177,7 +177,7 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     return node.computeHash(bytes);
   }
 
