@@ -28,8 +28,15 @@ public final class FFILz4Compressor implements ByteHandler {
 
   // LZ4 native function handles
   private static final MethodHandle LZ4_COMPRESS_DEFAULT;
+  private static final MethodHandle LZ4_COMPRESS_HC;
   private static final MethodHandle LZ4_DECOMPRESS_SAFE;
   private static final MethodHandle LZ4_COMPRESS_BOUND;
+
+  /**
+   * LZ4HC compression level (1-12, where 9 is the default providing best ratio/speed tradeoff).
+   * Higher values provide better compression but are slower.
+   */
+  private static final int LZ4HC_CLEVEL_DEFAULT = 9;
 
   // Fallback to lz4-java if native not available
   private static final LZ4Compressor FALLBACK = new LZ4Compressor();
@@ -59,6 +66,7 @@ public final class FFILz4Compressor implements ByteHandler {
   static {
     boolean available = false;
     MethodHandle compress = null;
+    MethodHandle compressHC = null;
     MethodHandle decompress = null;
     MethodHandle compressBound = null;
 
@@ -86,6 +94,12 @@ public final class FFILz4Compressor implements ByteHandler {
           FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT)
       );
 
+      // int LZ4_compress_HC(const char* src, char* dst, int srcSize, int dstCapacity, int compressionLevel)
+      compressHC = LINKER.downcallHandle(
+          lz4Lib.find("LZ4_compress_HC").orElseThrow(),
+          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT)
+      );
+
       // int LZ4_decompress_safe(const char* src, char* dst, int compressedSize, int dstCapacity)
       decompress = LINKER.downcallHandle(
           lz4Lib.find("LZ4_decompress_safe").orElseThrow(),
@@ -99,13 +113,14 @@ public final class FFILz4Compressor implements ByteHandler {
       );
 
       available = true;
-      LOGGER.info("Native LZ4 library loaded successfully via FFI");
+      LOGGER.info("Native LZ4 library loaded successfully via FFI (with HC support)");
     } catch (Exception e) {
       LOGGER.warn("Native LZ4 library not available, falling back to lz4-java: {}", e.getMessage());
     }
 
     NATIVE_LZ4_AVAILABLE = available;
     LZ4_COMPRESS_DEFAULT = compress;
+    LZ4_COMPRESS_HC = compressHC;
     LZ4_DECOMPRESS_SAFE = decompress;
     LZ4_COMPRESS_BOUND = compressBound;
   }
@@ -134,7 +149,7 @@ public final class FFILz4Compressor implements ByteHandler {
 
   /**
    * Compress data from source MemorySegment to destination MemorySegment.
-   * Zero-copy operation using FFI.
+   * Zero-copy operation using FFI with fast (default) compression.
    *
    * @param source uncompressed data
    * @param destination buffer for compressed data (must be large enough)
@@ -154,6 +169,34 @@ public final class FFILz4Compressor implements ByteHandler {
       );
     } catch (Throwable e) {
       throw new RuntimeException("LZ4 compression failed", e);
+    }
+  }
+
+  /**
+   * Compress data from source MemorySegment to destination MemorySegment using High Compression mode.
+   * This provides better compression ratios than the default mode at the cost of slower compression.
+   * Zero-copy operation using FFI.
+   *
+   * @param source uncompressed data
+   * @param destination buffer for compressed data (must be large enough)
+   * @param compressionLevel compression level (1-12, where 9 is default, higher = better compression but slower)
+   * @return number of compressed bytes written, or negative on error
+   */
+  public int compressSegmentHC(MemorySegment source, MemorySegment destination, int compressionLevel) {
+    if (!NATIVE_LZ4_AVAILABLE) {
+      throw new UnsupportedOperationException("Native LZ4 not available");
+    }
+
+    try {
+      return (int) LZ4_COMPRESS_HC.invokeExact(
+          source,
+          destination,
+          (int) source.byteSize(),
+          (int) destination.byteSize(),
+          compressionLevel
+      );
+    } catch (Throwable e) {
+      throw new RuntimeException("LZ4 HC compression failed", e);
     }
   }
 
@@ -204,6 +247,7 @@ public final class FFILz4Compressor implements ByteHandler {
 
   /**
    * Compress data and return a new MemorySegment with compressed data.
+   * Uses LZ4 High Compression (HC) mode for better compression ratios.
    * Uses a confined Arena for temporary compression buffer.
    * 
    * <p>Handles both heap and native MemorySegments. Heap segments are copied
@@ -239,10 +283,10 @@ public final class FFILz4Compressor implements ByteHandler {
       // Write decompressed size header (for decompression)
       tempCompressed.set(JAVA_INT, 0, srcSize);
 
-      // Compress (source is now guaranteed native memory)
-      int compressedSize = compressSegment(nativeSource, tempCompressed.asSlice(4));
+      // Compress using HC mode for better compression ratios
+      int compressedSize = compressSegmentHC(nativeSource, tempCompressed.asSlice(4), LZ4HC_CLEVEL_DEFAULT);
       if (compressedSize <= 0) {
-        throw new RuntimeException("LZ4 compression failed: " + compressedSize);
+        throw new RuntimeException("LZ4 HC compression failed: " + compressedSize);
       }
 
       // Copy to auto arena result that persists

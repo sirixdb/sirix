@@ -89,11 +89,8 @@ public enum PageKind {
           final IndexType indexType = IndexType.getType(source.readByte());
           final int lastSlotIndex = source.readInt();
 
-          // Read slot offsets array (int[512] = 2048 bytes)
-          final int[] slotOffsets = new int[Constants.NDP_NODE_COUNT];
-          for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-            slotOffsets[i] = source.readInt();
-          }
+          // Read compressed slot offsets (delta + bit-packed)
+          final int[] slotOffsets = SlotOffsetCodec.decode(source);
 
           // Read slotMemory size
           final int slotMemorySize = source.readInt();
@@ -144,11 +141,8 @@ public enum PageKind {
           if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
             lastDeweyIdIndex = source.readInt();
 
-            // Read dewey ID offsets array (int[512] = 2048 bytes)
-            deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
-            for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-              deweyIdOffsets[i] = source.readInt();
-            }
+            // Read compressed dewey ID offsets (delta + bit-packed)
+            deweyIdOffsets = SlotOffsetCodec.decode(source);
 
             // Read deweyIdMemory size and data
             final int deweyIdMemorySize = source.readInt();
@@ -183,8 +177,7 @@ public enum PageKind {
             lastDeweyIdIndex = -1;
           }
 
-          // Read bitmaps (needed for slot presence checking)
-          final var entriesBitmap = SerializationType.deserializeBitSet(source);
+          // Read overlong entries bitmap
           final var overlongEntriesBitmap = SerializationType.deserializeBitSet(source);
 
           // Read overlong entries
@@ -256,11 +249,9 @@ public enum PageKind {
       // Write last slot index.
       sink.writeInt(keyValueLeafPage.getLastSlotIndex());
 
-      // Write slot offsets array (int[512] = 2048 bytes) - enables zero-copy deserialization
+      // Write compressed slot offsets (delta + bit-packed) - ~75% smaller than raw int[1024]
       final int[] slotOffsets = keyValueLeafPage.getSlotOffsets();
-      for (int offset : slotOffsets) {
-        sink.writeInt(offset);
-      }
+      SlotOffsetCodec.encode(sink, slotOffsets, keyValueLeafPage.getLastSlotIndex());
 
       // Write slotMemory region - BULK COPY
       int slotMemoryUsedSize = keyValueLeafPage.getUsedSlotsSize();
@@ -280,11 +271,9 @@ public enum PageKind {
         // Write last dewey ID index
         sink.writeInt(keyValueLeafPage.getLastDeweyIdIndex());
         
-        // Write dewey ID offsets array (int[512] = 2048 bytes)
+        // Write compressed dewey ID offsets (delta + bit-packed)
         final int[] deweyIdOffsets = keyValueLeafPage.getDeweyIdOffsets();
-        for (int offset : deweyIdOffsets) {
-          sink.writeInt(offset);
-        }
+        SlotOffsetCodec.encode(sink, deweyIdOffsets, keyValueLeafPage.getLastDeweyIdIndex());
         
         // Write deweyIdMemory region - BULK COPY
         int deweyIdMemoryUsedSize = keyValueLeafPage.getUsedDeweyIdSize();
@@ -304,15 +293,7 @@ public enum PageKind {
         }
       }
 
-      // Write bitmaps (still needed for slot presence checking in getSlot())
-      var entriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-      for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-        if (keyValueLeafPage.isSlotSet(i)) {
-          entriesBitmap.set(i);
-        }
-      }
-      SerializationType.serializeBitSet(sink, entriesBitmap);
-
+      // Write overlong entries bitmap (entries bitmap is not needed - slot presence determined by slotOffsets)
       var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
       final var overlongEntriesSortedByKey = references.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList();
 

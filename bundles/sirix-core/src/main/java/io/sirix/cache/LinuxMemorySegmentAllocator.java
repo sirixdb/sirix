@@ -586,19 +586,23 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       throw new IllegalArgumentException("Unsupported size: " + size);
     }
 
-    // Check physical memory limit before allocation
+    // CRITICAL: Use the actual segment size from the pool, NOT the requested size!
+    // The pool returns segments of SEGMENT_SIZES[index], which may be larger than requested.
+    long actualSegmentSize = SEGMENT_SIZES[index];
+
+    // Check physical memory limit before allocation using actual segment size
     long currentPhysical = physicalMemoryBytes.get();
-    if (currentPhysical + size > maxBufferSize.get()) {
-      LOGGER.warn("Physical memory limit approaching: {} / {} MB (requested {} bytes)",
+    if (currentPhysical + actualSegmentSize > maxBufferSize.get()) {
+      LOGGER.warn("Physical memory limit approaching: {} / {} MB (requested {} bytes, actual segment {} bytes)",
                   currentPhysical / (1024 * 1024),
                   maxBufferSize.get() / (1024 * 1024),
-                  size);
+                  size, actualSegmentSize);
       
       // Memory limit reached - throw exception rather than blocking
       // Future enhancement: implement backpressure with waiting mechanism
       throw new OutOfMemoryError(String.format(
-          "Cannot allocate %d bytes. Physical memory: %d/%d MB, would exceed limit",
-          size, currentPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024)));
+          "Cannot allocate %d bytes (actual segment: %d bytes). Physical memory: %d/%d MB, would exceed limit",
+          size, actualSegmentSize, currentPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024)));
     }
 
     Deque<MemorySegment> pool = segmentPools[index];
@@ -616,9 +620,11 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     boolean isFirstBorrow = borrowedSegments.add(address);
     
     // SIMPLIFIED: Always increment physical memory on first borrow
+    // Note: actualSegmentSize is already defined above (uses SEGMENT_SIZES[index])
+    // release() uses segment.byteSize() which is the actual size, so we must match here.
     // Don't track "re-borrow" cases - too complex with async operations
     if (isFirstBorrow) {
-      long newPhysical = physicalMemoryBytes.addAndGet(size);
+      long newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
       
       if (newPhysical > maxBufferSize.get() * 0.9) {
         double percentUsed = (newPhysical * 100.0) / maxBufferSize.get();

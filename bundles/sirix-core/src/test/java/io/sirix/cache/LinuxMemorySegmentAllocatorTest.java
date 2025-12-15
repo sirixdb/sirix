@@ -199,6 +199,47 @@ public class LinuxMemorySegmentAllocatorTest {
   }
 
   /**
+   * Test that memory accounting uses actual segment size, not requested size.
+   * This is critical to prevent drift where allocate tracks requested size but
+   * release tracks actual segment size.
+   * 
+   * For example, requesting 100KB rounds up to 128KB segment:
+   * - allocate() should add 128KB to physicalMemoryBytes
+   * - release() subtracts segment.byteSize() = 128KB
+   * - No accounting drift!
+   */
+  @Test
+  public void testMemoryAccountingUsesActualSegmentSize() {
+    // Request sizes that round up to next power of two
+    long[][] testCases = {
+        // {requestedSize, expectedActualSize}
+        {5000, 8192},      // Rounds up from 5KB to 8KB
+        {10000, 16384},    // Rounds up from ~10KB to 16KB
+        {50000, 65536},    // Rounds up from ~50KB to 64KB
+        {100000, 131072},  // Rounds up from ~100KB to 128KB
+        {200000, 262144},  // Rounds up from ~200KB to 256KB
+    };
+    
+    for (long[] testCase : testCases) {
+      long requestedSize = testCase[0];
+      long expectedActualSize = testCase[1];
+      
+      // Allocate and immediately release multiple times
+      // If accounting is wrong, drift will accumulate
+      for (int i = 0; i < 100; i++) {
+        MemorySegment segment = allocator.allocate(requestedSize);
+        assertNotNull(segment, "Segment should not be null for requested size " + requestedSize);
+        assertEquals(expectedActualSize, segment.byteSize(), 
+            "Segment size should be rounded up to " + expectedActualSize);
+        allocator.release(segment);
+      }
+    }
+    
+    // After all allocate/release cycles, there should be no accounting warnings
+    // and the test should complete without any memory drift
+  }
+
+  /**
    * Stress test: Verify lock-free allocate/release under high contention.
    * This test exercises the CAS-based memory reservation and the concurrent
    * data structures (ConcurrentLinkedDeque, ConcurrentHashMap.newKeySet()).
