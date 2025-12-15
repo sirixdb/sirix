@@ -764,7 +764,7 @@ public final class ResourceConfiguration {
 
     private ByteHandlerPipeline selectDefaultByteHandler() {
       if (FFILz4Compressor.isNativeAvailable()) {
-        return new ByteHandlerPipeline(new FFILz4Compressor());
+        return new ByteHandlerPipeline();//new FFILz4Compressor());
       }
       if (requireNativeLz4) {
         throw new IllegalStateException("Native LZ4 required but not available");

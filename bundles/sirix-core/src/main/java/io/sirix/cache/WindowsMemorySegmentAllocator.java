@@ -45,6 +45,7 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
 
   private static final WindowsMemorySegmentAllocator INSTANCE = new WindowsMemorySegmentAllocator();
   private AtomicLong maxBufferSize = new AtomicLong(Long.MAX_VALUE);
+  private volatile boolean initialized = false;
 
   private WindowsMemorySegmentAllocator() {
   }
@@ -61,6 +62,12 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
     }
 
     this.maxBufferSize.set(maxSegmentAllocationSize);
+    this.initialized = true;
+  }
+  
+  @Override
+  public boolean isInitialized() {
+    return initialized;
   }
 
   @Override

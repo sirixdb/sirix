@@ -1,5 +1,10 @@
 package io.sirix.io.bytepipe;
 
+import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.cache.WindowsMemorySegmentAllocator;
+import io.sirix.utils.OS;
+
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.foreign.MemorySegment;
@@ -50,12 +55,22 @@ public final class ByteHandlerPipeline implements ByteHandler {
     this.memorySegmentSupport = checkMemorySegmentSupport();
   }
   
+  /**
+   * Check if this pipeline is empty (no handlers).
+   * An empty pipeline acts as identity - no transformation is applied.
+   * 
+   * @return true if no handlers are configured
+   */
+  public boolean isEmpty() {
+    return byteHandlers.isEmpty();
+  }
+  
   private boolean checkMemorySegmentSupport() {
-    // Pipeline supports MemorySegment if all handlers support it
-    // For single-handler pipelines (common case), this is straightforward
+    // Empty pipeline = identity operation, supports MemorySegments (Umbra-style)
     if (byteHandlers.isEmpty()) {
-      return false;
+      return true;
     }
+    // Pipeline supports MemorySegment if all handlers support it
     for (final ByteHandler handler : byteHandlers) {
       if (!handler.supportsMemorySegments()) {
         return false;
@@ -89,6 +104,11 @@ public final class ByteHandlerPipeline implements ByteHandler {
   
   @Override
   public MemorySegment compress(MemorySegment source) {
+    // Empty pipeline = identity (Umbra-style: no transformation needed)
+    if (byteHandlers.isEmpty()) {
+      return source;
+    }
+    
     if (!memorySegmentSupport) {
       throw new UnsupportedOperationException("MemorySegment compression not supported - not all handlers support it");
     }
@@ -103,6 +123,11 @@ public final class ByteHandlerPipeline implements ByteHandler {
   
   @Override
   public MemorySegment decompress(MemorySegment compressed) {
+    // Empty pipeline = identity (Umbra-style: no transformation needed)
+    if (byteHandlers.isEmpty()) {
+      return compressed;
+    }
+    
     if (!memorySegmentSupport) {
       throw new UnsupportedOperationException("MemorySegment decompression not supported - not all handlers support it");
     }
@@ -117,6 +142,46 @@ public final class ByteHandlerPipeline implements ByteHandler {
   
   @Override
   public DecompressionResult decompressScoped(MemorySegment compressed) {
+    // Empty pipeline = identity, but we MUST copy to a buffer the page can own!
+    // The input segment may be a reusable buffer (e.g., FileChannelReader's striped buffers)
+    // that will be overwritten after we return. KeyValueLeafPage's zero-copy path keeps
+    // a reference to slotMemory, so we need a buffer the page can safely own.
+    if (byteHandlers.isEmpty()) {
+      int size = (int) compressed.byteSize();
+      
+      // Try to use pooled allocator if available, otherwise fall back to heap
+      MemorySegmentAllocator allocator = OS.isWindows() 
+          ? WindowsMemorySegmentAllocator.getInstance() 
+          : LinuxMemorySegmentAllocator.getInstance();
+      
+      if (allocator.isInitialized()) {
+        // Use pooled buffer - optimal path
+        MemorySegment buffer = allocator.allocate(size);
+        MemorySegment.copy(compressed, 0, buffer, 0, size);
+        
+        // Return buffer with proper releaser so it's returned to pool when page is evicted
+        return new DecompressionResult(
+            buffer.asSlice(0, size),  // segment (correctly sized view)
+            buffer,                    // backingBuffer (full allocation for release)
+            () -> allocator.release(buffer),
+            new AtomicBoolean(false)
+        );
+      } else {
+        // Fallback: use heap-backed segment (for tests or when allocator not initialized)
+        byte[] data = new byte[size];
+        MemorySegment.copy(compressed, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, data, 0, size);
+        MemorySegment heapSegment = MemorySegment.ofArray(data);
+        
+        // No-op releaser since heap memory is GC'd
+        return new DecompressionResult(
+            heapSegment,
+            heapSegment,
+            () -> {},
+            new AtomicBoolean(false)
+        );
+      }
+    }
+    
     if (!memorySegmentSupport) {
       throw new UnsupportedOperationException("Scoped decompression not supported - not all handlers support it");
     }

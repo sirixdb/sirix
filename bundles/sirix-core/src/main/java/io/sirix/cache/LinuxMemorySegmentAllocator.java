@@ -541,6 +541,11 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   public long getMaxBufferSize() {
     return maxBufferSize.get();
   }
+  
+  @Override
+  public boolean isInitialized() {
+    return isInitialized.get();
+  }
 
   /**
    * Get current pool sizes for diagnostics.

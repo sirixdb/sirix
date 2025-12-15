@@ -15,6 +15,13 @@ public interface MemorySegmentAllocator {
   int[] SEGMENT_SIZES = { FOUR_KB, EIGHT_KB, SIXTEEN_KB, THIRTYTWO_KB, SIXTYFOUR_KB, ONE_TWENTYEIGHT_KB, TWO_FIFTYSIX_KB };
 
   void init(long maxBufferSize);
+  
+  /**
+   * Check if the allocator has been initialized.
+   * 
+   * @return true if init() has been called and completed successfully
+   */
+  boolean isInitialized();
 
   void free();
 
