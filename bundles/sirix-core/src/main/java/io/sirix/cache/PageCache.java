@@ -6,58 +6,107 @@ import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
-import org.checkerframework.checker.nullness.qual.PolyNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
+import java.util.concurrent.ConcurrentMap;
+import java.util.function.BiFunction;
 
 public final class PageCache implements Cache<PageReference, Page> {
 
-  private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> pageCache;
+  private static final Logger LOGGER = LoggerFactory.getLogger(PageCache.class);
 
-  public PageCache(final int maxSize) {
-    RemovalListener<PageReference, Page> removalListener = (PageReference key, Page value, RemovalCause cause) -> {
+  private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> cache;
+
+  public PageCache(final int maxWeight) {
+    final RemovalListener<PageReference, Page> removalListener = (PageReference key, Page page, RemovalCause cause) -> {
+      assert key != null;
       key.setPage(null);
+      assert page != null;
+
+      if (page instanceof KeyValueLeafPage keyValueLeafPage) {
+        // CRITICAL: Check guard count before closing
+        if (keyValueLeafPage.getGuardCount() > 0) {
+          // Page is actively guarded - DO NOT close
+          LOGGER.trace("PageCache: Page {} has active guards ({}), skipping close (cause={})",
+              key.getKey(), keyValueLeafPage.getGuardCount(), cause);
+          return;
+        }
+        
+        // Page handles its own cleanup
+        LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}", 
+                    key.getKey(), cause);
+        LOGGER.debug("PageCache EVICT: closing page {} cause={}", keyValueLeafPage.getPageKey(), cause);
+        keyValueLeafPage.close();
+      }
     };
 
-    pageCache = Caffeine.newBuilder()
-                        .initialCapacity(maxSize)
-                        .maximumSize(maxSize)
-                        .executor(Runnable::run)
-                        .scheduler(scheduler)
-                        .removalListener(removalListener)
-                        .build();
+    cache = Caffeine.newBuilder()
+                    .maximumWeight(maxWeight)
+                    .weigher((PageReference key, Page value) -> {
+                      if (value instanceof KeyValueLeafPage keyValueLeafPage) {
+                        // Guarded pages have zero weight (won't be evicted)
+                        if (keyValueLeafPage.getGuardCount() > 0) {
+                          return 0;
+                        }
+                        return (int) keyValueLeafPage.getActualMemorySize();
+                      } else {
+                        return 1000; // Other page types use fixed weight
+                      }
+                    })
+                    .removalListener(removalListener)
+                    .recordStats()
+                    .build();
   }
 
   @Override
-  public Page get(PageReference key, Function<? super PageReference, ? extends @PolyNull Page> mappingFunction) {
-    return pageCache.get(key, mappingFunction);
+  public ConcurrentMap<PageReference, Page> asMap() {
+    return cache.asMap();
+  }
+
+  @Override
+  public void putIfAbsent(PageReference key, Page value) {
+    assert !(value instanceof KeyValueLeafPage) || !value.isClosed();
+    cache.asMap().putIfAbsent(key, value);
+  }
+
+  @Override
+  public Page get(PageReference key, BiFunction<? super PageReference, ? super Page, ? extends Page> mappingFunction) {
+    return cache.asMap().compute(key, mappingFunction);
   }
 
   @Override
   public void clear() {
-    pageCache.invalidateAll();
+    cache.invalidateAll();
   }
 
   @Override
   public Page get(PageReference key) {
-    var page = pageCache.getIfPresent(key);
+    var page = cache.getIfPresent(key);
     return page;
   }
 
   @Override
   public void put(PageReference key, Page value) {
+    assert !(value instanceof KeyValueLeafPage);
+    
+    // PageCache is for metadata/indirect pages ONLY, not KeyValueLeafPages
+    // KeyValueLeafPages should go in RecordPageCache or RecordPageFragmentCache
+    if (value instanceof KeyValueLeafPage) {
+      throw new IllegalArgumentException("KeyValueLeafPages must not be stored in PageCache! Use RecordPageCache instead.");
+    }
+    
     if (!(value instanceof RevisionRootPage) && !(value instanceof PathSummaryPage) && !(value instanceof PathPage)
         && !(value instanceof CASPage) && !(value instanceof NamePage)) {
       assert key.getKey() != Constants.NULL_ID_LONG;
-      pageCache.put(key, value);
+      cache.put(key, value);
     }
   }
 
   @Override
   public void putAll(Map<? extends PageReference, ? extends Page> map) {
-    pageCache.putAll(map);
+    cache.putAll(map);
   }
 
   @Override
@@ -67,15 +116,81 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   @Override
   public Map<PageReference, Page> getAll(Iterable<? extends PageReference> keys) {
-    return pageCache.getAllPresent(keys);
+    return cache.getAllPresent(keys);
   }
 
   @Override
   public void remove(PageReference key) {
-    pageCache.invalidate(key);
+    cache.invalidate(key);
+  }
+
+  @Override
+  public void cleanUp() {
+    cache.cleanUp();
   }
 
   @Override
   public void close() {
+  }
+  
+  /**
+   * Get cache statistics for diagnostics.
+   */
+  public CacheStatistics getStatistics() {
+    com.github.benmanes.caffeine.cache.stats.CacheStats caffeineStats = cache.stats();
+    
+    int totalPages = 0;
+    long totalWeight = 0;
+    
+    for (Page page : cache.asMap().values()) {
+      if (page instanceof KeyValueLeafPage kvPage) {
+        totalPages++;
+        long weight = kvPage.getActualMemorySize();
+        totalWeight += weight;
+        // Guard counts available via kvPage.getGuardCount() for per-page protection tracking
+      }
+    }
+
+    return new CacheStatistics(
+        totalPages,
+        0, // pinnedPages
+        totalPages,
+        totalWeight,
+        0, // pinnedWeight
+        totalWeight,
+        caffeineStats.hitCount(),
+        caffeineStats.missCount(),
+        caffeineStats.evictionCount()
+    );
+  }
+  
+  /**
+   * Cache statistics for diagnostics.
+   */
+  public record CacheStatistics(
+      int totalPages,
+      int pinnedPages,
+      int unpinnedPages,
+      long totalWeightBytes,
+      long pinnedWeightBytes,
+      long unpinnedWeightBytes,
+      long hitCount,
+      long missCount,
+      long evictionCount
+  ) {
+    @Override
+    public String toString() {
+      return String.format(
+          "CacheStats[pages=%d (pinned=%d, unpinned=%d), " +
+          "weight=%.2fMB (pinned=%.2fMB, unpinned=%.2fMB), " +
+          "hits=%d, misses=%d, evictions=%d, hit-rate=%.1f%%]",
+          totalPages, pinnedPages, unpinnedPages,
+          totalWeightBytes / (1024.0 * 1024.0),
+          pinnedWeightBytes / (1024.0 * 1024.0),
+          unpinnedWeightBytes / (1024.0 * 1024.0),
+          hitCount, missCount, evictionCount,
+          (hitCount + missCount) > 0 ? 100.0 * hitCount / (hitCount + missCount) : 0.0
+      );
+    }
   }
 }

@@ -24,7 +24,7 @@ package io.sirix.io.filechannel;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.AbstractReader;
 import io.sirix.io.IOStorage;
@@ -38,13 +38,14 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.time.Instant;
 
 /**
- * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.
+ * File Reader. Used for {@link StorageEngineReader} to provide read only access on a RandomAccessFile.
  *
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
@@ -68,6 +69,35 @@ public final class FileChannelReader extends AbstractReader {
   private final FileChannel revisionsOffsetFileChannel;
 
   private final Cache<Integer, RevisionFileData> cache;
+  
+  /**
+   * Striped buffer pool for reading page data - virtual-thread-friendly.
+   * 
+   * <p>Unlike ThreadLocal which creates one buffer per thread (problematic with millions
+   * of virtual threads), this uses a fixed number of buffers with striping.
+   * Memory usage is bounded: O(STRIPE_COUNT) not O(num_threads).
+   * 
+   * <p>The entire read-deserialize operation is synchronized on the stripe lock,
+   * ensuring the buffer isn't reused until we're completely done with it.
+   */
+  private static final int STRIPE_COUNT = Runtime.getRuntime().availableProcessors() * 2;
+  private static final ByteBuffer[] READ_BUFFERS = new ByteBuffer[STRIPE_COUNT];
+  private static final Object[] STRIPE_LOCKS = new Object[STRIPE_COUNT];
+  
+  static {
+    for (int i = 0; i < STRIPE_COUNT; i++) {
+      STRIPE_LOCKS[i] = new Object();
+      READ_BUFFERS[i] = ByteBuffer.allocateDirect(128 * 1024).order(ByteOrder.nativeOrder());
+    }
+  }
+  
+  /**
+   * Get stripe index for current thread.
+   * Works correctly with both platform and virtual threads.
+   */
+  private static int getStripeIndex() {
+    return (int) (Thread.currentThread().threadId() % STRIPE_COUNT);
+  }
 
   /**
    * Constructor.
@@ -86,26 +116,48 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   public Page read(final @NonNull PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
-    try {
-      // Read page from file.
-      ByteBuffer buffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.nativeOrder());
-
-      final long position = reference.getKey();
-      dataFileChannel.read(buffer, position);
-
-      buffer.flip();
-      final int dataLength = buffer.getInt();
-
-      buffer = ByteBuffer.allocate(dataLength).order(ByteOrder.nativeOrder());
-
-      dataFileChannel.read(buffer, position + 4);
-      buffer.flip();
-      final byte[] page = buffer.array();
-
-      // Perform byte operations.
-      return deserialize(resourceConfiguration, page);
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
+    final int stripe = getStripeIndex();
+    
+    // Synchronize on stripe lock for the ENTIRE read-deserialize operation.
+    // This ensures the buffer isn't reused until deserialization is complete.
+    // Safe with virtual threads: memory bounded by STRIPE_COUNT, not thread count.
+    synchronized (STRIPE_LOCKS[stripe]) {
+      try {
+        final long position = reference.getKey();
+        
+        // Read page length header (4 bytes)
+        ByteBuffer buffer = READ_BUFFERS[stripe];
+        buffer.clear().limit(4);
+        dataFileChannel.read(buffer, position);
+        buffer.flip();
+        final int dataLength = buffer.getInt();
+        
+        // Grow buffer if needed (rare - only for very large pages)
+        if (buffer.capacity() < dataLength) {
+          int newSize = Math.max(dataLength, buffer.capacity() * 2);
+          buffer = ByteBuffer.allocateDirect(newSize).order(ByteOrder.nativeOrder());
+          READ_BUFFERS[stripe] = buffer;
+        }
+        
+        // Read page data
+        buffer.clear().limit(dataLength);
+        dataFileChannel.read(buffer, position + 4);
+        buffer.flip();
+        
+        // Deserialize while holding the lock (buffer safe until we return)
+        if (byteHandler.supportsMemorySegments()) {
+          // Zero-copy: wrap direct ByteBuffer as MemorySegment
+          MemorySegment segment = MemorySegment.ofBuffer(buffer);
+          return deserializeFromSegment(resourceConfiguration, segment);
+        } else {
+          // Fallback: copy to byte array for stream-based decompression
+          final byte[] page = new byte[dataLength];
+          buffer.get(page);
+          return deserialize(resourceConfiguration, page);
+        }
+      } catch (final IOException e) {
+        throw new SirixIOException(e);
+      }
     }
   }
 
@@ -120,24 +172,44 @@ public final class FileChannelReader extends AbstractReader {
 
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
-    try {
-      final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
+    final int stripe = getStripeIndex();
+    
+    // Synchronize entire read-deserialize operation (Loom-safe)
+    synchronized (STRIPE_LOCKS[stripe]) {
+      try {
+        final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
-      ByteBuffer buffer = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
-      dataFileChannel.read(buffer, dataFileOffset);
-      buffer.flip();
-      final int dataLength = buffer.getInt();
+        // Read page length header
+        ByteBuffer buffer = READ_BUFFERS[stripe];
+        buffer.clear().limit(4);
+        dataFileChannel.read(buffer, dataFileOffset);
+        buffer.flip();
+        final int dataLength = buffer.getInt();
 
-      buffer = ByteBuffer.allocateDirect(dataLength).order(ByteOrder.nativeOrder());
-      dataFileChannel.read(buffer, dataFileOffset + 4);
-      buffer.flip();
-      final byte[] page = new byte[dataLength];
-      buffer.get(page);
+        // Grow buffer if needed
+        if (buffer.capacity() < dataLength) {
+          int newSize = Math.max(dataLength, buffer.capacity() * 2);
+          buffer = ByteBuffer.allocateDirect(newSize).order(ByteOrder.nativeOrder());
+          READ_BUFFERS[stripe] = buffer;
+        }
+        
+        // Read page data
+        buffer.clear().limit(dataLength);
+        dataFileChannel.read(buffer, dataFileOffset + 4);
+        buffer.flip();
 
-      // Perform byte operations.
-      return (RevisionRootPage) deserialize(resourceConfiguration, page);
-    } catch (IOException e) {
-      throw new SirixIOException(e);
+        // Deserialize while holding the lock
+        if (byteHandler.supportsMemorySegments()) {
+          MemorySegment segment = MemorySegment.ofBuffer(buffer);
+          return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, segment);
+        } else {
+          final byte[] page = new byte[dataLength];
+          buffer.get(page);
+          return (RevisionRootPage) deserialize(resourceConfiguration, page);
+        }
+      } catch (IOException e) {
+        throw new SirixIOException(e);
+      }
     }
   }
 

@@ -84,11 +84,19 @@ public final class MMFileReader extends AbstractReader {
       final long offset = reference.getKey() + LAYOUT_INT.byteSize();
       final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
 
-      final byte[] page = new byte[dataLength];
-
-      MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
-
-      return deserialize(resourceConfiguration, page);
+      // Check if we can use zero-copy MemorySegment path (Umbra-style)
+      if (byteHandler.supportsMemorySegments()) {
+        // Slice mmap segment directly instead of copying to byte[]
+        // For empty pipeline: identity (no decompression needed)
+        // For non-empty pipeline: decompressScoped() allocates buffer from pool
+        MemorySegment pageSlice = dataFileSegment.asSlice(offset, dataLength);
+        return deserializeFromSegment(resourceConfiguration, pageSlice);
+      } else {
+        // Fallback: copy to byte[] for stream-based decompression
+        final byte[] page = new byte[dataLength];
+        MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
+        return deserialize(resourceConfiguration, page);
+      }
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -101,12 +109,19 @@ public final class MMFileReader extends AbstractReader {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
       final int dataLength = dataFileSegment.get(LAYOUT_INT, dataFileOffset);
+      final long offset = dataFileOffset + LAYOUT_INT.byteSize();
 
-      final byte[] page = new byte[dataLength];
-
-      MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, dataFileOffset + LAYOUT_INT.byteSize(), page, 0, dataLength);
-
-      return (RevisionRootPage) deserialize(resourceConfiguration, page);
+      // Check if we can use zero-copy MemorySegment path (Umbra-style)
+      if (byteHandler.supportsMemorySegments()) {
+        // Slice mmap segment directly instead of copying to byte[]
+        MemorySegment pageSlice = dataFileSegment.asSlice(offset, dataLength);
+        return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, pageSlice);
+      } else {
+        // Fallback: copy to byte[] for stream-based decompression
+        final byte[] page = new byte[dataLength];
+        MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
+        return (RevisionRootPage) deserialize(resourceConfiguration, page);
+      }
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

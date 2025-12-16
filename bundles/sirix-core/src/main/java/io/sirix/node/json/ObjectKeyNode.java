@@ -25,81 +25,106 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 package io.sirix.node.json;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import com.google.common.hash.Funnel;
+import com.google.common.hash.PrimitiveSink;
 import io.brackit.query.atomic.QNm;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
+import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
+import io.sirix.node.interfaces.NameNode;
+import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
-import io.sirix.node.interfaces.immutable.ImmutableNameNode;
-import io.sirix.node.xml.AbstractStructForwardingNode;
 import io.sirix.settings.Fixed;
-import net.openhft.chronicle.bytes.Bytes;
+import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-
-import java.nio.ByteBuffer;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
  * Node representing an object key/field.
  *
- * <strong>This class is not part of the public API and might change.</strong>
+ * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
  */
-public final class ObjectKeyNode extends AbstractStructForwardingNode implements ImmutableJsonNode, ImmutableNameNode {
+public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonNode {
 
-  /**
-   * {@link StructNodeDelegate} reference.
-   */
-  private final StructNodeDelegate structNodeDelegate;
-
-  private int nameKey;
-
-  private QNm name;
-
+  // Immutable node identity
+  private final long nodeKey;
+  
+  // Mutable structural fields
+  private long parentKey;
   private long pathNodeKey;
-
+  private long rightSiblingKey;
+  private long leftSiblingKey;
+  private long firstChildKey;
+  
+  // Name key (hash of the name string)
+  private int nameKey;
+  
+  // Mutable revision tracking
+  private int previousRevision;
+  private int lastModifiedRevision;
+  
+  // Mutable hash and descendant count
   private long hash;
+  private long descendantCount;
+  
+  // Hash function for computing node hashes
+  private final LongHashFunction hashFunction;
+  
+  // DeweyID support (lazily parsed)
+  private SirixDeweyID sirixDeweyID;
+  private byte[] deweyIDBytes;
+  
+  // Cache for name (not serialized, only nameKey is)
+  private QNm cachedName;
 
   /**
-   * Constructor
-   *
-   * @param structDel {@link StructNodeDelegate} to be set
-   * @param name      the key name
+   * Primary constructor with all primitive fields.
    */
-  public ObjectKeyNode(final StructNodeDelegate structDel, final int nameKey, final String name,
-      final long pathNodeKey) {
-    assert structDel != null;
-    assert name != null;
-    structNodeDelegate = structDel;
-    this.nameKey = nameKey;
-    this.name = new QNm(name);
+  public ObjectKeyNode(long nodeKey, long parentKey, long pathNodeKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long firstChildKey,
+      int nameKey, long descendantCount, long hash,
+      LongHashFunction hashFunction, byte[] deweyID) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
     this.pathNodeKey = pathNodeKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.firstChildKey = firstChildKey;
+    this.nameKey = nameKey;
+    this.descendantCount = descendantCount;
+    this.hash = hash;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyID;
   }
 
   /**
-   * Constructor
-   *
-   * @param hashCode    the hash code
-   * @param structDel   {@link StructNodeDelegate} to be set
-   * @param nameKey     the key of the name
-   * @param name        the String name
-   * @param pathNodeKey the path node key
+   * Constructor with SirixDeweyID instead of byte array.
    */
-  public ObjectKeyNode(final long hashCode, final StructNodeDelegate structDel, final int nameKey, final String name,
-      final long pathNodeKey) {
-    hash = hashCode;
-    assert structDel != null;
-    structNodeDelegate = structDel;
-    this.nameKey = nameKey;
-    this.name = null;
+  public ObjectKeyNode(long nodeKey, long parentKey, long pathNodeKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long firstChildKey,
+      int nameKey, long descendantCount, long hash,
+      LongHashFunction hashFunction, SirixDeweyID deweyID) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
     this.pathNodeKey = pathNodeKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.firstChildKey = firstChildKey;
+    this.nameKey = nameKey;
+    this.descendantCount = descendantCount;
+    this.hash = hash;
+    this.hashFunction = hashFunction;
+    this.sirixDeweyID = deweyID;
   }
 
   @Override
@@ -108,29 +133,53 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+  public long getNodeKey() {
+    return nodeKey;
+  }
 
-    bytes.clear();
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+  @Override
+  public long getParentKey() {
+    return parentKey;
+  }
+  
+  public void setParentKey(final long parentKey) {
+    this.parentKey = parentKey;
+  }
 
-    bytes.writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
+  @Override
+  public boolean hasParent() {
+    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
-    }
+  @Override
+  public boolean isSameItem(@Nullable Node other) {
+    return other != null && other.getNodeKey() == nodeKey;
+  }
 
-    bytes.writeInt(nameKey);
+  @Override
+  public void setTypeKey(final int typeKey) {
+    // Not supported for JSON nodes
+  }
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
+  @Override
+  public void setDeweyID(final SirixDeweyID id) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = null;
+  }
 
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
+  @Override
+  public void setPreviousRevision(final int revision) {
+    this.previousRevision = revision;
+  }
+
+  @Override
+  public void setLastModifiedRevision(final int revision) {
+    this.lastModifiedRevision = revision;
+  }
+
+  @Override
+  public long getHash() {
+    return hash;
   }
 
   @Override
@@ -139,8 +188,24 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
   }
 
   @Override
-  public long getHash() {
-    return hash;
+  public long computeHash(BytesOut<?> bytes) {
+    bytes.clear();
+    bytes.writeLong(getNodeKey())
+         .writeLong(getParentKey())
+         .writeByte(getKind().getId());
+
+    bytes.writeLong(getDescendantCount())
+         .writeLong(getLeftSiblingKey())
+         .writeLong(getRightSiblingKey())
+         .writeLong(getFirstChildKey());
+
+    if (getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+      bytes.writeLong(getLastChildKey());
+    }
+
+    bytes.writeInt(getNameKey());
+
+    return hashFunction.hashBytes(bytes.toByteArray());
   }
 
   public int getNameKey() {
@@ -151,8 +216,172 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     this.nameKey = nameKey;
   }
 
+  public QNm getName() {
+    return cachedName;
+  }
+
   public void setName(final String name) {
-    this.name = new QNm(name);
+    this.cachedName = new QNm(name);
+  }
+
+  // NameNode interface methods
+  public int getLocalNameKey() {
+    return nameKey;
+  }
+
+  public int getPrefixKey() {
+    return -1;
+  }
+
+  public void setPrefixKey(final int prefixKey) {
+    // Not supported for JSON nodes
+  }
+
+  public int getURIKey() {
+    return -1;
+  }
+
+  public void setURIKey(final int uriKey) {
+    // Not supported for JSON nodes
+  }
+
+  public void setLocalNameKey(final int localNameKey) {
+    this.nameKey = localNameKey;
+  }
+
+  public long getPathNodeKey() {
+    return pathNodeKey;
+  }
+
+  public void setPathNodeKey(final @NonNegative long pathNodeKey) {
+    this.pathNodeKey = pathNodeKey;
+  }
+
+  @Override
+  public long getRightSiblingKey() {
+    return rightSiblingKey;
+  }
+  
+  public void setRightSiblingKey(final long rightSibling) {
+    this.rightSiblingKey = rightSibling;
+  }
+
+  @Override
+  public long getLeftSiblingKey() {
+    return leftSiblingKey;
+  }
+  
+  public void setLeftSiblingKey(final long leftSibling) {
+    this.leftSiblingKey = leftSibling;
+  }
+
+  @Override
+  public long getFirstChildKey() {
+    return firstChildKey;
+  }
+  
+  public void setFirstChildKey(final long firstChild) {
+    this.firstChildKey = firstChild;
+  }
+
+  @Override
+  public long getLastChildKey() {
+    // ObjectKeyNode only has one child (the value), so first == last
+    return firstChildKey;
+  }
+
+  public void setLastChildKey(final long lastChild) {
+    // Not used for ObjectKeyNode
+  }
+
+  @Override
+  public long getChildCount() {
+    // ObjectKeyNode always has exactly 1 child (the value)
+    return 1;
+  }
+
+  public void setChildCount(final long childCount) {
+    // Not stored for ObjectKeyNode
+  }
+
+  @Override
+  public void incrementChildCount() {
+    // Not supported for ObjectKeyNode - always has 1 child
+  }
+
+  @Override
+  public void decrementChildCount() {
+    // Not supported for ObjectKeyNode - always has 1 child
+  }
+
+  @Override
+  public long getDescendantCount() {
+    return descendantCount;
+  }
+
+  @Override
+  public void setDescendantCount(final long descendantCount) {
+    this.descendantCount = descendantCount;
+  }
+
+  @Override
+  public void decrementDescendantCount() {
+    descendantCount--;
+  }
+
+  @Override
+  public void incrementDescendantCount() {
+    descendantCount++;
+  }
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    return previousRevision;
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    return lastModifiedRevision;
+  }
+
+  public int getTypeKey() {
+    return -1;
+  }
+
+  @Override
+  public boolean hasFirstChild() {
+    return firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public boolean hasLastChild() {
+    return firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public boolean hasLeftSibling() {
+    return leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public boolean hasRightSibling() {
+    return rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public @Nullable SirixDeweyID getDeweyID() {
+    if (sirixDeweyID == null && deweyIDBytes != null) {
+      sirixDeweyID = new SirixDeweyID(deweyIDBytes);
+    }
+    return sirixDeweyID;
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    if (deweyIDBytes == null && sirixDeweyID != null) {
+      deweyIDBytes = sirixDeweyID.toBytes();
+    }
+    return deweyIDBytes;
   }
 
   @Override
@@ -160,63 +389,30 @@ public final class ObjectKeyNode extends AbstractStructForwardingNode implements
     return visitor.visit(ImmutableObjectKeyNode.of(this));
   }
 
-  @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("name", name)
-                      .add("nameKey", nameKey)
-                      .add("structDelegate", structNodeDelegate)
-                      .toString();
+  public LongHashFunction getHashFunction() {
+    return hashFunction;
   }
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(name, nameKey, delegate());
+  public String toString() {
+    return "ObjectKeyNode{" +
+        "nodeKey=" + nodeKey +
+        ", parentKey=" + parentKey +
+        ", nameKey=" + nameKey +
+        ", pathNodeKey=" + pathNodeKey +
+        ", rightSiblingKey=" + rightSiblingKey +
+        ", leftSiblingKey=" + leftSiblingKey +
+        ", firstChildKey=" + firstChildKey +
+        '}';
   }
 
-  @Override
-  public boolean equals(final Object obj) {
-    if (!(obj instanceof final ObjectKeyNode other))
-      return false;
-
-    return Objects.equal(name, other.name) && nameKey == other.nameKey && Objects.equal(delegate(), other.delegate());
-  }
-
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return structNodeDelegate.getNodeDelegate();
-  }
-
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
-
-  public ObjectKeyNode setPathNodeKey(final @NonNegative long pathNodeKey) {
-    this.pathNodeKey = pathNodeKey;
-    return this;
-  }
-
-  @Override
-  public int getLocalNameKey() {
-    return nameKey;
-  }
-
-  @Override
-  public int getPrefixKey() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public int getURIKey() {
-    throw new UnsupportedOperationException();
-  }
-
-  public long getPathNodeKey() {
-    return pathNodeKey;
-  }
-
-  public QNm getName() {
-    return name;
+  public static Funnel<ObjectKeyNode> getFunnel() {
+    return (ObjectKeyNode node, PrimitiveSink into) -> {
+      into.putLong(node.getParentKey())
+          .putInt(node.getNameKey())
+          .putLong(node.getPathNodeKey())
+          .putLong(node.getRightSiblingKey())
+          .putLong(node.getLeftSiblingKey())
+          .putLong(node.getFirstChildKey());
+    };
   }
 }

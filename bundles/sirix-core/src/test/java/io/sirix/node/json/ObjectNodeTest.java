@@ -21,25 +21,24 @@
 
 package io.sirix.node.json;
 
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.bytes.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
 import io.sirix.api.Database;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
@@ -48,7 +47,7 @@ import static org.junit.Assert.*;
  */
 public class ObjectNodeTest {
 
-  private PageTrx pageTrx;
+  private StorageEngineWriter pageTrx;
 
   private Database<JsonResourceSession> database;
 
@@ -67,22 +66,38 @@ public class ObjectNodeTest {
 
   @Test
   public void testNode() throws IOException {
-    final NodeDelegate del = new NodeDelegate(13,
-                                              14,
-                                              LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER,
-                                              0,
-                                              SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
-    final ObjectNode node = new ObjectNode(strucDel);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    // Create node directly with primitive constructor
+    final var hashFunction = LongHashFunction.xx3();
+    final ObjectNode node = new ObjectNode(
+        13L, // nodeKey
+        14L, // parentKey
+        Constants.NULL_REVISION_NUMBER, // previousRevision
+        0, // lastModifiedRevision
+        16L, // rightSiblingKey
+        15L, // leftSiblingKey
+        Fixed.NULL_NODE_KEY.getStandardProperty(), // firstChildKey
+        Fixed.NULL_NODE_KEY.getStandardProperty(), // lastChildKey
+        0, // childCount
+        0, // descendantCount
+        0, // hash
+        hashFunction,
+        (byte[]) null // deweyID
+    );
     check(node);
 
+    // Use a simplified ResourceConfiguration without optional fields
+    final var config = ResourceConfiguration.newBuilder("test")
+        .hashKind(HashType.NONE)
+        .storeChildCount(false)
+        .build();
+
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
-    final ObjectNode node2 = (ObjectNode) NodeKind.OBJECT.deserialize(data, node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
+    NodeKind.OBJECT.serialize(data, node, config);
+    
+    var bytesIn = data.asBytesIn();
+    final ObjectNode node2 = (ObjectNode) NodeKind.OBJECT.deserialize(
+        bytesIn, node.getNodeKey(), null, config);
     check(node2);
   }
 

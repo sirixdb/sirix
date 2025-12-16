@@ -1,12 +1,13 @@
 package io.sirix.page.interfaces;
 
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.PageReference;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
+import java.lang.foreign.MemorySegment;
 import java.util.Map.Entry;
 import java.util.Set;
 
@@ -27,16 +28,17 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
 
   /**
    * All slots.
+   *
    * @return all slots
    */
-  byte[][] slots();
+  MemorySegment slots();
 
   /**
    * All deweyIds.
+   *
    * @return all deweyIDs
    */
-  byte[][] deweyIds();
-
+  MemorySegment deweyIds();
 
   /**
    * Get the unique page record identifier.
@@ -45,9 +47,17 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
    */
   long getPageKey();
 
-  byte[] getSlot(int slotNumber);
+  void setSlot(MemorySegment data, int slotNumber);
 
-  byte[] getDeweyId(int offset);
+  int getUsedDeweyIdSize();
+
+  int getUsedSlotsSize();
+
+  byte[] getSlotAsByteArray(int slotNumber);
+
+  byte[] getDeweyIdAsByteArray(int offset);
+
+  MemorySegment getDeweyId(int offset);
 
   /**
    * Store or overwrite a single entry. The implementation must make sure if the key must be
@@ -63,6 +73,8 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
 
   Set<Entry<Long, PageReference>> referenceEntrySet();
 
+  boolean isClosed();
+
   /**
    * Store or overwrite a single reference associated with a key for overlong entries. That is
    * entries which are larger than a predefined threshold are written to OverflowPages and thus are
@@ -77,7 +89,11 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
 
   void setSlot(byte[] recordData, int offset);
 
+  MemorySegment getSlot(int slotNumber);
+
   void setDeweyId(byte[] deweyId, int offset);
+
+  void setDeweyId(MemorySegment deweyId, int offset);
 
   /**
    * Create a new instance.
@@ -88,9 +104,7 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
    * @return a new {@link KeyValuePage} instance
    */
   <C extends KeyValuePage<V>> C newInstance(@NonNegative long recordPageKey,
-      @NonNull IndexType indexType, @NonNull PageReadOnlyTrx pageReadTrx);
-
-  <C extends KeyValuePage<V>> C copy();
+      @NonNull IndexType indexType, @NonNull StorageEngineReader pageReadTrx);
 
   /**
    * Get the index type.

@@ -31,7 +31,7 @@ package io.sirix.io;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;

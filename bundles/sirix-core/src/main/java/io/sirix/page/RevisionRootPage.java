@@ -36,8 +36,8 @@ import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.page.interfaces.Page;
@@ -395,7 +395,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * {@inheritDoc}
    */
   @Override
-  public void commit(@NonNull final PageTrx pageWriteTrx) {
+  public void commit(@NonNull final StorageEngineWriter pageWriteTrx) {
     if (revision == pageWriteTrx.getUberPage().getRevisionNumber()) {
       super.commit(pageWriteTrx);
     }
@@ -473,10 +473,10 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Initialize document index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx  {@link PageReadOnlyTrx} instance
+   * @param pageReadTrx  {@link StorageEngineReader} instance
    * @param log          the transaction intent log
    */
-  public void createDocumentIndexTree(final DatabaseType databaseType, final PageReadOnlyTrx pageReadTrx,
+  public void createDocumentIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
       final TransactionIntentLog log) {
     PageReference reference = getIndirectDocumentIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
@@ -490,10 +490,10 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Initialize record to revisions index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx  {@link PageReadOnlyTrx} instance
+   * @param pageReadTrx  {@link StorageEngineReader} instance
    * @param log          the transaction intent log
    */
-  public void createChangedNodesIndexTree(final DatabaseType databaseType, final PageReadOnlyTrx pageReadTrx,
+  public void createChangedNodesIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
       final TransactionIntentLog log) {
     PageReference reference = getIndirectChangedNodesIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
@@ -507,10 +507,10 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Initialize changed records index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx  {@link PageReadOnlyTrx} instance
+   * @param pageReadTrx  {@link StorageEngineReader} instance
    * @param log          the transaction intent log
    */
-  public void createRecordToRevisionsIndexTree(final DatabaseType databaseType, final PageReadOnlyTrx pageReadTrx,
+  public void createRecordToRevisionsIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
       final TransactionIntentLog log) {
     PageReference reference = getIndirectRecordToRevisionsIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG

@@ -3,7 +3,7 @@ package io.sirix.node.interfaces.immutable;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.nio.ByteBuffer;
@@ -39,7 +39,7 @@ public interface ImmutableNode extends DataRecord {
    * @param bytes the bytes to serialize the node to before hashing
    * @return the computed hash code
    */
-  long computeHash(Bytes<ByteBuffer> bytes);
+  long computeHash(BytesOut<?> bytes);
 
   /**
    * Gets key of the context item's parent.

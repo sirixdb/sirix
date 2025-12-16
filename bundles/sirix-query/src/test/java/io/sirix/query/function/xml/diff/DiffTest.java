@@ -67,8 +67,8 @@ public final class DiffTest {
   public void setUp() throws SirixException {
     XmlTestHelper.deleteEverything();
     holder = Holder.generateWtx();
-    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().close();
+    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXmlNodeTrx());
+    holder.getXmlNodeTrx().close();
   }
 
   @After

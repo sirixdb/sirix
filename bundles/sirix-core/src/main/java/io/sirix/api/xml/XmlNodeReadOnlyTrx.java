@@ -111,7 +111,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @return The page reading transaction.
    */
   @Override
-  PageReadOnlyTrx getPageTrx();
+  StorageEngineReader getPageTrx();
 
   // --- Node Selectors
   // --------------------------------------------------------

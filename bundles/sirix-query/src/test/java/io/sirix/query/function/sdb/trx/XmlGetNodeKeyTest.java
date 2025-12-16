@@ -69,9 +69,9 @@ public final class XmlGetNodeKeyTest {
 
   @Test
   public void test() throws QueryException {
-    XmlDocumentCreator.create(holder.getXdmNodeWriteTrx());
-    holder.getXdmNodeWriteTrx().commit();
-    holder.getXdmNodeWriteTrx().close();
+    XmlDocumentCreator.create(holder.getXmlNodeTrx());
+    holder.getXmlNodeTrx().commit();
+    holder.getXmlNodeTrx().close();
 
     final Path database = PATHS.PATH1.getFile();
 

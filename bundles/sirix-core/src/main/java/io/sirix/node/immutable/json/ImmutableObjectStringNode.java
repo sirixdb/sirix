@@ -7,7 +7,7 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.node.json.ObjectStringNode;
 
@@ -156,11 +156,11 @@ public final class ImmutableObjectStringNode extends AbstractImmutableJsonStruct
 
   @Override
   public StructNode structDelegate() {
-    return node.getStructNodeDelegate();
+    return node;
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     return node.computeHash(bytes);
   }
 

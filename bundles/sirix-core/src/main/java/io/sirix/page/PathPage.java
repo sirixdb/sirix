@@ -36,7 +36,7 @@ import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.page.delegates.ReferencesPage4;
@@ -112,11 +112,11 @@ public final class PathPage extends AbstractForwardingPage {
    * Initialize path index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx  {@link PageReadOnlyTrx} instance
+   * @param pageReadTrx  {@link StorageEngineReader} instance
    * @param index        the index number
    * @param log          the transaction intent log
    */
-  public void createPathIndexTree(final DatabaseType databaseType, final PageReadOnlyTrx pageReadTrx, final int index,
+  public void createPathIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx, final int index,
       final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {

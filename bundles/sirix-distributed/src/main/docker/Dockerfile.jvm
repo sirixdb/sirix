@@ -14,7 +14,7 @@
 # docker run -i --rm -p 8080:8080 quarkus/distributed-jvm
 #
 ###
-FROM fabric8/java-alpine-openjdk8-jre:1.6.5
+FROM eclipse-temurin:25-jre-alpine
 ENV JAVA_OPTIONS="-Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager"
 ENV AB_ENABLED=jmx_exporter
 
