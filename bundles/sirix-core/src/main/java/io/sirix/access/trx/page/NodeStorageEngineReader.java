@@ -489,15 +489,19 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && isMostRecentlyReadPathSummaryPage(indexLogKey)) {
       var page = pathSummaryRecordPage.page();
 
-      // Fast path: Validate page directly without going through cache
-      // This is the whole point of having a local cache - avoid cache lookups
-      if (!page.isClosed()) {
-        closeCurrentPageGuard();
-        currentPageGuard = new PageGuard(page);
-
+      // Fast path: Try to use locally cached page
+      // CRITICAL: Acquire guard FIRST, then verify page is still valid
+      // This prevents TOCTOU race where page is closed between check and guard acquisition
+      closeCurrentPageGuard();
+      page.acquireGuard();
+      
+      // Now check if page is still valid (not closed, memory not released)
+      if (!page.isClosed() && page.getSlotMemory() != null) {
+        currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
         return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
       } else {
-        // Page was closed/evicted - clear stale reference
+        // Page was closed/evicted - release guard and clear stale reference
+        page.releaseGuard();
         pathSummaryRecordPage = null;
         // Fall through to reload
       }
@@ -511,15 +515,19 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (cachedPage != null) {
       var page = cachedPage.page();
 
-      // Fast path: Validate page directly without going through cache
-      // This is the whole point of having a local cache - avoid cache lookups
-      if (!page.isClosed()) {
-        closeCurrentPageGuard();
-        currentPageGuard = new PageGuard(page);
-
+      // Fast path: Try to use locally cached page  
+      // CRITICAL: Acquire guard FIRST, then verify page is still valid
+      // This prevents TOCTOU race where page is closed between check and guard acquisition
+      closeCurrentPageGuard();
+      page.acquireGuard();
+      
+      // Now check if page is still valid (not closed, memory not released)
+      if (!page.isClosed() && page.getSlotMemory() != null) {
+        currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
         return new PageReferenceToPage(cachedPage.pageReference, page);
       } else {
-        // Page was closed/evicted - clear stale reference
+        // Page was closed/evicted - release guard and clear stale reference
+        page.releaseGuard();
         setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), null);
         cachedPage = null;
         // Fall through to reload
@@ -898,12 +906,17 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         }
 
         // Fast path: Use swizzled page directly if still valid
-        // Swizzled pages are already in memory - just need to acquire guard
-        if (!kvLeafPage.isClosed()) {
-          closeCurrentPageGuard();
-          currentPageGuard = new PageGuard(kvLeafPage);
+        // CRITICAL: Acquire guard FIRST, then verify page is still valid
+        // This prevents TOCTOU race where page is closed between check and guard acquisition
+        closeCurrentPageGuard();
+        kvLeafPage.acquireGuard();
+        
+        // Now check if page is still valid (not closed, memory not released)
+        if (!kvLeafPage.isClosed() && kvLeafPage.getSlotMemory() != null) {
+          currentPageGuard = PageGuard.wrapAlreadyGuarded(kvLeafPage);
         } else {
-          // Swizzled page was closed - need to reload
+          // Swizzled page was closed - release guard and reload
+          kvLeafPage.releaseGuard();
           pageReferenceToRecordPage.setPage(null);  // Clear stale swizzled reference
           return null;  // Signal caller to reload
         }
