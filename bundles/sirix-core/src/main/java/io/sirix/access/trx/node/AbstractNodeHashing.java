@@ -230,13 +230,13 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         // the parent node is just removed
         newHash = node.getHash() - hashToRemove * PRIME;
         hashToRemove = node.getHash();
-        setRemoveDescendants(startNode);
+        setRemoveDescendants(startNode, node);
       } else {
         // the ancestors are all touched regarding the modification
         newHash = node.getHash() - hashToRemove * PRIME;
         newHash = newHash + hashToAdd * PRIME;
         hashToRemove = node.getHash();
-        setRemoveDescendants(startNode);
+        setRemoveDescendants(startNode, node);
       }
       node.setHash(newHash);
       hashToAdd = newHash;
@@ -249,12 +249,12 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    * Set new descendant count of ancestor after a remove-operation.
    *
    * @param startNode the node which has been removed
+   * @param ancestorNode the ancestor node to update (from prepareRecordForModification)
    */
-  private void setRemoveDescendants(final ImmutableNode startNode) {
+  private void setRemoveDescendants(final ImmutableNode startNode, final Node ancestorNode) {
     assert startNode != null;
-    if (startNode instanceof StructNode startNodeAsStructNode) {
-      final StructNode node = getStructuralNode();
-      node.setDescendantCount(node.getDescendantCount() - startNodeAsStructNode.getDescendantCount() - 1);
+    if (startNode instanceof StructNode startNodeAsStructNode && ancestorNode instanceof StructNode structAncestor) {
+      structAncestor.setDescendantCount(structAncestor.getDescendantCount() - startNodeAsStructNode.getDescendantCount() - 1);
     }
   }
 
@@ -274,8 +274,11 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     long possibleOldHash = 0L;
 
     if (isValueNode(startNode)) {
-      nodeReadOnlyTrx.moveTo(startNode.getParentKey());
       hashToAdd = startNode.computeHash(bytes);
+      // Set hash on value node so it can be serialized with metadata
+      final Node valueNode = pageTrx.prepareRecordForModification(startNode.getNodeKey(), IndexType.DOCUMENT, -1);
+      valueNode.setHash(hashToAdd);
+      nodeReadOnlyTrx.moveTo(startNode.getParentKey());
     } else {
       if (startNode.getHash() == 0L) {
         hashToAdd = startNode.computeHash(bytes);

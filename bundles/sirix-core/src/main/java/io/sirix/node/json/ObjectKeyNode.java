@@ -30,8 +30,6 @@ package io.sirix.node.json;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.PrimitiveSink;
 import io.brackit.query.atomic.QNm;
-import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.BytesOut;
@@ -47,137 +45,86 @@ import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.lang.foreign.MemoryLayout;
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.lang.invoke.VarHandle;
-
 /**
  * Node representing an object key/field.
  *
- * <p><strong>All instances are backed by MemorySegment for consistent memory layout.</strong></p>
- * <p><strong>Uses MemoryLayout and VarHandles for type-safe field access.</strong></p>
- * <p><strong>This class is not part of the public API and might change.</strong></p>
+ * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
  */
 public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonNode {
 
-  // MemorySegment layout with FULLY ALIGNED fields for optimal performance:
-  // NodeDelegate data (16 bytes):
-  //   - parentKey (8 bytes)            - offset 0
-  //   - previousRevision (4 bytes)     - offset 8
-  //   - lastModifiedRevision (4 bytes) - offset 12
-  // Fixed fields (36 bytes) - longs first for alignment:
-  //   - pathNodeKey (8 bytes)          - offset 16 ✅ ALIGNED (16 % 8 = 0)
-  //   - rightSiblingKey (8 bytes)      - offset 24 ✅ ALIGNED
-  //   - leftSiblingKey (8 bytes)       - offset 32 ✅ ALIGNED
-  //   - firstChildKey (8 bytes)        - offset 40 ✅ ALIGNED
-  //   - nameKey (4 bytes)              - offset 48 (moved to end)
-  // Optional fields (only if hashType != NONE):
-  //   - hash (8 bytes)                 - offset 52 (unaligned, unavoidable)
-  //   - descendantCount (8 bytes)      - offset 60
-
-  /**
-   * Core layout (always present) - 52 bytes total
-   * Uses UNALIGNED layouts since the MemorySegment from deserialization 
-   * may not be 8-byte aligned (depends on stream position)
-   */
-  public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
-      // NodeDelegate fields
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
-      ValueLayout.JAVA_INT_UNALIGNED.withName("previousRevision"),              // offset 8
-      ValueLayout.JAVA_INT_UNALIGNED.withName("lastModifiedRevision"),          // offset 12
-      // Fixed ObjectKeyNode fields
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("pathNodeKey"),                  // offset 16
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("rightSiblingKey"),              // offset 24
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("leftSiblingKey"),               // offset 32
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("firstChildKey"),                // offset 40
-      ValueLayout.JAVA_INT_UNALIGNED.withName("nameKey")                        // offset 48
-  );
-
-  /**
-   * Optional hash layout (only when hashType != NONE) - 16 bytes
-   * Note: These must use UNALIGNED because they come after a 4-byte int at offset 48
-   */
-  public static final MemoryLayout HASH_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash"),               // offset 52 (unavoidable unalignment)
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("descendantCount")     // offset 60
-  );
-
-  // VarHandles for type-safe field access
-  private static final VarHandle PARENT_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("parentKey"));
-  private static final VarHandle PREVIOUS_REVISION_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("previousRevision"));
-  private static final VarHandle LAST_MODIFIED_REVISION_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("lastModifiedRevision"));
-  private static final VarHandle PATH_NODE_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("pathNodeKey"));
-  private static final VarHandle RIGHT_SIBLING_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("rightSiblingKey"));
-  private static final VarHandle LEFT_SIBLING_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("leftSiblingKey"));
-  private static final VarHandle FIRST_CHILD_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("firstChildKey"));
-  private static final VarHandle NAME_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("nameKey"));
-  
-  // VarHandles for optional hash fields (offset by CORE_LAYOUT.byteSize())
-  private static final VarHandle HASH_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("hash"));
-  private static final VarHandle DESCENDANT_COUNT_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("descendantCount"));
-
-  // All nodes are MemorySegment-based
-  private final MemorySegment segment;
+  // Immutable node identity
   private final long nodeKey;
-  private final ResourceConfiguration resourceConfig;
   
-  // DeweyID support (stored separately, not in MemorySegment)
+  // Mutable structural fields
+  private long parentKey;
+  private long pathNodeKey;
+  private long rightSiblingKey;
+  private long leftSiblingKey;
+  private long firstChildKey;
+  
+  // Name key (hash of the name string)
+  private int nameKey;
+  
+  // Mutable revision tracking
+  private int previousRevision;
+  private int lastModifiedRevision;
+  
+  // Mutable hash and descendant count
+  private long hash;
+  private long descendantCount;
+  
+  // Hash function for computing node hashes
+  private final LongHashFunction hashFunction;
+  
+  // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
   
-  // Cache for name (not stored in MemorySegment, only nameKey is serialized)
+  // Cache for name (not serialized, only nameKey is)
   private QNm cachedName;
-  
-  // Cached offsets for maximum performance (computed once at construction)
-  private final long hashOffset;
-  private final long descendantCountOffset;
 
   /**
-   * Constructor for MemorySegment-based ObjectKeyNode
-   *
-   * @param segment        the MemorySegment containing all node data
-   * @param nodeKey        the node key (record ID)
-   * @param resourceConfig the resource configuration
+   * Primary constructor with all primitive fields.
    */
-  public ObjectKeyNode(final MemorySegment segment, final long nodeKey, final byte[] deweyID,
-      final ResourceConfiguration resourceConfig) {
-    this.deweyIDBytes = deweyID;
-    this.segment = segment;
+  public ObjectKeyNode(long nodeKey, long parentKey, long pathNodeKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long firstChildKey,
+      int nameKey, long descendantCount, long hash,
+      LongHashFunction hashFunction, byte[] deweyID) {
     this.nodeKey = nodeKey;
-    this.resourceConfig = resourceConfig;
-    this.cachedName = null;
-   
-    // Compute offsets once for maximum performance
-    // ObjectKeyNode does not store childCount, hash is after core layout + 4 bytes padding
-    this.hashOffset = CORE_LAYOUT.byteSize() + 4; // +4 for alignment padding
-    // descendantCount is accessed via HASH_LAYOUT VarHandle, which adds offset within struct
-    this.descendantCountOffset = CORE_LAYOUT.byteSize() + 4; // Same as hashOffset
+    this.parentKey = parentKey;
+    this.pathNodeKey = pathNodeKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.firstChildKey = firstChildKey;
+    this.nameKey = nameKey;
+    this.descendantCount = descendantCount;
+    this.hash = hash;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyID;
   }
 
-  public ObjectKeyNode(final MemorySegment segment, final long nodeKey, final SirixDeweyID id,
-      final ResourceConfiguration resourceConfig) {
-    this.segment = segment;
+  /**
+   * Constructor with SirixDeweyID instead of byte array.
+   */
+  public ObjectKeyNode(long nodeKey, long parentKey, long pathNodeKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long firstChildKey,
+      int nameKey, long descendantCount, long hash,
+      LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
-    this.sirixDeweyID = id;
-    this.resourceConfig = resourceConfig;
-    this.cachedName = null;
-    
-    // Compute offsets once for maximum performance
-    // ObjectKeyNode does not store childCount, hash is after core layout + 4 bytes padding
-    this.hashOffset = CORE_LAYOUT.byteSize() + 4; // +4 for alignment padding
-    // descendantCount is accessed via HASH_LAYOUT VarHandle, which adds offset within struct
-    this.descendantCountOffset = CORE_LAYOUT.byteSize() + 4; // Same as hashOffset
+    this.parentKey = parentKey;
+    this.pathNodeKey = pathNodeKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.firstChildKey = firstChildKey;
+    this.nameKey = nameKey;
+    this.descendantCount = descendantCount;
+    this.hash = hash;
+    this.hashFunction = hashFunction;
+    this.sirixDeweyID = deweyID;
   }
 
   @Override
@@ -192,16 +139,16 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   @Override
   public long getParentKey() {
-    return (long) PARENT_KEY_HANDLE.get(segment, 0L);
+    return parentKey;
   }
   
   public void setParentKey(final long parentKey) {
-    PARENT_KEY_HANDLE.set(segment, 0L, parentKey);
+    this.parentKey = parentKey;
   }
 
   @Override
   public boolean hasParent() {
-    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -211,38 +158,33 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   @Override
   public void setTypeKey(final int typeKey) {
-    // Not supported for MemorySegment-backed JSON nodes
+    // Not supported for JSON nodes
   }
 
   @Override
   public void setDeweyID(final SirixDeweyID id) {
     this.sirixDeweyID = id;
-    this.deweyIDBytes = null; // Clear cached bytes
+    this.deweyIDBytes = null;
   }
 
   @Override
   public void setPreviousRevision(final int revision) {
-    PREVIOUS_REVISION_HANDLE.set(segment, 0L, revision);
+    this.previousRevision = revision;
   }
 
   @Override
   public void setLastModifiedRevision(final int revision) {
-    LAST_MODIFIED_REVISION_HANDLE.set(segment, 0L, revision);
+    this.lastModifiedRevision = revision;
   }
 
   @Override
   public long getHash() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      return (long) HASH_HANDLE.get(segment, hashOffset);
-    }
-    return 0;
+    return hash;
   }
 
   @Override
   public void setHash(final long hash) {
-    if (resourceConfig.hashType != HashType.NONE) {
-      HASH_HANDLE.set(segment, hashOffset, hash);
-    }
+    this.hash = hash;
   }
 
   @Override
@@ -263,15 +205,15 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
     bytes.writeInt(getNameKey());
 
-    return getHashFunction().hashBytes(bytes.toByteArray());
+    return hashFunction.hashBytes(bytes.toByteArray());
   }
 
   public int getNameKey() {
-    return (int) NAME_KEY_HANDLE.get(segment, 0L);
+    return nameKey;
   }
 
   public void setNameKey(final int nameKey) {
-    NAME_KEY_HANDLE.set(segment, 0L, nameKey);
+    this.nameKey = nameKey;
   }
 
   public QNm getName() {
@@ -282,13 +224,13 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     this.cachedName = new QNm(name);
   }
 
-  // NameNode interface methods (required for JSON object keys)
+  // NameNode interface methods
   public int getLocalNameKey() {
-    return getNameKey();
+    return nameKey;
   }
 
   public int getPrefixKey() {
-    return -1; // No prefix for JSON keys
+    return -1;
   }
 
   public void setPrefixKey(final int prefixKey) {
@@ -296,7 +238,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   public int getURIKey() {
-    return -1; // No URI for JSON keys
+    return -1;
   }
 
   public void setURIKey(final int uriKey) {
@@ -304,48 +246,48 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   public void setLocalNameKey(final int localNameKey) {
-    setNameKey(localNameKey);
+    this.nameKey = localNameKey;
   }
 
   public long getPathNodeKey() {
-    return (long) PATH_NODE_KEY_HANDLE.get(segment, 0L);
+    return pathNodeKey;
   }
 
   public void setPathNodeKey(final @NonNegative long pathNodeKey) {
-    PATH_NODE_KEY_HANDLE.set(segment, 0L, pathNodeKey);
+    this.pathNodeKey = pathNodeKey;
   }
 
   @Override
   public long getRightSiblingKey() {
-    return (long) RIGHT_SIBLING_KEY_HANDLE.get(segment, 0L);
+    return rightSiblingKey;
   }
   
   public void setRightSiblingKey(final long rightSibling) {
-    RIGHT_SIBLING_KEY_HANDLE.set(segment, 0L, rightSibling);
+    this.rightSiblingKey = rightSibling;
   }
 
   @Override
   public long getLeftSiblingKey() {
-    return (long) LEFT_SIBLING_KEY_HANDLE.get(segment, 0L);
+    return leftSiblingKey;
   }
   
   public void setLeftSiblingKey(final long leftSibling) {
-    LEFT_SIBLING_KEY_HANDLE.set(segment, 0L, leftSibling);
+    this.leftSiblingKey = leftSibling;
   }
 
   @Override
   public long getFirstChildKey() {
-    return (long) FIRST_CHILD_KEY_HANDLE.get(segment, 0L);
+    return firstChildKey;
   }
   
   public void setFirstChildKey(final long firstChild) {
-    FIRST_CHILD_KEY_HANDLE.set(segment, 0L, firstChild);
+    this.firstChildKey = firstChild;
   }
 
   @Override
   public long getLastChildKey() {
     // ObjectKeyNode only has one child (the value), so first == last
-    return getFirstChildKey();
+    return firstChildKey;
   }
 
   public void setLastChildKey(final long lastChild) {
@@ -374,67 +316,56 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   @Override
   public long getDescendantCount() {
-    if (resourceConfig.hashType == HashType.NONE) {
-      return 0;
-    }
-    return (long) DESCENDANT_COUNT_HANDLE.get(segment, descendantCountOffset);
+    return descendantCount;
   }
 
   @Override
   public void setDescendantCount(final long descendantCount) {
-    if (resourceConfig.hashType != HashType.NONE) {
-      DESCENDANT_COUNT_HANDLE.set(segment, descendantCountOffset, descendantCount);
-    }
+    this.descendantCount = descendantCount;
   }
 
   @Override
   public void decrementDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      final long descendantCount = getDescendantCount();
-      setDescendantCount(descendantCount - 1);
-    }
+    descendantCount--;
   }
 
   @Override
   public void incrementDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      final long descendantCount = getDescendantCount();
-      setDescendantCount(descendantCount + 1);
-    }
+    descendantCount++;
   }
 
   @Override
   public int getPreviousRevisionNumber() {
-    return (int) PREVIOUS_REVISION_HANDLE.get(segment, 0L);
+    return previousRevision;
   }
 
   @Override
   public int getLastModifiedRevisionNumber() {
-    return (int) LAST_MODIFIED_REVISION_HANDLE.get(segment, 0L);
+    return lastModifiedRevision;
   }
 
   public int getTypeKey() {
-    return -1; // Not used for JSON nodes
+    return -1;
   }
 
   @Override
   public boolean hasFirstChild() {
-    return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasLastChild() {
-    return getLastChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasLeftSibling() {
-    return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasRightSibling() {
-    return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -459,18 +390,18 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   public LongHashFunction getHashFunction() {
-    return resourceConfig.nodeHashFunction;
+    return hashFunction;
   }
 
   public String toString() {
     return "ObjectKeyNode{" +
         "nodeKey=" + nodeKey +
-        ", parentKey=" + getParentKey() +
-        ", nameKey=" + getNameKey() +
-        ", pathNodeKey=" + getPathNodeKey() +
-        ", rightSiblingKey=" + getRightSiblingKey() +
-        ", leftSiblingKey=" + getLeftSiblingKey() +
-        ", firstChildKey=" + getFirstChildKey() +
+        ", parentKey=" + parentKey +
+        ", nameKey=" + nameKey +
+        ", pathNodeKey=" + pathNodeKey +
+        ", rightSiblingKey=" + rightSiblingKey +
+        ", leftSiblingKey=" + leftSiblingKey +
+        ", firstChildKey=" + firstChildKey +
         '}';
   }
 

@@ -1,31 +1,3 @@
-/*
- * Copyright (c) 2023, Sirix Contributors
- *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the <organization> nor the
- *       names of its contributors may be used to endorse or promote products
- *       derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
 package io.sirix.node.json;
 
 import io.sirix.access.ResourceConfiguration;
@@ -33,16 +5,19 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.NodeTestHelper;
+import io.sirix.settings.Constants;
+import net.openhft.hashing.LongHashFunction;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
+import io.sirix.api.Database;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
-import io.sirix.settings.Constants;
-import io.sirix.settings.Fixed;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 import static org.junit.Assert.*;
 
@@ -52,77 +27,59 @@ import static org.junit.Assert.*;
 public class StringNodeTest {
 
   private StorageEngineWriter pageTrx;
+  private Database<JsonResourceSession> database;
 
   @Before
   public void setUp() throws SirixException {
     JsonTestHelper.deleteEverything();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
+  }
+
+  @After
+  public void tearDown() throws SirixException {
+    JsonTestHelper.closeEverything();
   }
 
   @Test
   public void test() throws IOException {
-    final byte[] value = { (byte) 17, (byte) 18 };
-    
-    final var config = ResourceConfiguration.newBuilder("test")
-        .hashKind(HashType.NONE)
-        .storeChildCount(false)
-        .build();
-    
-    // Create data in the correct serialization format with size prefix and padding
-    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + siblings + optional fields + value][end padding]
-    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
-    
-    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.STRING_VALUE);
-    long startPos = data.writePosition();
-    // NodeDelegate fields (16 bytes)
-    data.writeLong(14); // parentKey
-    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
-    data.writeInt(0); // lastModifiedRevision
-    // Sibling fields (16 bytes)
-    data.writeLong(16L); // rightSibling
-    data.writeLong(15L); // leftSibling
-    // Optional fields (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
-    if (config.hashType != HashType.NONE) {
-      data.writeLong(0); // hash
-    }
-    // Variable-length value at the end
-    data.writeStopBit(value.length);
-    data.write(value);
-    
-    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
-    
-    // Deserialize to create properly initialized node
-    var bytesIn = data.asBytesIn();
-    bytesIn.readByte(); // Skip NodeKind byte
-    final StringNode node = (StringNode) NodeKind.STRING_VALUE.deserialize(
-        bytesIn, 13L, null, config);
+    final var hashFunction = LongHashFunction.xx3();
+    final StringNode node = new StringNode(
+        13L, // nodeKey
+        14L, // parentKey
+        Constants.NULL_REVISION_NUMBER, // previousRevision
+        0, // lastModifiedRevision
+        16L, // rightSiblingKey
+        15L, // leftSiblingKey
+        0, // hash
+        "hello world".getBytes(StandardCharsets.UTF_8), // value
+        hashFunction,
+        (byte[]) null // deweyID
+    );
     check(node);
 
-    // Serialize and deserialize node.
-    final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
-    data2.writeByte(NodeKind.STRING_VALUE.getId()); // Write NodeKind to ensure proper alignment
-    node.getKind().serialize(data2, node, config);
-    var bytesIn2 = data2.asBytesIn();
-    bytesIn2.readByte(); // Skip NodeKind byte
+    final var config = ResourceConfiguration.newBuilder("test")
+        .hashKind(HashType.NONE)
+        .build();
+
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
+    NodeKind.STRING_VALUE.serialize(data, node, config);
+    
+    var bytesIn = data.asBytesIn();
     final StringNode node2 = (StringNode) NodeKind.STRING_VALUE.deserialize(
-        bytesIn2, node.getNodeKey(), null, config);
+        bytesIn, node.getNodeKey(), null, config);
     check(node2);
   }
 
   private void check(final StringNode node) {
-    // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-    assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(2, node.getRawValue().length);
+    assertEquals(15L, node.getLeftSiblingKey());
+    assertEquals("hello world", node.getValue());
     assertEquals(NodeKind.STRING_VALUE, node.getKind());
-    assertFalse(node.hasFirstChild());
     assertTrue(node.hasParent());
-    assertTrue(node.hasLeftSibling());
     assertTrue(node.hasRightSibling());
+    assertTrue(node.hasLeftSibling());
   }
-
 }

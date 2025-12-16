@@ -30,12 +30,9 @@ package io.sirix.node.json;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.BytesOut;
-import io.sirix.node.Bytes;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
@@ -47,100 +44,68 @@ import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.lang.foreign.MemoryLayout;
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.lang.invoke.VarHandle;
-
 /**
- * JSON Object Boolean node.
+ * JSON Object Boolean node (direct child of ObjectKeyNode, no siblings).
  *
- * <p><strong>All instances are backed by MemorySegment for consistent memory layout.</strong></p>
- * <p><strong>Uses MemoryLayout and VarHandles for type-safe field access.</strong></p>
+ * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
  * 
  * @author Johannes Lichtenberger
  */
 public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
 
-  // MemorySegment layout with FIXED offsets (hash moved to end):
-  // NodeDelegate data (16 bytes):
-  //   - parentKey (8 bytes)            - offset 0
-  //   - previousRevision (4 bytes)     - offset 8
-  //   - lastModifiedRevision (4 bytes) - offset 12
-  // Fixed StructNode fields (32 bytes):
-  //   - rightSiblingKey (8 bytes)      - offset 16
-  //   - leftSiblingKey (8 bytes)       - offset 24
-  //   - firstChildKey (8 bytes)        - offset 32
-  //   - lastChildKey (8 bytes)         - offset 40
-  // Boolean value (1 byte):
-  //   - boolValue (1 byte)             - offset 48
-  // Optional fields:
-  //   - childCount (8 bytes)           - offset 49 (if storeChildCount)
-  //   - hash (8 bytes)                 - offset 49/57 (if hashType != NONE)
-  //   - descendantCount (8 bytes)      - after hash (if hashType != NONE)
-
-  /**
-   * Core layout (always present) - 17 bytes total
-   * Note: Object value nodes are object properties and only have a parent (no siblings, no children)
-   */
-  public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
-      // NodeDelegate fields only (object properties don't have siblings)
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
-      ValueLayout.JAVA_INT_UNALIGNED.withName("previousRevision"),              // offset 8
-      ValueLayout.JAVA_INT_UNALIGNED.withName("lastModifiedRevision"),          // offset 12
-      // Boolean value
-      ValueLayout.JAVA_BOOLEAN.withName("boolValue")                  // offset 16
-  );
-
-  /**
-   * Optional hash layout (only when hashType != NONE) - 8 bytes for value nodes
-   * Note: childCount and descendantCount are not stored for leaf nodes (always 0)
-   */
-  public static final MemoryLayout HASH_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash")                          // offset 17 (after boolean)
-  );
-
-  // VarHandles for type-safe field access
-  private static final VarHandle PARENT_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("parentKey"));
-  private static final VarHandle PREVIOUS_REVISION_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("previousRevision"));
-  private static final VarHandle LAST_MODIFIED_REVISION_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("lastModifiedRevision"));
-  private static final VarHandle BOOL_VALUE_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("boolValue"));
-
-  // All nodes are MemorySegment-based
-  private final MemorySegment segment;
+  // Immutable node identity
   private final long nodeKey;
-  private final ResourceConfiguration resourceConfig;
   
-  // DeweyID support (stored separately, not in MemorySegment)
+  // Mutable structural fields (only parent, no siblings for object values)
+  private long parentKey;
+  
+  // Mutable revision tracking
+  private int previousRevision;
+  private int lastModifiedRevision;
+  
+  // Mutable hash
+  private long hash;
+  
+  // Boolean value
+  private boolean value;
+  
+  // Hash function for computing node hashes
+  private final LongHashFunction hashFunction;
+  
+  // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
-  
-  // Cached hash value (computed on-demand, not stored in MemorySegment)
-  private long cachedHash = 0;
 
   /**
-   * Constructor for MemorySegment-based ObjectBooleanNode
-   *
-   * @param segment        the MemorySegment containing all node data
-   * @param nodeKey        the node key (record ID)
-   * @param resourceConfig the resource configuration
+   * Primary constructor with all primitive fields.
    */
-  public ObjectBooleanNode(final MemorySegment segment, final long nodeKey, final byte[] deweyID,
-      final ResourceConfiguration resourceConfig) {
-    this(segment, nodeKey, deweyID != null ? new SirixDeweyID(deweyID) : null, resourceConfig);
+  public ObjectBooleanNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long hash, boolean value,
+      LongHashFunction hashFunction, byte[] deweyID) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.hash = hash;
+    this.value = value;
+    this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
   }
 
-  public ObjectBooleanNode(final MemorySegment segment, final long nodeKey, final SirixDeweyID id,
-      final ResourceConfiguration resourceConfig) {
-    this.segment = segment;
+  /**
+   * Constructor with SirixDeweyID instead of byte array.
+   */
+  public ObjectBooleanNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long hash, boolean value,
+      LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
-    this.sirixDeweyID = id;
-    this.resourceConfig = resourceConfig;
+    this.parentKey = parentKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.hash = hash;
+    this.value = value;
+    this.hashFunction = hashFunction;
+    this.sirixDeweyID = deweyID;
   }
 
   @Override
@@ -155,16 +120,16 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public long getParentKey() {
-    return (long) PARENT_KEY_HANDLE.get(segment, 0L);
+    return parentKey;
   }
   
   public void setParentKey(final long parentKey) {
-    PARENT_KEY_HANDLE.set(segment, 0L, parentKey);
+    this.parentKey = parentKey;
   }
 
   @Override
   public boolean hasParent() {
-    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -174,39 +139,33 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public void setTypeKey(final int typeKey) {
-    // Not supported for MemorySegment-backed JSON nodes
+    // Not supported for JSON nodes
   }
 
   @Override
   public void setDeweyID(final SirixDeweyID id) {
     this.sirixDeweyID = id;
-    this.deweyIDBytes = null; // Clear cached bytes
+    this.deweyIDBytes = null;
   }
 
   @Override
   public void setPreviousRevision(final int revision) {
-    PREVIOUS_REVISION_HANDLE.set(segment, 0L, revision);
+    this.previousRevision = revision;
   }
 
   @Override
   public void setLastModifiedRevision(final int revision) {
-    LAST_MODIFIED_REVISION_HANDLE.set(segment, 0L, revision);
+    this.lastModifiedRevision = revision;
   }
 
   @Override
   public long getHash() {
-    // Value nodes don't store hash in MemorySegment, but cache it in memory
-    // If hash is 0 and hashing is enabled, compute it on-demand
-    if (cachedHash == 0 && resourceConfig.hashType != HashType.NONE) {
-      cachedHash = computeHash(Bytes.elasticOffHeapByteBuffer());
-    }
-    return cachedHash;
+    return hash;
   }
 
   @Override
   public void setHash(final long hash) {
-    // Value nodes don't store hash in MemorySegment, but cache it in memory
-    this.cachedHash = hash;
+    this.hash = hash;
   }
 
   @Override
@@ -228,63 +187,56 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
 
     bytes.writeBoolean(getValue());
 
-    return getHashFunction().hashBytes(bytes.toByteArray());
+    return hashFunction.hashBytes(bytes.toByteArray());
   }
 
   @Override
   public long getRightSiblingKey() {
-    // Object value nodes are object properties and don't have siblings
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
   
   public void setRightSiblingKey(final long rightSibling) {
-    // Object value nodes don't have siblings - this is a no-op
+    // Object value nodes don't have siblings
   }
 
   @Override
   public long getLeftSiblingKey() {
-    // Object value nodes are object properties and don't have siblings
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
   
   public void setLeftSiblingKey(final long leftSibling) {
-    // Object value nodes don't have siblings - this is a no-op
+    // Object value nodes don't have siblings
   }
 
   @Override
   public long getFirstChildKey() {
-    // Value nodes are leaf nodes and cannot have children
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
   
   public void setFirstChildKey(final long firstChild) {
-    // Value nodes are leaf nodes - this is a no-op
+    // Value nodes are leaf nodes - no-op
   }
 
   @Override
   public long getLastChildKey() {
-    // Value nodes are leaf nodes and cannot have children
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
   
   public void setLastChildKey(final long lastChild) {
-    // Value nodes are leaf nodes - this is a no-op
+    // Value nodes are leaf nodes - no-op
   }
 
   @Override
   public long getChildCount() {
-    // Value nodes are leaf nodes - always 0 children
     return 0;
   }
   
-  public void setChildCount(final long ignoredChildCount) {
+  public void setChildCount(final long childCount) {
     // Value nodes are leaf nodes - no-op
   }
 
   @Override
   public long getDescendantCount() {
-    // Value nodes have no descendants - return 0
-    // The parent's formula (descendantCount + 1) accounts for the node itself
     return 0;
   }
   
@@ -293,69 +245,64 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
   }
 
   public boolean getValue() {
-    return (boolean) BOOL_VALUE_HANDLE.get(segment, 0L);
+    return value;
   }
 
   public void setValue(final boolean value) {
-    BOOL_VALUE_HANDLE.set(segment, 0L, value);
+    this.value = value;
   }
 
   @Override
   public boolean hasFirstChild() {
-    return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return false;
   }
 
   @Override
   public boolean hasLastChild() {
-    return getLastChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return false;
   }
 
   @Override
-  public void incrementChildCount() {
-    // No-op: value nodes are leaf nodes and cannot have children
-  }
+  public void incrementChildCount() {}
 
   @Override
-  public void decrementChildCount() {
-    // No-op: value nodes are leaf nodes and cannot have children
-  }
+  public void decrementChildCount() {}
 
   @Override
-  public void incrementDescendantCount() {
-    // No-op: value nodes are leaf nodes and cannot have descendants
-  }
+  public void incrementDescendantCount() {}
 
   @Override
-  public void decrementDescendantCount() {
-    // No-op: value nodes are leaf nodes and cannot have descendants
-  }
+  public void decrementDescendantCount() {}
 
   @Override
   public boolean hasLeftSibling() {
-    return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return false;
   }
 
   @Override
   public boolean hasRightSibling() {
-    return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return false;
   }
 
   @Override
   public int getPreviousRevisionNumber() {
-    return (int) PREVIOUS_REVISION_HANDLE.get(segment, 0L);
+    return previousRevision;
   }
 
   @Override
   public int getLastModifiedRevisionNumber() {
-    return (int) LAST_MODIFIED_REVISION_HANDLE.get(segment, 0L);
+    return lastModifiedRevision;
   }
 
   public LongHashFunction getHashFunction() {
-    return resourceConfig.nodeHashFunction;
+    return hashFunction;
   }
 
   @Override
   public SirixDeweyID getDeweyID() {
+    if (deweyIDBytes != null && sirixDeweyID == null) {
+      sirixDeweyID = new SirixDeweyID(deweyIDBytes);
+    }
     return sirixDeweyID;
   }
 
@@ -376,23 +323,16 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
   public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("nodeKey", nodeKey)
-                      .add("boolValue", getValue())
-                      .add("parentKey", getParentKey())
-                      .add("previousRevision", getPreviousRevisionNumber())
-                      .add("lastModifiedRevision", getLastModifiedRevisionNumber())
-                      .add("rightSibling", getRightSiblingKey())
-                      .add("leftSibling", getLeftSiblingKey())
-                      .add("firstChild", getFirstChildKey())
-                      .add("lastChild", getLastChildKey())
-                      .add("childCount", getChildCount())
-                      .add("hash", getHash())
-                      .add("descendantCount", getDescendantCount())
+                      .add("boolValue", value)
+                      .add("parentKey", parentKey)
+                      .add("previousRevision", previousRevision)
+                      .add("lastModifiedRevision", lastModifiedRevision)
                       .toString();
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey, getParentKey(), getValue());
+    return Objects.hashCode(nodeKey, parentKey, value);
   }
 
   @Override
@@ -401,7 +341,7 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode {
       return false;
 
     return nodeKey == other.nodeKey
-        && getParentKey() == other.getParentKey()
-        && getValue() == other.getValue();
+        && parentKey == other.parentKey
+        && value == other.value;
   }
 }

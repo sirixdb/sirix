@@ -30,12 +30,9 @@ package io.sirix.node.json;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.BytesOut;
-import io.sirix.node.Bytes;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableNullNode;
@@ -47,107 +44,69 @@ import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.lang.foreign.MemoryLayout;
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.lang.invoke.VarHandle;
-
 /**
  * JSON Null node.
  *
- * <p><strong>All instances are backed by MemorySegment for consistent memory layout.</strong></p>
- * <p><strong>Uses MemoryLayout and VarHandles for type-safe field access.</strong></p>
+ * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
  * 
  * @author Johannes Lichtenberger
  */
 public final class NullNode implements StructNode, ImmutableJsonNode {
 
-  // MemorySegment layout with FIXED offsets (hash moved to end):
-  // NodeDelegate data (16 bytes):
-  //   - parentKey (8 bytes)            - offset 0
-  //   - previousRevision (4 bytes)     - offset 8
-  //   - lastModifiedRevision (4 bytes) - offset 12
-  // Fixed StructNode fields (32 bytes):
-  //   - rightSiblingKey (8 bytes)      - offset 16
-  //   - leftSiblingKey (8 bytes)       - offset 24
-  //   - firstChildKey (8 bytes)        - offset 32
-  //   - lastChildKey (8 bytes)         - offset 40
-  // Optional fields:
-  //   - childCount (8 bytes)           - offset 48 (if storeChildCount)
-  //   - hash (8 bytes)                 - offset 48/56 (if hashType != NONE)
-  //   - descendantCount (8 bytes)      - after hash (if hashType != NONE)
-
-  /**
-   * Core layout (always present) - 32 bytes total
-   * Note: Value nodes are leaf nodes and cannot have children, so no firstChild/lastChild fields
-   */
-  public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
-      // NodeDelegate fields
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
-      ValueLayout.JAVA_INT_UNALIGNED.withName("previousRevision"),              // offset 8
-      ValueLayout.JAVA_INT_UNALIGNED.withName("lastModifiedRevision"),          // offset 12
-      // StructNode fields (siblings only, no children for value nodes)
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("rightSiblingKey"),              // offset 16
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("leftSiblingKey")                // offset 24
-      // Null value has no data - just the type information
-  );
-
-  /**
-   * Optional hash layout (only when hashType != NONE) - 8 bytes for value nodes
-   * Note: childCount and descendantCount are not stored for leaf nodes (always 0)
-   */
-  public static final MemoryLayout HASH_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash")                          // offset 32
-  );
-
-  // VarHandles for type-safe field access
-  private static final VarHandle PARENT_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("parentKey"));
-  private static final VarHandle PREVIOUS_REVISION_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("previousRevision"));
-  private static final VarHandle LAST_MODIFIED_REVISION_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("lastModifiedRevision"));
-  private static final VarHandle RIGHT_SIBLING_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("rightSiblingKey"));
-  private static final VarHandle LEFT_SIBLING_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("leftSiblingKey"));
-  
-  // VarHandles for optional fields (note: value nodes don't store childCount/descendantCount)
-  private static final VarHandle HASH_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("hash"));
-
-  // All nodes are MemorySegment-based
-  private final MemorySegment segment;
+  // Immutable node identity
   private final long nodeKey;
-  private final ResourceConfiguration resourceConfig;
   
-  // DeweyID support (stored separately, not in MemorySegment)
+  // Mutable structural fields
+  private long parentKey;
+  private long rightSiblingKey;
+  private long leftSiblingKey;
+  
+  // Mutable revision tracking
+  private int previousRevision;
+  private int lastModifiedRevision;
+  
+  // Mutable hash (computed on demand for value nodes)
+  private long hash;
+  
+  // Hash function for computing node hashes
+  private final LongHashFunction hashFunction;
+  
+  // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
-  
-  // Cached hash value (computed on-demand, not stored in MemorySegment)
-  private long cachedHash = 0;
 
   /**
-   * Constructor for MemorySegment-based NullNode
-   *
-   * @param segment        the MemorySegment containing all node data
-   * @param nodeKey        the node key (record ID)
-   * @param resourceConfig the resource configuration
+   * Primary constructor with all primitive fields.
    */
-  public NullNode(final MemorySegment segment, final long nodeKey, final byte[] deweyID,
-      final ResourceConfiguration resourceConfig) {
-    this(segment, nodeKey, deweyID != null ? new SirixDeweyID(deweyID) : null, resourceConfig);
+  public NullNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
+      LongHashFunction hashFunction, byte[] deweyID) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.hash = hash;
+    this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
   }
 
-  public NullNode(final MemorySegment segment, final long nodeKey, final SirixDeweyID id,
-      final ResourceConfiguration resourceConfig) {
-    this.segment = segment;
+  /**
+   * Constructor with SirixDeweyID instead of byte array.
+   */
+  public NullNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
+      LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
-    this.sirixDeweyID = id;
-    this.resourceConfig = resourceConfig;
-    // NullNode is a leaf node - no children, descendants, or hash stored
+    this.parentKey = parentKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.hash = hash;
+    this.hashFunction = hashFunction;
+    this.sirixDeweyID = deweyID;
   }
 
   @Override
@@ -162,16 +121,16 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public long getParentKey() {
-    return (long) PARENT_KEY_HANDLE.get(segment, 0L);
+    return parentKey;
   }
   
   public void setParentKey(final long parentKey) {
-    PARENT_KEY_HANDLE.set(segment, 0L, parentKey);
+    this.parentKey = parentKey;
   }
 
   @Override
   public boolean hasParent() {
-    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -181,39 +140,33 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public void setTypeKey(final int typeKey) {
-    // Not supported for MemorySegment-backed JSON nodes
+    // Not supported for JSON nodes
   }
 
   @Override
   public void setDeweyID(final SirixDeweyID id) {
     this.sirixDeweyID = id;
-    this.deweyIDBytes = null; // Clear cached bytes
+    this.deweyIDBytes = null;
   }
 
   @Override
   public void setPreviousRevision(final int revision) {
-    PREVIOUS_REVISION_HANDLE.set(segment, 0L, revision);
+    this.previousRevision = revision;
   }
 
   @Override
   public void setLastModifiedRevision(final int revision) {
-    LAST_MODIFIED_REVISION_HANDLE.set(segment, 0L, revision);
+    this.lastModifiedRevision = revision;
   }
 
   @Override
   public long getHash() {
-    // Value nodes don't store hash in MemorySegment, but cache it in memory
-    // If hash is 0 and hashing is enabled, compute it on-demand
-    if (cachedHash == 0 && resourceConfig.hashType != HashType.NONE) {
-      cachedHash = computeHash(Bytes.elasticOffHeapByteBuffer());
-    }
-    return cachedHash;
+    return hash;
   }
 
   @Override
   public void setHash(final long hash) {
-    // Value nodes don't store hash in MemorySegment, but cache it in memory
-    this.cachedHash = hash;
+    this.hash = hash;
   }
 
   @Override
@@ -233,50 +186,47 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
       bytes.writeLong(getLastChildKey());
     }
 
-    return getHashFunction().hashBytes(bytes.toByteArray());
+    return hashFunction.hashBytes(bytes.toByteArray());
   }
 
   @Override
   public long getRightSiblingKey() {
-    return (long) RIGHT_SIBLING_KEY_HANDLE.get(segment, 0L);
+    return rightSiblingKey;
   }
   
   public void setRightSiblingKey(final long rightSibling) {
-    RIGHT_SIBLING_KEY_HANDLE.set(segment, 0L, rightSibling);
+    this.rightSiblingKey = rightSibling;
   }
 
   @Override
   public long getLeftSiblingKey() {
-    return (long) LEFT_SIBLING_KEY_HANDLE.get(segment, 0L);
+    return leftSiblingKey;
   }
   
   public void setLeftSiblingKey(final long leftSibling) {
-    LEFT_SIBLING_KEY_HANDLE.set(segment, 0L, leftSibling);
+    this.leftSiblingKey = leftSibling;
   }
 
   @Override
   public long getFirstChildKey() {
-    // Value nodes are leaf nodes and cannot have children
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
   
   public void setFirstChildKey(final long firstChild) {
-    // Value nodes are leaf nodes - this is a no-op
+    // Value nodes are leaf nodes - no-op
   }
 
   @Override
   public long getLastChildKey() {
-    // Value nodes are leaf nodes and cannot have children
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
   
   public void setLastChildKey(final long lastChild) {
-    // Value nodes are leaf nodes - this is a no-op
+    // Value nodes are leaf nodes - no-op
   }
 
   @Override
   public long getChildCount() {
-    // Value nodes are leaf nodes - always 0 children
     return 0;
   }
   
@@ -286,8 +236,6 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public long getDescendantCount() {
-    // Value nodes are leaf nodes: return 0 (no descendants)
-    // The parent's calculation logic handles this correctly
     return 0;
   }
   
@@ -297,60 +245,63 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public boolean hasFirstChild() {
-    return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return false;
   }
 
   @Override
   public boolean hasLastChild() {
-    return getLastChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return false;
   }
 
   @Override
   public void incrementChildCount() {
-    // No-op: value nodes are leaf nodes and cannot have children
+    // No-op
   }
 
   @Override
   public void decrementChildCount() {
-    // No-op: value nodes are leaf nodes and cannot have children
+    // No-op
   }
 
   @Override
   public void incrementDescendantCount() {
-    // No-op: value nodes are leaf nodes and cannot have descendants
+    // No-op
   }
 
   @Override
   public void decrementDescendantCount() {
-    // No-op: value nodes are leaf nodes and cannot have descendants
+    // No-op
   }
 
   @Override
   public boolean hasLeftSibling() {
-    return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasRightSibling() {
-    return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public int getPreviousRevisionNumber() {
-    return (int) PREVIOUS_REVISION_HANDLE.get(segment, 0L);
+    return previousRevision;
   }
 
   @Override
   public int getLastModifiedRevisionNumber() {
-    return (int) LAST_MODIFIED_REVISION_HANDLE.get(segment, 0L);
+    return lastModifiedRevision;
   }
 
   public LongHashFunction getHashFunction() {
-    return resourceConfig.nodeHashFunction;
+    return hashFunction;
   }
 
   @Override
   public SirixDeweyID getDeweyID() {
+    if (deweyIDBytes != null && sirixDeweyID == null) {
+      sirixDeweyID = new SirixDeweyID(deweyIDBytes);
+    }
     return sirixDeweyID;
   }
 
@@ -371,22 +322,17 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
   public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
                       .add("nodeKey", nodeKey)
-                      .add("parentKey", getParentKey())
-                      .add("previousRevision", getPreviousRevisionNumber())
-                      .add("lastModifiedRevision", getLastModifiedRevisionNumber())
-                      .add("rightSibling", getRightSiblingKey())
-                      .add("leftSibling", getLeftSiblingKey())
-                      .add("firstChild", getFirstChildKey())
-                      .add("lastChild", getLastChildKey())
-                      .add("childCount", getChildCount())
-                      .add("hash", getHash())
-                      .add("descendantCount", getDescendantCount())
+                      .add("parentKey", parentKey)
+                      .add("previousRevision", previousRevision)
+                      .add("lastModifiedRevision", lastModifiedRevision)
+                      .add("rightSibling", rightSiblingKey)
+                      .add("leftSibling", leftSiblingKey)
                       .toString();
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey, getParentKey());
+    return Objects.hashCode(nodeKey, parentKey);
   }
 
   @Override
@@ -395,6 +341,6 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
       return false;
 
     return nodeKey == other.nodeKey
-        && getParentKey() == other.getParentKey();
+        && parentKey == other.parentKey;
   }
 }

@@ -26,7 +26,7 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.NodeTestHelper;
+import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -66,45 +66,38 @@ public class ObjectNodeTest {
 
   @Test
   public void testNode() throws IOException {
+    // Create node directly with primitive constructor
+    final var hashFunction = LongHashFunction.xx3();
+    final ObjectNode node = new ObjectNode(
+        13L, // nodeKey
+        14L, // parentKey
+        Constants.NULL_REVISION_NUMBER, // previousRevision
+        0, // lastModifiedRevision
+        16L, // rightSiblingKey
+        15L, // leftSiblingKey
+        Fixed.NULL_NODE_KEY.getStandardProperty(), // firstChildKey
+        Fixed.NULL_NODE_KEY.getStandardProperty(), // lastChildKey
+        0, // childCount
+        0, // descendantCount
+        0, // hash
+        hashFunction,
+        (byte[]) null // deweyID
+    );
+    check(node);
+
     // Use a simplified ResourceConfiguration without optional fields
     final var config = ResourceConfiguration.newBuilder("test")
         .hashKind(HashType.NONE)
         .storeChildCount(false)
         .build();
-    
-    // Create data in the correct serialization format with size prefix and padding
-    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + struct fields][end padding]
-    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
-    
-    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.OBJECT);
-    long startPos = data.writePosition();
-    // NodeDelegate fields
-    data.writeLong(14); // parentKey
-    data.writeInt(Constants.NULL_REVISION_NUMBER); // previousRevision
-    data.writeInt(0); // lastModifiedRevision
-    // Struct fields
-    data.writeLong(16L); // rightSibling
-    data.writeLong(15L); // leftSibling
-    data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // firstChild
-    data.writeLong(Fixed.NULL_NODE_KEY.getStandardProperty()); // lastChild
-    
-    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
-    
-    // Deserialize to create properly initialized node
-    var bytesIn = data.asBytesIn();
-    bytesIn.readByte(); // Skip NodeKind byte
-    final ObjectNode node = (ObjectNode) NodeKind.OBJECT.deserialize(
-        bytesIn, 13L, null, config);
-    check(node);
 
     // Serialize and deserialize node.
-    final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
-    data2.writeByte(NodeKind.OBJECT.getId()); // Write NodeKind to ensure proper alignment
-    node.getKind().serialize(data2, node, config);
-    var bytesIn2 = data2.asBytesIn();
-    bytesIn2.readByte(); // Skip NodeKind byte
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
+    NodeKind.OBJECT.serialize(data, node, config);
+    
+    var bytesIn = data.asBytesIn();
     final ObjectNode node2 = (ObjectNode) NodeKind.OBJECT.deserialize(
-        bytesIn2, node.getNodeKey(), null, config);
+        bytesIn, node.getNodeKey(), null, config);
     check(node2);
   }
 

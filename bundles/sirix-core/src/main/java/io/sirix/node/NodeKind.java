@@ -965,39 +965,47 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read size prefix to get exact node size
-      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
-      var segment = getSegmentSlice(source, nodeSize);
-      return new ObjectNode(segment, recordID, deweyID, resourceConfiguration);
+      // Read structural keys using delta encoding
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long firstChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long lastChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      // Read optional fields
+      long childCount = resourceConfiguration.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0;
+      long hash = 0;
+      long descendantCount = 0;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+        descendantCount = DeltaVarIntCodec.decodeSigned(source);
+      }
+      return new ObjectNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey,
+                            firstChildKey, lastChildKey, childCount, descendantCount, hash, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectNode node = (ObjectNode) record;
-      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
-      long startPos = sink.writePosition();
-      var config = resourceConfiguration;
-      // New layout: NodeDelegate fields, then struct fields, then optional fields at end
-      // Write NodeDelegate fields
-      sink.writeLong(node.getParentKey());
-      sink.writeInt(node.getPreviousRevisionNumber());
-      sink.writeInt(node.getLastModifiedRevisionNumber());
-      // Write StructNode fields
-      sink.writeLong(node.getRightSiblingKey());
-      sink.writeLong(node.getLeftSiblingKey());
-      sink.writeLong(node.getFirstChildKey());
-      sink.writeLong(node.getLastChildKey());
-      // Write optional fields at the end
-      if (config.storeChildCount()) {
-        sink.writeLong(node.getChildCount());
+      final long nodeKey = node.getNodeKey();
+      // Write structural keys using delta encoding
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getFirstChildKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLastChildKey(), nodeKey);
+      // Write optional fields
+      if (resourceConfiguration.storeChildCount()) {
+        DeltaVarIntCodec.encodeSigned(sink, (int) node.getChildCount());
       }
-      if (config.hashType != HashType.NONE) {
-        writeHash(sink, node.getHash());
-        sink.writeLong(node.getDescendantCount());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+        DeltaVarIntCodec.encodeSigned(sink, (int) node.getDescendantCount());
       }
-      JsonNodeSerializer.writeEndPadding(sink, startPos);
-      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1019,40 +1027,49 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read size prefix to get exact node size
-      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
-      var segment = getSegmentSlice(source, nodeSize);
-      return new ArrayNode(segment, recordID, deweyID, resourceConfiguration);
+      // Read structural keys using delta encoding
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long firstChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long lastChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      // Read optional fields
+      long childCount = resourceConfiguration.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0;
+      long hash = 0;
+      long descendantCount = 0;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+        descendantCount = DeltaVarIntCodec.decodeSigned(source);
+      }
+      return new ArrayNode(recordID, parentKey, pathNodeKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey,
+          firstChildKey, lastChildKey, childCount, descendantCount, hash, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ArrayNode node = (ArrayNode) record;
-      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
-      long startPos = sink.writePosition();
-      var config = resourceConfiguration;
-      // Write NodeDelegate fields directly
-      sink.writeLong(node.getParentKey());
-      sink.writeInt(node.getPreviousRevisionNumber());
-      sink.writeInt(node.getLastModifiedRevisionNumber());
-      // Write pathNodeKey BEFORE struct fields to match CORE_LAYOUT
-      sink.writeLong(node.getPathNodeKey());
-      // Write struct fields (rightSib, leftSib, firstChild, lastChild)
-      sink.writeLong(node.getRightSiblingKey());
-      sink.writeLong(node.getLeftSiblingKey());
-      sink.writeLong(node.getFirstChildKey());
-      sink.writeLong(node.getLastChildKey());
-      // Write optional fields at the end
-      if (config.storeChildCount()) {
-        sink.writeLong(node.getChildCount());
+      final long nodeKey = node.getNodeKey();
+      // Write structural keys using delta encoding
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getFirstChildKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLastChildKey(), nodeKey);
+      // Write optional fields
+      if (resourceConfiguration.storeChildCount()) {
+        DeltaVarIntCodec.encodeSigned(sink, (int) node.getChildCount());
       }
-      if (config.hashType != HashType.NONE) {
-        writeHash(sink, node.getHash());
-        sink.writeLong(node.getDescendantCount());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+        DeltaVarIntCodec.encodeSigned(sink, (int) node.getDescendantCount());
       }
-      JsonNodeSerializer.writeEndPadding(sink, startPos);
-      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1074,40 +1091,45 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read size prefix to get exact node size
-      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
-      var segment = getSegmentSlice(source, nodeSize);
-
-      return new ObjectKeyNode(segment, recordID, deweyID, resourceConfiguration);
+      // Read structural keys using delta encoding
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long firstChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int nameKey = DeltaVarIntCodec.decodeSigned(source);
+      // Read optional fields
+      long hash = 0;
+      long descendantCount = 0;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+        descendantCount = DeltaVarIntCodec.decodeSigned(source);
+      }
+      return new ObjectKeyNode(recordID, parentKey, pathNodeKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey,
+          firstChildKey, nameKey, descendantCount, hash, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectKeyNode node = (ObjectKeyNode) record;
-      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
-      long startPos = sink.writePosition();
-      var config = resourceConfiguration;
-
-      // Write NodeDelegate fields, then all fixed fields, then hash+descendant at end
-      sink.writeLong(node.getParentKey());
-      sink.writeInt(node.getPreviousRevisionNumber());
-      sink.writeInt(node.getLastModifiedRevisionNumber());
-      // Write all fixed fields - longs first for alignment
-      sink.writeLong(node.getPathNodeKey());
-      sink.writeLong(node.getRightSiblingKey());
-      sink.writeLong(node.getLeftSiblingKey());
-      sink.writeLong(node.getFirstChildKey());
-      sink.writeInt(node.getNameKey());
-      // Hash and descendant count at the end
-      if (config.hashType != HashType.NONE) {
-        // Add 4 bytes padding to align hash to 8-byte boundary
-        sink.writeInt(0); // padding
-        writeHash(sink, node.getHash());
-        sink.writeLong(node.getDescendantCount());
+      final long nodeKey = node.getNodeKey();
+      // Write structural keys using delta encoding
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getFirstChildKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
+      // Write optional fields
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+        DeltaVarIntCodec.encodeSigned(sink, (int) node.getDescendantCount());
       }
-      JsonNodeSerializer.writeEndPadding(sink, startPos);
-      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1129,32 +1151,31 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read size prefix to get exact node size
-      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
-      var segment = getSegmentSlice(source, nodeSize);
-      return new ObjectStringNode(segment, recordID, deweyID, resourceConfiguration);
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      // Read string value
+      int length = DeltaVarIntCodec.decodeSigned(source);
+      byte[] value = new byte[length];
+      source.read(value);
+      return new ObjectStringNode(recordID, parentKey, prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectStringNode node = (ObjectStringNode) record;
-      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
-      long startPos = sink.writePosition();
-      // Write NodeDelegate fields (16 bytes)
-      sink.writeLong(node.getParentKey());
-      sink.writeInt(node.getPreviousRevisionNumber());
-      sink.writeInt(node.getLastModifiedRevisionNumber());
-      // Write optional fields if present (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       if (resourceConfiguration.hashType != HashType.NONE) {
-        sink.writeLong(0); // Hash (placeholder, computed on-demand)
+        sink.writeLong(node.getHash());
       }
-      // Write variable-length value at the end
       final byte[] value = node.getRawValue();
-      sink.writeStopBit(value.length);
+      DeltaVarIntCodec.encodeSigned(sink, value.length);
       sink.write(value);
-      JsonNodeSerializer.writeEndPadding(sink, startPos);
-      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1176,26 +1197,26 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read size prefix to get exact node size
-      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
-      var segment = getSegmentSlice(source, nodeSize);
-      return new ObjectBooleanNode(segment, recordID, deweyID, resourceConfiguration);
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      boolean value = source.readBoolean();
+      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      return new ObjectBooleanNode(recordID, parentKey, prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectBooleanNode node = (ObjectBooleanNode) record;
-      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
-      long startPos = sink.writePosition();
-      // Write NodeDelegate fields only (object properties have no siblings)
-      sink.writeLong(node.getParentKey());
-      sink.writeInt(node.getPreviousRevisionNumber());
-      sink.writeInt(node.getLastModifiedRevisionNumber());
-      // Write value
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       sink.writeBoolean(node.getValue());
-      JsonNodeSerializer.writeEndPadding(sink, startPos);
-      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
     }
 
     @Override
@@ -1217,35 +1238,26 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read size prefix to get exact node size
-      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
-      var segment = getSegmentSlice(source, nodeSize);
-      return new ObjectNumberNode(segment, recordID, deweyID, resourceConfiguration);
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      Number value = deserializeNumber(source);
+      return new ObjectNumberNode(recordID, parentKey, prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectNumberNode node = (ObjectNumberNode) record;
-      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
-      long startPos = sink.writePosition();
-
-      // Write NodeDelegate fields (16 bytes)
-      sink.writeLong(node.getParentKey());
-      sink.writeInt(node.getPreviousRevisionNumber());
-      sink.writeInt(node.getLastModifiedRevisionNumber());
-      
-      // Write optional fields if present (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       if (resourceConfiguration.hashType != HashType.NONE) {
-        sink.writeLong(0); // Hash (placeholder, computed on-demand)
+        sink.writeLong(node.getHash());
       }
-
-      // Write variable-length number at the end
-      final Number number = node.getValue();
-      serializeNumber(number, sink);
-      
-      JsonNodeSerializer.writeEndPadding(sink, startPos);
-      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      serializeNumber(node.getValue(), sink);
     }
 
     @Override
@@ -1266,24 +1278,24 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read size prefix to get exact node size
-      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
-      var segment = getSegmentSlice(source, nodeSize);
-      return new ObjectNullNode(segment, recordID, deweyID, resourceConfiguration);
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      return new ObjectNullNode(recordID, parentKey, prevRev, lastModRev, hash, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ObjectNullNode node = (ObjectNullNode) record;
-      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
-      long startPos = sink.writePosition();
-      // Write NodeDelegate fields only (object properties have no siblings)
-      sink.writeLong(node.getParentKey());
-      sink.writeInt(node.getPreviousRevisionNumber());
-      sink.writeInt(node.getLastModifiedRevisionNumber());
-      JsonNodeSerializer.writeEndPadding(sink, startPos);
-      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
     }
 
     @Override
@@ -1305,34 +1317,35 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read size prefix to get exact node size
-      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
-      var segment = getSegmentSlice(source, nodeSize);
-      return new StringNode(segment, recordID, deweyID, resourceConfiguration);
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      // Read string value
+      int length = DeltaVarIntCodec.decodeSigned(source);
+      byte[] value = new byte[length];
+      source.read(value);
+      return new StringNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final StringNode node = (StringNode) record;
-      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
-      long startPos = sink.writePosition();
-      // Write NodeDelegate fields (16 bytes)
-      sink.writeLong(node.getParentKey());
-      sink.writeInt(node.getPreviousRevisionNumber());
-      sink.writeInt(node.getLastModifiedRevisionNumber());
-      // Write StructNode sibling fields (16 bytes)
-      serializeStructNodeJsonValueNode(sink, node);
-      // Write optional fields if present (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
       if (resourceConfiguration.hashType != HashType.NONE) {
-        sink.writeLong(0); // Hash (placeholder, computed on-demand)
+        sink.writeLong(node.getHash());
       }
-      // Write variable-length value at the end
       final byte[] value = node.getRawValue();
-      sink.writeStopBit(value.length);
+      DeltaVarIntCodec.encodeSigned(sink, value.length);
       sink.write(value);
-      JsonNodeSerializer.writeEndPadding(sink, startPos);
-      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
     }
 
     @Override
@@ -1354,28 +1367,30 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read size prefix to get exact node size
-      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
-      var segment = getSegmentSlice(source, nodeSize);
-      return new BooleanNode(segment, recordID, deweyID, resourceConfiguration);
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      boolean value = source.readBoolean();
+      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      return new BooleanNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final BooleanNode node = (BooleanNode) record;
-      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
-      long startPos = sink.writePosition();
-      // Write NodeDelegate fields directly (no delegate object needed)
-      sink.writeLong(node.getParentKey());
-      sink.writeInt(node.getPreviousRevisionNumber());
-      sink.writeInt(node.getLastModifiedRevisionNumber());
-      // Write StructNode sibling fields
-      serializeStructNodeJsonValueNode(sink, node);
-      // Write value
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
       sink.writeBoolean(node.getValue());
-      JsonNodeSerializer.writeEndPadding(sink, startPos);
-      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
     }
 
     @Override
@@ -1397,35 +1412,30 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read size prefix to get exact node size
-      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
-      var segment = getSegmentSlice(source, nodeSize);
-      return new NumberNode(segment, recordID, deweyID, resourceConfiguration);
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      Number value = deserializeNumber(source);
+      return new NumberNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final NumberNode node = (NumberNode) record;
-      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
-      long startPos = sink.writePosition();
-
-      // Write NodeDelegate fields (16 bytes)
-      sink.writeLong(node.getParentKey());
-      sink.writeInt(node.getPreviousRevisionNumber());
-      sink.writeInt(node.getLastModifiedRevisionNumber());
-      // Write StructNode sibling fields (16 bytes)
-      serializeStructNodeJsonValueNode(sink, node);
-      // Write optional fields if present (skip childCount and descendantCount - value nodes are always leaf nodes with 0 descendants)
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
       if (resourceConfiguration.hashType != HashType.NONE) {
-        sink.writeLong(0); // Hash (placeholder, computed on-demand)
+        sink.writeLong(node.getHash());
       }
-      // Write variable-length number at the end
-      final Number number = node.getValue();
-      serializeNumber(number, sink);
-      
-      JsonNodeSerializer.writeEndPadding(sink, startPos);
-      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      serializeNumber(node.getValue(), sink);
     }
 
     @Override
@@ -1446,26 +1456,28 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read size prefix to get exact node size
-      int nodeSize = JsonNodeSerializer.readSizePrefix(source);
-      var segment = getSegmentSlice(source, nodeSize);
-      return new NullNode(segment, recordID, deweyID, resourceConfiguration);
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      return new NullNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final NullNode node = (NullNode) record;
-      long sizePos = JsonNodeSerializer.writeSizePrefix(sink);
-      long startPos = sink.writePosition();
-      // Write NodeDelegate fields directly (no delegate object needed)
-      sink.writeLong(node.getParentKey());
-      sink.writeInt(node.getPreviousRevisionNumber());
-      sink.writeInt(node.getLastModifiedRevisionNumber());
-      // Write StructNode sibling fields
-      serializeStructNodeJsonValueNode(sink, node);
-      JsonNodeSerializer.writeEndPadding(sink, startPos);
-      JsonNodeSerializer.updateSizePrefix(sink, sizePos, startPos);
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
     }
 
     @Override
