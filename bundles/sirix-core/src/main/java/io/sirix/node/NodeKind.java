@@ -1960,8 +1960,25 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   /**
-   * Serializes a Number value to a BytesOut sink.
+   * Serializes a Number value to a BytesOut sink using varint encoding for integers.
    * Supports Double, Float, Integer, Long, BigInteger, and BigDecimal.
+   * 
+   * <h2>Encoding Format</h2>
+   * <ul>
+   *   <li>Type 0: Double (8 bytes) - full IEEE 754 precision needed</li>
+   *   <li>Type 1: Float (4 bytes) - full IEEE 754 precision needed</li>
+   *   <li>Type 2: Integer (varint, 1-5 bytes) - zigzag encoded for signed values</li>
+   *   <li>Type 3: Long (varint, 1-10 bytes) - zigzag encoded for signed values</li>
+   *   <li>Type 4: BigInteger (length-prefixed bytes)</li>
+   *   <li>Type 5: BigDecimal (BigInteger + varint scale)</li>
+   * </ul>
+   * 
+   * <h2>Space Savings</h2>
+   * <ul>
+   *   <li>Small integers (-64 to 63): 2 bytes instead of 5 bytes (60% savings)</li>
+   *   <li>Medium integers (-8192 to 8191): 3 bytes instead of 5 bytes (40% savings)</li>
+   *   <li>Small longs (-64 to 63): 2 bytes instead of 9 bytes (78% savings)</li>
+   * </ul>
    * 
    * @param value the number to serialize
    * @param sink the sink to write to
@@ -1978,11 +1995,13 @@ public enum NodeKind implements DeweyIdSerializer {
       }
       case final Integer val -> {
         sink.writeByte((byte) 2);
-        sink.writeInt(val);
+        // Use zigzag + varint encoding for compact representation
+        DeltaVarIntCodec.encodeSigned(sink, val);
       }
       case final Long val -> {
         sink.writeByte((byte) 3);
-        sink.writeLong(val);
+        // Use zigzag + varint encoding for compact representation
+        DeltaVarIntCodec.encodeSignedLong(sink, val);
       }
       case final BigInteger bigInteger -> {
         sink.writeByte((byte) 4);
@@ -1993,7 +2012,8 @@ public enum NodeKind implements DeweyIdSerializer {
         final BigInteger bigInt = bigDecimal.unscaledValue();
         final int scale = bigDecimal.scale();
         serializeBigInteger(sink, bigInt);
-        sink.writeInt(scale);
+        // Use varint for scale (typically small positive integer)
+        DeltaVarIntCodec.encodeSigned(sink, scale);
       }
       case null, default -> throw new AssertionError("Type not known.");
     }
@@ -2002,6 +2022,8 @@ public enum NodeKind implements DeweyIdSerializer {
   /**
    * Deserializes a Number value from a BytesIn source.
    * Supports Double, Float, Integer, Long, BigInteger, and BigDecimal.
+   * 
+   * <p>Integers and Longs are decoded from zigzag + varint encoding for compact storage.
    * 
    * @param source the source to read from
    * @return the deserialized Number
@@ -2012,12 +2034,12 @@ public enum NodeKind implements DeweyIdSerializer {
     return switch (valueType) {
       case 0 -> source.readDouble();
       case 1 -> source.readFloat();
-      case 2 -> source.readInt();
-      case 3 -> source.readLong();
+      case 2 -> DeltaVarIntCodec.decodeSigned(source);  // Varint-encoded Integer
+      case 3 -> DeltaVarIntCodec.decodeSignedLong(source);  // Varint-encoded Long
       case 4 -> deserializeBigInteger(source);
       case 5 -> {
         final BigInteger bigInt = deserializeBigInteger(source);
-        final int scale = source.readInt();
+        final int scale = DeltaVarIntCodec.decodeSigned(source);  // Varint-encoded scale
         yield new BigDecimal(bigInt, scale);
       }
       default -> throw new AssertionError("Type not known.");

@@ -171,6 +171,52 @@ public final class DeltaVarIntCodec {
     return (int) zigzagDecode(zigzag);
   }
   
+  /**
+   * Encode a signed long value using zigzag + varint encoding.
+   * Optimized for small values: values -64 to 63 use 1 byte, -8192 to 8191 use 2 bytes.
+   * 
+   * <p>This is ideal for JSON numbers which are often small integers stored as long.
+   * 
+   * @param sink output sink
+   * @param value the signed long value
+   */
+  public static void encodeSignedLong(BytesOut<?> sink, long value) {
+    long zigzag = zigzagEncode(value);
+    writeVarLong(sink, zigzag);
+  }
+  
+  /**
+   * Decode a signed long value from zigzag + varint encoding.
+   * 
+   * @param source input source
+   * @return the decoded signed long
+   */
+  public static long decodeSignedLong(BytesIn<?> source) {
+    long zigzag = readVarLong(source);
+    return zigzagDecode(zigzag);
+  }
+  
+  /**
+   * Encode an unsigned long value using varint encoding.
+   * Optimized for small values: values 0-127 use 1 byte, 128-16383 use 2 bytes.
+   * 
+   * @param sink output sink
+   * @param value the unsigned long value (must be non-negative)
+   */
+  public static void encodeUnsignedLong(BytesOut<?> sink, long value) {
+    writeVarLong(sink, value);
+  }
+  
+  /**
+   * Decode an unsigned long value from varint encoding.
+   * 
+   * @param source input source
+   * @return the decoded unsigned long
+   */
+  public static long decodeUnsignedLong(BytesIn<?> source) {
+    return readVarLong(source);
+  }
+  
   // ==================== DECODING ====================
   
   /**
