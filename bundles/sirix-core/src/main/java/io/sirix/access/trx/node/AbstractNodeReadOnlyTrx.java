@@ -1050,9 +1050,14 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getHash() {
     assertNotClosed();
-    if (flyweightMode && cachedFieldOffsets[FIELD_HASH] >= 0) {
-      // Read 8-byte hash directly from MemorySegment - ZERO ALLOCATION
-      return DeltaVarIntCodec.readLongFromSegment(currentSlot, cachedFieldOffsets[FIELD_HASH]);
+    if (flyweightMode) {
+      if (cachedFieldOffsets[FIELD_HASH] >= 0) {
+        // Read 8-byte hash directly from MemorySegment - ZERO ALLOCATION
+        return DeltaVarIntCodec.readLongFromSegment(currentSlot, cachedFieldOffsets[FIELD_HASH]);
+      }
+      // Hash field not available in flyweight mode, deserialize node
+      N node = getCurrentNode();
+      return node != null ? node.getHash() : 0L;
     }
     return currentNode != null ? currentNode.getHash() : 0L;
   }
