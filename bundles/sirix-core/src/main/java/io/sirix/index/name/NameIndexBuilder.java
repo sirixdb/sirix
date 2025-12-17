@@ -1,6 +1,6 @@
 package io.sirix.index.name;
 
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.visitor.VisitResultType;
 import io.sirix.index.SearchMode;
 import io.sirix.exception.SirixIOException;
@@ -23,10 +23,10 @@ public final class NameIndexBuilder {
   public Set<QNm> excludes;
   public RBTreeWriter<QNm, NodeReferences> indexWriter;
 
-  public PageReadOnlyTrx pageRtx;
+  public StorageEngineReader pageRtx;
 
   public NameIndexBuilder(final Set<QNm> includes, final Set<QNm> excludes,
-      final RBTreeWriter<QNm, NodeReferences> indexWriter, final PageReadOnlyTrx pageRtx) {
+      final RBTreeWriter<QNm, NodeReferences> indexWriter, final StorageEngineReader pageRtx) {
     this.includes = includes;
     this.excludes = excludes;
     this.indexWriter = indexWriter;

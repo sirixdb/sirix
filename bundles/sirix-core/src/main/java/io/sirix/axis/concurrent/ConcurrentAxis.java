@@ -105,9 +105,20 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
     first = true;
     finished = false;
 
-    if (executorService != null) {
-      executorService = Executors.newSingleThreadExecutor();
+    // CRITICAL: Shut down the old executor before creating a new one
+    if (executorService != null && !executorService.isShutdown()) {
+      executorService.shutdownNow();
+      try {
+        executorService.awaitTermination(1, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        LOGGER.warn("Interrupted while waiting for executor shutdown during reset", e);
+        Thread.currentThread().interrupt();
+      }
     }
+    
+    // Create a new executor service
+    executorService = Executors.newSingleThreadExecutor();
+    
     if (producer != null) {
       producer.reset(nodeKey);
     }
@@ -124,10 +135,12 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
     // Start producer on first call.
     if (first) {
       first = false;
+      LOGGER.debug("ConcurrentAxis starting producer thread");
       executorService.submit(task);
     }
 
     if (finished) {
+      LOGGER.debug("ConcurrentAxis already finished, calling done()");
       return done();
     }
 
@@ -135,9 +148,11 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
 
     try {
       // Get result from producer as soon as it is available.
+      LOGGER.debug("ConcurrentAxis waiting for result from queue...");
       result = results.take();
+      LOGGER.debug("ConcurrentAxis got result: {}", result);
     } catch (final InterruptedException e) {
-      LOGGER.warn(e.getMessage(), e);
+      LOGGER.warn("Interrupted while waiting for results", e);
     }
 
     // NULL_NODE_KEY marks end of the sequence computed by the producer.
@@ -145,6 +160,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
       return result;
     }
 
+    LOGGER.debug("ConcurrentAxis received NULL_NODE_KEY, finishing");
     finished = true;
     return done();
   }
@@ -158,11 +174,19 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
    */
   @Override
   protected synchronized long done() {
-    executorService.shutdown();
-    try {
-        executorService.awaitTermination(5, TimeUnit.SECONDS);
-    } catch (InterruptedException e) {
-      LOGGER.warn(e.getMessage(), e);
+    // Only shutdown if not already shutdown to avoid IllegalStateException
+    if (executorService != null && !executorService.isShutdown()) {
+      executorService.shutdown();
+      try {
+        if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
+          LOGGER.warn("Executor service did not terminate within 5 seconds, forcing shutdown");
+          executorService.shutdownNow();
+        }
+      } catch (InterruptedException e) {
+        LOGGER.warn("Interrupted while waiting for executor termination", e);
+        executorService.shutdownNow();
+        Thread.currentThread().interrupt();
+      }
     }
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
@@ -174,5 +198,22 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
    */
   public boolean isFinished() {
     return finished;
+  }
+
+  /**
+   * Cleanup method to ensure the executor service is properly shut down.
+   * This is called automatically by done(), but can also be called explicitly
+   * for cleanup in case of exceptions.
+   */
+  public synchronized void close() {
+    if (executorService != null && !executorService.isShutdown()) {
+      executorService.shutdownNow();
+      try {
+        executorService.awaitTermination(1, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        LOGGER.warn("Interrupted while closing executor service", e);
+        Thread.currentThread().interrupt();
+      }
+    }
   }
 }

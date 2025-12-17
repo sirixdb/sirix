@@ -1,7 +1,7 @@
 package io.sirix.node;
 
 import com.google.common.collect.ForwardingObject;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.node.delegates.NodeDelegate;
@@ -39,7 +39,7 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     return delegate().computeHash(bytes);
   }
 

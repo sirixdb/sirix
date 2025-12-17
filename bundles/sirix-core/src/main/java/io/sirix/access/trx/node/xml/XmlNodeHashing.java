@@ -1,7 +1,7 @@
 package io.sirix.access.trx.node.xml;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
@@ -19,7 +19,7 @@ final class XmlNodeHashing extends AbstractNodeHashing<ImmutableXmlNode, XmlNode
    * @param pageWriteTrx    the page trx
    */
   XmlNodeHashing(final ResourceConfiguration resourceConfig, final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx,
-      final PageTrx pageWriteTrx) {
+      final StorageEngineWriter pageWriteTrx) {
     super(resourceConfig, nodeReadOnlyTrx, pageWriteTrx);
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
   }

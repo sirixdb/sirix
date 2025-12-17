@@ -28,21 +28,26 @@
 
 package io.sirix.node.json;
 
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
-import io.sirix.settings.Fixed;
-import net.openhft.chronicle.bytes.Bytes;
 import io.sirix.node.xml.AbstractStructForwardingNode;
+import io.sirix.settings.Fixed;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
+import java.lang.foreign.MemorySegment;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.nio.ByteBuffer;
 
 public abstract class AbstractNumberNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
 
   private final StructNodeDelegate structNodeDelegate;
+  private final MemorySegment memorySegment;
+  private boolean useMemorySegment;
   private Number number;
 
   private long hashCode;
@@ -50,10 +55,18 @@ public abstract class AbstractNumberNode extends AbstractStructForwardingNode im
   public AbstractNumberNode(StructNodeDelegate structNodeDel, Number number) {
     this.structNodeDelegate = structNodeDel;
     this.number = number;
+    this.memorySegment = null;
+    this.useMemorySegment = false;
+  }
+
+  public AbstractNumberNode(StructNodeDelegate structNodeDelegate, final MemorySegment segment) {
+    this.structNodeDelegate = structNodeDelegate;
+    this.memorySegment = segment;
+    this.useMemorySegment = true;
   }
 
   @Override
-  public long computeHash(final Bytes<ByteBuffer> bytes) {
+  public long computeHash(final BytesOut<?> bytes) {
     final var nodeDelegate = structNodeDelegate.getNodeDelegate();
 
     bytes.clear();
@@ -82,10 +95,7 @@ public abstract class AbstractNumberNode extends AbstractStructForwardingNode im
       default -> throw new IllegalStateException("Unexpected value: " + number);
     }
 
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
-
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
+    return nodeDelegate.getHashFunction().hashBytes(bytes.toByteArray());
   }
 
   @Override
@@ -96,18 +106,45 @@ public abstract class AbstractNumberNode extends AbstractStructForwardingNode im
   @Override
   public long getHash() {
     if (hashCode == 0L) {
-      hashCode = computeHash(Bytes.elasticHeapByteBuffer());
+      hashCode = computeHash(Bytes.elasticOffHeapByteBuffer());
     }
     return hashCode;
   }
 
   public void setValue(final Number number) {
+    useMemorySegment = false;
     hashCode = 0L;
     this.number = number;
   }
 
   public Number getValue() {
+    if (useMemorySegment) {
+      useMemorySegment = false; // Switch to using the read value directly next time.
+
+      var source = new MemorySegmentBytesIn(memorySegment);
+      final var valueType = source.readByte();
+
+      switch (valueType) {
+        case 0 -> number = source.readDouble();
+        case 1 -> number = source.readFloat();
+        case 2 -> number = source.readInt();
+        case 3 -> number = source.readLong();
+        case 4 -> number = deserializeBigInteger(source);
+        case 5 -> {
+          final BigInteger bigInt = deserializeBigInteger(source);
+          final int scale = source.readInt();
+          number = new BigDecimal(bigInt, scale);
+        }
+        default -> throw new AssertionError("Type not known.");
+      }
+    }
     return number;
+  }
+
+  private BigInteger deserializeBigInteger(final BytesIn<?> source) {
+    final byte[] bytes = new byte[(int) source.readStopBit()];
+    source.read(bytes);
+    return new BigInteger(bytes);
   }
 
   @Override
