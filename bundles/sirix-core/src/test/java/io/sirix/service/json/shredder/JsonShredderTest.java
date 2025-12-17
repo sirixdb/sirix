@@ -248,7 +248,7 @@ public final class JsonShredderTest {
                                                  .byteHandlerPipeline(new ByteHandlerPipeline(new FFILz4Compressor()))
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx(100_000)) {
+         final var trx = manager.beginNodeTrx(262_144 << 2)) {
       trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath));
 
       if (doTraverse) {
