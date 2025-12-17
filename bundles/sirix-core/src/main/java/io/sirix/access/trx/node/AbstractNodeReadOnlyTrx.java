@@ -243,11 +243,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public NodeKind getLeftSiblingKind() {
     assertNotClosed();
     if (hasLeftSibling()) {
-      // Save current position using getCurrentNode() for stable reference
-      final N node = getCurrentNode();
+      // Save current position using flyweight-compatible getters
+      final long savedNodeKey = getNodeKey();
       moveToLeftSibling();
       final NodeKind leftSiblingKind = getKind();
-      setCurrentNode(node);
+      moveTo(savedNodeKey);
       return leftSiblingKind;
     }
     return NodeKind.UNKNOWN;
@@ -374,7 +374,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   /**
    * Toggle for flyweight mode. Set to true to enable zero-allocation optimization.
    */
-  private static final boolean FLYWEIGHT_ENABLED = false;
+  private static final boolean FLYWEIGHT_ENABLED = true;
   
   /**
    * Move to a node using flyweight mode (zero allocation).
@@ -388,12 +388,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (!FLYWEIGHT_ENABLED) {
       return moveToLegacy(nodeKey);
     }
-    // Release previous page guard to allow eviction
-    releaseCurrentPageGuard();
     
     // Lookup slot directly without deserializing
+    // NOTE: We acquire the new guard BEFORE releasing the old one to ensure
+    // the transaction state remains valid if the lookup fails.
     var slotLocation = reader.lookupSlotWithGuard(nodeKey, IndexType.DOCUMENT, -1);
     if (slotLocation == null) {
+      // Node not found - keep the current position unchanged
       return false;
     }
     
@@ -404,9 +405,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     
     // Check for deleted node
     if (kind == NodeKind.DELETE) {
+      // Release the newly acquired guard, keep current position unchanged
       slotLocation.guard().close();
       return false;
     }
+    
+    // Move succeeded - now release the previous page guard
+    releaseCurrentPageGuard();
     
     // Update flyweight state (NO ALLOCATION)
     this.currentSlot = data;
@@ -431,18 +436,19 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @return true if the move was successful
    */
   private boolean moveToItemList(final long nodeKey) {
-    releaseCurrentPageGuard();
-    flyweightMode = false;
-    
     if (itemList.size() > 0) {
       DataRecord item = itemList.getItem(nodeKey);
       if (item != null) {
+        // Move succeeded - release previous page guard and switch to object mode
+        releaseCurrentPageGuard();
+        flyweightMode = false;
         //noinspection unchecked
         setCurrentNode((N) item);
         this.currentNodeKey = nodeKey;
         return true;
       }
     }
+    // Item not found - keep the current position unchanged
     return false;
   }
   
@@ -453,10 +459,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @return true if the move was successful
    */
   private boolean moveToLegacy(final long nodeKey) {
-    releaseCurrentPageGuard();
-    flyweightMode = false;
-    
-    final N oldNode = currentNode;
     DataRecord newNode;
     try {
       newNode = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DOCUMENT, -1);
@@ -465,9 +467,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     if (newNode == null) {
-      setCurrentNode(oldNode);
+      // Node not found - keep the current position unchanged
       return false;
     } else {
+      // Move succeeded - release previous page guard and switch to object mode
+      releaseCurrentPageGuard();
+      flyweightMode = false;
       //noinspection unchecked
       setCurrentNode((N) newNode);
       this.currentNodeKey = nodeKey;
@@ -1123,9 +1128,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasNode(final @NonNegative long key) {
     assertNotClosed();
-    final N node = currentNode;
+    // Save current position using flyweight-compatible getters
+    final long savedNodeKey = getNodeKey();
     final boolean retVal = moveTo(key);
-    setCurrentNode(node);
+    // Restore to the saved position
+    moveTo(savedNodeKey);
     return retVal;
   }
 
@@ -1193,10 +1200,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return NodeKind.UNKNOWN;
     }
-    final N node = getCurrentNode();  // Save position
+    // Save current position using flyweight-compatible getters
+    final long savedNodeKey = getNodeKey();
     moveToParent();
     final NodeKind parentKind = getKind();
-    setCurrentNode(node);
+    moveTo(savedNodeKey);
     return parentKind;
   }
 
@@ -1223,10 +1231,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public NodeKind getLastChildKind() {
     assertNotClosed();
     if (hasLastChild()) {
-      final N node = getCurrentNode();  // Save position
+      // Save current position using flyweight-compatible getters
+      final long savedNodeKey = getNodeKey();
       moveToLastChild();
       final NodeKind lastChildKind = getKind();
-      setCurrentNode(node);
+      moveTo(savedNodeKey);
       return lastChildKind;
     }
     return NodeKind.UNKNOWN;
@@ -1236,10 +1245,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public NodeKind getFirstChildKind() {
     assertNotClosed();
     if (hasFirstChild()) {
-      final N node = getCurrentNode();  // Save position
+      // Save current position using flyweight-compatible getters
+      final long savedNodeKey = getNodeKey();
       moveToFirstChild();
       final NodeKind firstChildKind = getKind();
-      setCurrentNode(node);
+      moveTo(savedNodeKey);
       return firstChildKind;
     }
     return NodeKind.UNKNOWN;
@@ -1248,12 +1258,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getLastChildKey() {
     assertNotClosed();
-    final ImmutableNode node = currentNode;
-    if (node instanceof StructNode && hasLastChild()) {
-      final long nodeKey = node.getNodeKey();
+    if (hasLastChild()) {
+      // Save current position using flyweight-compatible getters
+      final long savedNodeKey = getNodeKey();
       moveToLastChild();
-      final long lastChildNodeKey = currentNode.getNodeKey();
-      moveTo(nodeKey);
+      final long lastChildNodeKey = getNodeKey();
+      moveTo(savedNodeKey);
       return lastChildNodeKey;
     }
     return Fixed.NULL_NODE_KEY.getStandardProperty();
@@ -1297,11 +1307,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public NodeKind getRightSiblingKind() {
     assertNotClosed();
-    final N node = currentNode;
-    if (node instanceof StructNode && hasRightSibling()) {
+    if (hasRightSibling()) {
+      // Save current position using flyweight-compatible getters
+      final long savedNodeKey = getNodeKey();
       moveToRightSibling();
-      final NodeKind rightSiblingKind = currentNode.getKind();
-      setCurrentNode(node);
+      final NodeKind rightSiblingKind = getKind();
+      moveTo(savedNodeKey);
       return rightSiblingKind;
     }
     return NodeKind.UNKNOWN;
@@ -1322,8 +1333,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public SirixDeweyID getDeweyID() {
     assertNotClosed();
-    if (flyweightMode && currentDeweyId != null) {
-      return new SirixDeweyID(currentDeweyId);
+    if (flyweightMode) {
+      if (currentDeweyId != null) {
+        return new SirixDeweyID(currentDeweyId);
+      }
+      // DeweyID not stored in page, need to deserialize node
+      N node = getCurrentNode();
+      return node != null ? node.getDeweyID() : null;
     }
     return currentNode != null ? currentNode.getDeweyID() : null;
   }
