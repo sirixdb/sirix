@@ -30,6 +30,7 @@ import io.sirix.api.NodeTrx;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.*;
+import io.sirix.cache.PageGuard;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.io.Reader;
@@ -371,6 +372,102 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                                                             resourceConfig);
     page.setRecord(record);
     return record;
+  }
+
+  // ==================== FLYWEIGHT CURSOR SUPPORT ====================
+  
+  /**
+   * Record containing slot location data for zero-allocation access.
+   * Holds all information needed to read node fields directly from memory.
+   *
+   * @param page   the KeyValueLeafPage containing the slot
+   * @param offset the slot offset within the page (for DeweyID lookup)
+   * @param data   the MemorySegment containing the serialized node data
+   * @param guard  the PageGuard protecting the page from eviction
+   */
+  public record SlotLocation(KeyValueLeafPage page, int offset, MemorySegment data, PageGuard guard) {}
+
+  /**
+   * Lookup a slot directly without deserializing to a node object.
+   * This is the core method for zero-allocation flyweight cursor access.
+   * <p>
+   * IMPORTANT: The returned PageGuard MUST be closed when the slot is no longer needed.
+   * Failure to close the guard will prevent page eviction and cause memory issues.
+   * <p>
+   * Usage:
+   * <pre>{@code
+   * var location = reader.lookupSlotWithGuard(nodeKey, IndexType.DOCUMENT, -1);
+   * if (location != null) {
+   *     try {
+   *         // Read directly from location.data()
+   *         long parentKey = DeltaVarIntCodec.decodeDeltaFromSegment(location.data(), offset, nodeKey);
+   *     } finally {
+   *         location.guard().close();
+   *     }
+   * }
+   * }</pre>
+   *
+   * @param recordKey the node key to lookup
+   * @param indexType the index type (typically DOCUMENT for regular nodes)
+   * @param index     the index number (-1 for DOCUMENT)
+   * @return SlotLocation with page guard, or null if not found
+   */
+  public SlotLocation lookupSlotWithGuard(long recordKey, IndexType indexType, int index) {
+    requireNonNull(indexType);
+    assertNotClosed();
+
+    if (recordKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      return null;
+    }
+
+    final long recordPageKey = pageKey(recordKey, indexType);
+    var indexLogKey = new IndexLogKey(indexType, recordPageKey, index, revisionNumber);
+
+    // Get the page reference
+    final PageReferenceToPage pageReferenceToPage = switch (indexType) {
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(indexLogKey);
+      default -> throw new IllegalStateException("Unsupported index type: " + indexType);
+    };
+
+    if (pageReferenceToPage == null || pageReferenceToPage.page == null) {
+      return null;
+    }
+
+    KeyValueLeafPage page = (KeyValueLeafPage) pageReferenceToPage.page;
+    int offset = StorageEngineReader.recordPageOffset(recordKey);
+
+    // Acquire guard FIRST to prevent eviction race
+    page.acquireGuard();
+
+    // Check if page is still valid after acquiring guard
+    if (page.isClosed()) {
+      page.releaseGuard();
+      return null;
+    }
+
+    // Get slot data
+    MemorySegment data = page.getSlot(offset);
+    if (data == null) {
+      // Try overflow page
+      try {
+        final PageReference reference = page.getPageReference(recordKey);
+        if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
+          data = ((OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig())).getData();
+        }
+      } catch (final SirixIOException e) {
+        page.releaseGuard();
+        return null;
+      }
+    }
+
+    if (data == null) {
+      page.releaseGuard();
+      return null;
+    }
+
+    // Create guard wrapper (guard already acquired above)
+    PageGuard guard = PageGuard.wrapAlreadyGuarded(page);
+    return new SlotLocation(page, offset, data, guard);
   }
 
   /**

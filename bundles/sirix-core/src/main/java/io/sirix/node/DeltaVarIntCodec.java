@@ -30,6 +30,9 @@ package io.sirix.node;
 
 import io.sirix.settings.Fixed;
 
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+
 /**
  * High-performance codec for delta-encoded node keys using zigzag + varint encoding.
  * 
@@ -366,5 +369,142 @@ public final class DeltaVarIntCodec {
       value >>>= 7;
     }
     return size;
+  }
+  
+  // ==================== MEMORY SEGMENT SUPPORT ====================
+  // These methods support zero-allocation access by reading directly from MemorySegment
+  
+  /**
+   * Decode a delta-encoded key directly from MemorySegment.
+   * ZERO ALLOCATION - reads directly from memory.
+   *
+   * @param segment the MemorySegment containing the data
+   * @param offset  the byte offset to start reading from
+   * @param baseKey the reference key for delta calculation
+   * @return the decoded key
+   */
+  public static long decodeDeltaFromSegment(MemorySegment segment, int offset, long baseKey) {
+    long zigzag = readVarLongFromSegment(segment, offset);
+    
+    if (zigzag == NULL_MARKER) {
+      return NULL_KEY;
+    }
+    
+    // Undo the +1 shift and zigzag decode
+    long delta = zigzagDecode(zigzag - 1);
+    return baseKey + delta;
+  }
+  
+  /**
+   * Read unsigned varint from MemorySegment.
+   * ZERO ALLOCATION - reads directly from memory.
+   *
+   * @param segment the MemorySegment containing the data
+   * @param offset  the byte offset to start reading from
+   * @return the decoded unsigned long value
+   */
+  public static long readVarLongFromSegment(MemorySegment segment, int offset) {
+    byte b = segment.get(ValueLayout.JAVA_BYTE, offset);
+    
+    // Fast path: 1 byte (0-127) - most common case for small deltas
+    if ((b & 0x80) == 0) {
+      return b;
+    }
+    
+    long result = b & 0x7F;
+    b = segment.get(ValueLayout.JAVA_BYTE, offset + 1);
+    
+    // Fast path: 2 bytes (128-16383) - second most common
+    if ((b & 0x80) == 0) {
+      return result | ((long) b << 7);
+    }
+    
+    // General case for larger values (rare for structural keys)
+    result |= (long) (b & 0x7F) << 7;
+    int pos = offset + 2;
+    int shift = 14;
+    do {
+      b = segment.get(ValueLayout.JAVA_BYTE, pos++);
+      result |= (long) (b & 0x7F) << shift;
+      shift += 7;
+      
+      if (shift > 63) {
+        throw new IllegalStateException("Varint too long (more than 10 bytes)");
+      }
+    } while ((b & 0x80) != 0);
+    
+    return result;
+  }
+  
+  /**
+   * Read signed varint (zigzag decoded) from MemorySegment.
+   * ZERO ALLOCATION - reads directly from memory.
+   *
+   * @param segment the MemorySegment containing the data
+   * @param offset  the byte offset to start reading from
+   * @return the decoded signed integer value
+   */
+  public static int decodeSignedFromSegment(MemorySegment segment, int offset) {
+    long zigzag = readVarLongFromSegment(segment, offset);
+    return (int) zigzagDecode(zigzag);
+  }
+  
+  /**
+   * Read signed long (zigzag decoded) from MemorySegment.
+   * ZERO ALLOCATION - reads directly from memory.
+   *
+   * @param segment the MemorySegment containing the data
+   * @param offset  the byte offset to start reading from
+   * @return the decoded signed long value
+   */
+  public static long decodeSignedLongFromSegment(MemorySegment segment, int offset) {
+    long zigzag = readVarLongFromSegment(segment, offset);
+    return zigzagDecode(zigzag);
+  }
+  
+  /**
+   * Get the byte length of a varint at the given offset.
+   * Used for computing field offsets during flyweight cursor parsing.
+   * ZERO ALLOCATION - reads directly from memory.
+   *
+   * @param segment the MemorySegment containing the data
+   * @param offset  the byte offset to start reading from
+   * @return the number of bytes this varint occupies
+   */
+  public static int varintLength(MemorySegment segment, int offset) {
+    int len = 0;
+    while ((segment.get(ValueLayout.JAVA_BYTE, offset + len) & 0x80) != 0) {
+      len++;
+    }
+    return len + 1;
+  }
+  
+  /**
+   * Get length of a delta-encoded value (includes NULL check).
+   * ZERO ALLOCATION - reads directly from memory.
+   *
+   * @param segment the MemorySegment containing the data
+   * @param offset  the byte offset to start reading from
+   * @return the number of bytes this delta-encoded value occupies
+   */
+  public static int deltaLength(MemorySegment segment, int offset) {
+    byte first = segment.get(ValueLayout.JAVA_BYTE, offset);
+    if (first == NULL_MARKER) {
+      return 1;  // NULL is single byte
+    }
+    return varintLength(segment, offset);
+  }
+  
+  /**
+   * Read a fixed 8-byte long value from MemorySegment.
+   * Used for hash values which are stored as fixed-length.
+   * ZERO ALLOCATION - reads directly from memory.
+   *
+   * @param segment the MemorySegment containing the data
+   * @param offset  the byte offset to start reading from
+   * @return the 8-byte long value
+   */
+  public static long readLongFromSegment(MemorySegment segment, int offset) {
+    return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
   }
 }

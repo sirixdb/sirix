@@ -267,54 +267,61 @@ public final class JsonNodeReadOnlyTrxImpl
   @Override
   public boolean isArray() {
     assertNotClosed();
-    return getCurrentNode().getKind() == NodeKind.ARRAY;
+    // Use getKind() for zero-allocation check
+    return getKind() == NodeKind.ARRAY;
   }
 
   @Override
   public boolean isObject() {
     assertNotClosed();
-    return getCurrentNode().getKind() == NodeKind.OBJECT;
+    // Use getKind() for zero-allocation check
+    return getKind() == NodeKind.OBJECT;
   }
 
   @Override
   public boolean isObjectKey() {
     assertNotClosed();
-    return getCurrentNode().getKind() == NodeKind.OBJECT_KEY;
+    // Use getKind() for zero-allocation check
+    return getKind() == NodeKind.OBJECT_KEY;
   }
 
   @Override
   public boolean isNumberValue() {
     assertNotClosed();
-    final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE;
+    // Use getKind() for zero-allocation check
+    final var kind = getKind();
+    return kind == NodeKind.NUMBER_VALUE || kind == NodeKind.OBJECT_NUMBER_VALUE;
   }
 
   @Override
   public boolean isNullValue() {
     assertNotClosed();
-    final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.NULL_VALUE || currentNode.getKind() == NodeKind.OBJECT_NULL_VALUE;
+    // Use getKind() for zero-allocation check
+    final var kind = getKind();
+    return kind == NodeKind.NULL_VALUE || kind == NodeKind.OBJECT_NULL_VALUE;
   }
 
   @Override
   public boolean isStringValue() {
     assertNotClosed();
-    final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.STRING_VALUE || currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE;
+    // Use getKind() for zero-allocation check
+    final var kind = getKind();
+    return kind == NodeKind.STRING_VALUE || kind == NodeKind.OBJECT_STRING_VALUE;
   }
 
   @Override
   public boolean isBooleanValue() {
     assertNotClosed();
-    final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE;
+    // Use getKind() for zero-allocation check
+    final var kind = getKind();
+    return kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.OBJECT_BOOLEAN_VALUE;
   }
 
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.JSON_DOCUMENT;
+    // Use getKind() for zero-allocation check
+    return getKind() == NodeKind.JSON_DOCUMENT;
   }
 
   @Override

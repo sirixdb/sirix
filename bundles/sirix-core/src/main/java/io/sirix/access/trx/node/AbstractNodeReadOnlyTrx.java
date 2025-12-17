@@ -1,10 +1,14 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.page.NodeStorageEngineReader;
 import io.sirix.api.*;
+import io.sirix.cache.PageGuard;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
+import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
 import io.sirix.node.NullNode;
 import io.sirix.node.SirixDeweyID;
@@ -14,6 +18,7 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ArrayNode;
 import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.service.xml.xpath.AtomicValue;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
@@ -22,6 +27,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.UncheckedIOException;
+import java.lang.foreign.MemorySegment;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
@@ -47,7 +53,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   protected StorageEngineReader pageReadOnlyTrx;
 
   /**
-   * The current node.
+   * The current node (used as fallback when flyweight mode is disabled).
    */
   private N currentNode;
 
@@ -65,6 +71,70 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * Read-transaction-exclusive item list.
    */
   protected final ItemList<AtomicValue> itemList;
+  
+  // ==================== FLYWEIGHT CURSOR STATE ====================
+  // These fields enable zero-allocation navigation by reading directly from MemorySegment
+  
+  /**
+   * The raw MemorySegment containing the current node's serialized data.
+   * When in flyweight mode, getters read directly from this segment.
+   */
+  private MemorySegment currentSlot;
+  
+  /**
+   * The current node's key (used for delta decoding).
+   */
+  private long currentNodeKey;
+  
+  /**
+   * The current node's kind.
+   */
+  private NodeKind currentNodeKind;
+  
+  /**
+   * The current node's DeweyID bytes (may be null if DeweyIDs not stored).
+   */
+  private byte[] currentDeweyId;
+  
+  /**
+   * Page guard protecting the current page from eviction.
+   * MUST be released when moving to a different node or closing the transaction.
+   */
+  private PageGuard currentPageGuard;
+  
+  /**
+   * Whether the transaction is in flyweight mode (reading from currentSlot).
+   * When false, falls back to using currentNode object.
+   */
+  private boolean flyweightMode = false;
+  
+  /**
+   * Preallocated array for caching field offsets within currentSlot.
+   * Indices are defined by FIELD_* constants.
+   * This avoids re-parsing varints on each getter call.
+   */
+  protected final int[] cachedFieldOffsets = new int[16];
+  
+  // Field offset indices for cachedFieldOffsets array
+  protected static final int FIELD_PARENT_KEY = 0;
+  protected static final int FIELD_PREV_REVISION = 1;
+  protected static final int FIELD_LAST_MOD_REVISION = 2;
+  protected static final int FIELD_RIGHT_SIBLING_KEY = 3;
+  protected static final int FIELD_LEFT_SIBLING_KEY = 4;
+  protected static final int FIELD_FIRST_CHILD_KEY = 5;
+  protected static final int FIELD_LAST_CHILD_KEY = 6;
+  protected static final int FIELD_CHILD_COUNT = 7;
+  protected static final int FIELD_DESCENDANT_COUNT = 8;
+  protected static final int FIELD_HASH = 9;
+  protected static final int FIELD_NAME_KEY = 10;
+  protected static final int FIELD_PATH_NODE_KEY = 11;
+  protected static final int FIELD_VALUE = 12;
+  protected static final int FIELD_END = 13;  // End marker for offset validation
+  
+  /**
+   * Resource configuration cached for hash type checks.
+   */
+  protected final ResourceConfiguration resourceConfig;
 
   /**
    * Constructor.
@@ -84,17 +154,57 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.pageReadOnlyTrx = requireNonNull(pageReadTransaction);
     this.currentNode = requireNonNull(documentNode);
     this.isClosed = false;
+    this.resourceConfig = resourceSession.getResourceConfig();
+    
+    // Initialize flyweight state from document node
+    this.currentNodeKey = documentNode.getNodeKey();
+    this.currentNodeKind = documentNode.getKind();
+    this.flyweightMode = false;  // Start with object mode for document node
   }
 
   @Override
   public N getCurrentNode() {
+    if (currentNode != null) {
+      return currentNode;
+    }
+    
+    if (flyweightMode && currentSlot != null) {
+      // Create a snapshot by deserializing the node from the slot.
+      // This ALLOCATES a new object (escape hatch for code that needs a stable reference).
+      currentNode = deserializeToSnapshot();
+    }
+    
     return currentNode;
+  }
+  
+  /**
+   * Deserialize the current slot to a node object (snapshot).
+   * This is the escape hatch for code that needs a stable node reference.
+   * Called by getCurrentNode() when in flyweight mode.
+   *
+   * @return the deserialized node
+   */
+  @SuppressWarnings("unchecked")
+  protected N deserializeToSnapshot() {
+    // Use the same deserialization as normal read path
+    var bytesIn = new io.sirix.node.MemorySegmentBytesIn(currentSlot);
+    var record = resourceConfig.recordPersister.deserialize(bytesIn, currentNodeKey, currentDeweyId, resourceConfig);
+    return (N) record;
   }
 
   @Override
   public void setCurrentNode(final @Nullable N currentNode) {
     assertNotClosed();
     this.currentNode = currentNode;
+    
+    if (currentNode != null) {
+      // Disable flyweight mode - use the provided node object
+      this.flyweightMode = false;
+      this.currentNodeKey = currentNode.getNodeKey();
+      this.currentNodeKind = currentNode.getKind();
+      // Release page guard since we're not reading from slot anymore
+      releaseCurrentPageGuard();
+    }
   }
 
   @Override
@@ -115,10 +225,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean moveToPrevious() {
     assertNotClosed();
-    final StructNode node = getStructuralNode();
-    if (node.hasLeftSibling()) {
+    // Use flyweight getters to avoid node materialization
+    if (hasLeftSibling()) {
       // Left sibling node.
-      boolean leftSiblMove = moveTo(node.getLeftSiblingKey());
+      boolean leftSiblMove = moveTo(getLeftSiblingKey());
       // Now move down to rightmost descendant node if it has one.
       while (hasFirstChild()) {
         leftSiblMove = moveToLastChild();
@@ -126,16 +236,17 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return leftSiblMove;
     }
     // Parent node.
-    return moveTo(node.getParentKey());
+    return moveTo(getParentKey());
   }
 
   @Override
   public NodeKind getLeftSiblingKind() {
     assertNotClosed();
-    final N node = currentNode;
-    if (node instanceof StructNode && hasLeftSibling()) {
+    if (hasLeftSibling()) {
+      // Save current position using getCurrentNode() for stable reference
+      final N node = getCurrentNode();
       moveToLeftSibling();
-      final NodeKind leftSiblingKind = currentNode.getKind();
+      final NodeKind leftSiblingKind = getKind();
       setCurrentNode(node);
       return leftSiblingKind;
     }
@@ -145,23 +256,30 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getLeftSiblingKey() {
     assertNotClosed();
+    if (flyweightMode && cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] >= 0) {
+      // Read directly from MemorySegment - ZERO ALLOCATION
+      return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY], currentNodeKey);
+    }
     return getStructuralNode().getLeftSiblingKey();
   }
 
   @Override
   public boolean hasLeftSibling() {
     assertNotClosed();
+    if (flyweightMode && cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] >= 0) {
+      return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
     return getStructuralNode().hasLeftSibling();
   }
 
   @Override
   public boolean moveToLeftSibling() {
     assertNotClosed();
-    final StructNode node = getStructuralNode();
-    if (!node.hasLeftSibling()) {
+    // Use flyweight getter if available to avoid node materialization
+    if (!hasLeftSibling()) {
       return false;
     }
-    return moveTo(node.getLeftSiblingKey());
+    return moveTo(getLeftSiblingKey());
   }
 
   @Override
@@ -173,13 +291,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public String nameForKey(final int key) {
     assertNotClosed();
-    return pageReadOnlyTrx.getName(key, currentNode.getKind());
+    return pageReadOnlyTrx.getName(key, getKind());
   }
 
   @Override
   public long getPathNodeKey() {
     assertNotClosed();
-    final ImmutableNode node = currentNode;
+    final ImmutableNode node = getCurrentNode();
     if (node instanceof NameNode) {
       return ((NameNode) node).getPathNodeKey();
     }
@@ -222,37 +340,126 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean moveToParent() {
     assertNotClosed();
-    return moveTo(currentNode.getParentKey());
+    return moveTo(getParentKey());
   }
 
   @Override
   public boolean moveToFirstChild() {
     assertNotClosed();
-    final StructNode node = getStructuralNode();
-    if (!node.hasFirstChild()) {
+    // Use flyweight getter if available to avoid node materialization
+    if (!hasFirstChild()) {
       return false;
     }
-    return moveTo(node.getFirstChildKey());
+    return moveTo(getFirstChildKey());
   }
 
   @Override
   public boolean moveTo(final long nodeKey) {
     assertNotClosed();
 
-    // Remember old node and fetch new one.
+    // Handle negative keys (item list) - fall back to object mode
+    if (nodeKey < 0) {
+      return moveToItemList(nodeKey);
+    }
+    
+    // Try flyweight mode first
+    if (pageReadOnlyTrx instanceof NodeStorageEngineReader reader) {
+      return moveToFlyweight(nodeKey, reader);
+    }
+    
+    // Fallback to traditional object mode
+    return moveToLegacy(nodeKey);
+  }
+  
+  /**
+   * Toggle for flyweight mode. Set to true to enable zero-allocation optimization.
+   */
+  private static final boolean FLYWEIGHT_ENABLED = false;
+  
+  /**
+   * Move to a node using flyweight mode (zero allocation).
+   * Reads directly from MemorySegment without creating node objects.
+   *
+   * @param nodeKey the node key to move to
+   * @param reader  the storage engine reader
+   * @return true if the move was successful
+   */
+  private boolean moveToFlyweight(final long nodeKey, final NodeStorageEngineReader reader) {
+    if (!FLYWEIGHT_ENABLED) {
+      return moveToLegacy(nodeKey);
+    }
+    // Release previous page guard to allow eviction
+    releaseCurrentPageGuard();
+    
+    // Lookup slot directly without deserializing
+    var slotLocation = reader.lookupSlotWithGuard(nodeKey, IndexType.DOCUMENT, -1);
+    if (slotLocation == null) {
+      return false;
+    }
+    
+    // Read node kind from first byte
+    MemorySegment data = slotLocation.data();
+    byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+    NodeKind kind = NodeKind.getKind(kindByte);
+    
+    // Check for deleted node
+    if (kind == NodeKind.DELETE) {
+      slotLocation.guard().close();
+      return false;
+    }
+    
+    // Update flyweight state (NO ALLOCATION)
+    this.currentSlot = data;
+    this.currentNodeKey = nodeKey;
+    this.currentNodeKind = kind;
+    this.currentDeweyId = slotLocation.page().getDeweyIdAsByteArray(slotLocation.offset());
+    this.currentPageGuard = slotLocation.guard();
+    this.flyweightMode = true;
+    this.currentNode = null;  // Invalidate cached node object
+    
+    // Parse and cache field offsets for fast getter access
+    parseFieldOffsets();
+    
+    return true;
+  }
+  
+  /**
+   * Move to an item in the item list (negative keys).
+   * Falls back to object mode since item list uses objects.
+   *
+   * @param nodeKey the negative node key
+   * @return true if the move was successful
+   */
+  private boolean moveToItemList(final long nodeKey) {
+    releaseCurrentPageGuard();
+    flyweightMode = false;
+    
+    if (itemList.size() > 0) {
+      DataRecord item = itemList.getItem(nodeKey);
+      if (item != null) {
+        //noinspection unchecked
+        setCurrentNode((N) item);
+        this.currentNodeKey = nodeKey;
+        return true;
+      }
+    }
+    return false;
+  }
+  
+  /**
+   * Legacy object-based moveTo for when flyweight mode is not available.
+   *
+   * @param nodeKey the node key to move to
+   * @return true if the move was successful
+   */
+  private boolean moveToLegacy(final long nodeKey) {
+    releaseCurrentPageGuard();
+    flyweightMode = false;
+    
     final N oldNode = currentNode;
     DataRecord newNode;
     try {
-      // Immediately return node from item list if node key negative.
-      if (nodeKey < 0) {
-        if (itemList.size() > 0) {
-          newNode = itemList.getItem(nodeKey);
-        } else {
-          newNode = null;
-        }
-      } else {
-        newNode = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DOCUMENT, -1);
-      }
+      newNode = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DOCUMENT, -1);
     } catch (final SirixIOException | UncheckedIOException | IllegalArgumentException e) {
       newNode = null;
     }
@@ -263,36 +470,595 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     } else {
       //noinspection unchecked
       setCurrentNode((N) newNode);
+      this.currentNodeKey = nodeKey;
       return true;
     }
+  }
+  
+  /**
+   * Release the current page guard if one is held.
+   * This allows the page to be evicted if needed.
+   */
+  protected void releaseCurrentPageGuard() {
+    if (currentPageGuard != null) {
+      currentPageGuard.close();
+      currentPageGuard = null;
+    }
+  }
+  
+  /**
+   * Parse the field offsets from the current slot for fast getter access.
+   * This is called once per moveTo() and caches the byte offset of each field.
+   * <p>
+   * The slot format starts with:
+   * - Byte 0: NodeKind byte
+   * - Byte 1+: Node-specific fields (varints)
+   * <p>
+   * Field order varies by node kind, but common structural nodes follow:
+   * - parentKey (delta varint)
+   * - prevRev (signed varint)
+   * - lastModRev (signed varint)
+   * - [pathNodeKey for ARRAY] (delta varint)
+   * - rightSiblingKey (delta varint)
+   * - leftSiblingKey (delta varint)
+   * - firstChildKey (delta varint) for structural nodes
+   * - lastChildKey (delta varint) for structural nodes
+   * - childCount (signed varint) if storeChildCount
+   * - hash (8 bytes fixed) if hashType != NONE
+   * - descendantCount (signed varint) if hashType != NONE
+   */
+  protected void parseFieldOffsets() {
+    // Start after NodeKind byte
+    int offset = 1;
+    
+    switch (currentNodeKind) {
+      case OBJECT -> parseObjectNodeOffsets(offset);
+      case ARRAY -> parseArrayNodeOffsets(offset);
+      case OBJECT_KEY -> parseObjectKeyNodeOffsets(offset);
+      // Non-object value nodes have siblings (used in arrays)
+      case STRING_VALUE -> parseStringValueNodeOffsets(offset);
+      case NUMBER_VALUE -> parseNumberValueNodeOffsets(offset);
+      case BOOLEAN_VALUE -> parseBooleanValueNodeOffsets(offset);
+      case NULL_VALUE -> parseNullValueNodeOffsets(offset);
+      // Object value nodes have no siblings (single child of ObjectKeyNode)
+      case OBJECT_STRING_VALUE -> parseObjectStringValueNodeOffsets(offset);
+      case OBJECT_NUMBER_VALUE -> parseObjectNumberValueNodeOffsets(offset);
+      case OBJECT_BOOLEAN_VALUE -> parseObjectBooleanValueNodeOffsets(offset);
+      case OBJECT_NULL_VALUE -> parseObjectNullValueNodeOffsets(offset);
+      case JSON_DOCUMENT -> {
+        // JSON_DOCUMENT has special serialization - fall back to object mode
+        // for simplicity. Document root is typically only visited once.
+        java.util.Arrays.fill(cachedFieldOffsets, -1);
+      }
+      default -> {
+        // For unsupported node kinds, set all offsets to -1 (use object fallback)
+        java.util.Arrays.fill(cachedFieldOffsets, -1);
+      }
+    }
+  }
+  
+  /**
+   * Parse field offsets for OBJECT node.
+   * Format: parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey,
+   *         firstChildKey, lastChildKey, [childCount], [hash, descendantCount]
+   */
+  private void parseObjectNodeOffsets(int offset) {
+    cachedFieldOffsets[FIELD_PARENT_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PREV_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_MOD_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_CHILD_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    // Optional childCount
+    if (resourceConfig.storeChildCount()) {
+      cachedFieldOffsets[FIELD_CHILD_COUNT] = offset;
+      offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    } else {
+      cachedFieldOffsets[FIELD_CHILD_COUNT] = -1;
+    }
+    
+    // Optional hash and descendant count
+    if (resourceConfig.hashType != HashType.NONE) {
+      cachedFieldOffsets[FIELD_HASH] = offset;
+      offset += 8;  // Fixed 8 bytes for hash
+      cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = offset;
+      offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    } else {
+      cachedFieldOffsets[FIELD_HASH] = -1;
+      cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = -1;
+    }
+    
+    // OBJECT nodes don't have nameKey/pathNodeKey/value
+    cachedFieldOffsets[FIELD_NAME_KEY] = -1;
+    cachedFieldOffsets[FIELD_PATH_NODE_KEY] = -1;
+    cachedFieldOffsets[FIELD_VALUE] = -1;
+    cachedFieldOffsets[FIELD_END] = offset;
+  }
+  
+  /**
+   * Parse field offsets for ARRAY node.
+   * Format: parentKey, prevRev, lastModRev, pathNodeKey, rightSiblingKey, leftSiblingKey,
+   *         firstChildKey, lastChildKey, [childCount], [hash, descendantCount]
+   */
+  private void parseArrayNodeOffsets(int offset) {
+    cachedFieldOffsets[FIELD_PARENT_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PREV_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_MOD_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PATH_NODE_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_CHILD_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    if (resourceConfig.storeChildCount()) {
+      cachedFieldOffsets[FIELD_CHILD_COUNT] = offset;
+      offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    } else {
+      cachedFieldOffsets[FIELD_CHILD_COUNT] = -1;
+    }
+    
+    if (resourceConfig.hashType != HashType.NONE) {
+      cachedFieldOffsets[FIELD_HASH] = offset;
+      offset += 8;
+      cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = offset;
+      offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    } else {
+      cachedFieldOffsets[FIELD_HASH] = -1;
+      cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = -1;
+    }
+    
+    cachedFieldOffsets[FIELD_NAME_KEY] = -1;
+    cachedFieldOffsets[FIELD_VALUE] = -1;
+    cachedFieldOffsets[FIELD_END] = offset;
+  }
+  
+  /**
+   * Parse field offsets for OBJECT_KEY node.
+   * Format: parentKey, prevRev, lastModRev, pathNodeKey, rightSiblingKey,
+   *         leftSiblingKey, firstChildKey, nameKey, [hash, descendantCount]
+   */
+  private void parseObjectKeyNodeOffsets(int offset) {
+    cachedFieldOffsets[FIELD_PARENT_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PREV_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_MOD_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PATH_NODE_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_NAME_KEY] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    if (resourceConfig.hashType != HashType.NONE) {
+      cachedFieldOffsets[FIELD_HASH] = offset;
+      offset += 8;
+      cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = offset;
+      offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    } else {
+      cachedFieldOffsets[FIELD_HASH] = -1;
+      cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = -1;
+    }
+    
+    // OBJECT_KEY has no lastChildKey, childCount
+    cachedFieldOffsets[FIELD_LAST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_CHILD_COUNT] = -1;
+    cachedFieldOffsets[FIELD_VALUE] = -1;
+    cachedFieldOffsets[FIELD_END] = offset;
+  }
+  
+  /**
+   * Parse field offsets for STRING_VALUE/OBJECT_STRING_VALUE node.
+   * Format: parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, [hash], valueLength, value
+   */
+  private void parseStringValueNodeOffsets(int offset) {
+    cachedFieldOffsets[FIELD_PARENT_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PREV_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_MOD_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    if (resourceConfig.hashType != HashType.NONE) {
+      cachedFieldOffsets[FIELD_HASH] = offset;
+      offset += 8;
+    } else {
+      cachedFieldOffsets[FIELD_HASH] = -1;
+    }
+    
+    // Value starts at current offset (length + bytes)
+    cachedFieldOffsets[FIELD_VALUE] = offset;
+    
+    // Leaf nodes don't have children
+    cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_LAST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_CHILD_COUNT] = -1;
+    cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = -1;
+    cachedFieldOffsets[FIELD_NAME_KEY] = -1;
+    cachedFieldOffsets[FIELD_PATH_NODE_KEY] = -1;
+    cachedFieldOffsets[FIELD_END] = offset;  // Value parsing done on demand
+  }
+  
+  /**
+   * Parse field offsets for NUMBER_VALUE/OBJECT_NUMBER_VALUE node.
+   * Format: parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, [hash], numberValue
+   */
+  private void parseNumberValueNodeOffsets(int offset) {
+    cachedFieldOffsets[FIELD_PARENT_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PREV_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_MOD_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    if (resourceConfig.hashType != HashType.NONE) {
+      cachedFieldOffsets[FIELD_HASH] = offset;
+      offset += 8;
+    } else {
+      cachedFieldOffsets[FIELD_HASH] = -1;
+    }
+    
+    cachedFieldOffsets[FIELD_VALUE] = offset;
+    
+    cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_LAST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_CHILD_COUNT] = -1;
+    cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = -1;
+    cachedFieldOffsets[FIELD_NAME_KEY] = -1;
+    cachedFieldOffsets[FIELD_PATH_NODE_KEY] = -1;
+    cachedFieldOffsets[FIELD_END] = offset;
+  }
+  
+  /**
+   * Parse field offsets for BOOLEAN_VALUE/OBJECT_BOOLEAN_VALUE node.
+   * Format: parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, [hash], booleanValue
+   */
+  private void parseBooleanValueNodeOffsets(int offset) {
+    cachedFieldOffsets[FIELD_PARENT_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PREV_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_MOD_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    if (resourceConfig.hashType != HashType.NONE) {
+      cachedFieldOffsets[FIELD_HASH] = offset;
+      offset += 8;
+    } else {
+      cachedFieldOffsets[FIELD_HASH] = -1;
+    }
+    
+    cachedFieldOffsets[FIELD_VALUE] = offset;
+    
+    cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_LAST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_CHILD_COUNT] = -1;
+    cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = -1;
+    cachedFieldOffsets[FIELD_NAME_KEY] = -1;
+    cachedFieldOffsets[FIELD_PATH_NODE_KEY] = -1;
+    cachedFieldOffsets[FIELD_END] = offset;
+  }
+  
+  /**
+   * Parse field offsets for NULL_VALUE node (used in arrays).
+   * Format: parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, [hash]
+   */
+  private void parseNullValueNodeOffsets(int offset) {
+    cachedFieldOffsets[FIELD_PARENT_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PREV_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_MOD_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    if (resourceConfig.hashType != HashType.NONE) {
+      cachedFieldOffsets[FIELD_HASH] = offset;
+      offset += 8;
+    } else {
+      cachedFieldOffsets[FIELD_HASH] = -1;
+    }
+    
+    cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_LAST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_CHILD_COUNT] = -1;
+    cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = -1;
+    cachedFieldOffsets[FIELD_NAME_KEY] = -1;
+    cachedFieldOffsets[FIELD_PATH_NODE_KEY] = -1;
+    cachedFieldOffsets[FIELD_VALUE] = -1;
+    cachedFieldOffsets[FIELD_END] = offset;
+  }
+  
+  // ==================== OBJECT_* VALUE NODES (no siblings) ====================
+  
+  /**
+   * Parse field offsets for OBJECT_STRING_VALUE node.
+   * Format: parentKey, prevRev, lastModRev, [hash], stringValue
+   * Note: No sibling keys - single child of ObjectKeyNode.
+   */
+  private void parseObjectStringValueNodeOffsets(int offset) {
+    cachedFieldOffsets[FIELD_PARENT_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PREV_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_MOD_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    if (resourceConfig.hashType != HashType.NONE) {
+      cachedFieldOffsets[FIELD_HASH] = offset;
+      offset += 8;
+    } else {
+      cachedFieldOffsets[FIELD_HASH] = -1;
+    }
+    
+    cachedFieldOffsets[FIELD_VALUE] = offset;
+    
+    // No siblings for object value nodes
+    cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] = -1;
+    cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] = -1;
+    cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_LAST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_CHILD_COUNT] = -1;
+    cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = -1;
+    cachedFieldOffsets[FIELD_NAME_KEY] = -1;
+    cachedFieldOffsets[FIELD_PATH_NODE_KEY] = -1;
+    cachedFieldOffsets[FIELD_END] = offset;
+  }
+  
+  /**
+   * Parse field offsets for OBJECT_NUMBER_VALUE node.
+   * Format: parentKey, prevRev, lastModRev, [hash], numberValue
+   * Note: No sibling keys - single child of ObjectKeyNode.
+   */
+  private void parseObjectNumberValueNodeOffsets(int offset) {
+    cachedFieldOffsets[FIELD_PARENT_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PREV_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_MOD_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    if (resourceConfig.hashType != HashType.NONE) {
+      cachedFieldOffsets[FIELD_HASH] = offset;
+      offset += 8;
+    } else {
+      cachedFieldOffsets[FIELD_HASH] = -1;
+    }
+    
+    cachedFieldOffsets[FIELD_VALUE] = offset;
+    
+    // No siblings for object value nodes
+    cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] = -1;
+    cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] = -1;
+    cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_LAST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_CHILD_COUNT] = -1;
+    cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = -1;
+    cachedFieldOffsets[FIELD_NAME_KEY] = -1;
+    cachedFieldOffsets[FIELD_PATH_NODE_KEY] = -1;
+    cachedFieldOffsets[FIELD_END] = offset;
+  }
+  
+  /**
+   * Parse field offsets for OBJECT_BOOLEAN_VALUE node.
+   * Format: parentKey, prevRev, lastModRev, [hash], booleanValue
+   * Note: No sibling keys - single child of ObjectKeyNode.
+   */
+  private void parseObjectBooleanValueNodeOffsets(int offset) {
+    cachedFieldOffsets[FIELD_PARENT_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PREV_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_MOD_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    if (resourceConfig.hashType != HashType.NONE) {
+      cachedFieldOffsets[FIELD_HASH] = offset;
+      offset += 8;
+    } else {
+      cachedFieldOffsets[FIELD_HASH] = -1;
+    }
+    
+    cachedFieldOffsets[FIELD_VALUE] = offset;
+    
+    // No siblings for object value nodes
+    cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] = -1;
+    cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] = -1;
+    cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_LAST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_CHILD_COUNT] = -1;
+    cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = -1;
+    cachedFieldOffsets[FIELD_NAME_KEY] = -1;
+    cachedFieldOffsets[FIELD_PATH_NODE_KEY] = -1;
+    cachedFieldOffsets[FIELD_END] = offset;
+  }
+  
+  /**
+   * Parse field offsets for OBJECT_NULL_VALUE node.
+   * Format: parentKey, prevRev, lastModRev, [hash]
+   * Note: No sibling keys - single child of ObjectKeyNode.
+   */
+  private void parseObjectNullValueNodeOffsets(int offset) {
+    cachedFieldOffsets[FIELD_PARENT_KEY] = offset;
+    offset += DeltaVarIntCodec.deltaLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_PREV_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    cachedFieldOffsets[FIELD_LAST_MOD_REVISION] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    if (resourceConfig.hashType != HashType.NONE) {
+      cachedFieldOffsets[FIELD_HASH] = offset;
+      offset += 8;
+    } else {
+      cachedFieldOffsets[FIELD_HASH] = -1;
+    }
+    
+    // No siblings for object value nodes
+    cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] = -1;
+    cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] = -1;
+    cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_LAST_CHILD_KEY] = -1;
+    cachedFieldOffsets[FIELD_CHILD_COUNT] = -1;
+    cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = -1;
+    cachedFieldOffsets[FIELD_NAME_KEY] = -1;
+    cachedFieldOffsets[FIELD_PATH_NODE_KEY] = -1;
+    cachedFieldOffsets[FIELD_VALUE] = -1;
+    cachedFieldOffsets[FIELD_END] = offset;
+  }
+  
+  /**
+   * Parse field offsets for JSON_DOCUMENT node.
+   * Format: firstChildKey (varint), descendantCount (8 bytes)
+   * Note: JSON_DOCUMENT has fixed parent, prevRev, lastModRev values, not serialized.
+   */
+  private void parseJsonDocumentNodeOffsets(int offset) {
+    // JSON_DOCUMENT has fixed values for these, not serialized:
+    // - parentKey = NULL_NODE_KEY
+    // - prevRev = NULL_REVISION_NUMBER
+    // - lastModRev = NULL_REVISION_NUMBER
+    cachedFieldOffsets[FIELD_PARENT_KEY] = -1;  // Fixed value, not serialized
+    cachedFieldOffsets[FIELD_PREV_REVISION] = -1;  // Fixed value
+    cachedFieldOffsets[FIELD_LAST_MOD_REVISION] = -1;  // Fixed value
+    
+    // firstChildKey is a plain varint (not delta encoded)
+    cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] = offset;
+    offset += DeltaVarIntCodec.varintLength(currentSlot, offset);
+    
+    // In JSON_DOCUMENT, firstChildKey == lastChildKey
+    cachedFieldOffsets[FIELD_LAST_CHILD_KEY] = -1;  // Same as firstChildKey
+    
+    // descendantCount is always stored as 8-byte long
+    cachedFieldOffsets[FIELD_DESCENDANT_COUNT] = offset;
+    offset += 8;
+    
+    // These fields don't exist for JSON_DOCUMENT
+    cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] = -1;
+    cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] = -1;
+    cachedFieldOffsets[FIELD_CHILD_COUNT] = -1;
+    cachedFieldOffsets[FIELD_HASH] = -1;
+    cachedFieldOffsets[FIELD_NAME_KEY] = -1;
+    cachedFieldOffsets[FIELD_PATH_NODE_KEY] = -1;
+    cachedFieldOffsets[FIELD_VALUE] = -1;
+    cachedFieldOffsets[FIELD_END] = offset;
   }
 
   @Override
   public boolean moveToRightSibling() {
     assertNotClosed();
-    final StructNode node = getStructuralNode();
-    if (!node.hasRightSibling()) {
+    // Use flyweight getter if available to avoid node materialization
+    if (!hasRightSibling()) {
       return false;
     }
-    return moveTo(node.getRightSiblingKey());
+    return moveTo(getRightSiblingKey());
   }
 
   @Override
   public long getNodeKey() {
     assertNotClosed();
-    return currentNode.getNodeKey();
+    if (flyweightMode) {
+      return currentNodeKey;
+    }
+    return getCurrentNode().getNodeKey();
   }
 
   @Override
   public long getHash() {
     assertNotClosed();
-    return currentNode.getHash();
+    if (flyweightMode && cachedFieldOffsets[FIELD_HASH] >= 0) {
+      // Read 8-byte hash directly from MemorySegment - ZERO ALLOCATION
+      return DeltaVarIntCodec.readLongFromSegment(currentSlot, cachedFieldOffsets[FIELD_HASH]);
+    }
+    return currentNode != null ? currentNode.getHash() : 0L;
   }
 
   @Override
   public NodeKind getKind() {
     assertNotClosed();
-    return currentNode.getKind();
+    if (flyweightMode) {
+      return currentNodeKind;
+    }
+    return getCurrentNode().getKind();
   }
 
   /**
@@ -336,16 +1102,19 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @return structural node instance of current node
    */
   public final StructNode getStructuralNode() {
-    if (currentNode instanceof StructNode node) {
-      return node;
+    // In flyweight mode, materialize if needed
+    N node = getCurrentNode();
+    if (node instanceof StructNode structNode) {
+      return structNode;
     }
-    return new NullNode(currentNode);
+    return new NullNode(node);
   }
 
   @Override
   public boolean moveToNextFollowing() {
     assertNotClosed();
-    while (!getStructuralNode().hasRightSibling() && currentNode.hasParent()) {
+    // Use flyweight getters to avoid node materialization
+    while (!hasRightSibling() && hasParent()) {
       moveToParent();
     }
     return moveToRightSibling();
@@ -363,48 +1132,70 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasParent() {
     assertNotClosed();
-    return currentNode.hasParent();
+    if (flyweightMode && cachedFieldOffsets[FIELD_PARENT_KEY] >= 0) {
+      return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
+    return getCurrentNode().hasParent();
   }
 
   @Override
   public boolean hasFirstChild() {
     assertNotClosed();
+    if (flyweightMode && cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] >= 0) {
+      return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
     return getStructuralNode().hasFirstChild();
   }
 
   @Override
   public boolean hasRightSibling() {
     assertNotClosed();
+    if (flyweightMode && cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] >= 0) {
+      return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
     return getStructuralNode().hasRightSibling();
   }
 
   @Override
   public long getRightSiblingKey() {
     assertNotClosed();
+    if (flyweightMode && cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] >= 0) {
+      // Read directly from MemorySegment - ZERO ALLOCATION
+      return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY], currentNodeKey);
+    }
     return getStructuralNode().getRightSiblingKey();
   }
 
   @Override
   public long getFirstChildKey() {
     assertNotClosed();
+    if (flyweightMode && cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] >= 0) {
+      // Read directly from MemorySegment - ZERO ALLOCATION
+      return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_FIRST_CHILD_KEY], currentNodeKey);
+    }
     return getStructuralNode().getFirstChildKey();
   }
 
   @Override
   public long getParentKey() {
     assertNotClosed();
-    return currentNode.getParentKey();
+    if (flyweightMode && cachedFieldOffsets[FIELD_PARENT_KEY] >= 0) {
+      // Read directly from MemorySegment - ZERO ALLOCATION
+      return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_PARENT_KEY], currentNodeKey);
+    }
+    // Fall back to getCurrentNode() which materializes if needed
+    return getCurrentNode().getParentKey();
   }
 
   @Override
   public NodeKind getParentKind() {
     assertNotClosed();
-    final N node = currentNode;
-    if (node.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+    if (getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return NodeKind.UNKNOWN;
     }
+    final N node = getCurrentNode();  // Save position
     moveToParent();
-    final NodeKind parentKind = currentNode.getKind();
+    final NodeKind parentKind = getKind();
     setCurrentNode(node);
     return parentKind;
   }
@@ -412,10 +1203,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean moveToNext() {
     assertNotClosed();
-    final StructNode node = getStructuralNode();
-    if (node.hasRightSibling()) {
+    // Use flyweight getter if available
+    if (hasRightSibling()) {
       // Right sibling node.
-      return moveTo(node.getRightSiblingKey());
+      return moveTo(getRightSiblingKey());
     }
     // Next following node.
     return moveToNextFollowing();
@@ -424,16 +1215,17 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasLastChild() {
     assertNotClosed();
-    return getStructuralNode().hasFirstChild(); // If it has a first child, it also has a last child.
+    // Use flyweight getter - if it has a first child, it also has a last child
+    return hasFirstChild();
   }
 
   @Override
   public NodeKind getLastChildKind() {
     assertNotClosed();
-    final N node = currentNode;
-    if (node instanceof StructNode && hasLastChild()) {
+    if (hasLastChild()) {
+      final N node = getCurrentNode();  // Save position
       moveToLastChild();
-      final NodeKind lastChildKind = currentNode.getKind();
+      final NodeKind lastChildKind = getKind();
       setCurrentNode(node);
       return lastChildKind;
     }
@@ -443,10 +1235,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public NodeKind getFirstChildKind() {
     assertNotClosed();
-    final N node = currentNode;
-    if (node instanceof StructNode && hasFirstChild()) {
+    if (hasFirstChild()) {
+      final N node = getCurrentNode();  // Save position
       moveToFirstChild();
-      final NodeKind firstChildKind = currentNode.getKind();
+      final NodeKind firstChildKind = getKind();
       setCurrentNode(node);
       return firstChildKind;
     }
@@ -470,18 +1262,29 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getChildCount() {
     assertNotClosed();
+    if (flyweightMode && cachedFieldOffsets[FIELD_CHILD_COUNT] >= 0) {
+      // Read directly from MemorySegment - ZERO ALLOCATION
+      return DeltaVarIntCodec.decodeSignedFromSegment(currentSlot, cachedFieldOffsets[FIELD_CHILD_COUNT]);
+    }
     return getStructuralNode().getChildCount();
   }
 
   @Override
   public boolean hasChildren() {
     assertNotClosed();
+    if (flyweightMode) {
+      return hasFirstChild();
+    }
     return getStructuralNode().hasFirstChild();
   }
 
   @Override
   public long getDescendantCount() {
     assertNotClosed();
+    if (flyweightMode && cachedFieldOffsets[FIELD_DESCENDANT_COUNT] >= 0) {
+      // Read directly from MemorySegment - ZERO ALLOCATION
+      return DeltaVarIntCodec.decodeSignedFromSegment(currentSlot, cachedFieldOffsets[FIELD_DESCENDANT_COUNT]);
+    }
     return getStructuralNode().getDescendantCount();
   }
 
@@ -519,13 +1322,19 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public SirixDeweyID getDeweyID() {
     assertNotClosed();
-    return currentNode.getDeweyID();
+    if (flyweightMode && currentDeweyId != null) {
+      return new SirixDeweyID(currentDeweyId);
+    }
+    return currentNode != null ? currentNode.getDeweyID() : null;
   }
 
   @Override
   public int getPreviousRevisionNumber() {
     assertNotClosed();
-    return currentNode.getPreviousRevisionNumber();
+    if (flyweightMode && cachedFieldOffsets[FIELD_PREV_REVISION] >= 0) {
+      return DeltaVarIntCodec.decodeSignedFromSegment(currentSlot, cachedFieldOffsets[FIELD_PREV_REVISION]);
+    }
+    return getCurrentNode().getPreviousRevisionNumber();
   }
 
   @Override
@@ -536,6 +1345,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public void close() {
     if (!isClosed) {
+      // Release flyweight state and page guard FIRST to allow page eviction
+      releaseCurrentPageGuard();
+      currentSlot = null;
+      flyweightMode = false;
+      
       // Callback on session to make sure everything is cleaned up.
       resourceSession.closeReadTransaction(id);
 
@@ -561,12 +1375,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     final AbstractNodeReadOnlyTrx<?, ?, ?> that = (AbstractNodeReadOnlyTrx<?, ?, ?>) o;
-    return currentNode.getNodeKey() == that.currentNode.getNodeKey()
+    return getNodeKey() == that.getNodeKey()
         && pageReadOnlyTrx.getRevisionNumber() == that.pageReadOnlyTrx.getRevisionNumber();
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(currentNode.getNodeKey(), pageReadOnlyTrx.getRevisionNumber());
+    return Objects.hash(getNodeKey(), pageReadOnlyTrx.getRevisionNumber());
   }
 }
