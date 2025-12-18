@@ -30,9 +30,13 @@ package io.sirix.node.json;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
@@ -55,8 +59,8 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  */
 public final class ArrayNode implements StructNode, ImmutableJsonNode {
 
-  // Immutable node identity
-  private final long nodeKey;
+  // Node identity (mutable for singleton reuse)
+  private long nodeKey;
   
   // Mutable structural fields (updated during tree modifications)
   private long parentKey;
@@ -77,8 +81,8 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
   // Mutable hash
   private long hash;
   
-  // Hash function for computing node hashes
-  private final LongHashFunction hashFunction;
+  // Hash function for computing node hashes (mutable for singleton reuse)
+  private LongHashFunction hashFunction;
   
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
@@ -344,6 +348,57 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
 
   public LongHashFunction getHashFunction() {
     return hashFunction;
+  }
+
+  @Override
+  public void setNodeKey(final long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
+
+  /**
+   * Populate this node from a BytesIn source for singleton reuse.
+   * Mirrors the deserialization logic in NodeKind.ARRAY.deserialize().
+   *
+   * @param source       the BytesIn source positioned after the NodeKind byte
+   * @param nodeKey      the node key (record ID)
+   * @param deweyId      the DeweyID bytes (may be null)
+   * @param hashFunction the hash function for computing hashes
+   * @param config       the resource configuration
+   */
+  public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
+                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.lastChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.childCount = config.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0;
+    if (config.hashType != HashType.NONE) {
+      this.hash = source.readLong();
+      this.descendantCount = DeltaVarIntCodec.decodeSigned(source);
+    } else {
+      this.hash = 0;
+      this.descendantCount = 0;
+    }
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
+  }
+
+  /**
+   * Create a deep copy snapshot of this node.
+   *
+   * @return a new ArrayNode with all values copied (byte arrays cloned)
+   */
+  public ArrayNode toSnapshot() {
+    return new ArrayNode(nodeKey, parentKey, pathNodeKey, previousRevision, lastModifiedRevision,
+        rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey, childCount,
+        descendantCount, hash, hashFunction,
+        deweyIDBytes != null ? deweyIDBytes.clone() : null);
   }
 
   @Override

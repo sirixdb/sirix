@@ -99,8 +99,8 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
   /** The underlying MemorySegment storing node data. */
   private final MemorySegment segment;
 
-  /** The node key. */
-  private final long nodeKey;
+  /** The node key. Non-final for singleton node interface compliance. */
+  private long nodeKey;
 
   /** The hash function for this node. */
   private final LongHashFunction hashFunction;
@@ -447,5 +447,26 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
 
   public LongHashFunction getHashFunction() {
     return hashFunction;
+  }
+
+  @Override
+  public void setNodeKey(final long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
+
+  /**
+   * Create a deep copy snapshot of this node.
+   *
+   * @return a new TextNode with all values copied
+   */
+  public TextNode toSnapshot() {
+    MemorySegment newSegment = MemorySegment.ofArray(new byte[(int) segment.byteSize()]);
+    MemorySegment.copy(segment, 0, newSegment, 0, segment.byteSize());
+    
+    return new TextNode(newSegment, nodeKey, 
+        deweyIDBytes != null ? deweyIDBytes.clone() : null,
+        hashFunction,
+        value != null ? value.clone() : null,
+        isCompressed);
   }
 }

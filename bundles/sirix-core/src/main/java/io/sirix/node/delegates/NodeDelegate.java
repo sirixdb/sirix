@@ -49,8 +49,9 @@ public class NodeDelegate implements Node {
 
   /**
    * Key of the current node. Must be unique for all nodes.
+   * Non-final to support singleton node reuse.
    */
-  private final long nodeKey;
+  private long nodeKey;
 
   /**
    * The DeweyID data.
@@ -143,6 +144,11 @@ public class NodeDelegate implements Node {
   @Override
   public long getNodeKey() {
     return nodeKey;
+  }
+
+  @Override
+  public void setNodeKey(final long nodeKey) {
+    this.nodeKey = nodeKey;
   }
 
   @Override

@@ -109,8 +109,8 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   /** The MemorySegment backing this node */
   private final MemorySegment segment;
 
-  /** Node key (record ID) */
-  private final long nodeKey;
+  /** Node key (record ID). Non-final for singleton node interface compliance. */
+  private long nodeKey;
 
   /** DeweyID */
   private SirixDeweyID sirixDeweyID;
@@ -394,5 +394,25 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
 
   public void setCompressed(boolean compressed) {
     this.compressed = compressed;
+  }
+
+  @Override
+  public void setNodeKey(final long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
+
+  /**
+   * Create a deep copy snapshot of this node.
+   *
+   * @return a new AttributeNode with all values copied
+   */
+  public AttributeNode toSnapshot() {
+    MemorySegment newSegment = MemorySegment.ofArray(new byte[(int) segment.byteSize()]);
+    MemorySegment.copy(segment, 0, newSegment, 0, segment.byteSize());
+    
+    return new AttributeNode(newSegment, nodeKey, 
+        deweyIDBytes != null ? deweyIDBytes.clone() : null,
+        value != null ? value.clone() : null,
+        compressed, qNm);
   }
 }

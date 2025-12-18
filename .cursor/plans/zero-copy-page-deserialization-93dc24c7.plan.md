@@ -1,3 +1,4 @@
+<!-- 93dc24c7-29b9-440a-97ab-5be4ff6f2c41 df25a026-c148-4a2e-8736-190cfccd6131 -->
 # Zero-Copy Page Deserialization
 
 ## Problem Statement
@@ -490,10 +491,15 @@ AFTER (zero-copy):
 ## Performance Impact
 
 | Metric | Before | After |
+
 |--------|--------|-------|
+
 | `MemorySegment.copy()` calls | N per page (one per slot) | 0 |
+
 | Memory allocations | 2 (decompress + slotMemory) | 1 (decompress only) |
+
 | Per-slot loop iterations | N | 0 (bulk read offsets array) |
+
 | Format overhead | 0 | +2KB (offsets array) |
 
 **Trade-off:** 2KB larger pages, but zero copy operations during read.
@@ -508,21 +514,6 @@ AFTER (zero-copy):
 4. **JFR Profile** - confirm `MemorySegment.copy()` eliminated from hot path
 5. **Memory leak check** - verify LinuxMemorySegmentAllocator shows 0 leaks
 
----
+### To-dos
 
-## Implementation Todos
-
-- [ ] Extend DecompressionResult with backingBuffer, ownershipTransferred, and transferOwnership() method
-- [ ] Update FFILz4Compressor to use unified allocator and new DecompressionResult format
-- [ ] Update ByteHandlerPipeline to construct new DecompressionResult format
-- [ ] Add backingBuffer and backingBufferReleaser fields to KeyValueLeafPage
-- [ ] Add zero-copy constructor to KeyValueLeafPage
-- [ ] Update KeyValueLeafPage.close() to release backing buffer
-- [ ] Add getSlotOffsets(), getSlotMemory(), getDeweyIdOffsets(), getDeweyIdMemory() getters
-- [ ] Modify PageKind.serializePage() to write offsets array + raw slotMemory (bulk copy)
-- [ ] Modify PageKind.deserializePage() to slice buffer as slotMemory (zero-copy)
-- [ ] Add overloaded deserializePage() with DecompressionResult parameter to PagePersister
 - [ ] Update AbstractReader.deserializeFromSegment() to pass DecompressionResult
-- [ ] Delete test data and run JsonShredderTest + VersioningTest
-
-

@@ -59,6 +59,11 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   }
 
   @Override
+  public void setNodeKey(final long nodeKey) {
+    delegate().setNodeKey(nodeKey);
+  }
+
+  @Override
   public long getParentKey() {
     return delegate().getParentKey();
   }

@@ -30,9 +30,13 @@ package io.sirix.node.json;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableNullNode;
@@ -53,8 +57,8 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  */
 public final class NullNode implements StructNode, ImmutableJsonNode {
 
-  // Immutable node identity
-  private final long nodeKey;
+  // Node identity (mutable for singleton reuse)
+  private long nodeKey;
   
   // Mutable structural fields
   private long parentKey;
@@ -68,8 +72,8 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
   // Mutable hash (computed on demand for value nodes)
   private long hash;
   
-  // Hash function for computing node hashes
-  private final LongHashFunction hashFunction;
+  // Hash function for computing node hashes (mutable for singleton reuse)
+  private LongHashFunction hashFunction;
   
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
@@ -295,6 +299,31 @@ public final class NullNode implements StructNode, ImmutableJsonNode {
 
   public LongHashFunction getHashFunction() {
     return hashFunction;
+  }
+
+  @Override
+  public void setNodeKey(final long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
+
+  public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
+                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.hash = config.hashType != HashType.NONE ? source.readLong() : 0;
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
+  }
+
+  public NullNode toSnapshot() {
+    return new NullNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
+        rightSiblingKey, leftSiblingKey, hash, hashFunction,
+        deweyIDBytes != null ? deweyIDBytes.clone() : null);
   }
 
   @Override

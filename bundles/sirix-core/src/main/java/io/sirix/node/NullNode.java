@@ -247,4 +247,9 @@ public final class NullNode implements StructNode {
   public void setLastModifiedRevision(int revision) {
     throw new UnsupportedOperationException();
   }
+
+  @Override
+  public void setNodeKey(long nodeKey) {
+    throw new UnsupportedOperationException();
+  }
 }

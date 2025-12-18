@@ -102,6 +102,8 @@ public enum PageKind {
           final MemorySegment backingBuffer;
           final Runnable backingBufferReleaser;
 
+          MemorySegmentAllocator memorySegmentAllocator =
+              OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
           if (canZeroCopy) {
             // Zero-copy path: slice decompression buffer directly
             final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
@@ -113,9 +115,7 @@ public enum PageKind {
             backingBuffer = decompressionResult.backingBuffer();
           } else {
             // Fallback: allocate and copy (for non-MemorySegment sources or no decompressionResult)
-            MemorySegmentAllocator allocator = OS.isWindows() 
-                ? WindowsMemorySegmentAllocator.getInstance() 
-                : LinuxMemorySegmentAllocator.getInstance();
+            MemorySegmentAllocator allocator = memorySegmentAllocator;
             slotMemory = allocator.allocate(slotMemorySize);
             
             // Copy slot data
@@ -154,9 +154,7 @@ public enum PageKind {
               source.skip(deweyIdMemorySize);
             } else if (deweyIdMemorySize > 1) {
               // Allocate and copy
-              MemorySegmentAllocator allocator = OS.isWindows() 
-                  ? WindowsMemorySegmentAllocator.getInstance() 
-                  : LinuxMemorySegmentAllocator.getInstance();
+              MemorySegmentAllocator allocator = memorySegmentAllocator;
               deweyIdMemory = allocator.allocate(deweyIdMemorySize);
               
               if (source instanceof MemorySegmentBytesIn msSource) {

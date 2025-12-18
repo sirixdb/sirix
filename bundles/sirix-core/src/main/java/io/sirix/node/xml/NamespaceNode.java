@@ -108,8 +108,8 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node {
   /** MemorySegment containing all node data */
   private final MemorySegment segment;
 
-  /** Unique node key */
-  private final long nodeKey;
+  /** Unique node key. Non-final for singleton node interface compliance. */
+  private long nodeKey;
 
   /** Optional Dewey ID */
   private SirixDeweyID sirixDeweyID;
@@ -363,5 +363,24 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node {
   @Override
   public boolean isSameItem(@Nullable Node other) {
     return other != null && other.getNodeKey() == nodeKey;
+  }
+
+  @Override
+  public void setNodeKey(final long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
+
+  /**
+   * Create a deep copy snapshot of this node.
+   *
+   * @return a new NamespaceNode with all values copied
+   */
+  public NamespaceNode toSnapshot() {
+    MemorySegment newSegment = MemorySegment.ofArray(new byte[(int) segment.byteSize()]);
+    MemorySegment.copy(segment, 0, newSegment, 0, segment.byteSize());
+    
+    return new NamespaceNode(newSegment, nodeKey, 
+        deweyIDBytes != null ? deweyIDBytes.clone() : null,
+        hashFunction, qNm);
   }
 }

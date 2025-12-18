@@ -148,11 +148,14 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   /** The underlying MemorySegment storing node data. */
   private final MemorySegment segment;
 
-  /** The node key. */
-  private final long nodeKey;
+  /** The node key. Non-final for singleton node interface compliance. */
+  private long nodeKey;
 
   /** The hash function for this node. */
   private final LongHashFunction hashFunction;
+  
+  /** Resource configuration (stored for toSnapshot). */
+  private final ResourceConfiguration resourceConfig;
 
   /** Optional Dewey ID. */
   private SirixDeweyID sirixDeweyID;
@@ -208,6 +211,8 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     this.sirixDeweyID = id;
     assert hashFunction != null;
     this.hashFunction = hashFunction;
+    assert resourceConfig != null;
+    this.resourceConfig = resourceConfig;
     assert value != null;
     this.value = value;
     this.isCompressed = isCompressed;
@@ -604,5 +609,26 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   public LongHashFunction getHashFunction() {
     return hashFunction;
+  }
+
+  @Override
+  public void setNodeKey(final long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
+
+  /**
+   * Create a deep copy snapshot of this node.
+   *
+   * @return a new PINode with all values copied
+   */
+  public PINode toSnapshot() {
+    MemorySegment newSegment = MemorySegment.ofArray(new byte[(int) segment.byteSize()]);
+    MemorySegment.copy(segment, 0, newSegment, 0, segment.byteSize());
+    
+    return new PINode(newSegment, nodeKey, 
+        deweyIDBytes != null ? deweyIDBytes.clone() : null,
+        resourceConfig, hashFunction,
+        value != null ? value.clone() : null,
+        isCompressed);
   }
 }

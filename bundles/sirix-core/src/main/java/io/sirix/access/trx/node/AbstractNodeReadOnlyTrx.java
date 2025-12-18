@@ -2,7 +2,6 @@ package io.sirix.access.trx.node;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.page.NodeStorageEngineReader;
 import io.sirix.api.*;
 import io.sirix.cache.PageGuard;
@@ -16,9 +15,18 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import io.sirix.node.BytesIn;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.json.ArrayNode;
+import io.sirix.node.json.BooleanNode;
+import io.sirix.node.json.NumberNode;
+import io.sirix.node.json.ObjectBooleanNode;
 import io.sirix.node.json.ObjectKeyNode;
-import io.sirix.page.KeyValueLeafPage;
+import io.sirix.node.json.ObjectNode;
+import io.sirix.node.json.ObjectNullNode;
+import io.sirix.node.json.ObjectNumberNode;
+import io.sirix.node.json.ObjectStringNode;
+import io.sirix.node.json.StringNode;
 import io.sirix.service.xml.xpath.AtomicValue;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
@@ -168,6 +176,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return currentNode;
     }
     
+    // When in singleton mode, create a snapshot (deep copy) of the singleton.
+    // This ensures the returned node is stable even if the cursor moves.
+    if (singletonMode && currentSingleton != null) {
+      currentNode = createSingletonSnapshot();
+      return currentNode;
+    }
+    
     if (flyweightMode && currentSlot != null) {
       // Create a snapshot by deserializing the node from the slot.
       // This ALLOCATES a new object (escape hatch for code that needs a stable reference).
@@ -175,6 +190,30 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
     
     return currentNode;
+  }
+  
+  /**
+   * Create a deep copy snapshot of the current singleton node.
+   * The snapshot is a new object with all values copied, safe to hold across cursor moves.
+   *
+   * @return a snapshot of the current singleton
+   */
+  @SuppressWarnings("unchecked")
+  private N createSingletonSnapshot() {
+    return switch (currentNodeKind) {
+      case OBJECT -> (N) ((ObjectNode) currentSingleton).toSnapshot();
+      case ARRAY -> (N) ((ArrayNode) currentSingleton).toSnapshot();
+      case OBJECT_KEY -> (N) ((ObjectKeyNode) currentSingleton).toSnapshot();
+      case STRING_VALUE -> (N) ((StringNode) currentSingleton).toSnapshot();
+      case NUMBER_VALUE -> (N) ((NumberNode) currentSingleton).toSnapshot();
+      case BOOLEAN_VALUE -> (N) ((BooleanNode) currentSingleton).toSnapshot();
+      case NULL_VALUE -> (N) ((io.sirix.node.json.NullNode) currentSingleton).toSnapshot();
+      case OBJECT_STRING_VALUE -> (N) ((ObjectStringNode) currentSingleton).toSnapshot();
+      case OBJECT_NUMBER_VALUE -> (N) ((ObjectNumberNode) currentSingleton).toSnapshot();
+      case OBJECT_BOOLEAN_VALUE -> (N) ((ObjectBooleanNode) currentSingleton).toSnapshot();
+      case OBJECT_NULL_VALUE -> (N) ((ObjectNullNode) currentSingleton).toSnapshot();
+      default -> throw new IllegalStateException("Unexpected singleton kind: " + currentNodeKind);
+    };
   }
   
   /**
@@ -198,8 +237,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentNode = currentNode;
     
     if (currentNode != null) {
-      // Disable flyweight mode - use the provided node object
+      // Disable flyweight and singleton modes - use the provided node object
       this.flyweightMode = false;
+      this.singletonMode = false;
+      this.currentSingleton = null;
       this.currentNodeKey = currentNode.getNodeKey();
       this.currentNodeKind = currentNode.getKind();
       // Release page guard since we're not reading from slot anymore
@@ -256,6 +297,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getLeftSiblingKey() {
     assertNotClosed();
+    if (singletonMode && currentSingleton instanceof StructNode sn) {
+      return sn.getLeftSiblingKey();
+    }
     if (flyweightMode && cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] >= 0) {
       // Read directly from MemorySegment - ZERO ALLOCATION
       return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY], currentNodeKey);
@@ -266,6 +310,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasLeftSibling() {
     assertNotClosed();
+    if (singletonMode && currentSingleton instanceof StructNode) {
+      return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
     if (flyweightMode && cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] >= 0) {
       return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
@@ -373,8 +420,42 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   
   /**
    * Toggle for flyweight mode. Set to true to enable zero-allocation optimization.
+   * Note: Flyweight mode reads directly from MemorySegment but has varint parsing overhead.
    */
-  private static final boolean FLYWEIGHT_ENABLED = true;
+  private static final boolean FLYWEIGHT_ENABLED = false;
+  
+  /**
+   * Toggle for singleton mode. Set to true to enable singleton node reuse.
+   * Singleton mode uses mutable singleton nodes that are repopulated on each moveTo().
+   * This provides zero-allocation traversal with O(1) getter access.
+   */
+  private static final boolean SINGLETON_ENABLED = true;
+  
+  // ==================== SINGLETON NODE INSTANCES ====================
+  // These mutable singleton nodes are reused across moveTo() operations.
+  // Each JSON node type has a dedicated singleton instance.
+  
+  private ObjectNode singletonObject;
+  private ArrayNode singletonArray;
+  private ObjectKeyNode singletonObjectKey;
+  private StringNode singletonString;
+  private NumberNode singletonNumber;
+  private BooleanNode singletonBoolean;
+  private io.sirix.node.json.NullNode singletonNull;
+  private ObjectStringNode singletonObjectString;
+  private ObjectNumberNode singletonObjectNumber;
+  private ObjectBooleanNode singletonObjectBoolean;
+  private ObjectNullNode singletonObjectNull;
+  
+  /**
+   * Whether currently in singleton mode (using singleton nodes).
+   */
+  private boolean singletonMode = false;
+  
+  /**
+   * The current singleton node (set when in singletonMode).
+   */
+  private ImmutableNode currentSingleton;
   
   /**
    * Move to a node using flyweight mode (zero allocation).
@@ -385,6 +466,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @return true if the move was successful
    */
   private boolean moveToFlyweight(final long nodeKey, final NodeStorageEngineReader reader) {
+    // Try singleton mode first (preferred for JSON nodes)
+    if (SINGLETON_ENABLED) {
+      return moveToSingleton(nodeKey, reader);
+    }
+    
     if (!FLYWEIGHT_ENABLED) {
       return moveToLegacy(nodeKey);
     }
@@ -426,6 +512,192 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     parseFieldOffsets();
     
     return true;
+  }
+  
+  /**
+   * Move to a node using singleton mode (zero allocation with O(1) getters).
+   * Reuses mutable singleton instances and repopulates them from serialized data.
+   *
+   * @param nodeKey the node key to move to
+   * @param reader  the storage engine reader
+   * @return true if the move was successful
+   */
+  private boolean moveToSingleton(final long nodeKey, final NodeStorageEngineReader reader) {
+    // Lookup slot directly without deserializing
+    var slotLocation = reader.lookupSlotWithGuard(nodeKey, IndexType.DOCUMENT, -1);
+    if (slotLocation == null) {
+      return false;
+    }
+    
+    // Read node kind from first byte
+    MemorySegment data = slotLocation.data();
+    byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+    NodeKind kind = NodeKind.getKind(kindByte);
+    
+    // Check for deleted node
+    if (kind == NodeKind.DELETE) {
+      slotLocation.guard().close();
+      return false;
+    }
+    
+    // Get singleton instance and populate it from serialized data
+    ImmutableNode singleton = getSingletonForKind(kind);
+    if (singleton == null) {
+      // No singleton available for this node type, fall back to legacy
+      slotLocation.guard().close();
+      return moveToLegacy(nodeKey);
+    }
+    
+    // Release previous page guard and update state
+    releaseCurrentPageGuard();
+    
+    // Create BytesIn positioned after the kind byte
+    BytesIn<?> source = new MemorySegmentBytesIn(data.asSlice(1));
+    byte[] deweyId = slotLocation.page().getDeweyIdAsByteArray(slotLocation.offset());
+    
+    // Populate the singleton from serialized data
+    populateSingleton(singleton, source, nodeKey, deweyId, kind);
+    
+    // Update cursor state
+    this.currentSingleton = singleton;
+    this.currentNodeKey = nodeKey;
+    this.currentNodeKind = kind;
+    this.currentDeweyId = deweyId;
+    this.currentPageGuard = slotLocation.guard();
+    this.singletonMode = true;
+    this.flyweightMode = false;
+    this.currentNode = null;  // Invalidate cached node
+    
+    return true;
+  }
+  
+  /**
+   * Get the singleton instance for a given node kind.
+   * Lazily creates singletons on first use.
+   *
+   * @param kind the node kind
+   * @return the singleton instance, or null if not supported
+   */
+  private ImmutableNode getSingletonForKind(NodeKind kind) {
+    return switch (kind) {
+      case OBJECT -> {
+        if (singletonObject == null) {
+          singletonObject = new ObjectNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+              resourceConfig.nodeHashFunction, (byte[]) null);
+        }
+        yield singletonObject;
+      }
+      case ARRAY -> {
+        if (singletonArray == null) {
+          singletonArray = new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+              resourceConfig.nodeHashFunction, (byte[]) null);
+        }
+        yield singletonArray;
+      }
+      case OBJECT_KEY -> {
+        if (singletonObjectKey == null) {
+          singletonObjectKey = new ObjectKeyNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+              resourceConfig.nodeHashFunction, (byte[]) null);
+        }
+        yield singletonObjectKey;
+      }
+      case STRING_VALUE -> {
+        if (singletonString == null) {
+          singletonString = new StringNode(0, 0, 0, 0, 0, 0, 0, null,
+              resourceConfig.nodeHashFunction, (byte[]) null);
+        }
+        yield singletonString;
+      }
+      case NUMBER_VALUE -> {
+        if (singletonNumber == null) {
+          singletonNumber = new NumberNode(0, 0, 0, 0, 0, 0, 0, 0,
+              resourceConfig.nodeHashFunction, (byte[]) null);
+        }
+        yield singletonNumber;
+      }
+      case BOOLEAN_VALUE -> {
+        if (singletonBoolean == null) {
+          singletonBoolean = new BooleanNode(0, 0, 0, 0, 0, 0, 0, false,
+              resourceConfig.nodeHashFunction, (byte[]) null);
+        }
+        yield singletonBoolean;
+      }
+      case NULL_VALUE -> {
+        if (singletonNull == null) {
+          singletonNull = new io.sirix.node.json.NullNode(0, 0, 0, 0, 0, 0, 0,
+              resourceConfig.nodeHashFunction, (byte[]) null);
+        }
+        yield singletonNull;
+      }
+      case OBJECT_STRING_VALUE -> {
+        if (singletonObjectString == null) {
+          singletonObjectString = new ObjectStringNode(0, 0, 0, 0, 0, null,
+              resourceConfig.nodeHashFunction, (byte[]) null);
+        }
+        yield singletonObjectString;
+      }
+      case OBJECT_NUMBER_VALUE -> {
+        if (singletonObjectNumber == null) {
+          singletonObjectNumber = new ObjectNumberNode(0, 0, 0, 0, 0, 0,
+              resourceConfig.nodeHashFunction, (byte[]) null);
+        }
+        yield singletonObjectNumber;
+      }
+      case OBJECT_BOOLEAN_VALUE -> {
+        if (singletonObjectBoolean == null) {
+          singletonObjectBoolean = new ObjectBooleanNode(0, 0, 0, 0, 0, false,
+              resourceConfig.nodeHashFunction, (byte[]) null);
+        }
+        yield singletonObjectBoolean;
+      }
+      case OBJECT_NULL_VALUE -> {
+        if (singletonObjectNull == null) {
+          singletonObjectNull = new ObjectNullNode(0, 0, 0, 0, 0,
+              resourceConfig.nodeHashFunction, (byte[]) null);
+        }
+        yield singletonObjectNull;
+      }
+      // XML nodes and other types fall back to legacy mode
+      default -> null;
+    };
+  }
+  
+  /**
+   * Populate a singleton node from serialized data.
+   *
+   * @param singleton the singleton to populate
+   * @param source    the BytesIn source positioned after the kind byte
+   * @param nodeKey   the node key
+   * @param deweyId   the DeweyID bytes
+   * @param kind      the node kind
+   */
+  private void populateSingleton(ImmutableNode singleton, BytesIn<?> source, 
+                                  long nodeKey, byte[] deweyId, NodeKind kind) {
+    switch (kind) {
+      case OBJECT -> ((ObjectNode) singleton).readFrom(source, nodeKey, deweyId, 
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case ARRAY -> ((ArrayNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT_KEY -> ((ObjectKeyNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case STRING_VALUE -> ((StringNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case NUMBER_VALUE -> ((NumberNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case BOOLEAN_VALUE -> ((BooleanNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case NULL_VALUE -> ((io.sirix.node.json.NullNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT_STRING_VALUE -> ((ObjectStringNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT_NUMBER_VALUE -> ((ObjectNumberNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT_BOOLEAN_VALUE -> ((ObjectBooleanNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT_NULL_VALUE -> ((ObjectNullNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      default -> throw new IllegalStateException("Unexpected singleton kind: " + kind);
+    }
   }
   
   /**
@@ -1041,7 +1313,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getNodeKey() {
     assertNotClosed();
-    if (flyweightMode) {
+    if (flyweightMode || singletonMode) {
       return currentNodeKey;
     }
     return getCurrentNode().getNodeKey();
@@ -1050,6 +1322,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getHash() {
     assertNotClosed();
+    if (singletonMode) {
+      return currentSingleton != null ? currentSingleton.getHash() : 0L;
+    }
     if (flyweightMode) {
       if (cachedFieldOffsets[FIELD_HASH] >= 0) {
         // Read 8-byte hash directly from MemorySegment - ZERO ALLOCATION
@@ -1065,7 +1340,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public NodeKind getKind() {
     assertNotClosed();
-    if (flyweightMode) {
+    if (flyweightMode || singletonMode) {
       return currentNodeKind;
     }
     return getCurrentNode().getKind();
@@ -1153,6 +1428,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasFirstChild() {
     assertNotClosed();
+    if (singletonMode && currentSingleton instanceof StructNode) {
+      return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
     if (flyweightMode && cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] >= 0) {
       return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
@@ -1162,6 +1440,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasRightSibling() {
     assertNotClosed();
+    if (singletonMode && currentSingleton instanceof StructNode) {
+      return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
     if (flyweightMode && cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] >= 0) {
       return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
@@ -1171,6 +1452,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getRightSiblingKey() {
     assertNotClosed();
+    if (singletonMode && currentSingleton instanceof StructNode sn) {
+      return sn.getRightSiblingKey();
+    }
     if (flyweightMode && cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] >= 0) {
       // Read directly from MemorySegment - ZERO ALLOCATION
       return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY], currentNodeKey);
@@ -1181,6 +1465,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getFirstChildKey() {
     assertNotClosed();
+    if (singletonMode && currentSingleton instanceof StructNode sn) {
+      return sn.getFirstChildKey();
+    }
     if (flyweightMode && cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] >= 0) {
       // Read directly from MemorySegment - ZERO ALLOCATION
       return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_FIRST_CHILD_KEY], currentNodeKey);
@@ -1191,6 +1478,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getParentKey() {
     assertNotClosed();
+    if (singletonMode && currentSingleton != null) {
+      // Read directly from singleton - ZERO ALLOCATION
+      return currentSingleton.getParentKey();
+    }
     if (flyweightMode && cachedFieldOffsets[FIELD_PARENT_KEY] >= 0) {
       // Read directly from MemorySegment - ZERO ALLOCATION
       return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_PARENT_KEY], currentNodeKey);
@@ -1287,7 +1578,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasChildren() {
     assertNotClosed();
-    if (flyweightMode) {
+    if (singletonMode || flyweightMode) {
       return hasFirstChild();
     }
     return getStructuralNode().hasFirstChild();
@@ -1338,6 +1629,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public SirixDeweyID getDeweyID() {
     assertNotClosed();
+    if (singletonMode) {
+      return currentSingleton != null ? currentSingleton.getDeweyID() : null;
+    }
     if (flyweightMode) {
       if (currentDeweyId != null) {
         return new SirixDeweyID(currentDeweyId);
@@ -1361,6 +1655,36 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean isClosed() {
     return isClosed;
+  }
+  
+  /**
+   * Check if flyweight mode is currently active.
+   * Package-private for testing purposes.
+   *
+   * @return true if flyweight mode is active (reading directly from MemorySegment)
+   */
+  boolean isFlyweightMode() {
+    return flyweightMode;
+  }
+  
+  /**
+   * Check if singleton mode is currently active.
+   * Package-private for testing purposes.
+   *
+   * @return true if singleton mode is active (using mutable singleton nodes)
+   */
+  boolean isSingletonMode() {
+    return singletonMode;
+  }
+  
+  /**
+   * Check if zero-allocation mode is active (either flyweight or singleton).
+   * Package-private for testing purposes.
+   *
+   * @return true if any zero-allocation mode is active
+   */
+  boolean isZeroAllocationMode() {
+    return flyweightMode || singletonMode;
   }
 
   @Override

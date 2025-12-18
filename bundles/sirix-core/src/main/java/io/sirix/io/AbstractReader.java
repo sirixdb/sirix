@@ -15,6 +15,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 
+import static io.sirix.page.PageUtils.fixupPageReferenceIds;
+
 public abstract class AbstractReader implements Reader {
 
   protected final ByteHandler byteHandler;
@@ -59,7 +61,7 @@ public abstract class AbstractReader implements Reader {
     // This follows PostgreSQL pattern where BufferTag context (tablespace, database, relation)
     // is combined with on-disk block numbers when pages are read.
     if (resourceConfiguration != null) {
-      io.sirix.page.PageUtils.fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+      fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
     }
     
     return deserializedPage;
@@ -100,7 +102,7 @@ public abstract class AbstractReader implements Reader {
       
       // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page
       if (resourceConfiguration != null) {
-        io.sirix.page.PageUtils.fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+        fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
       }
       
       return deserializedPage;

@@ -159,7 +159,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   // All nodes are MemorySegment-based
   private final MemorySegment segment;
-  private final long nodeKey;
+  private long nodeKey;  // Non-final for singleton node interface compliance
   private final ResourceConfiguration resourceConfig;
 
   // Keys of attributes (stored separately from MemorySegment)
@@ -673,5 +673,29 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
         && getPrefixKey() == other.getPrefixKey()
         && getLocalNameKey() == other.getLocalNameKey()
         && getURIKey() == other.getURIKey();
+  }
+
+  @Override
+  public void setNodeKey(final long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
+
+  /**
+   * Create a deep copy snapshot of this node.
+   * Creates a new MemorySegment with copied data.
+   *
+   * @return a new ElementNode with all values copied
+   */
+  public ElementNode toSnapshot() {
+    // Create a new MemorySegment and copy data
+    MemorySegment newSegment = MemorySegment.ofArray(new byte[(int) segment.byteSize()]);
+    MemorySegment.copy(segment, 0, newSegment, 0, segment.byteSize());
+    
+    return new ElementNode(newSegment, nodeKey, 
+        deweyIDBytes != null ? deweyIDBytes.clone() : null,
+        resourceConfig, 
+        new it.unimi.dsi.fastutil.longs.LongArrayList(attributeKeys),
+        new it.unimi.dsi.fastutil.longs.LongArrayList(namespaceKeys), 
+        qNm);
   }
 }

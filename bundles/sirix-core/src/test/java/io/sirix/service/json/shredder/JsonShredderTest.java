@@ -14,6 +14,7 @@ import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.PostOrderAxis;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.settings.VersioningType;
@@ -152,7 +153,6 @@ public final class JsonShredderTest {
     THREAD_POOL.awaitTermination(20, TimeUnit.MINUTES);
   }
 
-  @Disabled
   @Test
   public void testChicagoDescendantAxis() {
 //    if (Files.notExists(PATHS.PATH1.getFile())) {
@@ -207,7 +207,6 @@ public final class JsonShredderTest {
   // TODO: JMH test
   // Use Shenandoah or ZGC
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
-  @Disabled
   @Test
   public void testShredderAndTraverseChicago() {
     logger.info("start");
@@ -243,7 +242,7 @@ public final class JsonShredderTest {
                                                  .useTextCompression(false)
                                                  .storageType(StorageType.FILE_CHANNEL)
                                                  .useDeweyIDs(false)
-                                                 .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                 .byteHandlerPipeline(new ByteHandlerPipeline(new FFILz4Compressor()))
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx(262_144 << 3)) {

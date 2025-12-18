@@ -407,3 +407,4 @@ public final class SlotOffsetCodecTest {
     assertEquals(65535, decoded[Constants.NDP_NODE_COUNT - 1]);
   }
 }
+

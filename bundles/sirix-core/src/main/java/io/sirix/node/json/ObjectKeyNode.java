@@ -30,9 +30,13 @@ package io.sirix.node.json;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.PrimitiveSink;
 import io.brackit.query.atomic.QNm;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
@@ -52,8 +56,8 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  */
 public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonNode {
 
-  // Immutable node identity
-  private final long nodeKey;
+  // Node identity (mutable for singleton reuse)
+  private long nodeKey;
   
   // Mutable structural fields
   private long parentKey;
@@ -73,8 +77,8 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   private long hash;
   private long descendantCount;
   
-  // Hash function for computing node hashes
-  private final LongHashFunction hashFunction;
+  // Hash function for computing node hashes (mutable for singleton reuse)
+  private LongHashFunction hashFunction;
   
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
@@ -391,6 +395,48 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   public LongHashFunction getHashFunction() {
     return hashFunction;
+  }
+
+  @Override
+  public void setNodeKey(final long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
+
+  /**
+   * Populate this node from a BytesIn source for singleton reuse.
+   * Mirrors the deserialization logic in NodeKind.OBJECT_KEY.deserialize().
+   */
+  public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
+                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.nameKey = DeltaVarIntCodec.decodeSigned(source);
+    if (config.hashType != HashType.NONE) {
+      this.hash = source.readLong();
+      this.descendantCount = DeltaVarIntCodec.decodeSigned(source);
+    } else {
+      this.hash = 0;
+      this.descendantCount = 0;
+    }
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
+    this.cachedName = null;
+  }
+
+  /**
+   * Create a deep copy snapshot of this node.
+   */
+  public ObjectKeyNode toSnapshot() {
+    return new ObjectKeyNode(nodeKey, parentKey, pathNodeKey, previousRevision, lastModifiedRevision,
+        rightSiblingKey, leftSiblingKey, firstChildKey, nameKey, descendantCount, hash, hashFunction,
+        deweyIDBytes != null ? deweyIDBytes.clone() : null);
   }
 
   public String toString() {
