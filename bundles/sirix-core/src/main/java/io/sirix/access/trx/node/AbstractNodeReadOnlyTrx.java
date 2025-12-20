@@ -111,10 +111,22 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   private PageGuard currentPageGuard;
   
   /**
+   * The page key of the currently held page guard.
+   * Used to detect same-page moves and avoid guard release/reacquire overhead.
+   */
+  private long currentPageKey = -1;
+  
+  /**
+   * The current page reference (same page as currentPageGuard).
+   * Cached to avoid re-lookup when moving within the same page.
+   */
+  private io.sirix.page.KeyValueLeafPage currentPage;
+  
+  /**
    * Whether the transaction is in flyweight mode (reading from currentSlot).
    * When false, falls back to using currentNode object.
    */
-  private boolean flyweightMode = false;
+  private boolean flyweightMode = true;
   
   /**
    * Preallocated array for caching field offsets within currentSlot.
@@ -177,15 +189,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
     
     // When in singleton mode, create a snapshot (deep copy) of the singleton.
-    // This ensures the returned node is stable even if the cursor moves.
-    if (singletonMode && currentSingleton != null) {
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton != null) {
       currentNode = createSingletonSnapshot();
       return currentNode;
     }
     
-    if (flyweightMode && currentSlot != null) {
-      // Create a snapshot by deserializing the node from the slot.
-      // This ALLOCATES a new object (escape hatch for code that needs a stable reference).
+    if (FLYWEIGHT_ENABLED && flyweightMode && currentSlot != null) {
       currentNode = deserializeToSnapshot();
     }
     
@@ -297,11 +306,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getLeftSiblingKey() {
     assertNotClosed();
-    if (singletonMode && currentSingleton instanceof StructNode sn) {
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getLeftSiblingKey();
     }
-    if (flyweightMode && cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] >= 0) {
-      // Read directly from MemorySegment - ZERO ALLOCATION
+    if (FLYWEIGHT_ENABLED && flyweightMode && cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] >= 0) {
       return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY], currentNodeKey);
     }
     return getStructuralNode().getLeftSiblingKey();
@@ -310,10 +318,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasLeftSibling() {
     assertNotClosed();
-    if (singletonMode && currentSingleton instanceof StructNode) {
-      return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
-    }
-    if (flyweightMode && cachedFieldOffsets[FIELD_LEFT_SIBLING_KEY] >= 0) {
+    if ((SINGLETON_ENABLED && singletonMode) || (FLYWEIGHT_ENABLED && flyweightMode)) {
       return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
     return getStructuralNode().hasLeftSibling();
@@ -409,7 +414,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moveToItemList(nodeKey);
     }
     
-    // Try flyweight mode first
+    // Fast path: skip all flyweight/singleton logic when both are disabled
+    if (!FLYWEIGHT_ENABLED && !SINGLETON_ENABLED) {
+      return moveToLegacy(nodeKey);
+    }
+    
+    // Try flyweight/singleton mode
     if (pageReadOnlyTrx instanceof NodeStorageEngineReader reader) {
       return moveToFlyweight(nodeKey, reader);
     }
@@ -427,7 +437,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   /**
    * Toggle for singleton mode. Set to true to enable singleton node reuse.
    * Singleton mode uses mutable singleton nodes that are repopulated on each moveTo().
-   * This provides zero-allocation traversal with O(1) getter access.
+   * When combined with cache checking, uses cached records when available.
    */
   private static final boolean SINGLETON_ENABLED = true;
   
@@ -515,15 +525,75 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
   
   /**
-   * Move to a node using singleton mode (zero allocation with O(1) getters).
-   * Reuses mutable singleton instances and repopulates them from serialized data.
+   * Move to a node using singleton mode (zero allocation).
+   * Repopulates a mutable singleton instance from serialized data.
+   * NO allocation happens here - only when getCurrentNode() is called.
    *
    * @param nodeKey the node key to move to
    * @param reader  the storage engine reader
    * @return true if the move was successful
    */
   private boolean moveToSingleton(final long nodeKey, final NodeStorageEngineReader reader) {
-    // Lookup slot directly without deserializing
+    // Calculate target page key to check for same-page access
+    final long targetPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
+    final int slotOffset = StorageEngineReader.recordPageOffset(nodeKey);
+    
+    MemorySegment data;
+    io.sirix.page.KeyValueLeafPage page;
+    
+    // OPTIMIZATION: Check if we're moving within the same page
+    if (currentPageKey == targetPageKey && currentPage != null && !currentPage.isClosed()) {
+      // Same page! Skip guard management entirely
+      page = currentPage;
+      data = page.getSlot(slotOffset);
+      if (data == null) {
+        // Slot not found on current page - try overflow or fail
+        return moveToSingletonSlowPath(nodeKey, reader);
+      }
+    } else {
+      // Different page - use the slow path with guard management
+      return moveToSingletonSlowPath(nodeKey, reader);
+    }
+    
+    // Read node kind from first byte
+    byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+    NodeKind kind = NodeKind.getKind(kindByte);
+    
+    // Check for deleted node
+    if (kind == NodeKind.DELETE) {
+      return false;
+    }
+    
+    // Get singleton instance for this node type
+    ImmutableNode singleton = getSingletonForKind(kind);
+    if (singleton == null) {
+      // No singleton for this type (e.g., document root), fall back to legacy
+      return moveToLegacy(nodeKey);
+    }
+    
+    // Populate singleton from serialized data (NO ALLOCATION)
+    // Note: NO guard management needed - we're on the same page
+    BytesIn<?> source = new MemorySegmentBytesIn(data.asSlice(1));
+    byte[] deweyId = page.getDeweyIdAsByteArray(slotOffset);
+    populateSingleton(singleton, source, nodeKey, deweyId, kind);
+    
+    // Update state - we're in singleton mode now (page guard unchanged)
+    this.currentSingleton = singleton;
+    this.currentNodeKind = kind;
+    this.currentNodeKey = nodeKey;
+    this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
+    this.singletonMode = true;
+    this.flyweightMode = false;
+    
+    return true;
+  }
+  
+  /**
+   * Slow path for moveToSingleton when moving to a different page.
+   * Handles guard acquisition and release.
+   */
+  private boolean moveToSingletonSlowPath(final long nodeKey, final NodeStorageEngineReader reader) {
+    // Get raw slot data with full guard management
     var slotLocation = reader.lookupSlotWithGuard(nodeKey, IndexType.DOCUMENT, -1);
     if (slotLocation == null) {
       return false;
@@ -540,33 +610,32 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return false;
     }
     
-    // Get singleton instance and populate it from serialized data
+    // Get singleton instance for this node type
     ImmutableNode singleton = getSingletonForKind(kind);
     if (singleton == null) {
-      // No singleton available for this node type, fall back to legacy
+      // No singleton for this type (e.g., document root), fall back to legacy
       slotLocation.guard().close();
       return moveToLegacy(nodeKey);
     }
     
-    // Release previous page guard and update state
+    // Release previous page guard ONLY NOW (after we know the new page is valid)
     releaseCurrentPageGuard();
     
-    // Create BytesIn positioned after the kind byte
+    // Populate singleton from serialized data (NO ALLOCATION)
     BytesIn<?> source = new MemorySegmentBytesIn(data.asSlice(1));
     byte[] deweyId = slotLocation.page().getDeweyIdAsByteArray(slotLocation.offset());
-    
-    // Populate the singleton from serialized data
     populateSingleton(singleton, source, nodeKey, deweyId, kind);
     
-    // Update cursor state
-    this.currentSingleton = singleton;
-    this.currentNodeKey = nodeKey;
-    this.currentNodeKind = kind;
-    this.currentDeweyId = deweyId;
+    // Update state - we're in singleton mode now with new page
     this.currentPageGuard = slotLocation.guard();
+    this.currentPage = slotLocation.page();
+    this.currentPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
+    this.currentSingleton = singleton;
+    this.currentNodeKind = kind;
+    this.currentNodeKey = nodeKey;
+    this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
     this.flyweightMode = false;
-    this.currentNode = null;  // Invalidate cached node
     
     return true;
   }
@@ -739,12 +808,14 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     if (newNode == null) {
-      // Node not found - keep the current position unchanged
       return false;
     } else {
-      // Move succeeded - release previous page guard and switch to object mode
-      releaseCurrentPageGuard();
-      flyweightMode = false;
+      // Only release guard if we were in flyweight/singleton mode
+      if (flyweightMode || singletonMode) {
+        releaseCurrentPageGuard();
+        flyweightMode = false;
+        singletonMode = false;
+      }
       //noinspection unchecked
       setCurrentNode((N) newNode);
       this.currentNodeKey = nodeKey;
@@ -760,6 +831,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (currentPageGuard != null) {
       currentPageGuard.close();
       currentPageGuard = null;
+      currentPage = null;
+      currentPageKey = -1;
     }
   }
   
@@ -1313,7 +1386,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getNodeKey() {
     assertNotClosed();
-    if (flyweightMode || singletonMode) {
+    if ((FLYWEIGHT_ENABLED && flyweightMode) || (SINGLETON_ENABLED && singletonMode)) {
       return currentNodeKey;
     }
     return getCurrentNode().getNodeKey();
@@ -1322,15 +1395,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getHash() {
     assertNotClosed();
-    if (singletonMode) {
+    if (SINGLETON_ENABLED && singletonMode) {
       return currentSingleton != null ? currentSingleton.getHash() : 0L;
     }
-    if (flyweightMode) {
+    if (FLYWEIGHT_ENABLED && flyweightMode) {
       if (cachedFieldOffsets[FIELD_HASH] >= 0) {
-        // Read 8-byte hash directly from MemorySegment - ZERO ALLOCATION
         return DeltaVarIntCodec.readLongFromSegment(currentSlot, cachedFieldOffsets[FIELD_HASH]);
       }
-      // Hash field not available in flyweight mode, deserialize node
       N node = getCurrentNode();
       return node != null ? node.getHash() : 0L;
     }
@@ -1340,7 +1411,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public NodeKind getKind() {
     assertNotClosed();
-    if (flyweightMode || singletonMode) {
+    if ((FLYWEIGHT_ENABLED && flyweightMode) || (SINGLETON_ENABLED && singletonMode)) {
       return currentNodeKind;
     }
     return getCurrentNode().getKind();
@@ -1419,7 +1490,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasParent() {
     assertNotClosed();
-    if (flyweightMode && cachedFieldOffsets[FIELD_PARENT_KEY] >= 0) {
+    if (FLYWEIGHT_ENABLED && flyweightMode && cachedFieldOffsets[FIELD_PARENT_KEY] >= 0) {
       return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
     return getCurrentNode().hasParent();
@@ -1428,10 +1499,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasFirstChild() {
     assertNotClosed();
-    if (singletonMode && currentSingleton instanceof StructNode) {
-      return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
-    }
-    if (flyweightMode && cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] >= 0) {
+    if ((SINGLETON_ENABLED && singletonMode) || (FLYWEIGHT_ENABLED && flyweightMode)) {
       return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
     return getStructuralNode().hasFirstChild();
@@ -1440,10 +1508,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasRightSibling() {
     assertNotClosed();
-    if (singletonMode && currentSingleton instanceof StructNode) {
-      return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
-    }
-    if (flyweightMode && cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] >= 0) {
+    if ((SINGLETON_ENABLED && singletonMode) || (FLYWEIGHT_ENABLED && flyweightMode)) {
       return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
     return getStructuralNode().hasRightSibling();
@@ -1452,11 +1517,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getRightSiblingKey() {
     assertNotClosed();
-    if (singletonMode && currentSingleton instanceof StructNode sn) {
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getRightSiblingKey();
     }
-    if (flyweightMode && cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] >= 0) {
-      // Read directly from MemorySegment - ZERO ALLOCATION
+    if (FLYWEIGHT_ENABLED && flyweightMode && cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY] >= 0) {
       return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_RIGHT_SIBLING_KEY], currentNodeKey);
     }
     return getStructuralNode().getRightSiblingKey();
@@ -1465,11 +1529,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getFirstChildKey() {
     assertNotClosed();
-    if (singletonMode && currentSingleton instanceof StructNode sn) {
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getFirstChildKey();
     }
-    if (flyweightMode && cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] >= 0) {
-      // Read directly from MemorySegment - ZERO ALLOCATION
+    if (FLYWEIGHT_ENABLED && flyweightMode && cachedFieldOffsets[FIELD_FIRST_CHILD_KEY] >= 0) {
       return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_FIRST_CHILD_KEY], currentNodeKey);
     }
     return getStructuralNode().getFirstChildKey();
@@ -1478,15 +1541,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getParentKey() {
     assertNotClosed();
-    if (singletonMode && currentSingleton != null) {
-      // Read directly from singleton - ZERO ALLOCATION
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton != null) {
       return currentSingleton.getParentKey();
     }
-    if (flyweightMode && cachedFieldOffsets[FIELD_PARENT_KEY] >= 0) {
-      // Read directly from MemorySegment - ZERO ALLOCATION
+    if (FLYWEIGHT_ENABLED && flyweightMode && cachedFieldOffsets[FIELD_PARENT_KEY] >= 0) {
       return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_PARENT_KEY], currentNodeKey);
     }
-    // Fall back to getCurrentNode() which materializes if needed
     return getCurrentNode().getParentKey();
   }
 
@@ -1568,8 +1628,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getChildCount() {
     assertNotClosed();
-    if (flyweightMode && cachedFieldOffsets[FIELD_CHILD_COUNT] >= 0) {
-      // Read directly from MemorySegment - ZERO ALLOCATION
+    if (FLYWEIGHT_ENABLED && flyweightMode && cachedFieldOffsets[FIELD_CHILD_COUNT] >= 0) {
       return DeltaVarIntCodec.decodeSignedFromSegment(currentSlot, cachedFieldOffsets[FIELD_CHILD_COUNT]);
     }
     return getStructuralNode().getChildCount();
@@ -1578,7 +1637,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasChildren() {
     assertNotClosed();
-    if (singletonMode || flyweightMode) {
+    if ((SINGLETON_ENABLED && singletonMode) || (FLYWEIGHT_ENABLED && flyweightMode)) {
       return hasFirstChild();
     }
     return getStructuralNode().hasFirstChild();
@@ -1587,8 +1646,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getDescendantCount() {
     assertNotClosed();
-    if (flyweightMode && cachedFieldOffsets[FIELD_DESCENDANT_COUNT] >= 0) {
-      // Read directly from MemorySegment - ZERO ALLOCATION
+    if (FLYWEIGHT_ENABLED && flyweightMode && cachedFieldOffsets[FIELD_DESCENDANT_COUNT] >= 0) {
       return DeltaVarIntCodec.decodeSignedFromSegment(currentSlot, cachedFieldOffsets[FIELD_DESCENDANT_COUNT]);
     }
     return getStructuralNode().getDescendantCount();
@@ -1629,14 +1687,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public SirixDeweyID getDeweyID() {
     assertNotClosed();
-    if (singletonMode) {
+    if (SINGLETON_ENABLED && singletonMode) {
       return currentSingleton != null ? currentSingleton.getDeweyID() : null;
     }
-    if (flyweightMode) {
+    if (FLYWEIGHT_ENABLED && flyweightMode) {
       if (currentDeweyId != null) {
         return new SirixDeweyID(currentDeweyId);
       }
-      // DeweyID not stored in page, need to deserialize node
       N node = getCurrentNode();
       return node != null ? node.getDeweyID() : null;
     }
@@ -1646,7 +1703,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public int getPreviousRevisionNumber() {
     assertNotClosed();
-    if (flyweightMode && cachedFieldOffsets[FIELD_PREV_REVISION] >= 0) {
+    if (FLYWEIGHT_ENABLED && flyweightMode && cachedFieldOffsets[FIELD_PREV_REVISION] >= 0) {
       return DeltaVarIntCodec.decodeSignedFromSegment(currentSlot, cachedFieldOffsets[FIELD_PREV_REVISION]);
     }
     return getCurrentNode().getPreviousRevisionNumber();
