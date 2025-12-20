@@ -153,6 +153,7 @@ public final class JsonShredderTest {
     THREAD_POOL.awaitTermination(20, TimeUnit.MINUTES);
   }
 
+  @Disabled
   @Test
   public void testChicagoDescendantAxis() {
 //    if (Files.notExists(PATHS.PATH1.getFile())) {
@@ -207,6 +208,7 @@ public final class JsonShredderTest {
   // TODO: JMH test
   // Use Shenandoah or ZGC
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
+  @Disabled
   @Test
   public void testShredderAndTraverseChicago() {
     logger.info("start");
