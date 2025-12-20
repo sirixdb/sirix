@@ -122,7 +122,9 @@ class GetHandler(
         } else if (databaseName != null && resourceName == null) {
             val buffer = StringBuilder()
             buffer.append("{")
-            emitResourcesOfDatabase(buffer, location.resolve(databaseName))
+            val databasePath = location.resolve(databaseName)
+            val databaseType = Databases.getDatabaseType(databasePath.toAbsolutePath()).stringType
+            emitResourcesOfDatabase(buffer, databasePath, databaseType)
 
             if (!ctx.failed()) {
                 buffer.append("}")
@@ -176,7 +178,7 @@ class GetHandler(
                     val withResources = ctx.queryParam("withResources")
                     if (withResources.isNotEmpty() && withResources[0]!!.toBoolean()) {
                         buffer.append(",")
-                        emitResourcesOfDatabase(buffer, databaseName)
+                        emitResourcesOfDatabase(buffer, databaseName, databaseType)
                     }
                     buffer.append("}")
 
@@ -197,9 +199,16 @@ class GetHandler(
 
     private fun emitResourcesOfDatabase(
         buffer: StringBuilder,
-        databaseName: Path
+        databasePath: Path,
+        databaseType: String
     ) {
-        val database = Databases.openJsonDatabase(location.resolve(databaseName))
+        val resolvedPath = if (databasePath.isAbsolute) databasePath else location.resolve(databasePath)
+        
+        val database: Database<*> = when (databaseType) {
+            "json" -> Databases.openJsonDatabase(resolvedPath)
+            "xml" -> Databases.openXmlDatabase(resolvedPath)
+            else -> throw IllegalArgumentException("Unsupported database type: $databaseType")
+        }
 
         database.use {
             buffer.append("\"resources\":[")
@@ -209,10 +218,10 @@ class GetHandler(
     }
 
     private fun emitCommaSeparatedResourceString(
-        it: Database<JsonResourceSession>,
+        database: Database<*>,
         buffer: StringBuilder
     ) {
-        val resources = it.listResources()
+        val resources = database.listResources()
 
         for ((index, resource) in resources.withIndex()) {
             buffer.append("\"${resource.fileName}\"")
