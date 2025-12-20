@@ -27,11 +27,12 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
   private static final Linker LINKER = Linker.nativeLinker();
 
-  // Static final MethodHandles for mmap, munmap, madvise, and sysconf
+  // Static final MethodHandles for mmap, munmap, madvise, sysconf, and errno
   private static final MethodHandle MMAP;
   private static final MethodHandle MUNMAP;
   private static final MethodHandle MADVISE;
   private static final MethodHandle SYSCONF;
+  private static final MethodHandle ERRNO_LOCATION;
 
   private static final int PROT_READ = 0x1;   // Page can be read
   private static final int PROT_WRITE = 0x2;  // Page can be written
@@ -42,6 +43,12 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   
   // sysconf constants for page size detection
   private static final int _SC_PAGESIZE = 30;  // Get system page size
+  
+  // Common errno values for better diagnostics
+  private static final int EINVAL = 22;  // Invalid argument (addr not page-aligned, or bad advice)
+  private static final int ENOMEM = 12;  // Insufficient memory
+  private static final int EFAULT = 14;  // Address not currently mapped
+  private static final int EBADF = 9;    // Bad file descriptor (pmd map error)
 
   static {
     MMAP = LINKER.downcallHandle(LINKER.defaultLookup()
@@ -69,6 +76,37 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                                           .find("sysconf")
                                           .orElseThrow(() -> new RuntimeException("sysconf not found")),
                                     FunctionDescriptor.of(JAVA_LONG, JAVA_INT));
+    
+    // __errno_location returns pointer to thread-local errno
+    ERRNO_LOCATION = LINKER.downcallHandle(LINKER.defaultLookup()
+                                                 .find("__errno_location")
+                                                 .orElseThrow(() -> new RuntimeException("__errno_location not found")),
+                                           FunctionDescriptor.of(ADDRESS));
+  }
+  
+  /**
+   * Get the current errno value (thread-local).
+   */
+  private static int getErrno() {
+    try {
+      MemorySegment errnoPtr = (MemorySegment) ERRNO_LOCATION.invokeExact();
+      return errnoPtr.reinterpret(4).get(JAVA_INT, 0);
+    } catch (Throwable t) {
+      return -1; // Unknown
+    }
+  }
+  
+  /**
+   * Get a human-readable description of the errno value.
+   */
+  private static String errnoToString(int errno) {
+    return switch (errno) {
+      case EINVAL -> "EINVAL (invalid argument - address not page-aligned or bad advice)";
+      case ENOMEM -> "ENOMEM (insufficient memory)";
+      case EFAULT -> "EFAULT (address not currently mapped)";
+      case EBADF -> "EBADF (bad file descriptor)";
+      default -> "errno=" + errno;
+    };
   }
 
   // Define power-of-two sizes: 4KB, 8KB, 16KB, 32KB, 64KB, 128KB, 256KB
@@ -696,10 +734,15 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     try {
       int result = (int) MADVISE.invoke(segment, size, MADV_DONTNEED);
       if (result != 0) {
-        LOGGER.warn("madvise MADV_DONTNEED failed for address {}, size {} (error code: {})",
-                    segment.address(),
-                    size,
-                    result);
+        int errno = getErrno();
+        // EFAULT during shutdown is expected - memory may already be unmapped
+        if (errno == EFAULT) {
+          LOGGER.debug("madvise MADV_DONTNEED returned EFAULT for address 0x{}, size {} - memory likely already unmapped",
+                      Long.toHexString(segment.address()), size);
+        } else {
+          LOGGER.warn("madvise MADV_DONTNEED failed for address 0x{}, size {}: {}",
+                      Long.toHexString(segment.address()), size, errnoToString(errno));
+        }
       }
     } catch (Throwable e) {
       LOGGER.error("madvise invocation failed", e);
@@ -806,10 +849,18 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         // Note: Already removed from borrowedSegments above (atomically)
       } else {
         // madvise failed - add back to borrowed set since memory not actually released
+        int errno = getErrno();
         borrowedSegments.add(address);
-        LOGGER.warn("madvise MADV_DONTNEED failed for address {}, size {} (error code: {}). " +
-                    "Physical memory may not be released. Segment NOT returned to pool.",
-                    address, size, result);
+        // EFAULT is expected during shutdown when memory is already unmapped
+        if (errno == EFAULT) {
+          LOGGER.debug("madvise MADV_DONTNEED returned EFAULT for address 0x{}, size {} - memory likely already unmapped. " +
+                       "Segment NOT returned to pool.",
+                       Long.toHexString(address), size);
+        } else {
+          LOGGER.warn("madvise MADV_DONTNEED failed for address 0x{}, size {}: {}. " +
+                      "Physical memory may not be released. Segment NOT returned to pool.",
+                      Long.toHexString(address), size, errnoToString(errno));
+        }
         // DO NOT return to pool - segment still holds physical memory
         return;
       }
