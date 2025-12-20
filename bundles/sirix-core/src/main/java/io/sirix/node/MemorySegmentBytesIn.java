@@ -10,12 +10,24 @@ import java.nio.ByteOrder;
  * A MemorySegment-based implementation of BytesIn.
  */
 public class MemorySegmentBytesIn implements BytesIn<MemorySegment> {
-    private final MemorySegment memorySegment;
+    private MemorySegment memorySegment;
     private long position;
     
     public MemorySegmentBytesIn(MemorySegment initialSegment) {
         this.memorySegment = initialSegment;
         this.position = 0;
+    }
+    
+    /**
+     * Reset this BytesIn to read from a new segment at the given offset.
+     * This allows reusing the instance without allocation.
+     *
+     * @param segment the new MemorySegment to read from
+     * @param offset the starting offset within the segment
+     */
+    public void reset(MemorySegment segment, long offset) {
+        this.memorySegment = segment;
+        this.position = offset;
     }
     
     @Override

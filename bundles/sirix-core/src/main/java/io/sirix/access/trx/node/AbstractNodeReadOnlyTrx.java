@@ -123,6 +123,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   private io.sirix.page.KeyValueLeafPage currentPage;
   
   /**
+   * Reusable BytesIn instance for reading node data.
+   * Avoids allocation on every moveTo() call.
+   */
+  private final MemorySegmentBytesIn reusableBytesIn = new MemorySegmentBytesIn(MemorySegment.NULL);
+  
+  /**
    * Whether the transaction is in flyweight mode (reading from currentSlot).
    * When false, falls back to using currentNode object.
    */
@@ -573,9 +579,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     
     // Populate singleton from serialized data (NO ALLOCATION)
     // Note: NO guard management needed - we're on the same page
-    BytesIn<?> source = new MemorySegmentBytesIn(data.asSlice(1));
-    byte[] deweyId = page.getDeweyIdAsByteArray(slotOffset);
-    populateSingleton(singleton, source, nodeKey, deweyId, kind);
+    // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
+    reusableBytesIn.reset(data, 1);
+    // Only fetch DeweyID if actually stored (avoids byte[] allocation)
+    byte[] deweyId = resourceConfig.areDeweyIDsStored ? page.getDeweyIdAsByteArray(slotOffset) : null;
+    populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind);
     
     // Update state - we're in singleton mode now (page guard unchanged)
     this.currentSingleton = singleton;
@@ -622,9 +630,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     releaseCurrentPageGuard();
     
     // Populate singleton from serialized data (NO ALLOCATION)
-    BytesIn<?> source = new MemorySegmentBytesIn(data.asSlice(1));
-    byte[] deweyId = slotLocation.page().getDeweyIdAsByteArray(slotLocation.offset());
-    populateSingleton(singleton, source, nodeKey, deweyId, kind);
+    // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
+    reusableBytesIn.reset(data, 1);
+    // Only fetch DeweyID if actually stored (avoids byte[] allocation)
+    byte[] deweyId = resourceConfig.areDeweyIDsStored 
+        ? slotLocation.page().getDeweyIdAsByteArray(slotLocation.offset()) : null;
+    populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind);
     
     // Update state - we're in singleton mode now with new page
     this.currentPageGuard = slotLocation.guard();
