@@ -78,21 +78,19 @@ public class TextNodeTest {
     // Create empty node.
     final byte[] value = { (byte) 17, (byte) 18 };
     
-    // Create node with MemorySegment
-    final var data = Bytes.elasticOffHeapByteBuffer();
-    
-    // Write NodeDelegate fields (16 bytes)
-    data.writeLong(14);                              // parentKey - offset 0
-    data.writeInt(Constants.NULL_REVISION_NUMBER);   // previousRevision - offset 8
-    data.writeInt(0);                                // lastModifiedRevision - offset 12
-    
-    // Write sibling keys (16 bytes)
-    data.writeLong(16L);                             // rightSiblingKey - offset 16
-    data.writeLong(15L);                             // leftSiblingKey - offset 24
-    
-    var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
-    final TextNode node = new TextNode(segment, 13L, SirixDeweyID.newRootID(), 
-                                       LongHashFunction.xx3(), value, false);
+    // Create TextNode with primitive fields
+    final TextNode node = new TextNode(
+        13L,                                         // nodeKey
+        14L,                                         // parentKey
+        Constants.NULL_REVISION_NUMBER,              // previousRevision
+        0,                                           // lastModifiedRevision
+        16L,                                         // rightSiblingKey
+        15L,                                         // leftSiblingKey
+        0,                                           // hash
+        value,                                       // value
+        false,                                       // isCompressed
+        LongHashFunction.xx3(),                      // hashFunction
+        SirixDeweyID.newRootID());
     var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
     check(node);

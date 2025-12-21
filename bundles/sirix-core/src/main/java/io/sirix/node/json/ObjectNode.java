@@ -385,6 +385,60 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode {
     this.descendantCount = 0;
   }
   
+  /**
+   * Populate this node directly from a MemorySegment, bypassing BytesIn overhead.
+   * ZERO ALLOCATION - reads directly from memory segment.
+   * 
+   * @param segment     the MemorySegment containing the serialized node data (after kind byte)
+   * @param startOffset the byte offset within the segment to start reading
+   * @param nodeKey     the node key
+   * @param deweyId     the DeweyID bytes (may be null)
+   * @param hashFunction the hash function
+   * @param config      the resource configuration
+   * @return the byte offset after reading all structural fields (for lazy field position)
+   */
+  public int readFromSegment(final MemorySegment segment, final int startOffset, final long nodeKey,
+                              final byte[] deweyId, final LongHashFunction hashFunction,
+                              final ResourceConfiguration config) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
+    
+    int offset = startOffset;
+    
+    // STRUCTURAL FIELDS - read directly from segment (no BytesIn overhead)
+    this.parentKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
+    offset += DeltaVarIntCodec.deltaLength(segment, offset);
+    
+    this.rightSiblingKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
+    offset += DeltaVarIntCodec.deltaLength(segment, offset);
+    
+    this.leftSiblingKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
+    offset += DeltaVarIntCodec.deltaLength(segment, offset);
+    
+    this.firstChildKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
+    offset += DeltaVarIntCodec.deltaLength(segment, offset);
+    
+    this.lastChildKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
+    offset += DeltaVarIntCodec.deltaLength(segment, offset);
+    
+    // Store for lazy parsing
+    this.lazySource = segment;
+    this.lazyOffset = offset;
+    this.lazyFieldsParsed = false;
+    this.hasHash = config.hashType != HashType.NONE;
+    this.storeChildCount = config.storeChildCount();
+    
+    this.previousRevision = 0;
+    this.lastModifiedRevision = 0;
+    this.childCount = 0;
+    this.hash = 0;
+    this.descendantCount = 0;
+    
+    return offset;
+  }
+  
   private void parseLazyFields() {
     if (lazyFieldsParsed) {
       return;

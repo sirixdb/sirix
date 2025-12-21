@@ -91,35 +91,35 @@ public enum NodeKind implements DeweyIdSerializer {
       // Read size prefix and skip padding  
       long startReadPos = source.position();
       int totalSize = JsonNodeSerializer.readSizePrefix(source);
-      
-      // Read all core fields directly into a buffer
-      final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
       var config = resourceConfiguration;
       
-      // Read NodeDelegate fields (16 bytes)
-      data.writeLong(source.readLong());  // parentKey
-      data.writeInt(source.readInt());    // previousRevision
-      data.writeInt(source.readInt());    // lastModifiedRevision
+      // Read NodeDelegate fields
+      final long parentKey = source.readLong();
+      final int previousRevision = source.readInt();
+      final int lastModifiedRevision = source.readInt();
       
-      // Read StructNode fields (32 bytes)
-      data.writeLong(source.readLong());  // rightSiblingKey
-      data.writeLong(source.readLong());  // leftSiblingKey
-      data.writeLong(source.readLong());  // firstChildKey
-      data.writeLong(source.readLong());  // lastChildKey
+      // Read StructNode fields
+      final long rightSiblingKey = source.readLong();
+      final long leftSiblingKey = source.readLong();
+      final long firstChildKey = source.readLong();
+      final long lastChildKey = source.readLong();
       
-      // Read NameNode fields (20 bytes)
-      data.writeLong(source.readLong());  // pathNodeKey
-      data.writeInt(source.readInt());    // prefixKey
-      data.writeInt(source.readInt());    // localNameKey
-      data.writeInt(source.readInt());    // uriKey
+      // Read NameNode fields
+      final long pathNodeKey = source.readLong();
+      final int prefixKey = source.readInt();
+      final int localNameKey = source.readInt();
+      final int uriKey = source.readInt();
       
       // Read optional fields
-      if (config.storeChildCount()) {
-        data.writeLong(source.readLong());  // childCount
-      }
+      final long childCount = config.storeChildCount() ? source.readLong() : 0;
+      final long hash;
+      final long descendantCount;
       if (config.hashType != HashType.NONE) {
-        data.writeLong(source.readLong());  // hash
-        data.writeLong(source.readLong());  // descendantCount
+        hash = source.readLong();
+        descendantCount = source.readLong();
+      } else {
+        hash = 0;
+        descendantCount = 0;
       }
       
       // Read attributes list
@@ -143,8 +143,10 @@ public enum NodeKind implements DeweyIdSerializer {
         source.position(source.position() + paddingBytes);
       }
       
-      var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
-      return new ElementNode(segment, recordID, deweyID, resourceConfiguration, attrKeys, namespaceKeys, new QNm(""));
+      return new ElementNode(recordID, parentKey, previousRevision, lastModifiedRevision,
+          rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
+          childCount, descendantCount, hash, pathNodeKey, prefixKey, localNameKey, uriKey,
+          resourceConfiguration.nodeHashFunction, deweyID, attrKeys, namespaceKeys, new QNm(""));
     }
 
     @Override
@@ -210,24 +212,21 @@ public enum NodeKind implements DeweyIdSerializer {
       long startReadPos = source.position();
       int totalSize = JsonNodeSerializer.readSizePrefix(source);
       
-      // Read all core fields directly into a buffer
-      final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
+      // Read NodeDelegate fields
+      final long parentKey = source.readLong();
+      final int previousRevision = source.readInt();
+      final int lastModifiedRevision = source.readInt();
       
-      // Read NodeDelegate fields (16 bytes)
-      data.writeLong(source.readLong());  // parentKey
-      data.writeInt(source.readInt());    // previousRevision
-      data.writeInt(source.readInt());    // lastModifiedRevision
-      
-      // Read NameNode fields (20 bytes)
-      data.writeLong(source.readLong());  // pathNodeKey
-      data.writeInt(source.readInt());    // prefixKey
-      data.writeInt(source.readInt());    // localNameKey
-      data.writeInt(source.readInt());    // uriKey
+      // Read NameNode fields
+      final long pathNodeKey = source.readLong();
+      final int prefixKey = source.readInt();
+      final int localNameKey = source.readInt();
+      final int uriKey = source.readInt();
       
       // Read value delegate
-      final boolean isCompressed = source.readByte() == (byte) 1;
-      final byte[] vals = new byte[source.readInt()];
-      source.read(vals, 0, vals.length);
+      source.readByte(); // isCompressed flag (unused now)
+      final byte[] value = new byte[source.readInt()];
+      source.read(value, 0, value.length);
       
       // Skip end padding to position at next node (size includes padding)
       long bytesRead = source.position() - startReadPos - 7; // -7 for size prefix (4 bytes) + padding (3 bytes)
@@ -236,8 +235,9 @@ public enum NodeKind implements DeweyIdSerializer {
         source.position(source.position() + paddingBytes);
       }
       
-      var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
-      return new AttributeNode(segment, recordID, deweyID, vals, isCompressed, new QNm(""));
+      return new AttributeNode(recordID, parentKey, previousRevision, lastModifiedRevision,
+          pathNodeKey, prefixKey, localNameKey, uriKey, 0, value,
+          resourceConfiguration.nodeHashFunction, deweyID, new QNm(""));
     }
 
     @Override
@@ -258,9 +258,9 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.writeInt(node.getLocalNameKey());
       sink.writeInt(node.getURIKey());
       
-      // Write value delegate
+      // Write value delegate (no compression for attribute values)
       final byte[] value = node.getRawValue();
-      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      sink.writeByte((byte) 0);  // isCompressed always false
       sink.writeInt(value.length);
       sink.write(value);
       
@@ -281,19 +281,16 @@ public enum NodeKind implements DeweyIdSerializer {
       long startReadPos = source.position();
       int totalSize = JsonNodeSerializer.readSizePrefix(source);
       
-      // Read all core fields directly into a buffer
-      final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
+      // Read NodeDelegate fields
+      final long parentKey = source.readLong();
+      final int previousRevision = source.readInt();
+      final int lastModifiedRevision = source.readInt();
       
-      // Read NodeDelegate fields (16 bytes)
-      data.writeLong(source.readLong());  // parentKey
-      data.writeInt(source.readInt());    // previousRevision
-      data.writeInt(source.readInt());    // lastModifiedRevision
-      
-      // Read NameNode fields (20 bytes)
-      data.writeLong(source.readLong());  // pathNodeKey
-      data.writeInt(source.readInt());    // prefixKey
-      data.writeInt(source.readInt());    // localNameKey
-      data.writeInt(source.readInt());    // uriKey
+      // Read NameNode fields
+      final long pathNodeKey = source.readLong();
+      final int prefixKey = source.readInt();
+      final int localNameKey = source.readInt();
+      final int uriKey = source.readInt();
       
       // Skip end padding to position at next node (size includes padding)
       long bytesRead = source.position() - startReadPos - 7; // -7 for size prefix (4 bytes) + padding (3 bytes)
@@ -302,9 +299,9 @@ public enum NodeKind implements DeweyIdSerializer {
         source.position(source.position() + paddingBytes);
       }
       
-      var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
-      return new NamespaceNode(segment, recordID, deweyID, 
-          resourceConfiguration.nodeHashFunction, new io.brackit.query.atomic.QNm(""));
+      return new NamespaceNode(recordID, parentKey, previousRevision, lastModifiedRevision,
+          pathNodeKey, prefixKey, localNameKey, uriKey, 0,
+          resourceConfiguration.nodeHashFunction, deweyID, new QNm(""));
     }
 
     @Override
@@ -338,26 +335,25 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read all core fields directly into a buffer
-      final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
+      final long nodeKey = recordID;
       
-      // Read NodeDelegate fields (16 bytes)
-      data.writeLong(source.readLong());  // parentKey
-      data.writeInt(source.readInt());    // previousRevision
-      data.writeInt(source.readInt());    // lastModifiedRevision
+      // Read NodeDelegate fields
+      final long parentKey = source.readLong();
+      final int previousRevision = source.readInt();
+      final int lastModifiedRevision = source.readInt();
       
       // Read value
       final boolean isCompressed = source.readByte() == (byte) 1;
-      final byte[] vals = new byte[source.readInt()];
-      source.read(vals, 0, vals.length);
+      final byte[] value = new byte[source.readInt()];
+      source.read(value, 0, value.length);
       
       // Read sibling keys (as offsets from nodeKey)
-      final long nodeKey = recordID;
-      data.writeLong(nodeKey - getVarLong(source));  // rightSiblingKey
-      data.writeLong(nodeKey - getVarLong(source));  // leftSiblingKey
+      final long rightSiblingKey = nodeKey - getVarLong(source);
+      final long leftSiblingKey = nodeKey - getVarLong(source);
       
-      var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
-      return new TextNode(segment, recordID, deweyID, resourceConfiguration.nodeHashFunction, vals, isCompressed);
+      return new TextNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
+          rightSiblingKey, leftSiblingKey, 0, value, isCompressed,
+          resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -390,44 +386,46 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read all core fields directly into a buffer
-      final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
       var config = resourceConfiguration;
       
-      // Read NodeDelegate fields (16 bytes)
-      data.writeLong(source.readLong());  // parentKey
-      data.writeInt(source.readInt());    // previousRevision
-      data.writeInt(source.readInt());    // lastModifiedRevision
+      // Read NodeDelegate fields
+      final long parentKey = source.readLong();
+      final int previousRevision = source.readInt();
+      final int lastModifiedRevision = source.readInt();
       
-      // Read StructNode fields (32 bytes)
-      data.writeLong(source.readLong());  // rightSiblingKey
-      data.writeLong(source.readLong());  // leftSiblingKey
-      data.writeLong(source.readLong());  // firstChildKey
-      data.writeLong(source.readLong());  // lastChildKey
+      // Read StructNode fields
+      final long rightSiblingKey = source.readLong();
+      final long leftSiblingKey = source.readLong();
+      final long firstChildKey = source.readLong();
+      final long lastChildKey = source.readLong();
       
-      // Read NameNode fields (20 bytes)
-      data.writeLong(source.readLong());  // pathNodeKey
-      data.writeInt(source.readInt());    // prefixKey
-      data.writeInt(source.readInt());    // localNameKey
-      data.writeInt(source.readInt());    // uriKey
+      // Read NameNode fields
+      final long pathNodeKey = source.readLong();
+      final int prefixKey = source.readInt();
+      final int localNameKey = source.readInt();
+      final int uriKey = source.readInt();
       
       // Read optional fields
-      if (config.storeChildCount()) {
-        data.writeLong(source.readLong());  // childCount
-      }
+      final long childCount = config.storeChildCount() ? source.readLong() : 0;
+      final long hash;
+      final long descendantCount;
       if (config.hashType != HashType.NONE) {
-        data.writeLong(source.readLong());  // hash
-        data.writeLong(source.readLong());  // descendantCount
+        hash = source.readLong();
+        descendantCount = source.readLong();
+      } else {
+        hash = 0;
+        descendantCount = 0;
       }
       
       // Read value
       final boolean isCompressed = source.readByte() == (byte) 1;
-      final byte[] vals = new byte[source.readInt()];
-      source.read(vals, 0, vals.length);
+      final byte[] value = new byte[source.readInt()];
+      source.read(value, 0, value.length);
       
-      var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
-      return new PINode(segment, recordID, deweyID, resourceConfiguration, 
-                       resourceConfiguration.nodeHashFunction, vals, isCompressed);
+      return new PINode(recordID, parentKey, previousRevision, lastModifiedRevision,
+          rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
+          childCount, descendantCount, hash, pathNodeKey, prefixKey, localNameKey, uriKey,
+          value, isCompressed, resourceConfiguration.nodeHashFunction, deweyID, new QNm(""));
     }
 
     @Override
@@ -477,26 +475,25 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read all core fields directly into a buffer
-      final var data = io.sirix.node.Bytes.elasticOffHeapByteBuffer();
+      final long nodeKey = recordID;
       
-      // Read NodeDelegate fields (16 bytes)
-      data.writeLong(source.readLong());  // parentKey
-      data.writeInt(source.readInt());    // previousRevision
-      data.writeInt(source.readInt());    // lastModifiedRevision
+      // Read NodeDelegate fields
+      final long parentKey = source.readLong();
+      final int previousRevision = source.readInt();
+      final int lastModifiedRevision = source.readInt();
       
       // Read value
       final boolean isCompressed = source.readByte() == (byte) 1;
-      final byte[] vals = new byte[source.readInt()];
-      source.read(vals, 0, vals.length);
+      final byte[] value = new byte[source.readInt()];
+      source.read(value, 0, value.length);
       
       // Read sibling keys
-      final long nodeKey = recordID;
-      data.writeLong(nodeKey - getVarLong(source));  // rightSiblingKey
-      data.writeLong(nodeKey - getVarLong(source));  // leftSiblingKey
+      final long rightSiblingKey = nodeKey - getVarLong(source);
+      final long leftSiblingKey = nodeKey - getVarLong(source);
       
-      var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
-      return new CommentNode(segment, recordID, deweyID, resourceConfiguration.nodeHashFunction, vals, isCompressed);
+      return new CommentNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
+          rightSiblingKey, leftSiblingKey, 0, value, isCompressed,
+          resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -532,21 +529,17 @@ public enum NodeKind implements DeweyIdSerializer {
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       final LongHashFunction hashFunction = resourceConfiguration.nodeHashFunction;
 
-      final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                    Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                    hashFunction,
-                                                    Constants.NULL_REVISION_NUMBER,
-                                                    Constants.NULL_REVISION_NUMBER,
-                                                    SirixDeweyID.newRootID().toBytes());
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                  getVarLong(source),
-                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  source.readByte() == ((byte) 0) ? 0 : 1,
-                                                                  resourceConfiguration.hashType == HashType.NONE
-                                                                      ? 0
-                                                                      : source.readLong());
-      return new XmlDocumentRootNode(nodeDel, structDel);
+      final long firstChildKey = getVarLong(source);
+      final long childCount = source.readByte() == ((byte) 0) ? 0 : 1;
+      final long descendantCount = resourceConfiguration.hashType == HashType.NONE ? 0 : source.readLong();
+
+      return new XmlDocumentRootNode(
+          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+          firstChildKey,
+          Fixed.NULL_NODE_KEY.getStandardProperty(),  // lastChildKey not stored for XML doc root
+          childCount,
+          descendantCount,
+          hashFunction);
     }
 
     @Override
@@ -1531,24 +1524,17 @@ public enum NodeKind implements DeweyIdSerializer {
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       final LongHashFunction hashFunction = resourceConfiguration.nodeHashFunction;
 
-      final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                    Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                    hashFunction,
-                                                    Constants.NULL_REVISION_NUMBER,
-                                                    Constants.NULL_REVISION_NUMBER,
-                                                    SirixDeweyID.newRootID().toBytes());
       final long firstChildKey = getVarLong(source);
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                  firstChildKey,
-                                                                  firstChildKey,
-                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  firstChildKey
-                                                                      == Fixed.NULL_NODE_KEY.getStandardProperty()
-                                                                      ? 0
-                                                                      : 1,
-                                                                  source.readLong());
-      return new JsonDocumentRootNode(nodeDel, structDel);
+      final long childCount = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty() ? 0 : 1;
+      final long descendantCount = source.readLong();
+
+      return new JsonDocumentRootNode(
+          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+          firstChildKey,
+          firstChildKey,  // lastChildKey same as firstChildKey for document root
+          childCount,
+          descendantCount,
+          hashFunction);
     }
 
     public void serialize(final BytesOut<?> sink, final DataRecord record,

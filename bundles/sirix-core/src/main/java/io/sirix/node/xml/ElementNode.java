@@ -35,7 +35,11 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.DeltaVarIntCodec;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.xml.ImmutableElement;
@@ -44,285 +48,127 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Fixed;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.lang.invoke.VarHandle;
 import java.util.Collections;
 import java.util.List;
 
 /**
- * <p>
  * Node representing an XML element.
- * </p>
  *
- * <p><strong>All instances are backed by MemorySegment for consistent memory layout.</strong></p>
- * <p><strong>Uses MemoryLayout and VarHandles for type-safe field access.</strong></p>
- * <p><strong>This class is not part of the public API and might change.</strong></p>
+ * <p>Uses primitive fields for efficient storage with delta+varint encoding.
+ * Structural fields are parsed immediately for tree navigation; other fields
+ * are parsed lazily on demand.</p>
+ *
+ * @author Johannes Lichtenberger
  */
 public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode {
 
-  // MemorySegment layout with FIXED offsets:
-  // NodeDelegate data (16 bytes):
-  //   - parentKey (8 bytes)            - offset 0
-  //   - previousRevision (4 bytes)     - offset 8
-  //   - lastModifiedRevision (4 bytes) - offset 12
-  // Fixed StructNode fields (32 bytes):
-  //   - rightSiblingKey (8 bytes)      - offset 16
-  //   - leftSiblingKey (8 bytes)       - offset 24
-  //   - firstChildKey (8 bytes)        - offset 32
-  //   - lastChildKey (8 bytes)         - offset 40
-  // NameNode fields (20 bytes):
-  //   - pathNodeKey (8 bytes)          - offset 48
-  //   - prefixKey (4 bytes)            - offset 56
-  //   - localNameKey (4 bytes)         - offset 60
-  //   - uriKey (4 bytes)               - offset 64
-  // Optional fields:
-  //   - childCount (8 bytes)           - offset 68 (if storeChildCount)
-  //   - hash (8 bytes)                 - offset 68/76 (if hashType != NONE)
-  //   - descendantCount (8 bytes)      - after hash (if hashType != NONE)
+  // === IMMEDIATE STRUCTURAL FIELDS ===
+  private long nodeKey;
+  private long parentKey;
+  private long rightSiblingKey;
+  private long leftSiblingKey;
+  private long firstChildKey;
+  private long lastChildKey;
 
-  /**
-   * Core layout (always present) - 68 bytes total
-   */
-  public static final MemoryLayout CORE_LAYOUT = MemoryLayout.structLayout(
-      // NodeDelegate fields
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("parentKey"),                    // offset 0
-      ValueLayout.JAVA_INT_UNALIGNED.withName("previousRevision"),              // offset 8
-      ValueLayout.JAVA_INT_UNALIGNED.withName("lastModifiedRevision"),          // offset 12
-      // StructNode fields
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("rightSiblingKey"),              // offset 16
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("leftSiblingKey"),               // offset 24
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("firstChildKey"),                // offset 32
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("lastChildKey"),                 // offset 40
-      // NameNode fields
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("pathNodeKey"),                  // offset 48
-      ValueLayout.JAVA_INT_UNALIGNED.withName("prefixKey"),                     // offset 56
-      ValueLayout.JAVA_INT_UNALIGNED.withName("localNameKey"),                  // offset 60
-      ValueLayout.JAVA_INT_UNALIGNED.withName("uriKey")                         // offset 64
-  );
+  // === LAZY FIELDS (NameNode) ===
+  private long pathNodeKey;
+  private int prefixKey;
+  private int localNameKey;
+  private int uriKey;
 
-  /**
-   * Optional child count layout (only when storeChildCount == true) - 8 bytes
-   */
-  public static final MemoryLayout CHILD_COUNT_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("childCount")                    // variable offset
-  );
+  // === LAZY FIELDS (Metadata) ===
+  private int previousRevision;
+  private int lastModifiedRevision;
+  private long childCount;
+  private long descendantCount;
+  private long hash;
 
-  /**
-   * Optional hash layout (only when hashType != NONE) - 16 bytes
-   */
-  public static final MemoryLayout HASH_LAYOUT = MemoryLayout.structLayout(
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("hash"),                         // variable offset
-      ValueLayout.JAVA_LONG_UNALIGNED.withName("descendantCount")               // after hash
-  );
-
-  // VarHandles for type-safe field access
-  private static final VarHandle PARENT_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("parentKey"));
-  private static final VarHandle PREVIOUS_REVISION_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("previousRevision"));
-  private static final VarHandle LAST_MODIFIED_REVISION_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("lastModifiedRevision"));
-  private static final VarHandle RIGHT_SIBLING_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("rightSiblingKey"));
-  private static final VarHandle LEFT_SIBLING_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("leftSiblingKey"));
-  private static final VarHandle FIRST_CHILD_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("firstChildKey"));
-  private static final VarHandle LAST_CHILD_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("lastChildKey"));
-  private static final VarHandle PATH_NODE_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("pathNodeKey"));
-  private static final VarHandle PREFIX_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("prefixKey"));
-  private static final VarHandle LOCAL_NAME_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("localNameKey"));
-  private static final VarHandle URI_KEY_HANDLE = 
-      CORE_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("uriKey"));
-
-  // VarHandles for optional child count field
-  private static final VarHandle CHILD_COUNT_HANDLE = 
-      CHILD_COUNT_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("childCount"));
-
-  // VarHandles for optional hash fields
-  private static final VarHandle HASH_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("hash"));
-  private static final VarHandle DESCENDANT_COUNT_HANDLE = 
-      HASH_LAYOUT.varHandle(MemoryLayout.PathElement.groupElement("descendantCount"));
-
-  // All nodes are MemorySegment-based
-  private final MemorySegment segment;
-  private long nodeKey;  // Non-final for singleton node interface compliance
-  private final ResourceConfiguration resourceConfig;
-
-  // Keys of attributes (stored separately from MemorySegment)
-  private final LongList attributeKeys;
-
-  // Keys of namespace declarations (stored separately from MemorySegment)
-  private final LongList namespaceKeys;
-
-  // The qualified name (cached, not stored in MemorySegment, can be updated via setName)
-  private QNm qNm;
-
-  // DeweyID support (stored separately, not in MemorySegment)
+  // === NON-SERIALIZED FIELDS ===
+  private LongHashFunction hashFunction;
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
+  private LongList attributeKeys;
+  private LongList namespaceKeys;
+  private QNm qNm;
 
-  // Cached offsets for optional fields (computed once at construction)
-  private final long childCountOffset;
-  private final long hashOffset;
-  private final long descendantCountOffset;
-
-  /**
-   * Constructor for MemorySegment-based ElementNode
-   *
-   * @param segment        the MemorySegment containing all node data
-   * @param nodeKey        the node key (record ID)
-   * @param deweyID        optional DeweyID bytes
-   * @param resourceConfig the resource configuration
-   * @param attributeKeys  list of attribute keys
-   * @param namespaceKeys  keys of namespaces to be set
-   * @param qNm            the qualified name
-   */
-  public ElementNode(final MemorySegment segment, final long nodeKey, final byte[] deweyID,
-      final ResourceConfiguration resourceConfig, final LongList attributeKeys, 
-      final LongList namespaceKeys, final QNm qNm) {
-    this(segment, nodeKey, deweyID != null ? new SirixDeweyID(deweyID) : null, 
-         resourceConfig, attributeKeys, namespaceKeys, qNm);
-    this.deweyIDBytes = deweyID;
-  }
+  // === LAZY PARSING STATE ===
+  private Object lazySource;
+  private long lazyOffset;
+  private boolean lazyFieldsParsed;
+  private boolean hasHash;
+  private boolean storeChildCount;
 
   /**
-   * Constructor for MemorySegment-based ElementNode
-   *
-   * @param segment        the MemorySegment containing all node data
-   * @param nodeKey        the node key (record ID)
-   * @param id             optional DeweyID
-   * @param resourceConfig the resource configuration
-   * @param attributeKeys  list of attribute keys
-   * @param namespaceKeys  keys of namespaces to be set
-   * @param qNm            the qualified name
+   * Primary constructor with all primitive fields.
+   * Used by deserialization (NodeKind.ELEMENT.deserialize).
    */
-  public ElementNode(final MemorySegment segment, final long nodeKey, final SirixDeweyID id,
-      final ResourceConfiguration resourceConfig, final LongList attributeKeys, 
-      final LongList namespaceKeys, final QNm qNm) {
-    assert segment != null;
-    this.segment = segment;
+  public ElementNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey,
+      long firstChildKey, long lastChildKey, long childCount, long descendantCount,
+      long hash, long pathNodeKey, int prefixKey, int localNameKey, int uriKey,
+      LongHashFunction hashFunction, byte[] deweyID,
+      LongList attributeKeys, LongList namespaceKeys, QNm qNm) {
     this.nodeKey = nodeKey;
-    this.sirixDeweyID = id;
-    assert resourceConfig != null;
-    this.resourceConfig = resourceConfig;
-    assert attributeKeys != null;
-    this.attributeKeys = attributeKeys;
-    assert namespaceKeys != null;
-    this.namespaceKeys = namespaceKeys;
-    assert qNm != null;
+    this.parentKey = parentKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.firstChildKey = firstChildKey;
+    this.lastChildKey = lastChildKey;
+    this.childCount = childCount;
+    this.descendantCount = descendantCount;
+    this.hash = hash;
+    this.pathNodeKey = pathNodeKey;
+    this.prefixKey = prefixKey;
+    this.localNameKey = localNameKey;
+    this.uriKey = uriKey;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyID;
+    this.attributeKeys = attributeKeys != null ? attributeKeys : new LongArrayList();
+    this.namespaceKeys = namespaceKeys != null ? namespaceKeys : new LongArrayList();
     this.qNm = qNm;
-
-    // Compute offsets once for maximum performance
-    long currentOffset = CORE_LAYOUT.byteSize();
-    
-    if (resourceConfig.storeChildCount()) {
-      this.childCountOffset = currentOffset;
-      currentOffset += CHILD_COUNT_LAYOUT.byteSize();
-    } else {
-      this.childCountOffset = -1;
-    }
-    
-    if (resourceConfig.hashType != HashType.NONE) {
-      this.hashOffset = currentOffset;
-      this.descendantCountOffset = currentOffset; // VarHandle adds offset within HASH_LAYOUT
-    } else {
-      this.hashOffset = -1;
-      this.descendantCountOffset = -1;
-    }
+    this.lazyFieldsParsed = true;
   }
 
   /**
-   * Getting the count of attributes.
-   *
-   * @return the count of attributes
+   * Constructor with SirixDeweyID instead of byte array.
    */
-  public int getAttributeCount() {
-    return attributeKeys.size();
-  }
-
-  /**
-   * Getting the attribute key for an given index.
-   *
-   * @param index index of the attribute
-   * @return the attribute key
-   */
-  public long getAttributeKey(final @NonNegative int index) {
-    if (attributeKeys.size() <= index) {
-      return Fixed.NULL_NODE_KEY.getStandardProperty();
-    }
-    return attributeKeys.getLong(index);
-  }
-
-  /**
-   * Inserting an attribute.
-   *
-   * @param attrKey the new attribute key
-   */
-  public void insertAttribute(final @NonNegative long attrKey) {
-    attributeKeys.add(attrKey);
-  }
-
-  /**
-   * Removing an attribute.
-   *
-   * @param attrNodeKey the key of the attribute to be removed
-   */
-  public void removeAttribute(final @NonNegative long attrNodeKey) {
-    attributeKeys.removeIf(key -> key == attrNodeKey);
-  }
-
-  /**
-   * Getting the count of namespaces.
-   *
-   * @return the count of namespaces
-   */
-  public int getNamespaceCount() {
-    return namespaceKeys.size();
-  }
-
-  /**
-   * Getting the namespace key for a given index.
-   *
-   * @param namespaceKey index of the namespace
-   * @return the namespace key
-   */
-  public long getNamespaceKey(final @NonNegative int namespaceKey) {
-    if (namespaceKeys.size() <= namespaceKey) {
-      return Fixed.NULL_NODE_KEY.getStandardProperty();
-    }
-    return namespaceKeys.getLong(namespaceKey);
-  }
-
-  /**
-   * Inserting a namespace.
-   *
-   * @param namespaceKey new namespace key
-   */
-  public void insertNamespace(final long namespaceKey) {
-    namespaceKeys.add(namespaceKey);
-  }
-
-  /**
-   * Removing a namepsace.
-   *
-   * @param namespaceKey the key of the namespace to be removed
-   */
-  public void removeNamespace(final long namespaceKey) {
-    namespaceKeys.removeIf(key -> key == namespaceKey);
+  public ElementNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey,
+      long firstChildKey, long lastChildKey, long childCount, long descendantCount,
+      long hash, long pathNodeKey, int prefixKey, int localNameKey, int uriKey,
+      LongHashFunction hashFunction, SirixDeweyID deweyID,
+      LongList attributeKeys, LongList namespaceKeys, QNm qNm) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.firstChildKey = firstChildKey;
+    this.lastChildKey = lastChildKey;
+    this.childCount = childCount;
+    this.descendantCount = descendantCount;
+    this.hash = hash;
+    this.pathNodeKey = pathNodeKey;
+    this.prefixKey = prefixKey;
+    this.localNameKey = localNameKey;
+    this.uriKey = uriKey;
+    this.hashFunction = hashFunction;
+    this.sirixDeweyID = deweyID;
+    this.attributeKeys = attributeKeys != null ? attributeKeys : new LongArrayList();
+    this.namespaceKeys = namespaceKeys != null ? namespaceKeys : new LongArrayList();
+    this.qNm = qNm;
+    this.lazyFieldsParsed = true;
   }
 
   @Override
@@ -336,17 +182,211 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   }
 
   @Override
-  public long getParentKey() {
-    return (long) PARENT_KEY_HANDLE.get(segment, 0L);
+  public void setNodeKey(long nodeKey) {
+    this.nodeKey = nodeKey;
   }
 
-  public void setParentKey(final long parentKey) {
-    PARENT_KEY_HANDLE.set(segment, 0L, parentKey);
+  // === IMMEDIATE STRUCTURAL GETTERS (no lazy parsing) ===
+
+  @Override
+  public long getParentKey() {
+    return parentKey;
+  }
+
+  public void setParentKey(long parentKey) {
+    this.parentKey = parentKey;
   }
 
   @Override
   public boolean hasParent() {
-    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public long getRightSiblingKey() {
+    return rightSiblingKey;
+  }
+
+  public void setRightSiblingKey(long rightSibling) {
+    this.rightSiblingKey = rightSibling;
+  }
+
+  @Override
+  public boolean hasRightSibling() {
+    return rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public long getLeftSiblingKey() {
+    return leftSiblingKey;
+  }
+
+  public void setLeftSiblingKey(long leftSibling) {
+    this.leftSiblingKey = leftSibling;
+  }
+
+  @Override
+  public boolean hasLeftSibling() {
+    return leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public long getFirstChildKey() {
+    return firstChildKey;
+  }
+
+  public void setFirstChildKey(long firstChild) {
+    this.firstChildKey = firstChild;
+  }
+
+  @Override
+  public boolean hasFirstChild() {
+    return firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public long getLastChildKey() {
+    return lastChildKey;
+  }
+
+  public void setLastChildKey(long lastChild) {
+    this.lastChildKey = lastChild;
+  }
+
+  @Override
+  public boolean hasLastChild() {
+    return lastChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  // === LAZY GETTERS (trigger parsing) ===
+
+  @Override
+  public long getPathNodeKey() {
+    if (!lazyFieldsParsed) parseLazyFields();
+    return pathNodeKey;
+  }
+
+  @Override
+  public void setPathNodeKey(@NonNegative long pathNodeKey) {
+    this.pathNodeKey = pathNodeKey;
+  }
+
+  @Override
+  public int getPrefixKey() {
+    if (!lazyFieldsParsed) parseLazyFields();
+    return prefixKey;
+  }
+
+  @Override
+  public void setPrefixKey(int prefixKey) {
+    this.prefixKey = prefixKey;
+  }
+
+  @Override
+  public int getLocalNameKey() {
+    if (!lazyFieldsParsed) parseLazyFields();
+    return localNameKey;
+  }
+
+  @Override
+  public void setLocalNameKey(int localNameKey) {
+    this.localNameKey = localNameKey;
+  }
+
+  @Override
+  public int getURIKey() {
+    if (!lazyFieldsParsed) parseLazyFields();
+    return uriKey;
+  }
+
+  @Override
+  public void setURIKey(int uriKey) {
+    this.uriKey = uriKey;
+  }
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    if (!lazyFieldsParsed) parseLazyFields();
+    return previousRevision;
+  }
+
+  @Override
+  public void setPreviousRevision(int revision) {
+    this.previousRevision = revision;
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    if (!lazyFieldsParsed) parseLazyFields();
+    return lastModifiedRevision;
+  }
+
+  @Override
+  public void setLastModifiedRevision(int revision) {
+    this.lastModifiedRevision = revision;
+  }
+
+  @Override
+  public long getChildCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
+    return childCount;
+  }
+
+  public void setChildCount(long childCount) {
+    this.childCount = childCount;
+  }
+
+  @Override
+  public long getDescendantCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
+    return descendantCount;
+  }
+
+  @Override
+  public void setDescendantCount(long descendantCount) {
+    this.descendantCount = descendantCount;
+  }
+
+  @Override
+  public long getHash() {
+    if (!lazyFieldsParsed) parseLazyFields();
+    return hash;
+  }
+
+  @Override
+  public void setHash(long hash) {
+    this.hash = hash;
+  }
+
+  @Override
+  public void incrementChildCount() {
+    childCount++;
+  }
+
+  @Override
+  public void decrementChildCount() {
+    childCount--;
+  }
+
+  @Override
+  public void incrementDescendantCount() {
+    descendantCount++;
+  }
+
+  @Override
+  public void decrementDescendantCount() {
+    descendantCount--;
+  }
+
+  // === NON-SERIALIZED FIELD ACCESSORS ===
+
+  @Override
+  public QNm getName() {
+    return qNm;
+  }
+
+  public void setName(QNm name) {
+    this.qNm = name;
   }
 
   @Override
@@ -356,206 +396,25 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getTypeKey() {
-    // typeKey is not stored in the segment (not serialized), but ElementNode always has the "xs:untyped" type
-    // Return the hash for "xs:untyped" which is the default type for untyped XML elements
     return io.sirix.utils.NamePageHash.generateHashForString("xs:untyped");
   }
 
   @Override
-  public void setTypeKey(final int typeKey) {
-    // typeKey is not stored in the segment (not serialized), so this is a no-op
-    // This matches the old behavior where typeKey was in NodeDelegate but not persisted
+  public void setTypeKey(int typeKey) {
+    // Not stored for elements
   }
 
   @Override
-  public void setDeweyID(final SirixDeweyID id) {
+  public void setDeweyID(SirixDeweyID id) {
     this.sirixDeweyID = id;
-    this.deweyIDBytes = null; // Clear cached bytes
-  }
-
-  @Override
-  public void setPreviousRevision(final int revision) {
-    PREVIOUS_REVISION_HANDLE.set(segment, 0L, revision);
-  }
-
-  @Override
-  public void setLastModifiedRevision(final int revision) {
-    LAST_MODIFIED_REVISION_HANDLE.set(segment, 0L, revision);
-  }
-
-  @Override
-  public int getPreviousRevisionNumber() {
-    return (int) PREVIOUS_REVISION_HANDLE.get(segment, 0L);
-  }
-
-  @Override
-  public int getLastModifiedRevisionNumber() {
-    return (int) LAST_MODIFIED_REVISION_HANDLE.get(segment, 0L);
-  }
-
-  @Override
-  public int getPrefixKey() {
-    return (int) PREFIX_KEY_HANDLE.get(segment, 0L);
-  }
-
-  @Override
-  public int getLocalNameKey() {
-    return (int) LOCAL_NAME_KEY_HANDLE.get(segment, 0L);
-  }
-
-  @Override
-  public int getURIKey() {
-    return (int) URI_KEY_HANDLE.get(segment, 0L);
-  }
-
-  @Override
-  public void setPrefixKey(final int prefixKey) {
-    PREFIX_KEY_HANDLE.set(segment, 0L, prefixKey);
-  }
-
-  @Override
-  public void setLocalNameKey(final int localNameKey) {
-    LOCAL_NAME_KEY_HANDLE.set(segment, 0L, localNameKey);
-  }
-
-  @Override
-  public void setURIKey(final int uriKey) {
-    URI_KEY_HANDLE.set(segment, 0L, uriKey);
-  }
-
-  @Override
-  public long getPathNodeKey() {
-    return (long) PATH_NODE_KEY_HANDLE.get(segment, 0L);
-  }
-
-  @Override
-  public void setPathNodeKey(final @NonNegative long pathNodeKey) {
-    PATH_NODE_KEY_HANDLE.set(segment, 0L, pathNodeKey);
-  }
-
-  @Override
-  public long getRightSiblingKey() {
-    return (long) RIGHT_SIBLING_KEY_HANDLE.get(segment, 0L);
-  }
-
-  public void setRightSiblingKey(final long rightSibling) {
-    RIGHT_SIBLING_KEY_HANDLE.set(segment, 0L, rightSibling);
-  }
-
-  @Override
-  public long getLeftSiblingKey() {
-    return (long) LEFT_SIBLING_KEY_HANDLE.get(segment, 0L);
-  }
-
-  public void setLeftSiblingKey(final long leftSibling) {
-    LEFT_SIBLING_KEY_HANDLE.set(segment, 0L, leftSibling);
-  }
-
-  @Override
-  public long getFirstChildKey() {
-    return (long) FIRST_CHILD_KEY_HANDLE.get(segment, 0L);
-  }
-
-  public void setFirstChildKey(final long firstChild) {
-    FIRST_CHILD_KEY_HANDLE.set(segment, 0L, firstChild);
-  }
-
-  @Override
-  public long getLastChildKey() {
-    return (long) LAST_CHILD_KEY_HANDLE.get(segment, 0L);
-  }
-
-  public void setLastChildKey(final long lastChild) {
-    LAST_CHILD_KEY_HANDLE.set(segment, 0L, lastChild);
-  }
-
-  @Override
-  public long getChildCount() {
-    if (resourceConfig.storeChildCount() && childCountOffset != -1) {
-      return (long) CHILD_COUNT_HANDLE.get(segment, childCountOffset);
-    }
-    return 0;
-  }
-
-  public void setChildCount(final long childCount) {
-    if (resourceConfig.storeChildCount() && childCountOffset != -1) {
-      CHILD_COUNT_HANDLE.set(segment, childCountOffset, childCount);
-    }
-  }
-
-  @Override
-  public long getDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE && descendantCountOffset != -1) {
-      return (long) DESCENDANT_COUNT_HANDLE.get(segment, descendantCountOffset);
-    }
-    return 0;
-  }
-
-  public void setDescendantCount(final long descendantCount) {
-    if (resourceConfig.hashType != HashType.NONE && descendantCountOffset != -1) {
-      DESCENDANT_COUNT_HANDLE.set(segment, descendantCountOffset, descendantCount);
-    }
-  }
-
-  @Override
-  public boolean hasFirstChild() {
-    return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
-
-  @Override
-  public boolean hasLastChild() {
-    return getLastChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
-
-  @Override
-  public void incrementChildCount() {
-    if (resourceConfig.storeChildCount()) {
-      setChildCount(getChildCount() + 1);
-    }
-  }
-
-  @Override
-  public void decrementChildCount() {
-    if (resourceConfig.storeChildCount()) {
-      setChildCount(getChildCount() - 1);
-    }
-  }
-
-  @Override
-  public void incrementDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      setDescendantCount(getDescendantCount() + 1);
-    }
-  }
-
-  @Override
-  public void decrementDescendantCount() {
-    if (resourceConfig.hashType != HashType.NONE) {
-      setDescendantCount(getDescendantCount() - 1);
-    }
-  }
-
-  @Override
-  public boolean hasLeftSibling() {
-    return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
-
-  @Override
-  public boolean hasRightSibling() {
-    return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
-
-  @Override
-  public QNm getName() {
-    return qNm;
-  }
-
-  public void setName(final QNm name) {
-    this.qNm = name;
+    this.deweyIDBytes = null;
   }
 
   @Override
   public SirixDeweyID getDeweyID() {
+    if (deweyIDBytes != null && sirixDeweyID == null) {
+      sirixDeweyID = new SirixDeweyID(deweyIDBytes);
+    }
     return sirixDeweyID;
   }
 
@@ -568,28 +427,68 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   }
 
   public LongHashFunction getHashFunction() {
-    return resourceConfig.nodeHashFunction;
+    return hashFunction;
   }
 
-  @Override
-  public long getHash() {
-    if (resourceConfig.hashType != HashType.NONE && hashOffset != -1) {
-      return (long) HASH_HANDLE.get(segment, hashOffset);
-    }
-    return 0;
+  // === ATTRIBUTE METHODS ===
+
+  public int getAttributeCount() {
+    return attributeKeys.size();
   }
 
-  @Override
-  public void setHash(final long hash) {
-    if (resourceConfig.hashType != HashType.NONE && hashOffset != -1) {
-      HASH_HANDLE.set(segment, hashOffset, hash);
+  public long getAttributeKey(@NonNegative int index) {
+    if (attributeKeys.size() <= index) {
+      return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
+    return attributeKeys.getLong(index);
   }
+
+  public void insertAttribute(@NonNegative long attrKey) {
+    attributeKeys.add(attrKey);
+  }
+
+  public void removeAttribute(@NonNegative long attrNodeKey) {
+    attributeKeys.removeIf(key -> key == attrNodeKey);
+  }
+
+  public List<Long> getAttributeKeys() {
+    return Collections.unmodifiableList(attributeKeys);
+  }
+
+  // === NAMESPACE METHODS ===
+
+  public int getNamespaceCount() {
+    return namespaceKeys.size();
+  }
+
+  public long getNamespaceKey(@NonNegative int namespaceKey) {
+    if (namespaceKeys.size() <= namespaceKey) {
+      return Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
+    return namespaceKeys.getLong(namespaceKey);
+  }
+
+  public void insertNamespace(long namespaceKey) {
+    namespaceKeys.add(namespaceKey);
+  }
+
+  public void removeNamespace(long namespaceKey) {
+    namespaceKeys.removeIf(key -> key == namespaceKey);
+  }
+
+  public List<Long> getNamespaceKeys() {
+    return Collections.unmodifiableList(namespaceKeys);
+  }
+
+  // === HASH COMPUTATION ===
 
   @Override
   public long computeHash(BytesOut<?> bytes) {
-    bytes.clear();
+    if (hashFunction == null) {
+      return 0L;
+    }
 
+    bytes.clear();
     bytes.writeLong(getNodeKey())
          .writeLong(getParentKey())
          .writeByte(getKind().getId());
@@ -608,29 +507,112 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
          .writeInt(getLocalNameKey())
          .writeInt(getURIKey());
 
-    return getHashFunction().hashBytes(bytes.toByteArray());
+    return hashFunction.hashBytes(bytes.toByteArray());
+  }
+
+  // === LAZY PARSING ===
+
+  /**
+   * Populate this node from a BytesIn source for singleton reuse.
+   * LAZY OPTIMIZATION: Only parses structural fields immediately.
+   */
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
+      LongHashFunction hashFunction, ResourceConfiguration config,
+      LongList attributeKeys, LongList namespaceKeys, QNm qNm) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
+    this.attributeKeys = attributeKeys != null ? attributeKeys : new LongArrayList();
+    this.namespaceKeys = namespaceKeys != null ? namespaceKeys : new LongArrayList();
+    this.qNm = qNm;
+
+    // IMMEDIATE: Only structural relationships
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.lastChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+
+    // LAZY: Everything else
+    this.lazySource = source.getSource();
+    this.lazyOffset = source.position();
+    this.lazyFieldsParsed = false;
+    this.hasHash = config.hashType != HashType.NONE;
+    this.storeChildCount = config.storeChildCount();
+
+    // Initialize lazy fields to defaults
+    this.pathNodeKey = 0;
+    this.prefixKey = 0;
+    this.localNameKey = 0;
+    this.uriKey = 0;
+    this.previousRevision = 0;
+    this.lastModifiedRevision = 0;
+    this.childCount = 0;
+    this.descendantCount = 0;
+    this.hash = 0;
+  }
+
+  private void parseLazyFields() {
+    if (lazyFieldsParsed) {
+      return;
+    }
+
+    if (lazySource == null) {
+      lazyFieldsParsed = true;
+      return;
+    }
+
+    BytesIn<?> bytesIn;
+    if (lazySource instanceof MemorySegment segment) {
+      bytesIn = new MemorySegmentBytesIn(segment);
+      bytesIn.position(lazyOffset);
+    } else if (lazySource instanceof byte[] bytes) {
+      bytesIn = new ByteArrayBytesIn(bytes);
+      bytesIn.position(lazyOffset);
+    } else {
+      throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
+    }
+
+    // NameNode fields
+    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(bytesIn, nodeKey);
+    this.prefixKey = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.localNameKey = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.uriKey = DeltaVarIntCodec.decodeSigned(bytesIn);
+
+    // Metadata fields
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.childCount = storeChildCount ? DeltaVarIntCodec.decodeSigned(bytesIn) : 0;
+    if (hasHash) {
+      this.hash = bytesIn.readLong();
+      this.descendantCount = DeltaVarIntCodec.decodeSigned(bytesIn);
+    }
+
+    this.lazyFieldsParsed = true;
   }
 
   /**
-   * Get a {@link List} with all attribute keys.
-   *
-   * @return unmodifiable view of {@link List} with all attribute keys
+   * Create a deep copy snapshot of this node.
+   * Forces parsing of all lazy fields since snapshot must be independent.
    */
-  public List<Long> getAttributeKeys() {
-    return Collections.unmodifiableList(attributeKeys);
-  }
-
-  /**
-   * Get a {@link List} with all namespace keys.
-   *
-   * @return unmodifiable view of {@link List} with all namespace keys
-   */
-  public List<Long> getNamespaceKeys() {
-    return Collections.unmodifiableList(namespaceKeys);
+  public ElementNode toSnapshot() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
+    return new ElementNode(
+        nodeKey, parentKey, previousRevision, lastModifiedRevision,
+        rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
+        childCount, descendantCount, hash, pathNodeKey, prefixKey,
+        localNameKey, uriKey, hashFunction,
+        deweyIDBytes != null ? deweyIDBytes.clone() : null,
+        new LongArrayList(attributeKeys),
+        new LongArrayList(namespaceKeys),
+        qNm);
   }
 
   @Override
-  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
+  public VisitResult acceptVisitor(XmlNodeVisitor visitor) {
     return visitor.visit(ImmutableElement.of(this));
   }
 
@@ -639,20 +621,11 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     return MoreObjects.toStringHelper(this)
                       .add("nodeKey", nodeKey)
                       .add("qName", qNm)
-                      .add("parentKey", getParentKey())
-                      .add("previousRevision", getPreviousRevisionNumber())
-                      .add("lastModifiedRevision", getLastModifiedRevisionNumber())
-                      .add("rightSibling", getRightSiblingKey())
-                      .add("leftSibling", getLeftSiblingKey())
-                      .add("firstChild", getFirstChildKey())
-                      .add("lastChild", getLastChildKey())
-                      .add("childCount", getChildCount())
-                      .add("descendantCount", getDescendantCount())
-                      .add("hash", getHash())
-                      .add("prefixKey", getPrefixKey())
-                      .add("localNameKey", getLocalNameKey())
-                      .add("uriKey", getURIKey())
-                      .add("pathNodeKey", getPathNodeKey())
+                      .add("parentKey", parentKey)
+                      .add("rightSibling", rightSiblingKey)
+                      .add("leftSibling", leftSiblingKey)
+                      .add("firstChild", firstChildKey)
+                      .add("lastChild", lastChildKey)
                       .add("attributeKeys", attributeKeys)
                       .add("namespaceKeys", namespaceKeys)
                       .toString();
@@ -660,42 +633,18 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey, getParentKey(), getPrefixKey(), getLocalNameKey(), getURIKey());
+    return Objects.hashCode(nodeKey, parentKey, getPrefixKey(), getLocalNameKey(), getURIKey());
   }
 
   @Override
-  public boolean equals(final Object obj) {
-    if (!(obj instanceof final ElementNode other))
+  public boolean equals(Object obj) {
+    if (!(obj instanceof ElementNode other))
       return false;
 
     return nodeKey == other.nodeKey
-        && getParentKey() == other.getParentKey()
+        && parentKey == other.parentKey
         && getPrefixKey() == other.getPrefixKey()
         && getLocalNameKey() == other.getLocalNameKey()
         && getURIKey() == other.getURIKey();
-  }
-
-  @Override
-  public void setNodeKey(final long nodeKey) {
-    this.nodeKey = nodeKey;
-  }
-
-  /**
-   * Create a deep copy snapshot of this node.
-   * Creates a new MemorySegment with copied data.
-   *
-   * @return a new ElementNode with all values copied
-   */
-  public ElementNode toSnapshot() {
-    // Create a new MemorySegment and copy data
-    MemorySegment newSegment = MemorySegment.ofArray(new byte[(int) segment.byteSize()]);
-    MemorySegment.copy(segment, 0, newSegment, 0, segment.byteSize());
-    
-    return new ElementNode(newSegment, nodeKey, 
-        deweyIDBytes != null ? deweyIDBytes.clone() : null,
-        resourceConfig, 
-        new it.unimi.dsi.fastutil.longs.LongArrayList(attributeKeys),
-        new it.unimi.dsi.fastutil.longs.LongArrayList(namespaceKeys), 
-        qNm);
   }
 }

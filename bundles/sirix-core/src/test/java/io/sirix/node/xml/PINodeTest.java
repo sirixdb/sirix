@@ -80,38 +80,28 @@ public class PINodeTest {
     final byte[] value = { (byte) 17, (byte) 18 };
     final var config = pageReadTrx.getResourceSession().getResourceConfig();
     
-    // Create node with MemorySegment
-    final var data = Bytes.elasticOffHeapByteBuffer();
-    
-    // Write NodeDelegate fields (16 bytes)
-    data.writeLong(13);                              // parentKey - offset 0
-    data.writeInt(Constants.NULL_REVISION_NUMBER);   // previousRevision - offset 8
-    data.writeInt(0);                                // lastModifiedRevision - offset 12
-    
-    // Write StructNode fields (32 bytes)
-    data.writeLong(16L);                             // rightSiblingKey - offset 16
-    data.writeLong(22L);                             // leftSiblingKey - offset 24
-    data.writeLong(17L);                             // firstChildKey - offset 32
-    data.writeLong(17L);                             // lastChildKey - offset 40 (use same as firstChild for consistency)
-    
-    // Write NameNode fields (20 bytes)
-    data.writeLong(1L);                              // pathNodeKey - offset 48
-    data.writeInt(14);                               // prefixKey - offset 56
-    data.writeInt(15);                               // localNameKey - offset 60
-    data.writeInt(13);                               // uriKey - offset 64
-    
-    // Write optional fields
-    if (config.storeChildCount()) {
-      data.writeLong(1L);                            // childCount - offset 68
-    }
-    if (config.hashType != io.sirix.access.trx.node.HashType.NONE) {
-      data.writeLong(0);                             // hash placeholder - offset 76
-      data.writeLong(1);                             // descendantCount - offset 84
-    }
-    
-    var segment = (java.lang.foreign.MemorySegment) data.asBytesIn().getUnderlying();
-    final PINode node = new PINode(segment, 99L, SirixDeweyID.newRootID(), 
-                                   config, LongHashFunction.xx3(), value, false);
+    // Create PINode with primitive fields
+    final PINode node = new PINode(
+        99L,                                           // nodeKey
+        13L,                                           // parentKey
+        Constants.NULL_REVISION_NUMBER,                // previousRevision
+        0,                                             // lastModifiedRevision
+        16L,                                           // rightSiblingKey
+        22L,                                           // leftSiblingKey
+        17L,                                           // firstChildKey
+        17L,                                           // lastChildKey
+        config.storeChildCount() ? 1L : 0L,            // childCount
+        config.hashType != io.sirix.access.trx.node.HashType.NONE ? 1L : 0L, // descendantCount
+        0L,                                            // hash
+        1L,                                            // pathNodeKey
+        14,                                            // prefixKey
+        15,                                            // localNameKey
+        13,                                            // uriKey
+        value,                                         // value
+        false,                                         // isCompressed
+        LongHashFunction.xx3(),                        // hashFunction
+        SirixDeweyID.newRootID(),                      // deweyID
+        new io.brackit.query.atomic.QNm(""));
     var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
 

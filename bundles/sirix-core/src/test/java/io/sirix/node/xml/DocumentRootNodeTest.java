@@ -75,19 +75,14 @@ public class DocumentRootNodeTest {
   public void testDocumentRootNode() {
 
     // Create empty node.
-    final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                  LongHashFunction.xx3(),
-                                                  Constants.NULL_REVISION_NUMBER,
-                                                  0,
-                                                  SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               0,
-                                                               0);
-    final XmlDocumentRootNode node = new XmlDocumentRootNode(nodeDel, strucDel);
+    final XmlDocumentRootNode node = new XmlDocumentRootNode(
+        Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(),
+        0,
+        0,
+        LongHashFunction.xx3(),
+        SirixDeweyID.newRootID());
     check(node);
 
     // Serialize and deserialize node.

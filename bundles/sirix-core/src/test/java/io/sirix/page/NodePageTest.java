@@ -95,37 +95,7 @@ public final class NodePageTest {
       // Create ResourceConfiguration for testing
       final var config = pageReadTrx.getResourceSession().getResourceConfig();
       
-      // Create MemorySegment with all fields in correct order matching ElementNode.CORE_LAYOUT
-      final BytesOut<?> nodeData = Bytes.elasticOffHeapByteBuffer();
-      
-      // Write NodeDelegate fields (16 bytes)
-      nodeData.writeLong(1);                              // parentKey - offset 0
-      nodeData.writeInt(Constants.NULL_REVISION_NUMBER);  // previousRevision - offset 8
-      nodeData.writeInt(0);                               // lastModifiedRevision - offset 12
-      
-      // Write StructNode fields (32 bytes)
-      nodeData.writeLong(4L);                             // rightSiblingKey - offset 16
-      nodeData.writeLong(3L);                             // leftSiblingKey - offset 24
-      nodeData.writeLong(12L);                            // firstChildKey - offset 32
-      nodeData.writeLong(12L);                            // lastChildKey - offset 40
-      
-      // Write NameNode fields (20 bytes)
-      nodeData.writeLong(1L);                             // pathNodeKey - offset 48
-      nodeData.writeInt(6);                               // prefixKey - offset 56
-      nodeData.writeInt(7);                               // localNameKey - offset 60
-      nodeData.writeInt(5);                               // uriKey - offset 64
-      
-      // Write optional fields
-      if (config.storeChildCount()) {
-        nodeData.writeLong(1L);                           // childCount - offset 68
-      }
-      if (config.hashType != HashType.NONE) {
-        nodeData.writeLong(0);                            // hash placeholder - offset 76
-        nodeData.writeLong(0);                            // descendantCount - offset 84
-      }
-      
-      // Create ElementNode from MemorySegment
-      final MemorySegment segment = (MemorySegment) nodeData.asBytesIn().getUnderlying();
+      // Create ElementNode with primitive fields
       final LongArrayList attributeKeys = new LongArrayList();
       attributeKeys.add(88L);
       attributeKeys.add(87L);
@@ -133,9 +103,27 @@ public final class NodePageTest {
       namespaceKeys.add(99L);
       namespaceKeys.add(98L);
       
-      final ElementNode node1 = new ElementNode(segment, 0L, SirixDeweyID.newRootID(), 
-                                                 config, attributeKeys, namespaceKeys, 
-                                                 new QNm("a", "b", "c"));
+      final ElementNode node1 = new ElementNode(
+          0L,                                              // nodeKey
+          1L,                                              // parentKey
+          Constants.NULL_REVISION_NUMBER,                  // previousRevision
+          0,                                               // lastModifiedRevision
+          4L,                                              // rightSiblingKey
+          3L,                                              // leftSiblingKey
+          12L,                                             // firstChildKey
+          12L,                                             // lastChildKey
+          config.storeChildCount() ? 1L : 0L,              // childCount
+          0L,                                              // descendantCount
+          0L,                                              // hash
+          1L,                                              // pathNodeKey
+          6,                                               // prefixKey
+          7,                                               // localNameKey
+          5,                                               // uriKey
+          config.nodeHashFunction,                         // hashFunction
+          SirixDeweyID.newRootID(),                        // deweyID
+          attributeKeys,                                   // attributeKeys
+          namespaceKeys,                                   // namespaceKeys
+          new QNm("a", "b", "c"));
       
       // Compute and set hash
       var bytes = Bytes.elasticOffHeapByteBuffer();

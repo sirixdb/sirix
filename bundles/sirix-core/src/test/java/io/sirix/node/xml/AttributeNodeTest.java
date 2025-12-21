@@ -77,23 +77,21 @@ public class AttributeNodeTest {
   public void testAttributeNode() {
     final byte[] value = { (byte) 17, (byte) 18 };
 
-    // Create MemorySegment with all fields in correct order matching AttributeNode.CORE_LAYOUT
-    final BytesOut<?> nodeData = Bytes.elasticOffHeapByteBuffer();
-    
-    // Write NodeDelegate fields (16 bytes)
-    nodeData.writeLong(13);                             // parentKey - offset 0
-    nodeData.writeInt(Constants.NULL_REVISION_NUMBER);  // previousRevision - offset 8
-    nodeData.writeInt(0);                               // lastModifiedRevision - offset 12
-    
-    // Write NameNode fields (20 bytes)
-    nodeData.writeLong(1);                              // pathNodeKey - offset 16
-    nodeData.writeInt(14);                              // prefixKey - offset 24
-    nodeData.writeInt(15);                              // localNameKey - offset 28
-    nodeData.writeInt(13);                              // uriKey - offset 32
-    
-    var segment = (java.lang.foreign.MemorySegment) nodeData.asBytesIn().getUnderlying();
-    final AttributeNode node = new AttributeNode(segment, 99L, SirixDeweyID.newRootID(), 
-                                                 value, false, new QNm("ns", "a", "p"));
+    // Create AttributeNode with primitive fields
+    final AttributeNode node = new AttributeNode(
+        99L,                                             // nodeKey
+        13L,                                             // parentKey
+        Constants.NULL_REVISION_NUMBER,                  // previousRevision
+        0,                                               // lastModifiedRevision
+        1L,                                              // pathNodeKey
+        14,                                              // prefixKey
+        15,                                              // localNameKey
+        13,                                              // uriKey
+        0,                                               // hash
+        value,                                           // value
+        LongHashFunction.xx3(),                          // hashFunction
+        SirixDeweyID.newRootID(),                        // deweyID
+        new QNm("ns", "a", "p"));
     var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
 
