@@ -85,7 +85,7 @@ public final class FSSTCompressor {
   /**
    * Minimum string size to attempt compression (smaller strings unlikely to benefit).
    */
-  public static final int MIN_COMPRESSION_SIZE = 8;
+  public static final int MIN_COMPRESSION_SIZE = 32;
 
   /**
    * Maximum symbol length (longer patterns have diminishing returns).
@@ -94,13 +94,20 @@ public final class FSSTCompressor {
 
   /**
    * Minimum samples needed to build a useful symbol table.
+   * Higher values ensure we only build tables when there's enough data for good patterns.
    */
-  public static final int MIN_SAMPLES_FOR_TABLE = 4;
+  public static final int MIN_SAMPLES_FOR_TABLE = 64;
+
+  /**
+   * Minimum total bytes across all samples to attempt compression.
+   * Ensures we have enough data to justify the symbol table overhead.
+   */
+  public static final int MIN_TOTAL_BYTES_FOR_TABLE = 4096;
 
   /**
    * Maximum samples to analyze (for performance).
    */
-  public static final int MAX_SAMPLES_TO_ANALYZE = 256;
+  public static final int MAX_SAMPLES_TO_ANALYZE = 128;
 
   /**
    * Header bytes in serialized symbol table: [numSymbols(1)][symbolLengths(numSymbols)][symbolData...]
@@ -128,12 +135,28 @@ public final class FSSTCompressor {
       return new byte[0];
     }
 
+    // First pass: check if we have enough data to justify compression
+    int eligibleSamples = 0;
+    long totalBytes = 0;
+    for (final byte[] sample : samples) {
+      if (sample != null && sample.length >= MIN_COMPRESSION_SIZE) {
+        eligibleSamples++;
+        totalBytes += sample.length;
+      }
+    }
+    
+    // Need enough samples AND enough total bytes
+    if (eligibleSamples < MIN_SAMPLES_FOR_TABLE || totalBytes < MIN_TOTAL_BYTES_FOR_TABLE) {
+      return new byte[0];
+    }
+
     // Count frequency of all byte sequences (1 to MAX_SYMBOL_LENGTH bytes)
     final Object2IntOpenHashMap<ByteSequence> frequencyMap = new Object2IntOpenHashMap<>();
     
     int sampleCount = 0;
     for (final byte[] sample : samples) {
-      if (sample == null || sample.length == 0) {
+      // Only analyze strings that are long enough to potentially benefit
+      if (sample == null || sample.length < MIN_COMPRESSION_SIZE) {
         continue;
       }
       if (++sampleCount > MAX_SAMPLES_TO_ANALYZE) {
@@ -514,16 +537,29 @@ public final class FSSTCompressor {
       return false;
     }
 
-    // Quick heuristic: check if there are common patterns
+    // First pass: count eligible samples and total bytes
+    int eligibleSamples = 0;
+    long totalBytes = 0;
+    for (final byte[] sample : samples) {
+      if (sample != null && sample.length >= MIN_COMPRESSION_SIZE) {
+        eligibleSamples++;
+        totalBytes += sample.length;
+      }
+    }
+    
+    // Need enough samples AND enough total bytes
+    if (eligibleSamples < MIN_SAMPLES_FOR_TABLE || totalBytes < MIN_TOTAL_BYTES_FOR_TABLE) {
+      return false;
+    }
+
+    // Quick heuristic: check if there are common patterns in a subset
     final Object2IntOpenHashMap<ByteSequence> frequencyMap = new Object2IntOpenHashMap<>();
-    int totalBytes = 0;
     int sampleCount = 0;
 
     for (final byte[] sample : samples) {
-      if (sample == null || sample.length == 0) {
+      if (sample == null || sample.length < MIN_COMPRESSION_SIZE) {
         continue;
       }
-      totalBytes += sample.length;
       if (++sampleCount > 32) { // Quick sample
         break;
       }
@@ -535,10 +571,6 @@ public final class FSSTCompressor {
       }
     }
 
-    if (totalBytes < 64) {
-      return false;
-    }
-
     // Check if any pattern occurs frequently enough
     int frequentPatterns = 0;
     for (final int freq : frequencyMap.values()) {
@@ -547,7 +579,7 @@ public final class FSSTCompressor {
       }
     }
 
-    return frequentPatterns >= 4;
+    return frequentPatterns >= 8;  // Require more frequent patterns
   }
 
   /**

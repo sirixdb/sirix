@@ -33,13 +33,12 @@ class FSSTCompressorTest {
   @Test
   void testBuildSymbolTableWithSimilarStrings() {
     // Given: similar JSON-like strings with common patterns
-    final List<byte[]> samples = Arrays.asList(
-        "{\"name\":\"John\",\"age\":30}".getBytes(StandardCharsets.UTF_8),
-        "{\"name\":\"Jane\",\"age\":25}".getBytes(StandardCharsets.UTF_8),
-        "{\"name\":\"Bob\",\"age\":35}".getBytes(StandardCharsets.UTF_8),
-        "{\"name\":\"Alice\",\"age\":28}".getBytes(StandardCharsets.UTF_8),
-        "{\"name\":\"Charlie\",\"age\":32}".getBytes(StandardCharsets.UTF_8)
-    );
+    // Need at least 64 samples with 32+ bytes each, totaling 4KB+
+    final List<byte[]> samples = new ArrayList<>();
+    for (int i = 0; i < 100; i++) {
+      // Each string is ~50 bytes, well over MIN_COMPRESSION_SIZE of 32
+      samples.add(("{\"name\":\"Person" + i + "\",\"age\":" + (20 + i % 50) + ",\"city\":\"City" + i + "\"}").getBytes(StandardCharsets.UTF_8));
+    }
 
     // When: building symbol table
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
@@ -177,15 +176,19 @@ class FSSTCompressorTest {
 
   @Test
   void testCompressionBeneficial() {
-    // Given: highly repetitive data
+    // Given: highly repetitive data with sufficient samples and size
+    // Need at least 64 samples with 32+ bytes each, totaling 4KB+
     final List<byte[]> samples = new ArrayList<>();
-    for (int i = 0; i < 10; i++) {
-      samples.add(("{\"type\":\"event\",\"id\":" + i + ",\"data\":\"value\"}").getBytes(StandardCharsets.UTF_8));
+    for (int i = 0; i < 100; i++) {
+      // Each string is ~60 bytes with repetitive patterns
+      samples.add(("{\"type\":\"event\",\"id\":" + i + ",\"data\":\"common_value_pattern_" + i + "\"}").getBytes(StandardCharsets.UTF_8));
     }
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
+    assertNotNull(symbolTable);
+    assertTrue(symbolTable.length > 0, "Symbol table should be built for sufficient data");
 
-    // When: encoding a similar string
-    final byte[] input = "{\"type\":\"event\",\"id\":999,\"data\":\"value\"}".getBytes(StandardCharsets.UTF_8);
+    // When: encoding a similar string (must be 32+ bytes)
+    final byte[] input = "{\"type\":\"event\",\"id\":999,\"data\":\"common_value_pattern_999\"}".getBytes(StandardCharsets.UTF_8);
     final byte[] encoded = FSSTCompressor.encode(input, symbolTable);
 
     // Then: encoded should be smaller than input (compression beneficial)
@@ -200,13 +203,12 @@ class FSSTCompressorTest {
   @Test
   void testIsCompressibleWithSimilarData() {
     // Given: similar data with common patterns
-    final List<byte[]> samples = Arrays.asList(
-        "prefix_abc_suffix".getBytes(StandardCharsets.UTF_8),
-        "prefix_def_suffix".getBytes(StandardCharsets.UTF_8),
-        "prefix_ghi_suffix".getBytes(StandardCharsets.UTF_8),
-        "prefix_jkl_suffix".getBytes(StandardCharsets.UTF_8),
-        "prefix_mno_suffix".getBytes(StandardCharsets.UTF_8)
-    );
+    // Need at least 64 samples with 32+ bytes each, totaling 4KB+
+    final List<byte[]> samples = new ArrayList<>();
+    for (int i = 0; i < 100; i++) {
+      // Each string is 50+ bytes with common prefix/suffix patterns (100 * 50 = 5KB > 4KB)
+      samples.add(("prefix_common_pattern_" + String.format("%03d", i) + "_suffix_end_with_more_data").getBytes(StandardCharsets.UTF_8));
+    }
 
     // When/Then
     assertTrue(FSSTCompressor.isCompressible(samples));
