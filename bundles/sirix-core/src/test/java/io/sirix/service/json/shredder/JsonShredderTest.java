@@ -14,12 +14,13 @@ import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.PostOrderAxis;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
-import io.sirix.io.bytepipe.LZ4Compressor;
+import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.LogWrapper;
 import org.checkerframework.org.apache.commons.lang3.time.StopWatch;
+import org.junit.Ignore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -51,7 +52,7 @@ public final class JsonShredderTest {
 
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
-  private static final int NUMBER_OF_PROCESSORS = 3;
+  private static final int NUMBER_OF_PROCESSORS = 5;
 
   private static final ExecutorService THREAD_POOL =
       Executors.newFixedThreadPool(NUMBER_OF_PROCESSORS);
@@ -90,7 +91,22 @@ public final class JsonShredderTest {
     final var callableList = new ArrayList<Callable<Object>>(NUMBER_OF_PROCESSORS);
 
     for (int i = 0; i < NUMBER_OF_PROCESSORS; i++) {
+      int finalNumber = i;
       callableList.add(Executors.callable(() -> {
+        try {
+          switch (finalNumber) {
+            case 1:
+              Thread.sleep(1_000);
+            case 2:
+              Thread.sleep(2_000);
+            case 3:
+              Thread.sleep(3_000);
+            case 4:
+              Thread.sleep(4_000);
+          }
+        } catch (InterruptedException _) {
+        }
+
         final var rtx = session.beginNodeReadOnlyTrx();
 
         var stopWatch = new StopWatch();
@@ -200,7 +216,7 @@ public final class JsonShredderTest {
     final var jsonPath = JSON.resolve("cityofchicago.json");
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-      createResource(jsonPath, database, true);
+      createResource(jsonPath, database, false);
       //      database.removeResource(JsonTestHelper.RESOURCE);
       //
       //      createResource(jsonPath, database);
@@ -229,7 +245,7 @@ public final class JsonShredderTest {
                                                  .useTextCompression(false)
                                                  .storageType(StorageType.FILE_CHANNEL)
                                                  .useDeweyIDs(false)
-                                                 .byteHandlerPipeline(new ByteHandlerPipeline(new LZ4Compressor()))
+                                                 .byteHandlerPipeline(new ByteHandlerPipeline(new FFILz4Compressor()))
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx(262_144 << 3)) {

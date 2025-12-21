@@ -30,81 +30,122 @@ package io.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import net.openhft.chronicle.bytes.Bytes;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
-
-import io.sirix.api.PageReadOnlyTrx;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.NameNodeDelegate;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
-import io.sirix.node.delegates.ValueNodeDelegate;
 import io.sirix.node.immutable.xml.ImmutablePI;
 import io.sirix.node.interfaces.NameNode;
+import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-
-import java.nio.ByteBuffer;
+import net.openhft.hashing.LongHashFunction;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
- * <p>
- * Node representing a processing instruction.
- * </p>
+ * Processing Instruction node using primitive fields.
+ *
+ * @author Johannes Lichtenberger
  */
-public final class PINode extends AbstractStructForwardingNode implements ValueNode, NameNode, ImmutableXmlNode {
+public final class PINode implements StructNode, NameNode, ValueNode, ImmutableXmlNode {
 
-  /** Delegate for name node information. */
-  private final NameNodeDelegate nameNodeDelegate;
+  // === IMMEDIATE STRUCTURAL FIELDS ===
+  private long nodeKey;
+  private long parentKey;
+  private long rightSiblingKey;
+  private long leftSiblingKey;
+  private long firstChildKey;
+  private long lastChildKey;
 
-  /** Delegate for val node information. */
-  private final ValueNodeDelegate valueNodeDelegate;
+  // === NAME NODE FIELDS ===
+  private long pathNodeKey;
+  private int prefixKey;
+  private int localNameKey;
+  private int uriKey;
 
-  /** Delegate for structural node information. */
-  private final StructNodeDelegate structNodeDelegate;
-
+  // === METADATA FIELDS ===
+  private int previousRevision;
+  private int lastModifiedRevision;
+  private long childCount;
+  private long descendantCount;
   private long hash;
 
+  // === VALUE FIELD ===
+  private byte[] value;
+  private boolean isCompressed;
+
+  // === NON-SERIALIZED FIELDS ===
+  private LongHashFunction hashFunction;
+  private SirixDeweyID sirixDeweyID;
+  private byte[] deweyIDBytes;
+  private QNm qNm;
+
   /**
-   * Creating a processing instruction.
-   *
-   * @param structNodeDelegate {@link StructNodeDelegate} to be set
-   * @param nameNodeDelegate {@link NameNodeDelegate} to be set
-   * @param valueNodeDelegate {@link ValueNodeDelegate} to be set
+   * Primary constructor with all primitive fields.
    */
-  public PINode(final long hashCode, final StructNodeDelegate structNodeDelegate, final NameNodeDelegate nameNodeDelegate,
-      final ValueNodeDelegate valueNodeDelegate) {
-    hash = hashCode;
-    assert structNodeDelegate != null : "structNodeDelegate must not be null!";
-    this.structNodeDelegate = structNodeDelegate;
-    assert nameNodeDelegate != null : "nameDel must not be null!";
-    this.nameNodeDelegate = nameNodeDelegate;
-    assert valueNodeDelegate != null : "valDel must not be null!";
-    this.valueNodeDelegate = valueNodeDelegate;
+  public PINode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision,
+      long rightSiblingKey, long leftSiblingKey, long firstChildKey, long lastChildKey,
+      long childCount, long descendantCount, long hash, long pathNodeKey,
+      int prefixKey, int localNameKey, int uriKey, byte[] value, boolean isCompressed,
+      LongHashFunction hashFunction, byte[] deweyID, QNm qNm) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.firstChildKey = firstChildKey;
+    this.lastChildKey = lastChildKey;
+    this.childCount = childCount;
+    this.descendantCount = descendantCount;
+    this.hash = hash;
+    this.pathNodeKey = pathNodeKey;
+    this.prefixKey = prefixKey;
+    this.localNameKey = localNameKey;
+    this.uriKey = uriKey;
+    this.value = value;
+    this.isCompressed = isCompressed;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyID;
+    this.qNm = qNm;
   }
 
   /**
-   * Creating a processing instruction.
-   *
-   * @param structNodeDelegate {@link StructNodeDelegate} to be set
-   * @param nameNodeDelegate {@link NameNodeDelegate} to be set
-   * @param valueNodeDelegate {@link ValueNodeDelegate} to be set
-   *
+   * Constructor with SirixDeweyID.
    */
-  public PINode(final StructNodeDelegate structNodeDelegate, final NameNodeDelegate nameNodeDelegate, final ValueNodeDelegate valueNodeDelegate) {
-    assert structNodeDelegate != null : "structNodeDelegate must not be null!";
-    this.structNodeDelegate = structNodeDelegate;
-    assert nameNodeDelegate != null : "nameDel must not be null!";
-    this.nameNodeDelegate = nameNodeDelegate;
-    assert valueNodeDelegate != null : "valDel must not be null!";
-    this.valueNodeDelegate = valueNodeDelegate;
+  public PINode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision,
+      long rightSiblingKey, long leftSiblingKey, long firstChildKey, long lastChildKey,
+      long childCount, long descendantCount, long hash, long pathNodeKey,
+      int prefixKey, int localNameKey, int uriKey, byte[] value, boolean isCompressed,
+      LongHashFunction hashFunction, SirixDeweyID deweyID, QNm qNm) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.firstChildKey = firstChildKey;
+    this.lastChildKey = lastChildKey;
+    this.childCount = childCount;
+    this.descendantCount = descendantCount;
+    this.hash = hash;
+    this.pathNodeKey = pathNodeKey;
+    this.prefixKey = prefixKey;
+    this.localNameKey = localNameKey;
+    this.uriKey = uriKey;
+    this.value = value;
+    this.isCompressed = isCompressed;
+    this.hashFunction = hashFunction;
+    this.sirixDeweyID = deweyID;
+    this.qNm = qNm;
   }
 
   @Override
@@ -113,182 +154,209 @@ public final class PINode extends AbstractStructForwardingNode implements ValueN
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
-
-    bytes.clear();
-
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
-
-    bytes.writeLong(structNodeDelegate.getChildCount())
-         .writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
-
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
-    }
-
-    bytes.writeLong(nameNodeDelegate.getPrefixKey())
-         .writeLong(nameNodeDelegate.getLocalNameKey())
-         .writeLong(nameNodeDelegate.getURIKey());
-
-    bytes.writeUtf8(new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING));
-
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
-
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
-  }
+  public long getNodeKey() { return nodeKey; }
 
   @Override
-  public void setHash(final long hash) {
-    this.hash = hash;
-  }
+  public void setNodeKey(long nodeKey) { this.nodeKey = nodeKey; }
+
+  @Override
+  public long getParentKey() { return parentKey; }
+
+  public void setParentKey(long parentKey) { this.parentKey = parentKey; }
+
+  @Override
+  public boolean hasParent() { return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
+
+  @Override
+  public long getRightSiblingKey() { return rightSiblingKey; }
+
+  public void setRightSiblingKey(long key) { this.rightSiblingKey = key; }
+
+  @Override
+  public boolean hasRightSibling() { return rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
+
+  @Override
+  public long getLeftSiblingKey() { return leftSiblingKey; }
+
+  public void setLeftSiblingKey(long key) { this.leftSiblingKey = key; }
+
+  @Override
+  public boolean hasLeftSibling() { return leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
+
+  @Override
+  public long getFirstChildKey() { return firstChildKey; }
+
+  public void setFirstChildKey(long key) { this.firstChildKey = key; }
+
+  @Override
+  public boolean hasFirstChild() { return firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
+
+  @Override
+  public long getLastChildKey() { return lastChildKey; }
+
+  public void setLastChildKey(long key) { this.lastChildKey = key; }
+
+  @Override
+  public boolean hasLastChild() { return lastChildKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
+
+  @Override
+  public long getChildCount() { return childCount; }
+
+  public void setChildCount(long childCount) { this.childCount = childCount; }
+
+  @Override
+  public void incrementChildCount() { childCount++; }
+
+  @Override
+  public void decrementChildCount() { childCount--; }
+
+  @Override
+  public long getDescendantCount() { return descendantCount; }
+
+  @Override
+  public void setDescendantCount(long descendantCount) { this.descendantCount = descendantCount; }
+
+  @Override
+  public void incrementDescendantCount() { descendantCount++; }
+
+  @Override
+  public void decrementDescendantCount() { descendantCount--; }
+
+  @Override
+  public long getPathNodeKey() { return pathNodeKey; }
+
+  @Override
+  public void setPathNodeKey(@NonNegative long pathNodeKey) { this.pathNodeKey = pathNodeKey; }
+
+  @Override
+  public int getPrefixKey() { return prefixKey; }
+
+  @Override
+  public void setPrefixKey(int prefixKey) { this.prefixKey = prefixKey; }
+
+  @Override
+  public int getLocalNameKey() { return localNameKey; }
+
+  @Override
+  public void setLocalNameKey(int localNameKey) { this.localNameKey = localNameKey; }
+
+  @Override
+  public int getURIKey() { return uriKey; }
+
+  @Override
+  public void setURIKey(int uriKey) { this.uriKey = uriKey; }
+
+  @Override
+  public int getPreviousRevisionNumber() { return previousRevision; }
+
+  @Override
+  public void setPreviousRevision(int revision) { this.previousRevision = revision; }
+
+  @Override
+  public int getLastModifiedRevisionNumber() { return lastModifiedRevision; }
+
+  @Override
+  public void setLastModifiedRevision(int revision) { this.lastModifiedRevision = revision; }
 
   @Override
   public long getHash() {
-    if (hash == 0L) {
-      hash = computeHash(Bytes.elasticHeapByteBuffer());
+    if (hash == 0L && hashFunction != null) {
+      hash = computeHash(io.sirix.node.Bytes.elasticOffHeapByteBuffer());
     }
     return hash;
   }
 
   @Override
-  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
-    return visitor.visit(ImmutablePI.of(this));
+  public void setHash(long hash) { this.hash = hash; }
+
+  @Override
+  public byte[] getRawValue() { return value; }
+
+  @Override
+  public void setRawValue(byte[] value) { this.value = value; this.hash = 0L; }
+
+  @Override
+  public String getValue() { return value != null ? new String(value, Constants.DEFAULT_ENCODING) : ""; }
+
+  @Override
+  public QNm getName() { return qNm; }
+
+  public void setName(QNm name) { this.qNm = name; }
+
+  public boolean isCompressed() { return isCompressed; }
+
+  @Override
+  public boolean isSameItem(@Nullable Node other) { return other != null && other.getNodeKey() == nodeKey; }
+
+  @Override
+  public int getTypeKey() { return io.sirix.utils.NamePageHash.generateHashForString("xs:untyped"); }
+
+  @Override
+  public void setTypeKey(int typeKey) { }
+
+  @Override
+  public void setDeweyID(SirixDeweyID id) { this.sirixDeweyID = id; this.deweyIDBytes = null; }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    if (deweyIDBytes != null && sirixDeweyID == null) {
+      sirixDeweyID = new SirixDeweyID(deweyIDBytes);
+    }
+    return sirixDeweyID;
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    if (deweyIDBytes == null && sirixDeweyID != null) {
+      deweyIDBytes = sirixDeweyID.toBytes();
+    }
+    return deweyIDBytes;
+  }
+
+  public LongHashFunction getHashFunction() { return hashFunction; }
+
+  @Override
+  public long computeHash(BytesOut<?> bytes) {
+    if (hashFunction == null) return 0L;
+    bytes.clear();
+    bytes.writeLong(nodeKey).writeLong(parentKey).writeByte(getKind().getId());
+    bytes.writeLong(childCount).writeLong(descendantCount)
+         .writeLong(leftSiblingKey).writeLong(rightSiblingKey)
+         .writeLong(firstChildKey);
+    if (lastChildKey != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+      bytes.writeLong(lastChildKey);
+    }
+    bytes.writeInt(prefixKey).writeInt(localNameKey).writeInt(uriKey);
+    if (value != null) bytes.write(value);
+    return hashFunction.hashBytes(bytes.toByteArray());
+  }
+
+  public PINode toSnapshot() {
+    return new PINode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
+        rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
+        childCount, descendantCount, hash, pathNodeKey, prefixKey, localNameKey, uriKey,
+        value != null ? value.clone() : null, isCompressed, hashFunction,
+        deweyIDBytes != null ? deweyIDBytes.clone() : null, qNm);
+  }
+
+  @Override
+  public VisitResult acceptVisitor(XmlNodeVisitor visitor) { return visitor.visit(ImmutablePI.of(this)); }
+
+  @Override
+  public int hashCode() { return Objects.hashCode(nodeKey, parentKey, prefixKey, localNameKey, uriKey); }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (!(obj instanceof PINode other)) return false;
+    return nodeKey == other.nodeKey && parentKey == other.parentKey
+        && prefixKey == other.prefixKey && localNameKey == other.localNameKey && uriKey == other.uriKey;
   }
 
   @Override
   public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("structDel", structNodeDelegate)
-                      .add("nameDel", nameNodeDelegate)
-                      .add("valDel", valueNodeDelegate)
-                      .toString();
-  }
-
-  @Override
-  public int getPrefixKey() {
-    return nameNodeDelegate.getPrefixKey();
-  }
-
-  @Override
-  public int getLocalNameKey() {
-    return nameNodeDelegate.getLocalNameKey();
-  }
-
-  @Override
-  public int getURIKey() {
-    return nameNodeDelegate.getURIKey();
-  }
-
-  @Override
-  public void setPrefixKey(final int prefixKey) {
-    hash = 0L;
-    nameNodeDelegate.setPrefixKey(prefixKey);
-  }
-
-  @Override
-  public void setLocalNameKey(final int localNameKey) {
-    hash = 0L;
-    nameNodeDelegate.setLocalNameKey(localNameKey);
-  }
-
-  @Override
-  public void setURIKey(final int uriKey) {
-    hash = 0L;
-    nameNodeDelegate.setURIKey(uriKey);
-  }
-
-  @Override
-  public byte[] getRawValue() {
-    return valueNodeDelegate.getRawValue();
-  }
-
-  @Override
-  public void setRawValue(final byte[] value) {
-    hash = 0L;
-    valueNodeDelegate.setRawValue(value);
-  }
-
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(nameNodeDelegate, valueNodeDelegate);
-  }
-
-  @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof final PINode other) {
-      return Objects.equal(nameNodeDelegate, other.nameNodeDelegate) && Objects.equal(valueNodeDelegate, other.valueNodeDelegate);
-    }
-    return false;
-  }
-
-  @Override
-  public void setPathNodeKey(final @NonNegative long pathNodeKey) {
-    hash = 0L;
-    nameNodeDelegate.setPathNodeKey(pathNodeKey);
-  }
-
-  @Override
-  public long getPathNodeKey() {
-    return nameNodeDelegate.getPathNodeKey();
-  }
-
-  /**
-   * Getting the inlying {@link NameNodeDelegate}.
-   *
-   * @return the {@link NameNodeDelegate} instance
-   */
-  public NameNodeDelegate getNameNodeDelegate() {
-    return nameNodeDelegate;
-  }
-
-  /**
-   * Getting the inlying {@link ValueNodeDelegate}.
-   *
-   * @return the {@link ValueNodeDelegate} instance
-   */
-  public ValueNodeDelegate getValNodeDelegate() {
-    return valueNodeDelegate;
-  }
-
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return structNodeDelegate.getNodeDelegate();
-  }
-
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
-
-  @Override
-  public QNm getName() {
-    return null;
-  }
-
-  @Override
-  public String getValue() {
-    return new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING);
-  }
-
-  @Override
-  public SirixDeweyID getDeweyID() {
-    return structNodeDelegate.getNodeDelegate().getDeweyID();
-  }
-
-  @Override
-  public int getTypeKey() {
-    return structNodeDelegate.getNodeDelegate().getTypeKey();
-  }
-
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    return structNodeDelegate.getDeweyIDAsBytes();
+        .add("nodeKey", nodeKey).add("parentKey", parentKey)
+        .add("qNm", qNm).add("value", getValue())
+        .toString();
   }
 }

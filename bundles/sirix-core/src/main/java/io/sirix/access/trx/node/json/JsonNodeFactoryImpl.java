@@ -1,8 +1,11 @@
 package io.sirix.access.trx.node.json;
 
-import io.sirix.api.PageTrx;
+import io.sirix.access.trx.node.HashType;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.DeweyIDNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
@@ -21,6 +24,7 @@ import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
+import java.lang.foreign.MemorySegment;
 import java.util.zip.Deflater;
 
 import static java.util.Objects.requireNonNull;
@@ -38,9 +42,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private final LongHashFunction hashFunction;
 
   /**
-   * {@link PageTrx} implementation.
+   * {@link StorageEngineWriter} implementation.
    */
-  private final PageTrx pageTrx;
+  private final StorageEngineWriter pageTrx;
 
   /**
    * The current revision number.
@@ -51,9 +55,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
    * Constructor.
    *
    * @param hashFunction hash function used to hash nodes
-   * @param pageTrx      {@link PageTrx} implementation
+   * @param pageTrx      {@link StorageEngineWriter} implementation
    */
-  JsonNodeFactoryImpl(final LongHashFunction hashFunction, final PageTrx pageTrx) {
+  JsonNodeFactoryImpl(final LongHashFunction hashFunction, final StorageEngineWriter pageTrx) {
     this.hashFunction = requireNonNull(hashFunction);
     this.pageTrx = requireNonNull(pageTrx);
     this.revisionNumber = pageTrx.getRevisionNumber();
@@ -68,9 +72,13 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         ? NamePageHash.generateHashForString(name.getLocalName())
         : -1;
 
+    // CRITICAL FIX: Use accessor method instead of direct .getPage() call
+    // After TIL.put(), PageReference.getPage() returns null
+    // Must use pageTrx.getPathSummaryPage() which handles TIL lookups
+    final PathSummaryPage pathSummaryPage = pageTrx.getPathSummaryPage(pageTrx.getActualRevisionRootPage());
     final NodeDelegate nodeDel = new NodeDelegate(
-        ((PathSummaryPage) pageTrx.getActualRevisionRootPage().getPathSummaryPageReference().getPage()).getMaxNodeKey(0)
-            + 1, parentKey, hashFunction, Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
+        pathSummaryPage.getMaxNodeKey(0) + 1, 
+        parentKey, hashFunction, Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
                                                                 Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -88,216 +96,233 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public ArrayNode createJsonArrayNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
       SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction, Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                rightSibKey,
-                                                                leftSibKey,
-                                                                0,
-                                                                0);
-    return pageTrx.createRecord(new ArrayNode(structDel, pathNodeKey), IndexType.DOCUMENT, -1);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    // Create ArrayNode with primitive fields
+    var node = new ArrayNode(
+        nodeKey,
+        parentKey,
+        pathNodeKey,
+        Constants.NULL_REVISION_NUMBER,
+        revisionNumber,
+        rightSibKey,
+        leftSibKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(), // firstChild
+        Fixed.NULL_NODE_KEY.getStandardProperty(), // lastChild
+        0, // childCount
+        0, // descendantCount
+        0, // hash
+        hashFunction,
+        id
+    );
+    
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectNode createJsonObjectNode(long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction, Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                rightSibKey,
-                                                                leftSibKey,
-                                                                0,
-                                                                0);
-    return pageTrx.createRecord(new ObjectNode(structDel), IndexType.DOCUMENT, -1);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    // Create ObjectNode with primitive fields
+    var node = new ObjectNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,
+        revisionNumber,
+        rightSibKey,
+        leftSibKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(), // firstChild
+        Fixed.NULL_NODE_KEY.getStandardProperty(), // lastChild
+        0, // childCount
+        0, // descendantCount
+        0, // hash
+        hashFunction,
+        id
+    );
+    
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public NullNode createJsonNullNode(long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction, Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                rightSibKey,
-                                                                leftSibKey,
-                                                                0,
-                                                                0);
-    return pageTrx.createRecord(new NullNode(structDel), IndexType.DOCUMENT, -1);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    var node = new NullNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,
+        revisionNumber,
+        rightSibKey,
+        leftSibKey,
+        0, // hash
+        hashFunction,
+        id
+    );
+    
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectKeyNode createJsonObjectKeyNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
       String name, long objectValueKey, SirixDeweyID id) {
     final int localNameKey = pageTrx.createNameKey(name, NodeKind.OBJECT_KEY);
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction, Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                objectValueKey,
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                rightSibKey,
-                                                                leftSibKey,
-                                                                0,
-                                                                0);
-    return pageTrx.createRecord(new ObjectKeyNode(structDel, localNameKey, name, pathNodeKey),
-                                IndexType.DOCUMENT,
-                                -1);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    var node = new ObjectKeyNode(
+        nodeKey,
+        parentKey,
+        pathNodeKey,
+        Constants.NULL_REVISION_NUMBER,
+        revisionNumber,
+        rightSibKey,
+        leftSibKey,
+        objectValueKey, // firstChild
+        localNameKey,
+        0, // descendantCount
+        0, // hash
+        hashFunction,
+        id
+    );
+    
+    // Set name for later retrieval (cached)
+    node.setName(name);
+    
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public StringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey, byte[] value,
       boolean doCompress, SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction, Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final boolean compression = doCompress && value.length > 10;
-    final byte[] compressedValue = compression ? Compression.compress(value, Deflater.HUFFMAN_ONLY) : value;
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                rightSibKey,
-                                                                leftSibKey,
-                                                                0,
-                                                                0);
-    return pageTrx.createRecord(new StringNode(valDel, structDel), IndexType.DOCUMENT, -1);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    var node = new StringNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,
+        revisionNumber,
+        rightSibKey,
+        leftSibKey,
+        0, // hash
+        value,
+        hashFunction,
+        id
+    );
+    
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public BooleanNode createJsonBooleanNode(long parentKey, long leftSibKey, long rightSibKey, boolean boolValue,
       SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction, Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                rightSibKey,
-                                                                leftSibKey,
-                                                                0,
-                                                                0);
-    return pageTrx.createRecord(new BooleanNode(boolValue, structDel), IndexType.DOCUMENT, -1);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    var node = new BooleanNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,
+        revisionNumber,
+        rightSibKey,
+        leftSibKey,
+        0, // hash
+        boolValue,
+        hashFunction,
+        id
+    );
+    
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, Number value,
       SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction, Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                rightSibKey,
-                                                                leftSibKey,
-                                                                0,
-                                                                0);
-    return pageTrx.createRecord(new NumberNode(value, structDel), IndexType.DOCUMENT, -1);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    var node = new NumberNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,
+        revisionNumber,
+        rightSibKey,
+        leftSibKey,
+        0, // hash
+        value,
+        hashFunction,
+        id
+    );
+    
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectNullNode createJsonObjectNullNode(long parentKey, SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction, Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                0,
-                                                                0);
-    return pageTrx.createRecord(new ObjectNullNode(structDel), IndexType.DOCUMENT, -1);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    var node = new ObjectNullNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,
+        revisionNumber,
+        0, // hash
+        hashFunction,
+        id
+    );
+    
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectStringNode createJsonObjectStringNode(long parentKey, byte[] value, boolean doCompress,
       SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction, Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final boolean compression = doCompress && value.length > 40;
-    final byte[] compressedValue = compression ? Compression.compress(value, Deflater.BEST_COMPRESSION) : value;
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                0,
-                                                                0);
-    return pageTrx.createRecord(new ObjectStringNode(valDel, structDel), IndexType.DOCUMENT, -1);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    var node = new ObjectStringNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,
+        revisionNumber,
+        0, // hash
+        value,
+        hashFunction,
+        id
+    );
+    
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectBooleanNode createJsonObjectBooleanNode(long parentKey, boolean boolValue, SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction, Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                0,
-                                                                0);
-    return pageTrx.createRecord(new ObjectBooleanNode(boolValue, structDel),
-                                IndexType.DOCUMENT,
-                                -1);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    var node = new ObjectBooleanNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,
+        revisionNumber,
+        0, // hash
+        boolValue,
+        hashFunction,
+        id
+    );
+    
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectNumberNode createJsonObjectNumberNode(long parentKey, Number value, SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction, Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                0,
-                                                                0);
-    return pageTrx.createRecord(new ObjectNumberNode(value, structDel), IndexType.DOCUMENT, -1);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    var node = new ObjectNumberNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,
+        revisionNumber,
+        0, // hash
+        value,
+        hashFunction,
+        id
+    );
+    
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override

@@ -24,7 +24,7 @@ jobs:
         uses: actions/setup-java@v2
         with:
           distribution: 'temurin'
-          java-version: '22'
+          java-version: '25'
       - uses: actions/cache@v3
         with:
           path: |
@@ -74,7 +74,7 @@ jobs:
         uses: actions/setup-java@v2
         with:
           distribution: 'temurin'
-          java-version: '22'
+          java-version: '25'
       - name: Gradle deploy
         run: ./gradlew travisReleaseSnapshot --info
       - name: Login to Docker Hub

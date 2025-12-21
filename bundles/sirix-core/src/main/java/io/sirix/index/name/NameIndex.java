@@ -2,8 +2,8 @@ package io.sirix.index.name;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.*;
 import io.sirix.index.redblacktree.RBNodeKey;
 import io.sirix.index.redblacktree.RBTreeReader;
@@ -16,11 +16,11 @@ import java.util.Optional;
 import java.util.Set;
 
 public interface NameIndex<B, L extends ChangeListener> {
-  B createBuilder(PageTrx pageTrx, IndexDef indexDef);
+  B createBuilder(StorageEngineWriter pageTrx, IndexDef indexDef);
 
-  L createListener(PageTrx pageTrx, IndexDef indexDef);
+  L createListener(StorageEngineWriter pageTrx, IndexDef indexDef);
 
-  default Iterator<NodeReferences> openIndex(PageReadOnlyTrx pageRtx, IndexDef indexDef, NameFilter filter) {
+  default Iterator<NodeReferences> openIndex(StorageEngineReader pageRtx, IndexDef indexDef, NameFilter filter) {
     final RBTreeReader<QNm, NodeReferences> reader =
         RBTreeReader.getInstance(pageRtx.getResourceSession().getIndexCache(),
                                  pageRtx,

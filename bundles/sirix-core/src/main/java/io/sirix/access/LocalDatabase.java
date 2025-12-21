@@ -82,7 +82,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    */
   private final ResourceStore<T> resourceStore;
 
-  private final PathBasedPool<ResourceSession<?, ?>> resourceManagers;
+  private final PathBasedPool<ResourceSession<?, ?>> resourceSessions;
 
   /**
    * This field should be use to fetch the locks for resource managers.
@@ -90,9 +90,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private final WriteLocksRegistry writeLocks;
 
   /**
-   * The resource buffer managers.
+   * The global buffer manager shared across all databases and resources.
    */
-  private final ConcurrentMap<Path, BufferManager> bufferManagers;
+  private final BufferManager bufferManager;
 
   /**
    * Constructor.
@@ -102,24 +102,20 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * @param sessions           The database sessions management instance.
    * @param resourceStore      The resource store used by this database.
    * @param writeLocks         Manages the locks for resource managers.
-   * @param resourceManagers   The pool for resource managers.
+   * @param resourceSessions   The pool for resource managers.
    */
   public LocalDatabase(final TransactionManager transactionManager, final DatabaseConfiguration dbConfig,
       final PathBasedPool<Database<?>> sessions, final ResourceStore<T> resourceStore,
-      final WriteLocksRegistry writeLocks, final PathBasedPool<ResourceSession<?, ?>> resourceManagers) {
+      final WriteLocksRegistry writeLocks, final PathBasedPool<ResourceSession<?, ?>> resourceSessions) {
     this.transactionManager = transactionManager;
     this.dbConfig = requireNonNull(dbConfig);
     this.sessions = sessions;
     this.resourceStore = resourceStore;
-    this.resourceManagers = resourceManagers;
+    this.resourceSessions = resourceSessions;
     this.writeLocks = writeLocks;
     this.resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
     this.sessions.putObject(dbConfig.getDatabaseFile(), this);
-    this.bufferManagers = Databases.getBufferManager(dbConfig.getDatabaseFile());
-  }
-
-  private void addResourceToBufferManagerMapping(Path resourceFile, ResourceConfiguration resourceConfig) {
-    bufferManagers.put(resourceFile, new BufferManagerImpl(10_000, 1_000, 5_000, 50_000, 500, 20));
+    this.bufferManager = Databases.getGlobalBufferManager();
   }
 
   @Override
@@ -146,12 +142,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // Keep track of the resource-ID.
     resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
-    // Add resource to buffer manager mapping.
-    if (!bufferManagers.containsKey(resourcePath)) {
-      addResourceToBufferManagerMapping(resourcePath, resourceConfig);
-    }
-
-    return resourceStore.beginResourceSession(resourceConfig, bufferManagers.get(resourcePath), resourcePath);
+    // Use the global BufferManager for this resource session.
+    // Cache keys include (databaseId, resourceId) to prevent collisions.
+    return resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath);
   }
 
   @Override
@@ -219,9 +212,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       SirixFiles.recursiveRemove(resourceConfig.resourcePath);
     }
 
-    if (!bufferManagers.containsKey(path)) {
-      addResourceToBufferManagerMapping(path, resourceConfig);
-    }
+    // Note: With global BufferManager, no per-resource setup needed.
+    // Cache keys include (databaseId, resourceId) to prevent collisions.
 
     return returnVal;
   }
@@ -269,25 +261,31 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
 
     // Check that no running resource managers / sessions are opened.
-    if (this.resourceManagers.containsAnyEntry(resourceFile)) {
-      throw new IllegalStateException("Open resource managers found, must be closed first: " + resourceManagers);
+    if (this.resourceSessions.containsAnyEntry(resourceFile)) {
+      throw new IllegalStateException("Open resource managers found, must be closed first: " + resourceSessions);
     }
 
     // If file is existing and folder is a Sirix-dataplace, delete it.
     if (Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0) {
+      // CRITICAL FIX: Clear BufferManager caches for this resource BEFORE deletion
+      // This prevents cache pollution when resource is removed and recreated with same IDs
+      try {
+        final var resourceConfig = ResourceConfiguration.deserialize(resourceFile);
+        long databaseId = dbConfig.getDatabaseId();
+        long resourceId = resourceConfig.getID();
+        
+        if (bufferManager != null) {
+          bufferManager.clearCachesForResource(databaseId, resourceId);
+        }
+      } catch (Exception e) {
+        // If deserialization fails, resource config might be corrupt - continue with deletion
+        logger.warn("Could not deserialize resource config for cache clearing: {}", e.getMessage());
+      }
+      
       // Instantiate the database for deletion.
       SirixFiles.recursiveRemove(resourceFile);
 
       this.writeLocks.removeWriteLock(resourceFile);
-
-      var bufferManager = bufferManagers.remove(resourceFile);
-      if (bufferManager != null) {
-        try {
-          bufferManager.clearAllCaches();
-        } catch (Exception e) {
-          throw new RuntimeException(e);
-        }
-      }
 
       final var cache = StorageType.CACHE_REPOSITORY.remove(resourceFile);
       if (cache != null) {
@@ -361,6 +359,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     // Remove from database mapping.
     this.sessions.removeObject(dbConfig.getDatabaseFile(), this);
+
+    // Free all allocated memory if it's the last database which is closed.
+    Databases.freeAllocatedMemory();
 
     // Remove lock file.
     SirixFiles.recursiveRemove(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.LOCK.getFile()));

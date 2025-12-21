@@ -1,7 +1,7 @@
 package io.sirix.page;
 
 import io.sirix.cache.TransactionIntentLog;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.PageContainer;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
@@ -14,12 +14,12 @@ import java.util.concurrent.RecursiveAction;
 public class ForEach extends RecursiveAction {
   private final static int TASK_LEN = 1024 / 8;
   private final TransactionIntentLog log;
-  private final PageReadOnlyTrx pageTrx;
+  private final StorageEngineReader pageTrx;
   private final PageReference[] array;
   private final int from;
   private final int to;
 
-  public ForEach(TransactionIntentLog log, PageReadOnlyTrx pageTrx, PageReference[] array, int from, int to) {
+  public ForEach(TransactionIntentLog log, StorageEngineReader pageTrx, PageReference[] array, int from, int to) {
     this.log = log;
     this.pageTrx = pageTrx;
     this.array = array;
@@ -42,7 +42,7 @@ public class ForEach extends RecursiveAction {
     }
   }
 
-  private void work(TransactionIntentLog log, PageReadOnlyTrx pageTrx, PageReference[] references, int from, int to) {
+  private void work(TransactionIntentLog log, StorageEngineReader pageTrx, PageReference[] references, int from, int to) {
     for (int j = from; j < to; j++) {
       final var reference = references[j];
       if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT)) {

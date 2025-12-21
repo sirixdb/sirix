@@ -1,6 +1,6 @@
 package io.sirix.access.trx.node.xml;
 
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.node.NodeKind;
@@ -33,9 +33,9 @@ import static java.util.Objects.requireNonNull;
 final class XmlNodeFactoryImpl implements XmlNodeFactory {
 
   /**
-   * {@link PageTrx} implementation.
+   * {@link StorageEngineWriter} implementation.
    */
-  private final PageTrx pageTrx;
+  private final StorageEngineWriter pageTrx;
 
   /**
    * The hash function used for hashing nodes.
@@ -51,9 +51,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
    * Constructor.
    *
    * @param hashFunction the hash function used for hashing nodes
-   * @param pageWriteTrx {@link PageTrx} implementation
+   * @param pageWriteTrx {@link StorageEngineWriter} implementation
    */
-  XmlNodeFactoryImpl(final LongHashFunction hashFunction, final PageTrx pageWriteTrx) {
+  XmlNodeFactoryImpl(final LongHashFunction hashFunction, final StorageEngineWriter pageWriteTrx) {
     this.pageTrx = requireNonNull(pageWriteTrx);
     this.pageTrx.createNameKey("xs:untyped", NodeKind.ATTRIBUTE);
     this.pageTrx.createNameKey("xs:untyped", NodeKind.NAMESPACE);
@@ -74,9 +74,13 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         ? NamePageHash.generateHashForString(name.getLocalName())
         : -1;
 
+    // CRITICAL FIX: Use accessor method instead of direct .getPage() call
+    // After TIL.put(), PageReference.getPage() returns null
+    // Must use pageTrx.getPathSummaryPage() which handles TIL lookups
+    final PathSummaryPage pathSummaryPage = pageTrx.getPathSummaryPage(pageTrx.getActualRevisionRootPage());
     final NodeDelegate nodeDel = new NodeDelegate(
-        ((PathSummaryPage) pageTrx.getActualRevisionRootPage().getPathSummaryPageReference().getPage()).getMaxNodeKey(0)
-            + 1, parentKey, hashFunction, Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
+        pathSummaryPage.getMaxNodeKey(0) + 1, 
+        parentKey, hashFunction, Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
@@ -97,39 +101,60 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
                                                                                         NodeKind.ELEMENT) : -1;
     final int localNameKey = pageTrx.createNameKey(name.getLocalName(), NodeKind.ELEMENT);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
 
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction,
-                         Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
+    final var config = pageTrx.getResourceSession().getResourceConfig();
+    
+    // Create ElementNode with primitive fields
+    var node = new ElementNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,      // previousRevision
+        revisionNumber,                       // lastModifiedRevision
+        rightSibKey,
+        leftSibKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(),  // firstChild
+        Fixed.NULL_NODE_KEY.getStandardProperty(),  // lastChild
+        0,                                    // childCount
+        0,                                    // descendantCount
+        0,                                    // hash
+        pathNodeKey,
+        prefixKey,
+        localNameKey,
+        uriKey,
+        config.nodeHashFunction,
+        id,
+        new LongArrayList(),                  // attributeKeys
+        new LongArrayList(),                  // namespaceKeys
+        name);
 
-    return pageTrx.createRecord(new ElementNode(structDel, nameDel, new LongArrayList(), new LongArrayList(), name),
-                                IndexType.DOCUMENT,
-                                -1);
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public TextNode createTextNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
       final @NonNegative long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction,
-                         Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    // Compress value if needed
     final boolean compression = isCompressed && value.length > 10;
     final byte[] compressedValue = compression ? Compression.compress(value, Deflater.HUFFMAN_ONLY) : value;
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return pageTrx.createRecord(new TextNode(valDel, structDel), IndexType.DOCUMENT, -1);
+    
+    // Create TextNode with primitive fields
+    var node = new TextNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,       // previousRevision
+        revisionNumber,                        // lastModifiedRevision
+        rightSibKey,
+        leftSibKey,
+        0,                                     // hash
+        compressedValue,
+        compression,
+        hashFunction,
+        id);
+
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
@@ -140,39 +165,54 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
                                                                                         NodeKind.ATTRIBUTE) : -1;
     final int localNameKey = pageTrx.createNameKey(name.getLocalName(), NodeKind.ATTRIBUTE);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
 
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction,
-                         Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, value, false);
+    // Create AttributeNode with primitive fields
+    var node = new AttributeNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,              // previousRevision
+        revisionNumber,                               // lastModifiedRevision
+        pathNodeKey,
+        prefixKey,
+        localNameKey,
+        uriKey,
+        0,                                            // hash
+        value,
+        hashFunction,
+        id,
+        name);
 
-    return pageTrx.createRecord(new AttributeNode(nodeDel, nameDel, valDel, name), IndexType.DOCUMENT, -1);
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public NamespaceNode createNamespaceNode(final @NonNegative long parentKey, final QNm name,
       final @NonNegative long pathNodeKey, final SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction,
-                         Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-
     final int uriKey = pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
     final int prefixKey =
         name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
                                                                                         NodeKind.NAMESPACE) : -1;
 
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, -1, pathNodeKey);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
 
-    return pageTrx.createRecord(new NamespaceNode(nodeDel, nameDel, name), IndexType.DOCUMENT, -1);
+    // Allocate MemorySegment and write all fields matching NamespaceNode.CORE_LAYOUT order
+    // Create NamespaceNode with primitive fields
+    var node = new NamespaceNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,              // previousRevision
+        revisionNumber,                               // lastModifiedRevision
+        pathNodeKey,
+        prefixKey,
+        -1,                                           // localNameKey (not used for namespaces)
+        uriKey,
+        0,                                            // hash
+        hashFunction,
+        id,
+        name);
+
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
@@ -186,36 +226,57 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
             : -1;
     final int localNameKey = pageTrx.createNameKey(target.getLocalName(), NodeKind.PROCESSING_INSTRUCTION);
     final int uriKey = pageTrx.createNameKey(target.getNamespaceURI(), NodeKind.NAMESPACE);
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction,
-                         Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, pathNodeKey);
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, content, false);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
 
-    return pageTrx.createRecord(new PINode(structDel, nameDel, valDel), IndexType.DOCUMENT, -1);
+    // Create PINode with primitive fields
+    var node = new PINode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,                          // previousRevision
+        revisionNumber,                                           // lastModifiedRevision
+        rightSibKey,
+        leftSibKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(),               // firstChild
+        Fixed.NULL_NODE_KEY.getStandardProperty(),               // lastChild
+        0,                                                        // childCount
+        0,                                                        // descendantCount
+        0,                                                        // hash
+        pathNodeKey,
+        prefixKey,
+        localNameKey,
+        uriKey,
+        content,
+        false,                                                    // isCompressed
+        hashFunction,
+        id,
+        target);
+
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public CommentNode createCommentNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
       final @NonNegative long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
-    final NodeDelegate nodeDel =
-        new NodeDelegate(pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1,
-                         parentKey,
-                         hashFunction,
-                         Constants.NULL_REVISION_NUMBER,
-                         revisionNumber,
-                         id);
+    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    
+    // Compress value if needed
     final boolean compression = isCompressed && value.length > 10;
     final byte[] compressedValue = compression ? Compression.compress(value, Deflater.HUFFMAN_ONLY) : value;
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(nodeDel, compressedValue, compression);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    return pageTrx.createRecord(new CommentNode(valDel, structDel), IndexType.DOCUMENT, -1);
+    
+    // Create CommentNode with primitive fields
+    var node = new CommentNode(
+        nodeKey,
+        parentKey,
+        Constants.NULL_REVISION_NUMBER,       // previousRevision
+        revisionNumber,                        // lastModifiedRevision
+        rightSibKey,
+        leftSibKey,
+        0,                                     // hash
+        compressedValue,
+        compression,
+        hashFunction,
+        id);
+
+    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 }

@@ -22,7 +22,7 @@
 package io.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
-import net.openhft.chronicle.bytes.BytesIn;
+import io.sirix.node.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.magicwerk.brownies.collections.GapList;
 import io.sirix.page.DeserializedBitmapReferencesPageTuple;
@@ -131,6 +131,8 @@ public final class BitmapReferencesPage implements Page {
       pageReference.setKey(pageReferenceToClone.getKey());
       pageReference.setPage(pageReferenceToClone.getPage());
       pageReference.setLogKey(pageReferenceToClone.getLogKey());
+      pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
+      pageReference.setResourceId(pageReferenceToClone.getResourceId());
       pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
       references.add(offset, pageReference);
     }
@@ -221,9 +223,8 @@ public final class BitmapReferencesPage implements Page {
   }
 
   @Override
-  public Page clearPage() {
+  public void close() {
     references.clear();
     bitmap.clear();
-    return this;
   }
 }

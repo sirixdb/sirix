@@ -25,7 +25,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
@@ -33,7 +33,9 @@ import io.sirix.io.RevisionFileData;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.BytesIn;
+import io.sirix.node.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
@@ -46,7 +48,7 @@ import java.time.Instant;
 import static java.util.Objects.requireNonNull;
 
 /**
- * File Reader. Used for {@link PageReadOnlyTrx} to provide read only access on a RandomAccessFile.
+ * File Reader. Used for {@link StorageEngineReader} to provide read only access on a RandomAccessFile.
  *
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
@@ -127,9 +129,14 @@ public final class FileReader implements Reader {
   @NonNull
   private Page getPage(ResourceConfiguration resourceConfiguration, byte[] page) throws IOException {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
-    final Bytes<?> input = Bytes.wrapForRead(inputStream.readAllBytes());
+    final BytesIn<?> input = Bytes.wrapForRead(inputStream.readAllBytes());
     final var deserializedPage = pagePersiter.deserializePage(resourceConfiguration, input, serializationType);
-    input.clear();
+    
+    // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page
+    if (resourceConfiguration != null) {
+      io.sirix.page.PageUtils.fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+    }
+    
     return deserializedPage;
   }
 
@@ -166,7 +173,7 @@ public final class FileReader implements Reader {
       dataFile.read(page);
 
       // Perform byte operations.
-      final Bytes<ByteBuffer> input =
+      final BytesIn<?> input =
           Bytes.wrapForRead(ByteBuffer.wrap(page)); //byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
 
       // Return reader required to instantiate and deserialize page.
@@ -178,7 +185,7 @@ public final class FileReader implements Reader {
 
   @Override
   public Instant readRevisionRootPageCommitTimestamp(int revision) {
-    return cache.get(revision, (unused) -> getRevisionFileData(revision)).timestamp();
+    return cache.get(revision, _ -> getRevisionFileData(revision)).timestamp();
   }
 
   @Override

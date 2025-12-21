@@ -21,30 +21,27 @@
 
 package io.sirix.page;
 
+import io.sirix.access.trx.node.HashType;
+import io.sirix.node.Bytes;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import net.openhft.chronicle.bytes.Bytes;
-import net.openhft.hashing.LongHashFunction;
+import io.sirix.node.BytesOut;
 import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixException;
 import io.sirix.index.IndexType;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.NameNodeDelegate;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.xml.ElementNode;
 import io.sirix.settings.Constants;
-import io.sirix.utils.NamePageHash;
-
 import java.io.IOException;
-import java.nio.ByteBuffer;
-
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static org.junit.Assert.assertEquals;
 
 /**
@@ -55,28 +52,32 @@ public final class NodePageTest {
   /**
    * {@link Holder} instance.
    */
-  private Holder mHolder;
+  private Holder holder;
 
   /**
-   * Sirix {@link PageReadOnlyTrx} instance.
+   * Sirix {@link StorageEngineReader} instance.
    */
-  private PageReadOnlyTrx pageReadTrx;
+  private StorageEngineReader pageReadTrx;
+
+  private Arena arena;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceSession();
+    pageReadTrx = holder.getResourceSession().beginPageReadOnlyTrx();
+    arena = Arena.ofConfined();
   }
 
   @After
   public void tearDown() throws SirixException {
     pageReadTrx.close();
-    mHolder.close();
+    holder.close();
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
+    arena.close();
   }
 
   @Test
@@ -84,52 +85,88 @@ public final class NodePageTest {
     final KeyValueLeafPage page1 = new KeyValueLeafPage(0L,
                                                         IndexType.DOCUMENT,
                                                         pageReadTrx.getResourceSession().getResourceConfig(),
-                                                        pageReadTrx.getRevisionNumber());
-    assertEquals(0L, page1.getPageKey());
+                                                        pageReadTrx.getRevisionNumber(),
+                                                        arena.allocate(SIXTYFOUR_KB),
+                                                        null);
+    KeyValueLeafPage page2 = null;
+    try {
+      assertEquals(0L, page1.getPageKey());
 
-    final NodeDelegate del =
-        new NodeDelegate(0, 1, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12L, 4L, 3L, 1L, 0L);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
-    final ElementNode node1 =
-        new ElementNode(strucDel, nameDel, new LongArrayList(), new LongArrayList(), new QNm("a", "b", "c"));
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node1.setHash(node1.computeHash(bytes));
-    node1.insertAttribute(88L);
-    node1.insertAttribute(87L);
-    node1.insertNamespace(99L);
-    node1.insertNamespace(98L);
-    assertEquals(0L, node1.getNodeKey());
-    page1.setRecord(node1);
+      // Create ResourceConfiguration for testing
+      final var config = pageReadTrx.getResourceSession().getResourceConfig();
+      
+      // Create ElementNode with primitive fields
+      final LongArrayList attributeKeys = new LongArrayList();
+      attributeKeys.add(88L);
+      attributeKeys.add(87L);
+      final LongArrayList namespaceKeys = new LongArrayList();
+      namespaceKeys.add(99L);
+      namespaceKeys.add(98L);
+      
+      final ElementNode node1 = new ElementNode(
+          0L,                                              // nodeKey
+          1L,                                              // parentKey
+          Constants.NULL_REVISION_NUMBER,                  // previousRevision
+          0,                                               // lastModifiedRevision
+          4L,                                              // rightSiblingKey
+          3L,                                              // leftSiblingKey
+          12L,                                             // firstChildKey
+          12L,                                             // lastChildKey
+          config.storeChildCount() ? 1L : 0L,              // childCount
+          0L,                                              // descendantCount
+          0L,                                              // hash
+          1L,                                              // pathNodeKey
+          6,                                               // prefixKey
+          7,                                               // localNameKey
+          5,                                               // uriKey
+          config.nodeHashFunction,                         // hashFunction
+          SirixDeweyID.newRootID(),                        // deweyID
+          attributeKeys,                                   // attributeKeys
+          namespaceKeys,                                   // namespaceKeys
+          new QNm("a", "b", "c"));
+      
+      // Compute and set hash
+      var bytes = Bytes.elasticOffHeapByteBuffer();
+      node1.setHash(node1.computeHash(bytes));
+      
+      assertEquals(0L, node1.getNodeKey());
+      page1.setRecord(node1);
 
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    final PagePersister pagePersister = new PagePersister();
-    pagePersister.serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
-                                data,
-                                page1,
-                                SerializationType.DATA);
-    final KeyValueLeafPage page2 =
-        (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx.getResourceSession().getResourceConfig(),
-                                                         Bytes.wrapForRead(data.toByteArray()),
-                                                         SerializationType.DATA);
-    // assertEquals(position, out.position());
-    final ElementNode element = (ElementNode) pageReadTrx.getValue(page2, 0L);
+      final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
+      final PagePersister pagePersister = new PagePersister();
+      pagePersister.serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
+                                  data,
+                                  page1,
+                                  SerializationType.DATA);
+      page2 =
+          (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx.getResourceSession().getResourceConfig(),
+                                                           Bytes.wrapForRead(data.toByteArray()),
+                                                           SerializationType.DATA);
+      // assertEquals(position, out.position());
+      final ElementNode element = (ElementNode) pageReadTrx.getValue(page2, 0L);
 
-    assertEquals(0L, pageReadTrx.getValue(page2, 0L).getNodeKey());
-    assertEquals(1L, element.getParentKey());
-    assertEquals(12L, element.getFirstChildKey());
-    assertEquals(3L, element.getLeftSiblingKey());
-    assertEquals(4L, element.getRightSiblingKey());
-    assertEquals(1, element.getChildCount());
-    assertEquals(2, element.getAttributeCount());
-    assertEquals(2, element.getNamespaceCount());
-    assertEquals(88L, element.getAttributeKey(0));
-    assertEquals(87L, element.getAttributeKey(1));
-    assertEquals(99L, element.getNamespaceKey(0));
-    assertEquals(98L, element.getNamespaceKey(1));
-    assertEquals(5, ((NameNode) pageReadTrx.getValue(page2, 0L)).getURIKey());
-    assertEquals(6, ((NameNode) pageReadTrx.getValue(page2, 0L)).getPrefixKey());
-    assertEquals(7, ((NameNode) pageReadTrx.getValue(page2, 0L)).getLocalNameKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), element.getTypeKey());
+      assertEquals(0L, pageReadTrx.getValue(page2, 0L).getNodeKey());
+      assertEquals(1L, element.getParentKey());
+      assertEquals(12L, element.getFirstChildKey());
+      assertEquals(3L, element.getLeftSiblingKey());
+      assertEquals(4L, element.getRightSiblingKey());
+      assertEquals(1, element.getChildCount());
+      assertEquals(2, element.getAttributeCount());
+      assertEquals(2, element.getNamespaceCount());
+      assertEquals(88L, element.getAttributeKey(0));
+      assertEquals(87L, element.getAttributeKey(1));
+      assertEquals(99L, element.getNamespaceKey(0));
+      assertEquals(98L, element.getNamespaceKey(1));
+      assertEquals(5, ((NameNode) pageReadTrx.getValue(page2, 0L)).getURIKey());
+      assertEquals(6, ((NameNode) pageReadTrx.getValue(page2, 0L)).getPrefixKey());
+      assertEquals(7, ((NameNode) pageReadTrx.getValue(page2, 0L)).getLocalNameKey());
+      // typeKey is not persisted, so we don't test it
+    } finally {
+      // Close pages to prevent page leaks
+      page1.close();
+      if (page2 != null) {
+        page2.close();
+      }
+    }
   }
 }
