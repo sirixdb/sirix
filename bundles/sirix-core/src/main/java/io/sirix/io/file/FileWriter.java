@@ -23,12 +23,13 @@ package io.sirix.io.file;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.*;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.ByteArrayOutputStream;
@@ -72,7 +73,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   private boolean isFirstUberPage;
 
-  private final Bytes<ByteBuffer> byteBufferBytes = Bytes.elasticHeapByteBuffer(1_000);
+  private final BytesOut<?> byteBufferBytes = Bytes.elasticOffHeapByteBuffer(1_000);
 
   /**
    * Constructor.
@@ -96,7 +97,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   }
 
   @Override
-  public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx, final int revision) {
+  public Writer truncateTo(final StorageEngineReader pageReadOnlyTrx, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
@@ -121,7 +122,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
    */
   @Override
   public FileWriter write(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
-      final Page page, final Bytes<ByteBuffer> bufferedBytes) {
+      final Page page, final BytesOut<?> bufferedBytes) {
     try {
       final long fileSize = dataFile.length();
       long offset = fileSize == 0 ? IOStorage.FIRST_BEACON : fileSize;
@@ -228,7 +229,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
   @Override
   public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, final Page page, final Bytes<ByteBuffer> bufferedBytes) {
+      final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes) {
     isFirstUberPage = true;
     writePageReference(resourceConfiguration, pageReference, page,0);
     isFirstUberPage = false;

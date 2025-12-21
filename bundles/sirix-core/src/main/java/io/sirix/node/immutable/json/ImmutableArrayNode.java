@@ -5,7 +5,7 @@ import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.xml.ElementNode;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.json.ArrayNode;
 
 import java.nio.ByteBuffer;
@@ -67,7 +67,7 @@ public final class ImmutableArrayNode extends AbstractImmutableJsonStructuralNod
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     return node.computeHash(bytes);
   }
 }

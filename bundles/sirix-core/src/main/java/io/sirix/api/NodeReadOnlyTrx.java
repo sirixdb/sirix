@@ -18,7 +18,7 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    *
    * @return ID of the transaction
    */
-  long getId();
+  int getId();
 
   /**
    * Get the revision number of this transaction.
@@ -85,7 +85,7 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    *
    * @return the underlying page transaction
    */
-  PageReadOnlyTrx getPageTrx();
+  StorageEngineReader getPageTrx();
 
   /**
    * Get the path node key of the current node.

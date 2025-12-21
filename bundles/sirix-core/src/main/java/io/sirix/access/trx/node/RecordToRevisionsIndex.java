@@ -1,6 +1,6 @@
 package io.sirix.access.trx.node;
 
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.node.RevisionReferencesNode;
 
@@ -14,18 +14,18 @@ public final class RecordToRevisionsIndex {
   /**
    * The page trx to create index-entries.
    */
-  private PageTrx pageTrx;
+  private StorageEngineWriter pageTrx;
 
   /**
    * Constructor
    *
    * @param pageTrx  the page trx to create index-entries.
    */
-  public RecordToRevisionsIndex(final PageTrx pageTrx) {
+  public RecordToRevisionsIndex(final StorageEngineWriter pageTrx) {
     this.pageTrx = requireNonNull(pageTrx);
   }
 
-  public void setPageTrx(final PageTrx pageTrx) {
+  public void setPageTrx(final StorageEngineWriter pageTrx) {
     this.pageTrx = pageTrx;
   }
 

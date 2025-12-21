@@ -1,5 +1,6 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.api.*;
 import io.sirix.io.Reader;
 import io.sirix.page.UberPage;
@@ -30,21 +31,28 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void assertAccess(int revision);
 
-  PageTrx createPageTransaction(long trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx);
+  StorageEngineWriter createPageTransaction(int trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx);
 
   Lock getCommitLock();
 
   void setLastCommittedUberPage(UberPage lastUberPage);
 
-  void closeWriteTransaction(long transactionID);
+  void closeWriteTransaction(int transactionID);
 
-  void setNodePageWriteTransaction(long transactionID, PageTrx pageTrx);
+  void setNodePageWriteTransaction(int transactionID, StorageEngineWriter pageTrx);
 
-  void closeNodePageWriteTransaction(long transactionID);
+  void closeNodePageWriteTransaction(int transactionID);
 
-  void closeReadTransaction(long trxId);
+  void closeReadTransaction(int trxId);
 
-  void closePageReadTransaction(Long trxId);
+  void closePageReadTransaction(Integer trxId);
 
-  void closePageWriteTransaction(Long transactionID);
+  void closePageWriteTransaction(Integer transactionID);
+
+  /**
+   * Get the revision epoch tracker for MVCC-aware eviction.
+   *
+   * @return the revision epoch tracker
+   */
+  RevisionEpochTracker getRevisionEpochTracker();
 }

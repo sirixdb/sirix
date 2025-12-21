@@ -25,10 +25,13 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.ResourceStore;
 import io.sirix.access.User;
-import io.sirix.access.trx.node.*;
-import io.sirix.access.trx.page.PageTrxFactory;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.access.trx.node.AbstractResourceSession;
+import io.sirix.access.trx.node.AfterCommitState;
+import io.sirix.access.trx.node.InternalResourceSession;
+import io.sirix.access.trx.node.RecordToRevisionsIndex;
+import io.sirix.access.trx.page.StorageEngineWriterFactory;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
@@ -38,8 +41,6 @@ import io.sirix.io.IOStorage;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.page.UberPage;
-import io.sirix.access.trx.node.AbstractResourceSession;
-import io.sirix.access.trx.node.InternalResourceSession;
 
 import javax.inject.Inject;
 import java.time.Duration;
@@ -75,7 +76,7 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
    * @param writeLock      the write lock, which ensures, that only a single read-write transaction is
    *                       opened on a resource
    * @param user           a user, which interacts with SirixDB, might be {@code null}
-   * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
+   * @param pageTrxFactory A factory that creates new {@link StorageEngineWriter} instances.
    */
   @Inject
   XmlResourceSessionImpl(final ResourceStore<XmlResourceSession> resourceStore,
@@ -85,7 +86,7 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
                          final UberPage uberPage,
                          final Semaphore writeLock,
                          final User user,
-                         final PageTrxFactory pageTrxFactory) {
+                         final StorageEngineWriterFactory pageTrxFactory) {
 
     super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
 
@@ -94,14 +95,14 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
   }
 
   @Override
-  public XmlNodeReadOnlyTrx createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode) {
+  public XmlNodeReadOnlyTrx createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader pageReadTrx, Node documentNode) {
 
     return new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXmlNode) documentNode);
   }
 
   @Override
-  public XmlNodeTrx createNodeReadWriteTrx(long nodeTrxId,
-                                           PageTrx pageTrx,
+  public XmlNodeTrx createNodeReadWriteTrx(int nodeTrxId,
+                                           StorageEngineWriter pageTrx,
                                            int maxNodeCount,
                                            Duration autoCommitDelay,
                                            Node documentNode,
@@ -141,13 +142,13 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
   @SuppressWarnings("unchecked")
   @Override
   public synchronized XmlIndexController getRtxIndexController(final int revision) {
-    return rtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
+    return rtxIndexControllers.computeIfAbsent(revision, _ -> createIndexController(revision));
   }
 
   @SuppressWarnings("unchecked")
   @Override
   public synchronized XmlIndexController getWtxIndexController(final int revision) {
-    return wtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
+    return wtxIndexControllers.computeIfAbsent(revision, _ -> createIndexController(revision));
   }
 
   private XmlIndexController createIndexController(int revision) {

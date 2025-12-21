@@ -76,9 +76,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
-   * Sirix {@link PageTrx}.
+   * Sirix {@link StorageEngineWriter}.
    */
-  private final PageTrx pageTrx;
+  private final StorageEngineWriter pageTrx;
 
   /**
    * Sirix {@link PathSummaryReader}.
@@ -103,12 +103,12 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Constructor.
    *
-   * @param pageTrx     Sirix {@link PageTrx}
+   * @param pageTrx     Sirix {@link StorageEngineWriter}
    * @param resMgr      The resource manager
    * @param nodeFactory The node factory to create path nodes
    * @param rtx         the read-only trx
    */
-  public PathSummaryWriter(final PageTrx pageTrx, final ResourceSession<R, ? extends NodeTrx> resMgr,
+  public PathSummaryWriter(final StorageEngineWriter pageTrx, final ResourceSession<R, ? extends NodeTrx> resMgr,
       final NodeFactory nodeFactory, final R rtx) {
     this.pageTrx = requireNonNull(pageTrx);
     pathSummaryReader = PathSummaryReader.getInstance(pageTrx, resMgr);

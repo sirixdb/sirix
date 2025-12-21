@@ -70,23 +70,46 @@ public class ConcurrentAxisHelper implements Runnable {
 
   @Override
   public void run() {
-    // Compute all results of the given axis and store the results in the queue.
-    while (axis.hasNext()) {
-      final long nodeKey = axis.nextLong();
-      try {
-        // Store result in queue as soon as there is space left.
-        results.put(nodeKey);
-        // Wait until next thread arrives and exchange blocking queue.
-      } catch (final InterruptedException e) {
-        LOGWRAPPER.error(e.getMessage(), e);
-      }
-    }
-
+    LOGWRAPPER.debug("ConcurrentAxisHelper producer thread starting");
+    int resultCount = 0;
     try {
-      // Mark end of result sequence by the NULL_NODE_KEY.
-      results.put(Fixed.NULL_NODE_KEY.getStandardProperty());
-    } catch (final InterruptedException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+      // Compute all results of the given axis and store the results in the queue.
+      while (axis.hasNext()) {
+        LOGWRAPPER.debug("ConcurrentAxisHelper axis.hasNext() returned true, calling nextLong()");
+        final long nodeKey = axis.nextLong();
+        LOGWRAPPER.debug("ConcurrentAxisHelper axis.nextLong() returned {}", nodeKey);
+        try {
+          // Store result in queue as soon as there is space left.
+          LOGWRAPPER.debug("ConcurrentAxisHelper putting result {} into queue", nodeKey);
+          results.put(nodeKey);
+          resultCount++;
+          LOGWRAPPER.debug("ConcurrentAxisHelper successfully put result {}, total={}", nodeKey, resultCount);
+          // Wait until next thread arrives and exchange blocking queue.
+        } catch (final InterruptedException e) {
+          LOGWRAPPER.error("Interrupted while putting result", e);
+          Thread.currentThread().interrupt();  // Restore interrupt status
+          return;  // Exit on interruption
+        }
+      }
+
+      LOGWRAPPER.debug("ConcurrentAxisHelper producer finished with {} results, sending NULL_NODE_KEY", resultCount);
+      try {
+        // Mark end of result sequence by the NULL_NODE_KEY.
+        results.put(Fixed.NULL_NODE_KEY.getStandardProperty());
+        LOGWRAPPER.debug("ConcurrentAxisHelper producer thread exiting normally");
+      } catch (final InterruptedException e) {
+        LOGWRAPPER.error("Interrupted while sending NULL_NODE_KEY", e);
+        Thread.currentThread().interrupt();
+      }
+    } catch (Exception e) {
+      // CRITICAL: Catch any unexpected exceptions to prevent silent thread death
+      LOGWRAPPER.error("FATAL: ConcurrentAxisHelper producer thread crashed with exception", e);
+      // Try to signal end to prevent consumer from hanging
+      try {
+        results.put(Fixed.NULL_NODE_KEY.getStandardProperty());
+      } catch (InterruptedException ie) {
+        LOGWRAPPER.error("Could not signal end after crash", ie);
+      }
     }
   }
 }

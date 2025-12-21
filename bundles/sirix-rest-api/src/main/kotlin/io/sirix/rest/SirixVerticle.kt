@@ -438,6 +438,10 @@ class SirixVerticle : CoroutineVerticle() {
     }
 
     private fun response(response: HttpServerResponse, statusCode: Int, failureMessage: String?) {
+        if (response.ended() || response.headWritten()) {
+            // Response has already been sent, cannot modify headers/status code
+            return
+        }
         response.setStatusCode(statusCode)
         if (failureMessage.isNullOrEmpty())
             response.end("Exception occured (statusCode: $statusCode)")
