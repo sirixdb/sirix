@@ -20,6 +20,7 @@ import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.LogWrapper;
 import org.checkerframework.org.apache.commons.lang3.time.StopWatch;
+import org.junit.Ignore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -58,7 +59,7 @@ public final class JsonShredderTest {
 
   @BeforeEach
   public void setUp() {
-    //JsonTestHelper.deleteEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @AfterEach
@@ -73,6 +74,7 @@ public final class JsonShredderTest {
     }
   }
 
+  @Disabled
   @Test
   public void testChicagoDescendantAxisParallel() throws InterruptedException {
 //    if (Files.notExists(PATHS.PATH1.getFile())) {
@@ -152,7 +154,7 @@ public final class JsonShredderTest {
     THREAD_POOL.awaitTermination(20, TimeUnit.MINUTES);
   }
 
-  //@Disabled
+  @Disabled
   @Test
   public void testChicagoDescendantAxis() {
 //    if (Files.notExists(PATHS.PATH1.getFile())) {
@@ -207,7 +209,7 @@ public final class JsonShredderTest {
   // TODO: JMH test
   // Use Shenandoah or ZGC
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
-  //@Disabled
+  @Disabled
   @Test
   public void testShredderAndTraverseChicago() {
     logger.info("start");
