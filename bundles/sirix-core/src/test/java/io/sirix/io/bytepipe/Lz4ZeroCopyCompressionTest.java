@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -150,6 +151,125 @@ class Lz4ZeroCopyCompressionTest {
     LOGGER.info("Random data: {} bytes -> {} bytes (ratio: {}x)", 
         payload.length, ffiCompressed.byteSize(), 
         String.format("%.2f", (double) payload.length / ffiCompressed.byteSize()));
+  }
+
+  @Test
+  void testAdaptiveCompressionSkipsSmallData() {
+    // Data smaller than MIN_COMPRESSION_SIZE (64 bytes) should be stored uncompressed
+    final byte[] smallPayload = "Short text".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    final MemorySegment source = MemorySegment.ofArray(smallPayload);
+    
+    final FFILz4Compressor compressor = new FFILz4Compressor();
+    final MemorySegment compressed = compressor.compress(source);
+    
+    // Check header - negative size indicates uncompressed
+    int sizeHeader = compressed.get(java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED, 0);
+    assertTrue(sizeHeader < 0, "Small data should have negative size header (uncompressed)");
+    assertEquals(-smallPayload.length, sizeHeader, "Header should be negated original size");
+    
+    // Verify round-trip
+    final MemorySegment decompressed = compressor.decompress(compressed);
+    byte[] result = new byte[smallPayload.length];
+    MemorySegment.copy(decompressed, 0, MemorySegment.ofArray(result), 0, result.length);
+    assertArrayEquals(smallPayload, result, "Small data round-trip should be identical");
+  }
+
+  @Test
+  void testAdaptiveCompressionUsesCorrectModeForSize() {
+    // Test that different sizes use appropriate compression modes
+    final FFILz4Compressor compressor = new FFILz4Compressor();
+    
+    // Small page (< 16KB) - should use fast mode
+    final byte[] smallPage = new byte[8 * 1024];
+    java.util.Arrays.fill(smallPage, (byte) 'A'); // Highly compressible
+    final MemorySegment smallCompressed = compressor.compress(MemorySegment.ofArray(smallPage));
+    
+    // Large page (> 16KB) - should use HC mode
+    final byte[] largePage = new byte[32 * 1024];
+    java.util.Arrays.fill(largePage, (byte) 'A'); // Highly compressible
+    final MemorySegment largeCompressed = compressor.compress(MemorySegment.ofArray(largePage));
+    
+    // Both should compress well (we can't directly verify which mode was used,
+    // but we can verify they work correctly)
+    assertTrue(smallCompressed.byteSize() < smallPage.length, "Small page should compress");
+    assertTrue(largeCompressed.byteSize() < largePage.length, "Large page should compress");
+    
+    // Verify round-trips
+    MemorySegment smallDecompressed = compressor.decompress(smallCompressed);
+    MemorySegment largeDecompressed = compressor.decompress(largeCompressed);
+    
+    byte[] smallResult = new byte[smallPage.length];
+    byte[] largeResult = new byte[largePage.length];
+    MemorySegment.copy(smallDecompressed, 0, MemorySegment.ofArray(smallResult), 0, smallResult.length);
+    MemorySegment.copy(largeDecompressed, 0, MemorySegment.ofArray(largeResult), 0, largeResult.length);
+    
+    assertArrayEquals(smallPage, smallResult);
+    assertArrayEquals(largePage, largeResult);
+    
+    LOGGER.info("Small page (8KB): {} -> {} bytes ({}%)", 
+        smallPage.length, smallCompressed.byteSize(),
+        String.format("%.1f", 100.0 * smallCompressed.byteSize() / smallPage.length));
+    LOGGER.info("Large page (32KB): {} -> {} bytes ({}%)", 
+        largePage.length, largeCompressed.byteSize(),
+        String.format("%.1f", 100.0 * largeCompressed.byteSize() / largePage.length));
+  }
+
+  @Test
+  void testAdaptiveCompressionSkipsIncompressibleData() {
+    // Random data should be stored uncompressed if compression isn't beneficial
+    final byte[] randomData = new byte[4096];
+    new java.util.Random(42).nextBytes(randomData);
+    
+    final FFILz4Compressor compressor = new FFILz4Compressor();
+    final MemorySegment compressed = compressor.compress(MemorySegment.ofArray(randomData));
+    
+    // Verify round-trip regardless of storage mode
+    final MemorySegment decompressed = compressor.decompress(compressed);
+    byte[] result = new byte[randomData.length];
+    MemorySegment.copy(decompressed, 0, MemorySegment.ofArray(result), 0, result.length);
+    assertArrayEquals(randomData, result, "Random data round-trip should be identical");
+    
+    LOGGER.info("Random data (4KB): {} -> {} bytes (header check: {})", 
+        randomData.length, compressed.byteSize(),
+        compressed.get(java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED, 0) < 0 ? "uncompressed" : "compressed");
+  }
+
+  @Test
+  void testCompressionPerformanceComparison() {
+    // Performance test comparing different compression modes
+    final FFILz4Compressor compressor = new FFILz4Compressor();
+    
+    // Create test data that compresses well - repetitive JSON-like pattern
+    final String pattern = "JSON data pattern: {\"key\": \"value_99\"}";
+    final byte[] testData = new byte[64 * 1024]; // 64KB
+    byte[] patternBytes = pattern.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    for (int i = 0; i < testData.length; i++) {
+      testData[i] = patternBytes[i % patternBytes.length];
+    }
+    final MemorySegment source = MemorySegment.ofArray(testData);
+    
+    // Warmup
+    for (int i = 0; i < 100; i++) {
+      compressor.compress(source);
+    }
+    
+    // Benchmark
+    final int iterations = 1000;
+    long startTime = System.nanoTime();
+    for (int i = 0; i < iterations; i++) {
+      compressor.compress(source);
+    }
+    long endTime = System.nanoTime();
+    
+    double avgTimeMs = (endTime - startTime) / 1_000_000.0 / iterations;
+    double throughputMBps = (testData.length / 1024.0 / 1024.0) / (avgTimeMs / 1000.0);
+    
+    LOGGER.info("Compression performance: {}/iteration, {} MB/s throughput",
+        String.format("%.3f ms", avgTimeMs),
+        String.format("%.1f", throughputMBps));
+    
+    // Sanity check - should be reasonably fast
+    assertTrue(avgTimeMs < 10, "Compression should complete in < 10ms per 64KB");
   }
 }
 

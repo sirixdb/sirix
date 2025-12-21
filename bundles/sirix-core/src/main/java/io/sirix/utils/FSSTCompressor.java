@@ -114,8 +114,100 @@ public final class FSSTCompressor {
    */
   private static final int TABLE_HEADER_SIZE = 1;
 
+  /**
+   * Minimum compression ratio required to use FSST.
+   * 0.15 means we need at least 15% size reduction to justify the overhead.
+   */
+  public static final double MIN_COMPRESSION_RATIO = 0.15;
+
+  /**
+   * Maximum size of the bounded buffer pool.
+   * Uses 2x CPU cores to handle concurrent virtual threads without explosion.
+   */
+  private static final int BUFFER_POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
+
+  /**
+   * Default buffer size for encode operations (64KB covers most pages).
+   */
+  private static final int DEFAULT_BUFFER_SIZE = 64 * 1024;
+
+  /**
+   * Bounded buffer pool for encode/decode operations.
+   * Loom-friendly: fixed size pool instead of unbounded ThreadLocal.
+   */
+  private static final java.util.ArrayDeque<byte[]> BUFFER_POOL = new java.util.ArrayDeque<>(BUFFER_POOL_SIZE);
+
+  /**
+   * Acquire a buffer from the pool, or allocate a new one if pool is empty.
+   *
+   * @param minSize minimum required buffer size
+   * @return a byte array of at least minSize bytes
+   */
+  private static byte[] acquireBuffer(int minSize) {
+    synchronized (BUFFER_POOL) {
+      byte[] buf = BUFFER_POOL.pollFirst();
+      if (buf != null && buf.length >= minSize) {
+        return buf;
+      }
+    }
+    return new byte[Math.max(minSize, DEFAULT_BUFFER_SIZE)];
+  }
+
+  /**
+   * Release a buffer back to the pool if there's room.
+   *
+   * @param buf the buffer to release
+   */
+  private static void releaseBuffer(byte[] buf) {
+    if (buf == null || buf.length < DEFAULT_BUFFER_SIZE) {
+      return; // Don't pool small buffers
+    }
+    synchronized (BUFFER_POOL) {
+      if (BUFFER_POOL.size() < BUFFER_POOL_SIZE) {
+        BUFFER_POOL.addFirst(buf);
+      }
+    }
+  }
+
   private FSSTCompressor() {
     // Utility class
+  }
+
+  /**
+   * Check if compression is beneficial by trial-encoding a sample of strings.
+   * This prevents applying FSST when the overhead exceeds the savings.
+   *
+   * @param samples list of sample byte arrays to test
+   * @param symbolTable the symbol table to use for trial compression
+   * @return true if compression achieves at least MIN_COMPRESSION_RATIO savings
+   */
+  public static boolean isCompressionBeneficial(final List<byte[]> samples, final byte[] symbolTable) {
+    if (symbolTable == null || symbolTable.length == 0 || samples == null || samples.isEmpty()) {
+      return false;
+    }
+
+    // Trial compress up to 16 samples to estimate benefit
+    int sampleCount = Math.min(samples.size(), 16);
+    long originalSize = 0;
+    long compressedSize = 0;
+
+    for (int i = 0; i < sampleCount; i++) {
+      byte[] sample = samples.get(i);
+      if (sample == null || sample.length < MIN_COMPRESSION_SIZE) {
+        continue;
+      }
+      originalSize += sample.length;
+      byte[] encoded = encode(sample, symbolTable);
+      compressedSize += encoded.length;
+    }
+
+    if (originalSize == 0) {
+      return false;
+    }
+
+    // Calculate savings ratio
+    double ratio = 1.0 - ((double) compressedSize / originalSize);
+    return ratio >= MIN_COMPRESSION_RATIO;
   }
 
   /**
@@ -482,7 +574,10 @@ public final class FSSTCompressor {
     }
 
     // Decode compressed data (skip header byte)
-    final List<Byte> output = new ArrayList<>(encoded.length * 2);
+    // Pre-allocate output buffer - worst case: every byte expands to MAX_SYMBOL_LENGTH
+    // Using primitive byte[] instead of List<Byte> to avoid boxing/GC pressure
+    byte[] output = new byte[encoded.length * MAX_SYMBOL_LENGTH];
+    int outPos = 0;
     int pos = 1; // Skip header
 
     while (pos < encoded.length) {
@@ -493,25 +588,20 @@ public final class FSSTCompressor {
         if (pos >= encoded.length) {
           throw new IllegalStateException("Corrupted FSST data: escape at end");
         }
-        output.add(encoded[pos++]);
+        output[outPos++] = encoded[pos++];
       } else if (b < symbols.length) {
-        // Symbol code: expand to symbol bytes
+        // Symbol code: expand to symbol bytes using System.arraycopy for efficiency
         final byte[] symbol = symbols[b];
-        for (final byte sb : symbol) {
-          output.add(sb);
-        }
+        System.arraycopy(symbol, 0, output, outPos, symbol.length);
+        outPos += symbol.length;
       } else {
         // This shouldn't happen with proper encoding (all literals escaped)
         throw new IllegalStateException("Corrupted FSST data: unexpected byte code " + b);
       }
     }
 
-    // Convert to array
-    final byte[] result = new byte[output.size()];
-    for (int i = 0; i < output.size(); i++) {
-      result[i] = output.get(i);
-    }
-    return result;
+    // Single allocation for final sized array
+    return Arrays.copyOf(output, outPos);
   }
 
   /**

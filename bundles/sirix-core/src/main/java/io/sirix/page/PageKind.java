@@ -200,6 +200,46 @@ public enum PageKind {
             source.read(fsstSymbolTable);
           }
 
+          // Read columnar string storage if present
+          // Format: [hasColumnar:1][size:4][offsets:bit-packed][data:N]
+          MemorySegment stringValueMemory = null;
+          int[] stringValueOffsets = null;
+          int lastStringValueIndex = -1;
+          int stringValueMemorySize = 0;
+          
+          byte hasColumnar = source.readByte();
+          if (hasColumnar == 1) {
+            stringValueMemorySize = source.readInt();
+            stringValueOffsets = SlotOffsetCodec.decode(source);
+            
+            // Find last string value index from offsets
+            for (int i = stringValueOffsets.length - 1; i >= 0; i--) {
+              if (stringValueOffsets[i] >= 0) {
+                lastStringValueIndex = i;
+                break;
+              }
+            }
+            
+            // Read columnar data - zero-copy if possible
+            if (canZeroCopy && stringValueMemorySize > 0) {
+              final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
+              stringValueMemory = sourceSegment.asSlice(source.position(), stringValueMemorySize);
+              source.skip(stringValueMemorySize);
+            } else if (stringValueMemorySize > 0) {
+              stringValueMemory = memorySegmentAllocator.allocate(stringValueMemorySize);
+              if (source instanceof MemorySegmentBytesIn msSource) {
+                MemorySegment.copy(msSource.getSource(), source.position(), 
+                    stringValueMemory, 0, stringValueMemorySize);
+                source.skip(stringValueMemorySize);
+              } else {
+                byte[] stringData = new byte[stringValueMemorySize];
+                source.read(stringData);
+                MemorySegment.copy(stringData, 0, stringValueMemory, 
+                    java.lang.foreign.ValueLayout.JAVA_BYTE, 0, stringValueMemorySize);
+              }
+            }
+          }
+
           // Create page - use the zero-copy constructor for both paths
           // (it properly handles slotOffsets; backingBuffer/releaser can be null for non-zero-copy)
           KeyValueLeafPage page = new KeyValueLeafPage(
@@ -218,9 +258,18 @@ public enum PageKind {
               backingBufferReleaser
           );
 
-          // Set FSST symbol table if present
+          // Set FSST symbol table if present and propagate to any deserialized nodes
           if (fsstSymbolTable != null) {
             page.setFsstSymbolTable(fsstSymbolTable);
+            // Propagate symbol table to nodes that are already in the records array
+            // Lazily-deserialized nodes will get the table when accessed via getRecord()
+            page.propagateFsstSymbolTableToNodes();
+          }
+
+          // Set columnar string storage if present
+          if (stringValueMemory != null && stringValueOffsets != null) {
+            page.setStringValueData(stringValueMemory, stringValueOffsets, 
+                lastStringValueIndex, stringValueMemorySize);
           }
 
           return page;
@@ -334,6 +383,27 @@ public enum PageKind {
         sink.write(fsstSymbolTable);
       } else {
         sink.writeInt(0); // No symbol table
+      }
+
+      // Write columnar string storage if present
+      // Format: [hasColumnar:1][size:4][offsets:bit-packed][data:N]
+      if (keyValueLeafPage.hasColumnarStringStorage()) {
+        sink.writeByte((byte) 1); // Has columnar data
+        int columnarSize = keyValueLeafPage.getStringValueMemoryFreeSpaceStart();
+        sink.writeInt(columnarSize);
+        
+        // Write bit-packed string value offsets
+        SlotOffsetCodec.encode(sink, keyValueLeafPage.getStringValueOffsets(), 
+            keyValueLeafPage.getLastStringValueIndex());
+        
+        // Write columnar string data bulk
+        MemorySegment stringMem = keyValueLeafPage.getStringValueMemory();
+        byte[] stringData = new byte[columnarSize];
+        MemorySegment.copy(stringMem, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, 
+            stringData, 0, columnarSize);
+        sink.write(stringData);
+      } else {
+        sink.writeByte((byte) 0); // No columnar data
       }
 
       keyValueLeafPage.setHashCode(Reader.hashFunction.hashBytes(sink.bytesForRead().toByteArray()).asBytes());

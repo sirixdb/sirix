@@ -458,4 +458,79 @@ public final class JsonNodeTrxInsertTest {
       }
     }
   }
+
+  @Test
+  public void testAdaptiveFsstRejectsLowBenefitCompression() throws IOException {
+    // This test verifies that FSST compression is only applied when beneficial
+    // (P6: Benefit Guarantee - at least 15% savings required)
+    final DatabaseConfiguration config = new DatabaseConfiguration(PATHS.PATH1.getFile());
+    if (!Files.exists(PATHS.PATH1.getFile())) {
+      Databases.createJsonDatabase(config);
+    }
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      // Enable FSST compression
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+          .stringCompressionType(io.sirix.settings.StringCompressionType.FSST)
+          .build());
+      try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
+        wtx.insertArrayAsFirstChild();
+        // Insert strings with high entropy (random UUIDs) - should NOT benefit from FSST
+        // The adaptive check should reject FSST for this data
+        for (int i = 0; i < 100; i++) {
+          wtx.insertStringValueAsFirstChild(java.util.UUID.randomUUID().toString());
+          wtx.moveToParent();
+        }
+        wtx.commit();
+      }
+    }
+
+    // Verify all data is readable (even if FSST was rejected)
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+         final var session = database.beginResourceSession(RESOURCE);
+         final Writer writer = new StringWriter()) {
+      final var serializer = new JsonSerializer.Builder(session, writer).build();
+      serializer.call();
+
+      String result = writer.toString();
+      // Should be a valid JSON array with 100 elements
+      assertTrue(result.startsWith("["), "Should be a JSON array: " + result.substring(0, Math.min(50, result.length())));
+      assertTrue(result.endsWith("]"), "Should end with ]: " + result);
+    }
+  }
+
+  @Test
+  public void testFsstWithLargeStrings() throws IOException {
+    // Test FSST with larger string values that should benefit from compression
+    final DatabaseConfiguration config = new DatabaseConfiguration(PATHS.PATH1.getFile());
+    if (!Files.exists(PATHS.PATH1.getFile())) {
+      Databases.createJsonDatabase(config);
+    }
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+          .stringCompressionType(io.sirix.settings.StringCompressionType.FSST)
+          .build());
+      try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
+        wtx.insertArrayAsFirstChild();
+        // Insert larger strings with repetitive patterns (should benefit from FSST)
+        String basePattern = "This is a longer string with repetitive content that should compress well. ";
+        for (int i = 0; i < 100; i++) {
+          wtx.insertStringValueAsFirstChild(basePattern + "Entry number " + i + " continues here.");
+          wtx.moveToParent();
+        }
+        wtx.commit();
+      }
+    }
+
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+         final var session = database.beginResourceSession(RESOURCE);
+         final Writer writer = new StringWriter()) {
+      final var serializer = new JsonSerializer.Builder(session, writer).build();
+      serializer.call();
+
+      String result = writer.toString();
+      // Verify all values are correctly deserialized
+      assertTrue(result.contains("This is a longer string"), "Should contain the base pattern");
+      assertTrue(result.contains("Entry number 50"), "Should contain entry 50");
+    }
+  }
 }

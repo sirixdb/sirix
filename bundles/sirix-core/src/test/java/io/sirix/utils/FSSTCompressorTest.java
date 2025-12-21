@@ -355,5 +355,121 @@ class FSSTCompressorTest {
     // Then: roundtrip should work
     assertArrayEquals(largeInput, decoded);
   }
+
+  @Test
+  void testIsCompressionBeneficialWithHighlyRepetitiveData() {
+    // Given: highly repetitive data that should compress well (>= 15% savings)
+    final List<byte[]> samples = new ArrayList<>();
+    for (int i = 0; i < 100; i++) {
+      // Each string is ~70 bytes with very repetitive patterns
+      samples.add(("{\"type\":\"event\",\"action\":\"click\",\"target\":\"button_" + i + "\"}").getBytes(StandardCharsets.UTF_8));
+    }
+    final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
+
+    // When: checking if compression is beneficial
+    boolean beneficial = FSSTCompressor.isCompressionBeneficial(samples, symbolTable);
+
+    // Then: should be beneficial for highly repetitive data
+    assertTrue(beneficial, "Compression should be beneficial for highly repetitive JSON patterns");
+  }
+
+  @Test
+  void testIsCompressionBeneficialWithRandomData() {
+    // Given: random data with no patterns
+    final Random random = new Random(42);
+    final List<byte[]> samples = new ArrayList<>();
+    for (int i = 0; i < 100; i++) {
+      byte[] randomBytes = new byte[64];
+      random.nextBytes(randomBytes);
+      samples.add(randomBytes);
+    }
+    final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
+
+    // When: checking if compression is beneficial
+    boolean beneficial = FSSTCompressor.isCompressionBeneficial(samples, symbolTable);
+
+    // Then: should NOT be beneficial for random data (no patterns to exploit)
+    assertFalse(beneficial, "Compression should NOT be beneficial for random data");
+  }
+
+  @Test
+  void testIsCompressionBeneficialWithNullSymbolTable() {
+    // Given: null symbol table
+    final List<byte[]> samples = Arrays.asList(
+        "test data one".getBytes(StandardCharsets.UTF_8),
+        "test data two".getBytes(StandardCharsets.UTF_8)
+    );
+
+    // When: checking with null table
+    boolean beneficial = FSSTCompressor.isCompressionBeneficial(samples, null);
+
+    // Then: should return false
+    assertFalse(beneficial);
+  }
+
+  @Test
+  void testIsCompressionBeneficialWithEmptySymbolTable() {
+    // Given: empty symbol table
+    final List<byte[]> samples = Arrays.asList(
+        "test data one".getBytes(StandardCharsets.UTF_8),
+        "test data two".getBytes(StandardCharsets.UTF_8)
+    );
+
+    // When: checking with empty table
+    boolean beneficial = FSSTCompressor.isCompressionBeneficial(samples, new byte[0]);
+
+    // Then: should return false
+    assertFalse(beneficial);
+  }
+
+  @Test
+  void testIsCompressionBeneficialWithEmptySamples() {
+    // Given: empty samples list
+    final List<byte[]> samples = new ArrayList<>();
+    final byte[] symbolTable = new byte[]{1, 2, 3}; // Dummy table
+
+    // When: checking with empty samples
+    boolean beneficial = FSSTCompressor.isCompressionBeneficial(samples, symbolTable);
+
+    // Then: should return false
+    assertFalse(beneficial);
+  }
+
+  @Test
+  void testDecodePerformanceNoPrimitiveBoxing() {
+    // Given: data that will be encoded and decoded
+    // Need enough samples to exceed MIN_TOTAL_BYTES_FOR_TABLE (4096 bytes)
+    final List<byte[]> samples = new ArrayList<>();
+    for (int i = 0; i < 150; i++) {
+      // Each sample is ~50 bytes, 150 samples = 7500 bytes > 4096
+      samples.add(("{\"id\":" + i + ",\"value\":\"test_data_item_number_" + i + "\"}").getBytes(StandardCharsets.UTF_8));
+    }
+    final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
+    assertNotNull(symbolTable, "Symbol table should not be null with 150 samples");
+    assertTrue(symbolTable.length > 0, "Symbol table should have entries");
+
+    // Encode a sample
+    final byte[] input = "{\"id\":999,\"value\":\"test_data_item_999\"}".getBytes(StandardCharsets.UTF_8);
+    final byte[] encoded = FSSTCompressor.encode(input, symbolTable);
+
+    // When: decoding many times (performance test)
+    long startTime = System.nanoTime();
+    byte[] decoded = null;
+    for (int i = 0; i < 10000; i++) {
+      decoded = FSSTCompressor.decode(encoded, symbolTable);
+    }
+    long endTime = System.nanoTime();
+    long durationMs = (endTime - startTime) / 1_000_000;
+
+    // Then: should complete quickly (< 1 second for 10K decodes) and be correct
+    assertArrayEquals(input, decoded);
+    assertTrue(durationMs < 1000, "10K decodes should complete in < 1 second, took " + durationMs + "ms");
+  }
+
+  @Test
+  void testMinCompressionRatioConstant() {
+    // Verify the constant is set correctly
+    assertEquals(0.15, FSSTCompressor.MIN_COMPRESSION_RATIO, 0.001);
+  }
 }
 

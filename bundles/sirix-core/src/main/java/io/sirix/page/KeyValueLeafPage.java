@@ -1867,8 +1867,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Build symbol table only if we have enough strings to make it worthwhile
     if (stringSamples.size() >= FSSTCompressor.MIN_SAMPLES_FOR_TABLE) {
-      this.fsstSymbolTable = FSSTCompressor.buildSymbolTable(stringSamples);
-      return this.fsstSymbolTable != null && this.fsstSymbolTable.length > 0;
+      byte[] candidateTable = FSSTCompressor.buildSymbolTable(stringSamples);
+      
+      // Only apply FSST if trial compression shows >= 15% savings (adaptive threshold)
+      // This prevents overhead from exceeding savings for low-entropy data
+      if (candidateTable != null && candidateTable.length > 0 
+          && FSSTCompressor.isCompressionBeneficial(stringSamples, candidateTable)) {
+        this.fsstSymbolTable = candidateTable;
+        return true;
+      }
     }
 
     return false;
@@ -1933,6 +1940,97 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         objectStringNode.setFsstSymbolTable(fsstSymbolTable);
       }
     }
+  }
+
+  /**
+   * Entry for tracking string values during columnar storage collection.
+   * 
+   * @param slotNumber the slot number in the page (0 to NDP_NODE_COUNT-1)
+   * @param value the raw string value bytes
+   */
+  private record StringValueEntry(int slotNumber, byte[] value) {}
+
+  /**
+   * Collect string values into columnar storage for better compression.
+   * Groups all string data contiguously in stringValueMemory, which enables
+   * better FSST compression patterns and more efficient storage.
+   * 
+   * <p>This should be called before serialization when columnar storage is desired.
+   * The columnar layout stores: [length1:4][data1:N][length2:4][data2:M]...
+   * with stringValueOffsets pointing to each entry's start.
+   * 
+   * <p>Invariants maintained:
+   * <ul>
+   *   <li>P4: All offsets are valid: 0 ≤ offset < stringValueMemory.byteSize()</li>
+   *   <li>No overlapping entries</li>
+   *   <li>Sequential layout with no gaps</li>
+   * </ul>
+   */
+  public void collectStringsForColumnarStorage() {
+    java.util.List<StringValueEntry> entries = new java.util.ArrayList<>();
+    int totalSize = 0;
+    
+    for (int i = 0; i < records.length; i++) {
+      DataRecord record = records[i];
+      byte[] value = null;
+      
+      if (record instanceof StringNode sn) {
+        value = sn.getRawValueWithoutDecompression();
+      } else if (record instanceof ObjectStringNode osn) {
+        value = osn.getRawValueWithoutDecompression();
+      }
+      
+      if (value != null && value.length > 0) {
+        entries.add(new StringValueEntry(i, value));
+        totalSize += INT_SIZE + value.length; // 4 bytes length prefix + data
+      }
+    }
+    
+    if (entries.isEmpty()) {
+      return;
+    }
+    
+    // Allocate columnar segment if needed
+    if (stringValueMemory == null || stringValueMemory.byteSize() < totalSize) {
+      if (stringValueMemory != null && !externallyAllocatedMemory) {
+        segmentAllocator.release(stringValueMemory);
+      }
+      stringValueMemory = segmentAllocator.allocate(totalSize);
+    }
+    
+    // Store all string values contiguously
+    int offset = 0;
+    for (StringValueEntry entry : entries) {
+      // Validate offset bounds (P4 invariant)
+      if (offset + INT_SIZE + entry.value.length > stringValueMemory.byteSize()) {
+        throw new IllegalStateException(String.format(
+            "Columnar storage overflow: offset=%d, entrySize=%d, memorySize=%d",
+            offset, INT_SIZE + entry.value.length, stringValueMemory.byteSize()));
+      }
+      
+      stringValueOffsets[entry.slotNumber] = offset;
+      
+      // Write length prefix
+      stringValueMemory.set(java.lang.foreign.ValueLayout.JAVA_INT, offset, entry.value.length);
+      
+      // Write data using bulk copy
+      MemorySegment.copy(entry.value, 0, stringValueMemory,
+          java.lang.foreign.ValueLayout.JAVA_BYTE, offset + INT_SIZE, entry.value.length);
+      
+      offset += INT_SIZE + entry.value.length;
+      lastStringValueIndex = Math.max(lastStringValueIndex, entry.slotNumber);
+    }
+    
+    stringValueMemoryFreeSpaceStart = offset;
+  }
+
+  /**
+   * Check if this page has populated columnar string storage.
+   * 
+   * @return true if stringValueMemory contains data
+   */
+  public boolean hasColumnarStringStorage() {
+    return stringValueMemory != null && stringValueMemoryFreeSpaceStart > 0;
   }
 }
 
