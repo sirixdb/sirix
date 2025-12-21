@@ -34,11 +34,15 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
+
+import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
@@ -82,6 +86,12 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode {
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
 
+  // Lazy parsing state (single-stage since boolean value is cheap)
+  private Object lazySource;
+  private long lazyOffset;
+  private boolean lazyFieldsParsed;
+  private boolean hasHash;
+
   /**
    * Primary constructor with all primitive fields.
    */
@@ -98,6 +108,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode {
     this.value = value;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
+    this.lazyFieldsParsed = true;
   }
 
   /**
@@ -116,6 +127,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode {
     this.value = value;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
+    this.lazyFieldsParsed = true;
   }
 
   @Override
@@ -170,6 +182,9 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public long getHash() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return hash;
   }
 
@@ -255,6 +270,9 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode {
   }
 
   public boolean getValue() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return value;
   }
 
@@ -304,11 +322,17 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public int getPreviousRevisionNumber() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return previousRevision;
   }
 
   @Override
   public int getLastModifiedRevisionNumber() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return lastModifiedRevision;
   }
 
@@ -325,18 +349,60 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode {
                        final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
-    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
-    this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    this.value = source.readBoolean();
-    this.hash = config.hashType != HashType.NONE ? source.readLong() : 0;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
+    
+    // STRUCTURAL FIELDS
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    
+    // Store for lazy parsing
+    this.lazySource = source.getSource();
+    this.lazyOffset = source.position();
+    this.lazyFieldsParsed = false;
+    this.hasHash = config.hashType != HashType.NONE;
+    
+    this.previousRevision = 0;
+    this.lastModifiedRevision = 0;
+    this.value = false;
+    this.hash = 0;
+  }
+  
+  private void parseLazyFields() {
+    if (lazyFieldsParsed) {
+      return;
+    }
+    
+    if (lazySource == null) {
+      lazyFieldsParsed = true;
+      return;
+    }
+    
+    BytesIn<?> bytesIn;
+    if (lazySource instanceof MemorySegment segment) {
+      bytesIn = new MemorySegmentBytesIn(segment);
+      bytesIn.position(lazyOffset);
+    } else if (lazySource instanceof byte[] bytes) {
+      bytesIn = new ByteArrayBytesIn(bytes);
+      bytesIn.position(lazyOffset);
+    } else {
+      throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
+    }
+    
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.value = bytesIn.readBoolean();
+    if (hasHash) {
+      this.hash = bytesIn.readLong();
+    }
+    this.lazyFieldsParsed = true;
   }
 
   public BooleanNode toSnapshot() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return new BooleanNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, hash, value, hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null);

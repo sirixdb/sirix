@@ -34,11 +34,15 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
+
+import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
@@ -83,6 +87,14 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode {
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
 
+  // Lazy parsing state (for singleton reuse optimization)
+  private Object lazySource;
+  private long lazyOffset;
+  private boolean metadataParsed;
+  private boolean valueParsed;
+  private boolean hasHash;
+  private long valueOffset;
+
   /**
    * Primary constructor with all primitive fields.
    */
@@ -97,6 +109,8 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode {
     this.value = value;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
+    this.metadataParsed = true;
+    this.valueParsed = true;
   }
 
   /**
@@ -113,6 +127,8 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode {
     this.value = value;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
+    this.metadataParsed = true;
+    this.valueParsed = true;
   }
 
   @Override
@@ -165,6 +181,9 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public long getHash() {
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
     return hash;
   }
 
@@ -237,11 +256,15 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode {
   public void setDescendantCount(final long descendantCount) {}
 
   public Number getValue() {
+    if (!valueParsed) {
+      parseValueField();
+    }
     return value;
   }
 
   public void setValue(final Number value) {
     this.value = value;
+    this.valueParsed = true;
   }
 
   @Override
@@ -278,11 +301,17 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public int getPreviousRevisionNumber() {
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
     return previousRevision;
   }
 
   @Override
   public int getLastModifiedRevisionNumber() {
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
     return lastModifiedRevision;
   }
 
@@ -299,16 +328,87 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode {
                        final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
-    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
-    this.hash = config.hashType != HashType.NONE ? source.readLong() : 0;
-    this.value = NodeKind.deserializeNumber(source);
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
+    
+    // STRUCTURAL FIELD - parse immediately
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    
+    // Store state for lazy parsing
+    this.lazySource = source.getSource();
+    this.lazyOffset = source.position();
+    this.metadataParsed = false;
+    this.valueParsed = false;
+    this.hasHash = config.hashType != HashType.NONE;
+    this.valueOffset = 0;
+    
+    this.previousRevision = 0;
+    this.lastModifiedRevision = 0;
+    this.hash = 0;
+    this.value = null;
+  }
+  
+  private void parseMetadataFields() {
+    if (metadataParsed) {
+      return;
+    }
+    
+    if (lazySource == null) {
+      metadataParsed = true;
+      return;
+    }
+    
+    BytesIn<?> bytesIn = createBytesIn(lazyOffset);
+    
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    if (hasHash) {
+      this.hash = bytesIn.readLong();
+    }
+    this.valueOffset = bytesIn.position();
+    this.metadataParsed = true;
+  }
+  
+  private void parseValueField() {
+    if (valueParsed) {
+      return;
+    }
+    
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
+    
+    if (lazySource == null) {
+      valueParsed = true;
+      return;
+    }
+    
+    BytesIn<?> bytesIn = createBytesIn(valueOffset);
+    this.value = NodeKind.deserializeNumber(bytesIn);
+    this.valueParsed = true;
+  }
+  
+  private BytesIn<?> createBytesIn(long offset) {
+    if (lazySource instanceof MemorySegment segment) {
+      var bytesIn = new MemorySegmentBytesIn(segment);
+      bytesIn.position(offset);
+      return bytesIn;
+    } else if (lazySource instanceof byte[] bytes) {
+      var bytesIn = new ByteArrayBytesIn(bytes);
+      bytesIn.position(offset);
+      return bytesIn;
+    } else {
+      throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
+    }
   }
 
   public ObjectNumberNode toSnapshot() {
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
+    if (!valueParsed) {
+      parseValueField();
+    }
     return new ObjectNumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         hash, value, hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null);

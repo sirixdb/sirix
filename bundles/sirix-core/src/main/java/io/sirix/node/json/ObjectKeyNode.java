@@ -34,11 +34,15 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
+
+import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
@@ -87,6 +91,12 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   // Cache for name (not serialized, only nameKey is)
   private QNm cachedName;
 
+  // Lazy parsing state
+  private Object lazySource;
+  private long lazyOffset;
+  private boolean lazyFieldsParsed;
+  private boolean hasHash;
+
   /**
    * Primary constructor with all primitive fields.
    */
@@ -107,6 +117,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     this.hash = hash;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
+    this.lazyFieldsParsed = true;
   }
 
   /**
@@ -129,6 +140,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     this.hash = hash;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
+    this.lazyFieldsParsed = true;
   }
 
   @Override
@@ -183,6 +195,9 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   @Override
   public long getHash() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return hash;
   }
 
@@ -213,6 +228,9 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   public int getNameKey() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return nameKey;
   }
 
@@ -254,6 +272,9 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   public long getPathNodeKey() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return pathNodeKey;
   }
 
@@ -320,6 +341,9 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   @Override
   public long getDescendantCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return descendantCount;
   }
 
@@ -340,11 +364,17 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   @Override
   public int getPreviousRevisionNumber() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return previousRevision;
   }
 
   @Override
   public int getLastModifiedRevisionNumber() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return lastModifiedRevision;
   }
 
@@ -404,36 +434,76 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   /**
    * Populate this node from a BytesIn source for singleton reuse.
-   * Mirrors the deserialization logic in NodeKind.OBJECT_KEY.deserialize().
+   * LAZY OPTIMIZATION: Only parses structural fields immediately (NEW ORDER).
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
                        final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
-    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
-    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    this.firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    this.nameKey = DeltaVarIntCodec.decodeSigned(source);
-    if (config.hashType != HashType.NONE) {
-      this.hash = source.readLong();
-      this.descendantCount = DeltaVarIntCodec.decodeSigned(source);
-    } else {
-      this.hash = 0;
-      this.descendantCount = 0;
-    }
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
     this.cachedName = null;
+    
+    // STRUCTURAL FIELDS - parse immediately (NEW ORDER)
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    
+    // Store for lazy parsing
+    this.lazySource = source.getSource();
+    this.lazyOffset = source.position();
+    this.lazyFieldsParsed = false;
+    this.hasHash = config.hashType != HashType.NONE;
+    
+    this.nameKey = 0;
+    this.pathNodeKey = 0;
+    this.previousRevision = 0;
+    this.lastModifiedRevision = 0;
+    this.hash = 0;
+    this.descendantCount = 0;
+  }
+  
+  private void parseLazyFields() {
+    if (lazyFieldsParsed) {
+      return;
+    }
+    
+    if (lazySource == null) {
+      lazyFieldsParsed = true;
+      return;
+    }
+    
+    BytesIn<?> bytesIn;
+    if (lazySource instanceof MemorySegment segment) {
+      bytesIn = new MemorySegmentBytesIn(segment);
+      bytesIn.position(lazyOffset);
+    } else if (lazySource instanceof byte[] bytes) {
+      bytesIn = new ByteArrayBytesIn(bytes);
+      bytesIn.position(lazyOffset);
+    } else {
+      throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
+    }
+    
+    this.nameKey = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(bytesIn, nodeKey);
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    if (hasHash) {
+      this.hash = bytesIn.readLong();
+      this.descendantCount = DeltaVarIntCodec.decodeSigned(bytesIn);
+    }
+    this.lazyFieldsParsed = true;
   }
 
   /**
    * Create a deep copy snapshot of this node.
+   * Forces parsing of all lazy fields since snapshot must be independent.
    */
   public ObjectKeyNode toSnapshot() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return new ObjectKeyNode(nodeKey, parentKey, pathNodeKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, firstChildKey, nameKey, descendantCount, hash, hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null);

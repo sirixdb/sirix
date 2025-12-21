@@ -34,11 +34,15 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
+
+import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
@@ -82,8 +86,18 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
 
+  // Lazy parsing state (for singleton reuse optimization)
+  // Two-stage lazy parsing: metadata (cheap) vs value (expensive byte[] allocation)
+  private Object lazySource;            // Source for lazy parsing (MemorySegment or byte[])
+  private long lazyOffset;              // Offset where lazy metadata fields start
+  private boolean metadataParsed;       // Whether prevRev, lastModRev, hash are parsed
+  private boolean valueParsed;          // Whether value byte[] is parsed
+  private boolean hasHash;              // Whether hash is stored (from config)
+  private long valueOffset;             // Offset where value starts (after metadata)
+
   /**
    * Primary constructor with all primitive fields.
+   * All fields are already parsed - no lazy loading needed.
    */
   public ObjectStringNode(long nodeKey, long parentKey, int previousRevision,
       int lastModifiedRevision, long hash, byte[] value,
@@ -96,10 +110,14 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.value = value;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
+    // Constructed with all values - mark as fully parsed
+    this.metadataParsed = true;
+    this.valueParsed = true;
   }
 
   /**
    * Constructor with SirixDeweyID instead of byte array.
+   * All fields are already parsed - no lazy loading needed.
    */
   public ObjectStringNode(long nodeKey, long parentKey, int previousRevision,
       int lastModifiedRevision, long hash, byte[] value,
@@ -112,6 +130,9 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.value = value;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
+    // Constructed with all values - mark as fully parsed
+    this.metadataParsed = true;
+    this.valueParsed = true;
   }
 
   @Override
@@ -164,6 +185,9 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public long getHash() {
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
     return hash;
   }
 
@@ -228,16 +252,23 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public byte[] getRawValue() {
+    if (!valueParsed) {
+      parseValueField();
+    }
     return value;
   }
 
   @Override
   public void setRawValue(final byte[] value) {
     this.value = value;
+    this.valueParsed = true;
   }
 
   @Override
   public String getValue() {
+    if (!valueParsed) {
+      parseValueField();
+    }
     return new String(value, Constants.DEFAULT_ENCODING);
   }
 
@@ -275,11 +306,17 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public int getPreviousRevisionNumber() {
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
     return previousRevision;
   }
 
   @Override
   public int getLastModifiedRevisionNumber() {
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
     return lastModifiedRevision;
   }
 
@@ -292,22 +329,110 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.nodeKey = nodeKey;
   }
 
+  /**
+   * Populate this node from a BytesIn source for singleton reuse.
+   * LAZY OPTIMIZATION: Only parses structural field (parentKey) immediately.
+   * Two-stage lazy parsing: metadata (cheap) vs value (expensive byte[] allocation).
+   */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
                        final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
-    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
-    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
-    this.hash = config.hashType != HashType.NONE ? source.readLong() : 0;
-    int length = DeltaVarIntCodec.decodeSigned(source);
-    this.value = new byte[length];
-    source.read(this.value);
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
+    
+    // STRUCTURAL FIELD - parse immediately (parentKey is the only one for leaf nodes)
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    
+    // Store state for lazy parsing - DON'T parse remaining fields yet
+    this.lazySource = source.getSource();
+    this.lazyOffset = source.position();
+    this.metadataParsed = false;
+    this.valueParsed = false;
+    this.hasHash = config.hashType != HashType.NONE;
+    this.valueOffset = 0;
+    
+    // Initialize lazy fields to defaults (will be populated on demand)
+    this.previousRevision = 0;
+    this.lastModifiedRevision = 0;
+    this.hash = 0;
+    this.value = null;
+  }
+  
+  /**
+   * Parse metadata fields on demand (cheap - just varints and optionally a long).
+   */
+  private void parseMetadataFields() {
+    if (metadataParsed) {
+      return;
+    }
+    
+    if (lazySource == null) {
+      metadataParsed = true;
+      return;
+    }
+    
+    BytesIn<?> bytesIn = createBytesIn(lazyOffset);
+    
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    if (hasHash) {
+      this.hash = bytesIn.readLong();
+    }
+    this.valueOffset = bytesIn.position();
+    this.metadataParsed = true;
+  }
+  
+  /**
+   * Parse value field on demand (expensive - allocates byte[]).
+   */
+  private void parseValueField() {
+    if (valueParsed) {
+      return;
+    }
+    
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
+    
+    if (lazySource == null) {
+      valueParsed = true;
+      return;
+    }
+    
+    BytesIn<?> bytesIn = createBytesIn(valueOffset);
+    
+    int length = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.value = new byte[length];
+    bytesIn.read(this.value);
+    this.valueParsed = true;
+  }
+  
+  private BytesIn<?> createBytesIn(long offset) {
+    if (lazySource instanceof MemorySegment segment) {
+      var bytesIn = new MemorySegmentBytesIn(segment);
+      bytesIn.position(offset);
+      return bytesIn;
+    } else if (lazySource instanceof byte[] bytes) {
+      var bytesIn = new ByteArrayBytesIn(bytes);
+      bytesIn.position(offset);
+      return bytesIn;
+    } else {
+      throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
+    }
   }
 
+  /**
+   * Create a deep copy snapshot of this node.
+   * Forces parsing of all lazy fields since snapshot must be independent.
+   */
   public ObjectStringNode toSnapshot() {
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
+    if (!valueParsed) {
+      parseValueField();
+    }
     return new ObjectStringNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         hash, value != null ? value.clone() : null, hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null);

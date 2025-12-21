@@ -34,11 +34,15 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
+
+import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
@@ -88,24 +92,16 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
 
+  // Lazy parsing state
+  private Object lazySource;
+  private long lazyOffset;
+  private boolean lazyFieldsParsed;
+  private boolean hasHash;
+  private boolean storeChildCount;
+
   /**
    * Primary constructor with all primitive fields.
    * Used by deserialization (NodeKind.ARRAY.deserialize).
-   *
-   * @param nodeKey              the node key (record ID)
-   * @param parentKey            the parent node key
-   * @param pathNodeKey          the path node key for path summary
-   * @param previousRevision     the previous revision number
-   * @param lastModifiedRevision the last modified revision number
-   * @param rightSiblingKey      the right sibling key
-   * @param leftSiblingKey       the left sibling key
-   * @param firstChildKey        the first child key
-   * @param lastChildKey         the last child key
-   * @param childCount           the child count
-   * @param descendantCount      the descendant count
-   * @param hash                 the hash value
-   * @param hashFunction         the hash function for computing hashes
-   * @param deweyID              the DeweyID as byte array (can be null)
    */
   public ArrayNode(long nodeKey, long parentKey, long pathNodeKey, int previousRevision,
       int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long firstChildKey,
@@ -125,6 +121,7 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
     this.hash = hash;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
+    this.lazyFieldsParsed = true;
   }
 
   /**
@@ -149,6 +146,7 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
     this.hash = hash;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
+    this.lazyFieldsParsed = true;
   }
 
   @Override
@@ -203,6 +201,9 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public long getHash() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return hash;
   }
 
@@ -271,6 +272,9 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public long getChildCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return childCount;
   }
   
@@ -280,6 +284,9 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public long getDescendantCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return descendantCount;
   }
   
@@ -338,11 +345,17 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
 
   @Override
   public int getPreviousRevisionNumber() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return previousRevision;
   }
 
   @Override
   public int getLastModifiedRevisionNumber() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return lastModifiedRevision;
   }
 
@@ -357,44 +370,76 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
 
   /**
    * Populate this node from a BytesIn source for singleton reuse.
-   * Mirrors the deserialization logic in NodeKind.ARRAY.deserialize().
-   *
-   * @param source       the BytesIn source positioned after the NodeKind byte
-   * @param nodeKey      the node key (record ID)
-   * @param deweyId      the DeweyID bytes (may be null)
-   * @param hashFunction the hash function for computing hashes
-   * @param config       the resource configuration
+   * LAZY OPTIMIZATION: Only parses structural fields immediately (NEW ORDER).
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
                        final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
+    
+    // STRUCTURAL FIELDS - parse immediately (NEW ORDER)
     this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
-    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
-    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.lastChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    this.childCount = config.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0;
-    if (config.hashType != HashType.NONE) {
-      this.hash = source.readLong();
-      this.descendantCount = DeltaVarIntCodec.decodeSigned(source);
-    } else {
-      this.hash = 0;
-      this.descendantCount = 0;
+    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    
+    // Store for lazy parsing
+    this.lazySource = source.getSource();
+    this.lazyOffset = source.position();
+    this.lazyFieldsParsed = false;
+    this.hasHash = config.hashType != HashType.NONE;
+    this.storeChildCount = config.storeChildCount();
+    
+    this.previousRevision = 0;
+    this.lastModifiedRevision = 0;
+    this.childCount = 0;
+    this.hash = 0;
+    this.descendantCount = 0;
+  }
+  
+  private void parseLazyFields() {
+    if (lazyFieldsParsed) {
+      return;
     }
-    this.deweyIDBytes = deweyId;
-    this.sirixDeweyID = null;
+    
+    if (lazySource == null) {
+      lazyFieldsParsed = true;
+      return;
+    }
+    
+    BytesIn<?> bytesIn;
+    if (lazySource instanceof MemorySegment segment) {
+      bytesIn = new MemorySegmentBytesIn(segment);
+      bytesIn.position(lazyOffset);
+    } else if (lazySource instanceof byte[] bytes) {
+      bytesIn = new ByteArrayBytesIn(bytes);
+      bytesIn.position(lazyOffset);
+    } else {
+      throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
+    }
+    
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.childCount = storeChildCount ? DeltaVarIntCodec.decodeSigned(bytesIn) : 0;
+    if (hasHash) {
+      this.hash = bytesIn.readLong();
+      this.descendantCount = DeltaVarIntCodec.decodeSigned(bytesIn);
+    }
+    this.lazyFieldsParsed = true;
   }
 
   /**
    * Create a deep copy snapshot of this node.
-   *
-   * @return a new ArrayNode with all values copied (byte arrays cloned)
+   * Forces parsing of all lazy fields since snapshot must be independent.
    */
   public ArrayNode toSnapshot() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return new ArrayNode(nodeKey, parentKey, pathNodeKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey, childCount,
         descendantCount, hash, hashFunction,
