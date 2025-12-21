@@ -294,6 +294,9 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode {
 
   @Override
   public long getHash() {
+    if (hash == 0L && hashFunction != null) {
+      hash = computeHash(io.sirix.node.Bytes.elasticOffHeapByteBuffer());
+    }
     return hash;
   }
 

@@ -330,6 +330,9 @@ public enum NodeKind implements DeweyIdSerializer {
 
   /**
    * Node kind is text.
+   * Note: Hash is NOT serialized for text nodes because sibling keys affect the hash,
+   * and sibling key changes don't trigger hash recalculation. The hash is computed
+   * on-the-fly when needed.
    */
   TEXT((byte) 3) {
     @Override
@@ -351,6 +354,7 @@ public enum NodeKind implements DeweyIdSerializer {
       final long rightSiblingKey = nodeKey - getVarLong(source);
       final long leftSiblingKey = nodeKey - getVarLong(source);
       
+      // Hash is NOT deserialized - it's computed on-the-fly in getHash()
       return new TextNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
           rightSiblingKey, leftSiblingKey, 0, value, isCompressed,
           resourceConfiguration.nodeHashFunction, deweyID);
@@ -376,6 +380,8 @@ public enum NodeKind implements DeweyIdSerializer {
       final long nodeKey = node.getNodeKey();
       putVarLong(sink, nodeKey - node.getRightSiblingKey());
       putVarLong(sink, nodeKey - node.getLeftSiblingKey());
+      
+      // Hash is NOT serialized - it's computed on-the-fly in getHash()
     }
   },
 
@@ -470,6 +476,9 @@ public enum NodeKind implements DeweyIdSerializer {
 
   /**
    * Node kind is comment.
+   * Note: Hash is NOT serialized for comment nodes because sibling keys affect the hash,
+   * and sibling key changes don't trigger hash recalculation. The hash is computed
+   * on-the-fly when needed.
    */
   COMMENT((byte) 8) {
     @Override
@@ -491,6 +500,7 @@ public enum NodeKind implements DeweyIdSerializer {
       final long rightSiblingKey = nodeKey - getVarLong(source);
       final long leftSiblingKey = nodeKey - getVarLong(source);
       
+      // Hash is NOT deserialized - it's computed on-the-fly in getHash()
       return new CommentNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
           rightSiblingKey, leftSiblingKey, 0, value, isCompressed,
           resourceConfiguration.nodeHashFunction, deweyID);
@@ -516,6 +526,8 @@ public enum NodeKind implements DeweyIdSerializer {
       final long nodeKey = node.getNodeKey();
       putVarLong(sink, nodeKey - node.getRightSiblingKey());
       putVarLong(sink, nodeKey - node.getLeftSiblingKey());
+      
+      // Hash is NOT serialized - it's computed on-the-fly in getHash()
     }
   },
 
@@ -531,15 +543,26 @@ public enum NodeKind implements DeweyIdSerializer {
 
       final long firstChildKey = getVarLong(source);
       final long childCount = source.readByte() == ((byte) 0) ? 0 : 1;
-      final long descendantCount = resourceConfiguration.hashType == HashType.NONE ? 0 : source.readLong();
+      
+      final long hash;
+      final long descendantCount;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+        descendantCount = source.readLong();
+      } else {
+        hash = 0;
+        descendantCount = 0;
+      }
 
-      return new XmlDocumentRootNode(
+      final XmlDocumentRootNode node = new XmlDocumentRootNode(
           Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
           firstChildKey,
           Fixed.NULL_NODE_KEY.getStandardProperty(),  // lastChildKey not stored for XML doc root
           childCount,
           descendantCount,
           hashFunction);
+      node.setHash(hash);
+      return node;
     }
 
     @Override
@@ -548,8 +571,10 @@ public enum NodeKind implements DeweyIdSerializer {
       final XmlDocumentRootNode node = (XmlDocumentRootNode) record;
       putVarLong(sink, node.getFirstChildKey());
       sink.writeByte(node.hasFirstChild() ? (byte) 1 : (byte) 0);
-      if (resourceConfiguration.hashType != HashType.NONE)
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        writeHash(sink, node.getHash());
         sink.writeLong(node.getDescendantCount());
+      }
     }
   },
 

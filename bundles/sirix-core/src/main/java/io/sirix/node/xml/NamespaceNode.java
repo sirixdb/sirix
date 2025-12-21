@@ -166,7 +166,12 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node {
   public void setLastModifiedRevision(int revision) { this.lastModifiedRevision = revision; }
 
   @Override
-  public long getHash() { return hash; }
+  public long getHash() {
+    if (hash == 0L && hashFunction != null) {
+      hash = computeHash(io.sirix.node.Bytes.elasticOffHeapByteBuffer());
+    }
+    return hash;
+  }
 
   @Override
   public void setHash(long hash) { this.hash = hash; }

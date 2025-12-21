@@ -224,6 +224,9 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
   @Override
   public long getHash() {
     if (!metadataParsed) parseMetadataFields();
+    if (hash == 0L && hashFunction != null) {
+      hash = computeHash(io.sirix.node.Bytes.elasticOffHeapByteBuffer());
+    }
     return hash;
   }
 

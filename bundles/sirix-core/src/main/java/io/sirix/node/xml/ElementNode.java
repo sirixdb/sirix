@@ -350,6 +350,9 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   @Override
   public long getHash() {
     if (!lazyFieldsParsed) parseLazyFields();
+    if (hash == 0L && hashFunction != null) {
+      hash = computeHash(io.sirix.node.Bytes.elasticOffHeapByteBuffer());
+    }
     return hash;
   }
 
