@@ -822,9 +822,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   @Override
   public PageContainer dereferenceRecordPageForModification(final PageReference reference) {
-    final var result = pageRtx.getPageFragments(reference);
     final VersioningType versioningType = pageRtx.resourceSession.getResourceConfig().versioningType;
     final int mileStoneRevision = pageRtx.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
+    
+    // FULL versioning: Release any reader guard before loading for modification
+    // This prevents double-guarding when the page is already in RecordPageCache from a read
+    if (versioningType == VersioningType.FULL) {
+      pageRtx.closeCurrentPageGuard();
+    }
+    
+    final var result = pageRtx.getPageFragments(reference);
     
     // All fragments are guarded by getPageFragments() to prevent eviction during combining
     try {
@@ -834,8 +841,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       for (var page : result.pages()) {
         KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
         kvPage.releaseGuard();
-        assert kvPage.getGuardCount() == 0 : 
-            "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
+        // For FULL versioning, the page might still have guards from concurrent readers
+        // (which is fine - they'll release when done). For other versioning types,
+        // fragments should have exactly 1 guard from getPageFragments.
+        if (versioningType != VersioningType.FULL) {
+          assert kvPage.getGuardCount() == 0 : 
+              "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
+        }
       }
       // Note: Fragments remain in cache for potential reuse. ClockSweeper will evict them when appropriate.
     }

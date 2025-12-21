@@ -81,27 +81,29 @@ public enum VersioningType {
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() == 1;
       final T firstPage = pages.getFirst();
-
       final long recordPageKey = firstPage.getPageKey();
 
-      final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
+      // OPTIMIZATION: Create only ONE page for modifications (not two)
+      // FULL versioning stores complete pages, so both complete and modified can be the same
       final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
 
+      // Copy data once (not twice)
       for (int i = 0; i < firstPage.size(); i++) {
         var slot = firstPage.getSlot(i);
-
         if (slot == null) {
           continue;
         }
-
-        completePage.setSlot(slot, i);
-        completePage.setDeweyId(firstPage.getDeweyId(i), i);
-
         modifiedPage.setSlot(slot, i);
         modifiedPage.setDeweyId(firstPage.getDeweyId(i), i);
       }
 
-      final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
+      // Propagate FSST symbol table from the original page
+      propagateFsstSymbolTable(firstPage, modifiedPage);
+
+      // Same page for both complete and modified:
+      // - Writer reads from modifiedPage (sees own writes)
+      // - Parallel readers have original from cache (isolation preserved via orphan tracking)
+      final var pageContainer = PageContainer.getInstance(modifiedPage, modifiedPage);
       log.put(reference, pageContainer);
       return pageContainer;
     }

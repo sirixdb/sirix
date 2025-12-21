@@ -98,16 +98,13 @@ public final class TransactionIntentLog implements AutoCloseable {
     if (oldCachedPage != null && !oldCachedPage.isClosed()) {
       boolean isInNewContainer = (oldCachedPage == value.getComplete() || oldCachedPage == value.getModified());
       if (!isInNewContainer) {
-        // Old page is NOT one of the new pages - it becomes orphaned
-        // Only close if no guards are active (guardCount == 0)
-        // If guards are active, those PageGuards will close the page when they're done
-        if (oldCachedPage.getGuardCount() == 0) {
-          oldCachedPage.close();
-        }
-        // If guardCount > 0, the page is still in use by a PageGuard
-        // The PageGuard owner is responsible for releasing it
-        // When they do, the page will be orphaned with guardCount=0
-        // but will be closed when the PageGuard is closed
+        // Old page is NOT one of the new pages - mark as orphaned first
+        // This prevents new guards from being acquired (tryAcquireGuard checks isOrphaned)
+        oldCachedPage.markOrphaned();
+        // close() internally checks guardCount > 0 and isClosed
+        // If guards are active, close() returns without closing
+        // The last releaseGuard() will close the page (since isOrphaned is true)
+        oldCachedPage.close();
       }
     }
 

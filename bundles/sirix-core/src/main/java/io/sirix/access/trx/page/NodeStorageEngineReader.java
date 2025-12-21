@@ -977,7 +977,24 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                    pageReferenceToRecordPage.getKey(), indexLogKey.getRevisionNumber());
     }
 
-    // Atomic: cache lookup + load + guard + weight tracking
+    final ResourceConfiguration config = resourceSession.getResourceConfig();
+
+    // FULL versioning fast path: Page on disk IS complete - load directly without combining
+    // This saves 100% of the allocation and copy overhead for reads
+    if (config.versioningType == VersioningType.FULL) {
+      KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
+          .getOrLoadAndGuard(pageReferenceToRecordPage,
+              ref -> (KeyValueLeafPage) pageReader.read(ref, config));
+
+      if (page != null) {
+        pageReferenceToRecordPage.setPage(page);
+        closeCurrentPageGuard();
+        currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
+      }
+      return page;
+    }
+
+    // Other versioning types: load fragments → combine → cache
     KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
         .getOrLoadAndGuard(pageReferenceToRecordPage,
             ref -> (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(ref));
@@ -1169,6 +1186,34 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   PageFragmentsResult getPageFragments(final PageReference pageReference) {
     assert pageReference != null;
     final ResourceConfiguration config = resourceSession.getResourceConfig();
+
+    // FULL versioning fast path: Page IS complete - use RecordPageCache directly
+    // This bypasses the fragment cache since there are no fragments to combine
+    if (config.versioningType == VersioningType.FULL) {
+      final var pageReferenceWithKey = new PageReference()
+          .setKey(pageReference.getKey())
+          .setDatabaseId(databaseId)
+          .setResourceId(resourceId);
+
+      KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
+          .getOrLoadAndGuard(pageReferenceWithKey,
+              key -> (KeyValueLeafPage) pageReader.read(key, config));
+
+      if (page != null && !page.isClosed()) {
+        return new PageFragmentsResult(
+            java.util.Collections.singletonList(page),
+            java.util.Collections.emptyList(),
+            pageReference.getKey()
+        );
+      }
+      return new PageFragmentsResult(
+          java.util.Collections.emptyList(),
+          java.util.Collections.emptyList(),
+          pageReference.getKey()
+      );
+    }
+
+    // Other versioning types: load fragments from RecordPageFragmentCache
     final int revsToRestore = config.maxNumberOfRevisionsToRestore;
     final int[] revisionsToRead = config.versioningType.getRevisionRoots(rootPage.getRevision(), revsToRestore);
     final List<KeyValuePage<DataRecord>> pages = new ArrayList<>(revisionsToRead.length);

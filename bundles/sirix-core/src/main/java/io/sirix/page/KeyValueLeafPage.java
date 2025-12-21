@@ -123,6 +123,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private final AtomicInteger guardCount = new AtomicInteger(0);
 
   /**
+   * Orphan flag for deterministic cleanup.
+   * When a page is removed from cache but still has active guards, it's marked as orphaned.
+   * The last releaseGuard() call will close the page if it's orphaned.
+   * This prevents memory leaks without relying on GC/finalizers.
+   */
+  private volatile boolean isOrphaned = false;
+
+  /**
    * DIAGNOSTIC: Stack trace of where this page was created (only captured when DEBUG_MEMORY_LEAKS=true).
    * Used to trace where leaked pages come from.
    */
@@ -1689,11 +1697,49 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Release a guard on this page (decrement guard count).
+   * Try to acquire a guard on this page.
+   * Returns false if the page is orphaned or closed (cannot be used).
+   * This is the synchronized version that prevents race conditions with close().
+   *
+   * @return true if guard was acquired, false if page is orphaned/closed
    */
-  public void releaseGuard() {
-    int newCount = guardCount.decrementAndGet();
-    assert newCount >= 0 : "Guard count cannot be negative";
+  public synchronized boolean tryAcquireGuard() {
+    if (isOrphaned || isClosed) {
+      return false;
+    }
+    guardCount.incrementAndGet();
+    return true;
+  }
+
+  /**
+   * Release a guard on this page (decrement guard count).
+   * If the page is orphaned and this was the last guard, the page is closed.
+   * This ensures deterministic cleanup without relying on GC/finalizers.
+   */
+  public synchronized void releaseGuard() {
+    guardCount.decrementAndGet();
+    if (isOrphaned) {
+      // close() checks guardCount > 0 and isClosed internally
+      close();
+    }
+  }
+
+  /**
+   * Mark this page as orphaned.
+   * Called when the page is removed from cache but still has active guards.
+   * The page will be closed when the last guard is released.
+   */
+  public void markOrphaned() {
+    this.isOrphaned = true;
+  }
+
+  /**
+   * Check if this page is orphaned.
+   *
+   * @return true if the page has been marked as orphaned
+   */
+  public boolean isOrphaned() {
+    return isOrphaned;
   }
 
   /**
