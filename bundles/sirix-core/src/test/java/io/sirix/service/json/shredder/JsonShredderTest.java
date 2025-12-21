@@ -59,7 +59,7 @@ public final class JsonShredderTest {
 
   @BeforeEach
   public void setUp() {
-    //JsonTestHelper.deleteEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @AfterEach
@@ -154,7 +154,7 @@ public final class JsonShredderTest {
     THREAD_POOL.awaitTermination(20, TimeUnit.MINUTES);
   }
 
-  //@Disabled
+  @Disabled
   @Test
   public void testChicagoDescendantAxis() {
 //    if (Files.notExists(PATHS.PATH1.getFile())) {
@@ -209,7 +209,7 @@ public final class JsonShredderTest {
   // TODO: JMH test
   // Use Shenandoah or ZGC
   // JVM flags: -XX:+UseShenandoahGC -Xlog:gc -XX:+UnlockExperimentalVMOptions -XX:+AlwaysPreTouch -XX:+UseLargePages -XX:+DisableExplicitGC -XX:+PrintCompilation -XX:ReservedCodeCacheSize=1000m -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -XX:EliminateAllocationArraySizeLimit=1024
-  //@Disabled
+  @Disabled
   @Test
   public void testShredderAndTraverseChicago() {
     logger.info("start");
@@ -273,6 +273,7 @@ public final class JsonShredderTest {
     logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
   }
 
+  @Disabled
   @Test
   public void testParseChicago() throws IOException {
     final var stopWatch = new StopWatch();
