@@ -69,6 +69,9 @@ public enum VersioningType {
         completePage.setDeweyId(firstPage.getDeweyId(i), i);
       }
 
+      // Propagate FSST symbol table for string compression
+      propagateFsstSymbolTable(firstPage, completePage);
+
       return completePage;
     }
 
@@ -161,6 +164,9 @@ public enum VersioningType {
           }
         }
       }
+
+      // Propagate FSST symbol table for string compression
+      propagateFsstSymbolTable(firstPage, pageToReturn);
 
       return pageToReturn;
     }
@@ -325,6 +331,9 @@ public enum VersioningType {
           }
         }
       }
+
+      // Propagate FSST symbol table for string compression
+      propagateFsstSymbolTable(firstPage, pageToReturn);
 
       return pageToReturn;
     }
@@ -499,6 +508,9 @@ public enum VersioningType {
           }
         }
       }
+
+      // Propagate FSST symbol table for string compression
+      propagateFsstSymbolTable(firstPage, returnVal);
 
       return returnVal;
     }
@@ -680,4 +692,25 @@ public enum VersioningType {
    * @return revision root page numbers needed to restore a {@link KeyValuePage}
    */
   public abstract int[] getRevisionRoots(final @NonNegative int previousRevision, final @NonNegative int revsToRestore);
+
+  /**
+   * Propagate FSST symbol table from source page to target page.
+   * This is needed when combining page fragments to ensure the combined page
+   * can decompress string values.
+   *
+   * @param sourcePage the source page with the FSST symbol table
+   * @param targetPage the target page to set the symbol table on
+   * @param <V> the data record type
+   * @param <T> the key-value page type
+   */
+  protected static <V extends DataRecord, T extends KeyValuePage<V>> void propagateFsstSymbolTable(
+      final T sourcePage, final T targetPage) {
+    if (sourcePage instanceof io.sirix.page.KeyValueLeafPage sourceKvp 
+        && targetPage instanceof io.sirix.page.KeyValueLeafPage targetKvp) {
+      byte[] fsstSymbolTable = sourceKvp.getFsstSymbolTable();
+      if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
+        targetKvp.setFsstSymbolTable(fsstSymbolTable);
+      }
+    }
+  }
 }

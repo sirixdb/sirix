@@ -583,7 +583,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     reusableBytesIn.reset(data, 1);
     // Only fetch DeweyID if actually stored (avoids byte[] allocation)
     byte[] deweyId = resourceConfig.areDeweyIDsStored ? page.getDeweyIdAsByteArray(slotOffset) : null;
-    populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind);
+    populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
     
     // Update state - we're in singleton mode now (page guard unchanged)
     this.currentSingleton = singleton;
@@ -635,7 +635,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Only fetch DeweyID if actually stored (avoids byte[] allocation)
     byte[] deweyId = resourceConfig.areDeweyIDsStored 
         ? slotLocation.page().getDeweyIdAsByteArray(slotLocation.offset()) : null;
-    populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind);
+    populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, slotLocation.page());
     
     // Update state - we're in singleton mode now with new page
     this.currentPageGuard = slotLocation.guard();
@@ -752,7 +752,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @param kind      the node kind
    */
   private void populateSingleton(ImmutableNode singleton, BytesIn<?> source, 
-                                  long nodeKey, byte[] deweyId, NodeKind kind) {
+                                  long nodeKey, byte[] deweyId, NodeKind kind,
+                                  io.sirix.page.KeyValueLeafPage page) {
     switch (kind) {
       case OBJECT -> ((ObjectNode) singleton).readFrom(source, nodeKey, deweyId, 
           resourceConfig.nodeHashFunction, resourceConfig);
@@ -760,16 +761,30 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, resourceConfig);
       case OBJECT_KEY -> ((ObjectKeyNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
-      case STRING_VALUE -> ((StringNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
+      case STRING_VALUE -> {
+        StringNode stringNode = (StringNode) singleton;
+        stringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+        // Propagate FSST symbol table for decompression
+        byte[] fsstSymbolTable = page.getFsstSymbolTable();
+        if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
+          stringNode.setFsstSymbolTable(fsstSymbolTable);
+        }
+      }
       case NUMBER_VALUE -> ((NumberNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
       case BOOLEAN_VALUE -> ((BooleanNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
       case NULL_VALUE -> ((io.sirix.node.json.NullNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
-      case OBJECT_STRING_VALUE -> ((ObjectStringNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT_STRING_VALUE -> {
+        ObjectStringNode objectStringNode = (ObjectStringNode) singleton;
+        objectStringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+        // Propagate FSST symbol table for decompression
+        byte[] fsstSymbolTable = page.getFsstSymbolTable();
+        if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
+          objectStringNode.setFsstSymbolTable(fsstSymbolTable);
+        }
+      }
       case OBJECT_NUMBER_VALUE -> ((ObjectNumberNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
       case OBJECT_BOOLEAN_VALUE -> ((ObjectBooleanNode) singleton).readFrom(source, nodeKey, deweyId,

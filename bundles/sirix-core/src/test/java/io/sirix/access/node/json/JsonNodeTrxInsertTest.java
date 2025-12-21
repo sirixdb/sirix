@@ -379,4 +379,83 @@ public final class JsonNodeTrxInsertTest {
       assertEquals("bar", wtx.getValue());
     }
   }
+
+  @Test
+  public void testInsertObjectWithFsstCompression() throws IOException {
+    final DatabaseConfiguration config = new DatabaseConfiguration(PATHS.PATH1.getFile());
+    if (!Files.exists(PATHS.PATH1.getFile())) {
+      Databases.createJsonDatabase(config);
+    }
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      // Enable FSST compression
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+          .stringCompressionType(io.sirix.settings.StringCompressionType.FSST)
+          .build());
+      try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
+        wtx.insertObjectAsFirstChild();
+        // Insert multiple strings with common patterns for FSST to build symbol table
+        wtx.insertObjectRecordAsFirstChild("message1", new StringValue("Hello World! This is a test message."));
+        wtx.moveTo(1); // Move back to object node
+        wtx.insertObjectRecordAsFirstChild("message2", new StringValue("Hello World! This is another test message."));
+        wtx.moveTo(1);
+        wtx.insertObjectRecordAsFirstChild("message3", new StringValue("Hello World! This is yet another test message."));
+        wtx.moveTo(1);
+        wtx.insertObjectRecordAsFirstChild("message4", new StringValue("Hello World! This is the final test message."));
+        wtx.commit();
+      }
+    }
+
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+         final var session = database.beginResourceSession(RESOURCE);
+         final Writer writer = new StringWriter()) {
+      final var serializer = new JsonSerializer.Builder(session, writer).build();
+      serializer.call();
+
+      // Verify all strings are correctly serialized
+      String result = writer.toString();
+      System.out.println("Serialized output: " + result);
+      assertTrue(result.contains("Hello World!"), "Expected 'Hello World!' in: " + result);
+      assertTrue(result.contains("This is a test message"), "Expected 'This is a test message' in: " + result);
+      assertTrue(result.contains("This is another test message"), "Expected 'This is another test message' in: " + result);
+      assertTrue(result.contains("This is yet another test message"), "Expected 'This is yet another test message' in: " + result);
+      assertTrue(result.contains("This is the final test message"), "Expected 'This is the final test message' in: " + result);
+    }
+  }
+
+  @Test
+  public void testMultipleStringValuesWithFsstCompression() throws IOException {
+    final DatabaseConfiguration config = new DatabaseConfiguration(PATHS.PATH1.getFile());
+    if (!Files.exists(PATHS.PATH1.getFile())) {
+      Databases.createJsonDatabase(config);
+    }
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      // Enable FSST compression
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+          .stringCompressionType(io.sirix.settings.StringCompressionType.FSST)
+          .build());
+      try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
+        wtx.insertArrayAsFirstChild();
+        // Insert JSON array with many similar strings
+        for (int i = 0; i < 10; i++) {
+          wtx.insertStringValueAsFirstChild("Common prefix: value number " + i);
+          wtx.moveToParent();
+        }
+        wtx.commit();
+      }
+    }
+
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+         final var session = database.beginResourceSession(RESOURCE);
+         final Writer writer = new StringWriter()) {
+      final var serializer = new JsonSerializer.Builder(session, writer).build();
+      serializer.call();
+
+      String result = writer.toString();
+      // Verify all values are present
+      for (int i = 0; i < 10; i++) {
+        assertTrue(result.contains("Common prefix: value number " + i), 
+            "Should contain 'Common prefix: value number " + i + "' but got: " + result);
+      }
+    }
+  }
 }

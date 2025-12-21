@@ -48,12 +48,13 @@ import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
+import io.sirix.settings.StringCompressionType;
+import io.sirix.utils.FSSTCompressor;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 
 /**
  * JSON String node.
@@ -89,6 +90,14 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
 
+  // FSST Compression support (for columnar string storage)
+  /** Whether the stored value is FSST compressed */
+  private boolean isCompressed;
+  /** FSST symbol table for decompression (shared from KeyValueLeafPage) */
+  private byte[] fsstSymbolTable;
+  /** Decompressed value (lazy allocated on first access if compressed) */
+  private byte[] decodedValue;
+
   // Lazy parsing state (for singleton reuse optimization)
   // Two-stage lazy parsing: metadata (cheap) vs value (expensive byte[] allocation)
   private Object lazySource;            // Source for lazy parsing (MemorySegment or byte[])
@@ -105,6 +114,18 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public StringNode(long nodeKey, long parentKey, int previousRevision,
       int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
       byte[] value, LongHashFunction hashFunction, byte[] deweyID) {
+    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey,
+        leftSiblingKey, hash, value, hashFunction, deweyID, false, null);
+  }
+
+  /**
+   * Primary constructor with all primitive fields and compression support.
+   * All fields are already parsed - no lazy loading needed.
+   */
+  public StringNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
+      byte[] value, LongHashFunction hashFunction, byte[] deweyID,
+      boolean isCompressed, byte[] fsstSymbolTable) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -115,6 +136,8 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     this.value = value;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
+    this.isCompressed = isCompressed;
+    this.fsstSymbolTable = fsstSymbolTable;
     // Constructed with all values - mark as fully parsed
     this.metadataParsed = true;
     this.valueParsed = true;
@@ -127,6 +150,18 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public StringNode(long nodeKey, long parentKey, int previousRevision,
       int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
       byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
+    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey,
+        leftSiblingKey, hash, value, hashFunction, deweyID, false, null);
+  }
+
+  /**
+   * Constructor with SirixDeweyID and compression support.
+   * All fields are already parsed - no lazy loading needed.
+   */
+  public StringNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
+      byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID,
+      boolean isCompressed, byte[] fsstSymbolTable) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -137,6 +172,8 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     this.value = value;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
+    this.isCompressed = isCompressed;
+    this.fsstSymbolTable = fsstSymbolTable;
     // Constructed with all values - mark as fully parsed
     this.metadataParsed = true;
     this.valueParsed = true;
@@ -279,20 +316,88 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     if (!valueParsed) {
       parseValueField();
     }
+    // If compressed, decode on first access
+    if (isCompressed && decodedValue == null && value != null) {
+      decodedValue = FSSTCompressor.decode(value, fsstSymbolTable);
+    }
+    return isCompressed ? decodedValue : value;
+  }
+
+  /**
+   * Get the raw (possibly compressed) value bytes without FSST decoding.
+   * Use this for serialization to preserve compression.
+   * 
+   * @return the raw bytes as stored, possibly FSST compressed
+   */
+  public byte[] getRawValueWithoutDecompression() {
+    if (!valueParsed) {
+      parseValueField();
+    }
     return value;
   }
 
   @Override
   public void setRawValue(final byte[] value) {
     this.value = value;
+    this.decodedValue = null; // Reset decoded value when raw value changes
+  }
+
+  /**
+   * Set the raw value with compression information.
+   * 
+   * @param value the value bytes (possibly compressed)
+   * @param isCompressed true if value is FSST compressed
+   * @param fsstSymbolTable the symbol table for decompression (or null if not compressed)
+   */
+  public void setRawValue(final byte[] value, boolean isCompressed, byte[] fsstSymbolTable) {
+    this.value = value;
+    this.isCompressed = isCompressed;
+    this.fsstSymbolTable = fsstSymbolTable;
+    this.decodedValue = null;
+  }
+
+  /**
+   * Check if the stored value is FSST compressed.
+   * 
+   * @return true if compressed
+   */
+  public boolean isCompressed() {
+    return isCompressed;
+  }
+
+  /**
+   * Set compression state.
+   * 
+   * @param isCompressed true if value is compressed
+   */
+  public void setCompressed(boolean isCompressed) {
+    this.isCompressed = isCompressed;
+  }
+
+  /**
+   * Get the FSST symbol table.
+   * 
+   * @return the symbol table, or null if not using FSST
+   */
+  public byte[] getFsstSymbolTable() {
+    return fsstSymbolTable;
+  }
+
+  /**
+   * Set the FSST symbol table.
+   * 
+   * @param fsstSymbolTable the symbol table
+   */
+  public void setFsstSymbolTable(byte[] fsstSymbolTable) {
+    this.fsstSymbolTable = fsstSymbolTable;
+    this.decodedValue = null; // Reset decoded value when table changes
   }
 
   @Override
   public String getValue() {
-    if (!valueParsed) {
-      parseValueField();
-    }
-    return new String(value, Constants.DEFAULT_ENCODING);
+    // Use getRawValue() which handles FSST decompression
+    final byte[] rawValue = getRawValue();
+    return new String(rawValue, Constants.DEFAULT_ENCODING);
   }
 
   @Override
@@ -440,6 +545,9 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     
     BytesIn<?> bytesIn = createBytesIn(valueOffset);
     
+    // Read compression flag (1 byte: 0 = none, 1 = FSST)
+    this.isCompressed = bytesIn.readByte() == 1;
+    
     int length = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.value = new byte[length];
     bytesIn.read(this.value);
@@ -479,7 +587,8 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
         rightSiblingKey, leftSiblingKey, hash,
         value != null ? value.clone() : null,
         hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+        deweyIDBytes != null ? deweyIDBytes.clone() : null,
+        isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
   }
 
   @Override

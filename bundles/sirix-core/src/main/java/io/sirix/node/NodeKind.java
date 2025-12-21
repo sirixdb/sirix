@@ -1163,7 +1163,7 @@ public enum NodeKind implements DeweyIdSerializer {
   },
 
   /**
-   * JSON string value node.
+   * JSON object string value node.
    */
   OBJECT_STRING_VALUE((byte) 40) {
     @Override
@@ -1175,10 +1175,13 @@ public enum NodeKind implements DeweyIdSerializer {
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      // Compression flag (1 byte: 0 = none, 1 = FSST)
+      boolean isCompressed = source.readByte() == 1;
       int length = DeltaVarIntCodec.decodeSigned(source);
       byte[] value = new byte[length];
       source.read(value);
-      return new ObjectStringNode(recordID, parentKey, prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
+      // Note: fsstSymbolTable will be set by the page after deserialization if needed
+      return new ObjectStringNode(recordID, parentKey, prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
     }
 
     @Override
@@ -1194,7 +1197,10 @@ public enum NodeKind implements DeweyIdSerializer {
       if (resourceConfiguration.hashType != HashType.NONE) {
         sink.writeLong(node.getHash());
       }
-      final byte[] value = node.getRawValue();
+      // Compression flag (1 byte: 0 = none, 1 = FSST)
+      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      // Use raw value without decompression to preserve compression
+      final byte[] value = node.getRawValueWithoutDecompression();
       DeltaVarIntCodec.encodeSigned(sink, value.length);
       sink.write(value);
     }
@@ -1358,10 +1364,13 @@ public enum NodeKind implements DeweyIdSerializer {
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      // Compression flag (1 byte: 0 = none, 1 = FSST)
+      boolean isCompressed = source.readByte() == 1;
       int length = DeltaVarIntCodec.decodeSigned(source);
       byte[] value = new byte[length];
       source.read(value);
-      return new StringNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
+      // Note: fsstSymbolTable will be set by the page after deserialization if needed
+      return new StringNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value, resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
     }
 
     @Override
@@ -1379,7 +1388,10 @@ public enum NodeKind implements DeweyIdSerializer {
       if (resourceConfiguration.hashType != HashType.NONE) {
         sink.writeLong(node.getHash());
       }
-      final byte[] value = node.getRawValue();
+      // Compression flag (1 byte: 0 = none, 1 = FSST)
+      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      // Use raw value without decompression to preserve compression
+      final byte[] value = node.getRawValueWithoutDecompression();
       DeltaVarIntCodec.encodeSigned(sink, value.length);
       sink.write(value);
     }

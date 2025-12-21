@@ -42,6 +42,7 @@ import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.bytepipe.LZ4Compressor;
 import io.sirix.node.NodeSerializerImpl;
 import io.sirix.node.interfaces.RecordSerializer;
+import io.sirix.settings.StringCompressionType;
 import io.sirix.settings.VersioningType;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -295,6 +296,11 @@ public final class ResourceConfiguration {
    */
   private final BinaryEncodingVersion binaryVersion;
 
+  /**
+   * String compression type for string-containing nodes.
+   */
+  public final StringCompressionType stringCompressionType;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -330,6 +336,7 @@ public final class ResourceConfiguration {
     customCommitTimestamps = builder.customCommitTimestamps;
     storeNodeHistory = builder.storeNodeHistory;
     binaryVersion = builder.binaryEncodingVersion;
+    stringCompressionType = builder.stringCompressionType;
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -457,7 +464,8 @@ public final class ResourceConfiguration {
   private static final String[] JSONNAMES =
       { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
           "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
-          "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount" };
+          "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount",
+          "stringCompressionType" };
 
   /**
    * Serialize the configuration.
@@ -509,6 +517,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[15]).value(config.storeNodeHistory);
       // Child count.
       jsonWriter.name(JSONNAMES[16]).value(config.storeChildCount);
+      // String compression type.
+      jsonWriter.name(JSONNAMES[17]).value(config.stringCompressionType.name());
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -606,6 +616,15 @@ public final class ResourceConfiguration {
       assert name.equals(JSONNAMES[16]);
       final boolean storeChildCount = jsonReader.nextBoolean();
 
+      // String compression type (optional for backward compatibility with older configs)
+      StringCompressionType stringCompressionType = StringCompressionType.NONE;
+      if (jsonReader.hasNext()) {
+        name = jsonReader.nextName();
+        if (name.equals(JSONNAMES[17])) {
+          stringCompressionType = StringCompressionType.valueOf(jsonReader.nextString());
+        }
+      }
+
       jsonReader.endObject();
       jsonReader.close();
       fileReader.close();
@@ -628,7 +647,8 @@ public final class ResourceConfiguration {
              .storeDiffs(storeDiffs)
              .storeChildCount(storeChildCount)
              .customCommitTimestamps(customCommitTimestamps)
-             .storeNodeHistory(storeNodeHistory);
+             .storeNodeHistory(storeNodeHistory)
+             .stringCompressionType(stringCompressionType);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -726,6 +746,11 @@ public final class ResourceConfiguration {
      * If true, require native LZ4 support; otherwise builder will fall back to the stream LZ4 compressor.
      */
     private boolean requireNativeLz4 = false;
+
+    /**
+     * String compression type for string-containing nodes.
+     */
+    private StringCompressionType stringCompressionType = StringCompressionType.NONE;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -912,6 +937,23 @@ public final class ResourceConfiguration {
      */
     public Builder binaryEncodingVersion(BinaryEncodingVersion binaryEncodingVersion) {
       this.binaryEncodingVersion = requireNonNull(binaryEncodingVersion);
+      return this;
+    }
+
+    /**
+     * Set the string compression type for string-containing nodes.
+     * 
+     * <p>This controls whether and how strings in JSON/XML nodes are compressed:
+     * <ul>
+     *   <li>{@link StringCompressionType#NONE} - No per-string compression (default)</li>
+     *   <li>{@link StringCompressionType#FSST} - Fast Static Symbol Table compression</li>
+     * </ul>
+     *
+     * @param stringCompressionType the compression type to use
+     * @return reference to the builder object
+     */
+    public Builder stringCompressionType(StringCompressionType stringCompressionType) {
+      this.stringCompressionType = requireNonNull(stringCompressionType);
       return this;
     }
 

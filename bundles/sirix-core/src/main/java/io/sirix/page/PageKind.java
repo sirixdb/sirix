@@ -192,9 +192,17 @@ public enum PageKind {
             references.put(key, reference);
           }
 
+          // Read FSST symbol table for string compression
+          byte[] fsstSymbolTable = null;
+          final int fsstSymbolTableLength = source.readInt();
+          if (fsstSymbolTableLength > 0) {
+            fsstSymbolTable = new byte[fsstSymbolTableLength];
+            source.read(fsstSymbolTable);
+          }
+
           // Create page - use the zero-copy constructor for both paths
           // (it properly handles slotOffsets; backingBuffer/releaser can be null for non-zero-copy)
-          return new KeyValueLeafPage(
+          KeyValueLeafPage page = new KeyValueLeafPage(
               recordPageKey,
               revision,
               indexType,
@@ -209,6 +217,13 @@ public enum PageKind {
               backingBuffer,
               backingBufferReleaser
           );
+
+          // Set FSST symbol table if present
+          if (fsstSymbolTable != null) {
+            page.setFsstSymbolTable(fsstSymbolTable);
+          }
+
+          return page;
         }
         default -> throw new IllegalStateException();
       }
@@ -234,6 +249,10 @@ public enum PageKind {
       final IndexType indexType = keyValueLeafPage.getIndexType();
       final RecordSerializer recordPersister = resourceConfig.recordPersister;
       final Map<Long, PageReference> references = keyValueLeafPage.getReferencesMap();
+
+      // Build FSST symbol table and compress strings BEFORE addReferences() serializes them
+      keyValueLeafPage.buildFsstSymbolTable(resourceConfig);
+      keyValueLeafPage.compressStringValues();
 
       // Add references to overflow pages if necessary.
       keyValueLeafPage.addReferences(resourceConfig);
@@ -306,6 +325,15 @@ public enum PageKind {
       for (final var entry : overlongEntriesSortedByKey) {
         // Write key in persistent storage.
         sink.writeLong(entry.getValue().getKey());
+      }
+
+      // Write FSST symbol table for string compression
+      final byte[] fsstSymbolTable = keyValueLeafPage.getFsstSymbolTable();
+      if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
+        sink.writeInt(fsstSymbolTable.length);
+        sink.write(fsstSymbolTable);
+      } else {
+        sink.writeInt(0); // No symbol table
       }
 
       keyValueLeafPage.setHashCode(Reader.hashFunction.hashBytes(sink.bytesForRead().toByteArray()).asBytes());

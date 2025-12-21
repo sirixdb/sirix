@@ -1,31 +1,25 @@
 package io.sirix.access.trx.node.json;
 
-import io.sirix.access.trx.node.HashType;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
-import io.sirix.node.Bytes;
-import io.sirix.node.BytesOut;
 import io.sirix.node.DeweyIDNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
-import io.sirix.node.delegates.ValueNodeDelegate;
 import io.sirix.node.json.*;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-import io.sirix.utils.Compression;
+import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.NamePageHash;
 import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
-
-import java.lang.foreign.MemorySegment;
-import java.util.zip.Deflater;
 
 import static java.util.Objects.requireNonNull;
 
@@ -195,6 +189,15 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
       boolean doCompress, SirixDeweyID id) {
     final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
     
+    // Check if FSST compression should be applied
+    final ResourceConfiguration config = pageTrx.getResourceSession().getResourceConfig();
+    final boolean useCompression = doCompress && config.stringCompressionType == StringCompressionType.FSST;
+    
+    // For FSST, we would ideally build a symbol table from page strings.
+    // For now, we set the compression flag but keep the value as-is.
+    // The page-level serialization will handle actual compression when
+    // columnar storage is fully implemented.
+    
     var node = new StringNode(
         nodeKey,
         parentKey,
@@ -205,7 +208,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         0, // hash
         value,
         hashFunction,
-        id
+        id,
+        false, // isCompressed - set to false since no page-level symbol table yet
+        null   // fsstSymbolTable - will be set by page-level compression
     );
     
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
@@ -275,6 +280,15 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
       SirixDeweyID id) {
     final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
     
+    // Check if FSST compression should be applied
+    final ResourceConfiguration config = pageTrx.getResourceSession().getResourceConfig();
+    final boolean useCompression = doCompress && config.stringCompressionType == StringCompressionType.FSST;
+    
+    // For FSST, we would ideally build a symbol table from page strings.
+    // For now, we set the compression flag but keep the value as-is.
+    // The page-level serialization will handle actual compression when
+    // columnar storage is fully implemented.
+    
     var node = new ObjectStringNode(
         nodeKey,
         parentKey,
@@ -283,7 +297,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         0, // hash
         value,
         hashFunction,
-        id
+        id,
+        false, // isCompressed - set to false since no page-level symbol table yet
+        null   // fsstSymbolTable - will be set by page-level compression
     );
     
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);

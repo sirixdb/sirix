@@ -370,8 +370,30 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                                                             key,
                                                             page.getDeweyIdAsByteArray(offset),
                                                             resourceConfig);
+    
+    // Propagate FSST symbol table to string nodes for lazy decompression
+    propagateFsstSymbolTableToRecord(record, page);
+    
     page.setRecord(record);
     return record;
+  }
+
+  /**
+   * Propagate FSST symbol table from page to string nodes.
+   * This enables lazy decompression when getValue() is called.
+   */
+  private void propagateFsstSymbolTableToRecord(DataRecord record, KeyValueLeafPage page) {
+    if (record == null || page == null) {
+      return;
+    }
+    final byte[] fsstSymbolTable = page.getFsstSymbolTable();
+    if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
+      if (record instanceof io.sirix.node.json.StringNode stringNode) {
+        stringNode.setFsstSymbolTable(fsstSymbolTable);
+      } else if (record instanceof io.sirix.node.json.ObjectStringNode objectStringNode) {
+        objectStringNode.setFsstSymbolTable(fsstSymbolTable);
+      }
+    }
   }
 
   // ==================== FLYWEIGHT CURSOR SUPPORT ====================

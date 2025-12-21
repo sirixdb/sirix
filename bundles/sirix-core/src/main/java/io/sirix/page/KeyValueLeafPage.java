@@ -12,9 +12,13 @@ import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.RecordSerializer;
+import io.sirix.node.json.ObjectStringNode;
+import io.sirix.node.json.StringNode;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
+import io.sirix.settings.StringCompressionType;
+import io.sirix.utils.FSSTCompressor;
 import io.sirix.utils.ArrayIterator;
 import io.sirix.utils.OS;
 import io.sirix.node.BytesOut;
@@ -155,6 +159,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private int deweyIdMemoryFreeSpaceStart;
 
   /**
+   * Start of free space for string values.
+   */
+  private int stringValueMemoryFreeSpaceStart;
+
+  /**
    * The index of the last slot (the slot with the largest offset).
    */
   private int lastSlotIndex;
@@ -163,6 +172,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * The index of the last slot (the slot with the largest offset).
    */
   private int lastDeweyIdIndex;
+
+  /**
+   * The index of the last string value slot.
+   */
+  private int lastStringValueIndex;
 
   /**
    * Determines if references to {@link OverflowPage}s have been added or not.
@@ -191,10 +205,27 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private MemorySegment deweyIdMemory;
 
   /**
+   * Memory segment for string values (columnar storage for better compression).
+   * Stores all string content contiguously, separate from node metadata in slotMemory.
+   */
+  private MemorySegment stringValueMemory;
+
+  /**
+   * FSST symbol table for string compression (shared across all strings in page).
+   * Null if FSST compression is not used.
+   */
+  private byte[] fsstSymbolTable;
+
+  /**
    * Offset arrays to manage positions within memory segments.
    */
   private final int[] slotOffsets;
   private final int[] deweyIdOffsets;
+
+  /**
+   * Offset array for string values (maps slot -> offset in stringValueMemory).
+   */
+  private final int[] stringValueOffsets;
 
   /**
    * The index type.
@@ -280,13 +311,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.revision = revisionNumber;
     this.slotOffsets = new int[Constants.NDP_NODE_COUNT];
     this.deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
+    this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
+    Arrays.fill(stringValueOffsets, -1);
     this.doResizeMemorySegmentsIfNeeded = true;
     this.slotMemoryFreeSpaceStart = 0;
     this.lastSlotIndex = -1;
     this.deweyIdMemoryFreeSpaceStart = 0;
     this.lastDeweyIdIndex = -1;
+    this.stringValueMemoryFreeSpaceStart = 0;
+    this.lastStringValueIndex = -1;
     this.slotMemory = slotMemory;
     this.deweyIdMemory = deweyIdMemory;
     this.externallyAllocatedMemory = externallyAllocatedMemory;
@@ -333,8 +368,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.records = new DataRecord[Constants.NDP_NODE_COUNT];
     this.slotOffsets = new int[Constants.NDP_NODE_COUNT];
     this.deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
+    this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
+    Arrays.fill(stringValueOffsets, -1);
+    this.stringValueMemoryFreeSpaceStart = 0;
+    this.lastStringValueIndex = -1;
     this.doResizeMemorySegmentsIfNeeded = true;
     this.slotMemoryFreeSpaceStart = 0;
     this.lastSlotIndex = lastSlotIndex;
@@ -418,6 +457,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
     this.deweyIdMemory = deweyIdMemory;
     this.lastDeweyIdIndex = lastDeweyIdIndex;
+    
+    // String value memory (columnar storage) - not yet used in legacy constructor
+    this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
+    Arrays.fill(this.stringValueOffsets, -1);
+    this.stringValueMemory = null;
+    this.lastStringValueIndex = -1;
+    this.stringValueMemoryFreeSpaceStart = 0;
+    this.fsstSymbolTable = null;
     
     // Zero-copy: slotMemory is part of backingBuffer, track for release
     this.backingBuffer = backingBuffer;
@@ -1371,9 +1418,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
       backingBufferReleaser = null;
       backingBuffer = null;
-      // For zero-copy pages, slotMemory is a slice of backingBuffer, don't release separately
+      // For zero-copy pages, all memory segments are slices of backingBuffer, don't release separately
       slotMemory = null;
       deweyIdMemory = null;
+      stringValueMemory = null;  // CRITICAL: Must be nulled for columnar string storage
     } else if (!externallyAllocatedMemory) {
       // Release memory segments to the allocator pool (non-zero-copy path)
       try {
@@ -1383,12 +1431,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         if (deweyIdMemory != null && deweyIdMemory.byteSize() > 0) {
           segmentAllocator.release(deweyIdMemory);
         }
+        if (stringValueMemory != null && stringValueMemory.byteSize() > 0) {
+          segmentAllocator.release(stringValueMemory);
+        }
       } catch (Throwable e) {
         LOGGER.debug("Failed to release memory segments for page {}: {}", recordPageKey, e.getMessage());
       }
       slotMemory = null;
       deweyIdMemory = null;
+      stringValueMemory = null;
     }
+    
+    // Clear FSST symbol table
+    fsstSymbolTable = null;
 
     // Clear references to aid garbage collection
     Arrays.fill(records, null);
@@ -1411,7 +1466,139 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     if (deweyIdMemory != null) {
       total += deweyIdMemory.byteSize();
     }
+    if (stringValueMemory != null) {
+      total += stringValueMemory.byteSize();
+    }
     return total;
+  }
+
+  /**
+   * Get the FSST symbol table for string compression.
+   * 
+   * @return the symbol table bytes, or null if FSST is not used
+   */
+  public byte[] getFsstSymbolTable() {
+    return fsstSymbolTable;
+  }
+
+  /**
+   * Set the FSST symbol table for string compression.
+   * 
+   * @param symbolTable the symbol table bytes
+   */
+  public void setFsstSymbolTable(byte[] symbolTable) {
+    this.fsstSymbolTable = symbolTable;
+  }
+
+  /**
+   * Get a string value segment for a slot (zero-copy access).
+   * 
+   * @param slotNumber the slot number (0 to NDP_NODE_COUNT-1)
+   * @return MemorySegment slice for the string value, or null if not set
+   */
+  public MemorySegment getStringValueSegment(int slotNumber) {
+    if (stringValueMemory == null || slotNumber < 0 || slotNumber >= stringValueOffsets.length) {
+      return null;
+    }
+    
+    int offset = stringValueOffsets[slotNumber];
+    if (offset < 0) {
+      return null;
+    }
+    
+    // Calculate length: either to next offset or to end of used space
+    int length;
+    if (slotNumber == lastStringValueIndex) {
+      length = stringValueMemoryFreeSpaceStart - offset;
+    } else {
+      // Find next valid offset
+      int nextOffset = -1;
+      for (int i = slotNumber + 1; i < stringValueOffsets.length; i++) {
+        if (stringValueOffsets[i] >= 0) {
+          nextOffset = stringValueOffsets[i];
+          break;
+        }
+      }
+      if (nextOffset >= 0) {
+        length = nextOffset - offset;
+      } else {
+        length = stringValueMemoryFreeSpaceStart - offset;
+      }
+    }
+    
+    if (length <= 0) {
+      return null;
+    }
+    
+    return stringValueMemory.asSlice(offset, length);
+  }
+
+  /**
+   * Set the string value memory and offsets (for deserialization).
+   * 
+   * @param stringValueMemory the memory segment containing all string values
+   * @param stringValueOffsets the offset array mapping slots to string positions
+   * @param lastStringValueIndex the index of the last string value slot
+   * @param stringValueMemoryFreeSpaceStart the end of used space in stringValueMemory
+   */
+  public void setStringValueData(
+      MemorySegment stringValueMemory,
+      int[] stringValueOffsets,
+      int lastStringValueIndex,
+      int stringValueMemoryFreeSpaceStart
+  ) {
+    this.stringValueMemory = stringValueMemory;
+    if (stringValueOffsets != null) {
+      System.arraycopy(stringValueOffsets, 0, this.stringValueOffsets, 0, 
+          Math.min(stringValueOffsets.length, this.stringValueOffsets.length));
+    }
+    this.lastStringValueIndex = lastStringValueIndex;
+    this.stringValueMemoryFreeSpaceStart = stringValueMemoryFreeSpaceStart;
+  }
+
+  /**
+   * Check if this page has string value columnar storage.
+   * 
+   * @return true if stringValueMemory is present
+   */
+  public boolean hasStringValueMemory() {
+    return stringValueMemory != null && stringValueMemory.byteSize() > 0;
+  }
+
+  /**
+   * Get the string value memory segment.
+   * 
+   * @return the memory segment, or null if not present
+   */
+  public MemorySegment getStringValueMemory() {
+    return stringValueMemory;
+  }
+
+  /**
+   * Get the string value offsets array.
+   * 
+   * @return the offsets array (copy to prevent modification)
+   */
+  public int[] getStringValueOffsets() {
+    return stringValueOffsets.clone();
+  }
+
+  /**
+   * Get the last string value index.
+   * 
+   * @return the index of the last slot with a string value, or -1 if none
+   */
+  public int getLastStringValueIndex() {
+    return lastStringValueIndex;
+  }
+
+  /**
+   * Get the end of used space in stringValueMemory.
+   * 
+   * @return the free space start position
+   */
+  public int getStringValueMemoryFreeSpaceStart() {
+    return stringValueMemoryFreeSpaceStart;
   }
 
   @Override
@@ -1644,6 +1831,108 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         }
       }
     } // Confined arena automatically closes here, freeing all temporary buffers
+  }
+
+  /**
+   * Build FSST symbol table from all string values in this page.
+   * This should be called before serialization to enable page-level compression.
+   *
+   * @param resourceConfig the resource configuration
+   * @return true if FSST compression is enabled and symbol table was built
+   */
+  public boolean buildFsstSymbolTable(ResourceConfiguration resourceConfig) {
+    if (resourceConfig.stringCompressionType != StringCompressionType.FSST) {
+      return false;
+    }
+
+    // Collect all string values from StringNode and ObjectStringNode
+    java.util.ArrayList<byte[]> stringSamples = new java.util.ArrayList<>();
+    
+    for (final DataRecord record : records) {
+      if (record == null) {
+        continue;
+      }
+      if (record instanceof StringNode stringNode) {
+        byte[] value = stringNode.getRawValueWithoutDecompression();
+        if (value != null && value.length > 0) {
+          stringSamples.add(value);
+        }
+      } else if (record instanceof ObjectStringNode objectStringNode) {
+        byte[] value = objectStringNode.getRawValueWithoutDecompression();
+        if (value != null && value.length > 0) {
+          stringSamples.add(value);
+        }
+      }
+    }
+
+    // Build symbol table only if we have enough strings to make it worthwhile
+    if (stringSamples.size() >= FSSTCompressor.MIN_SAMPLES_FOR_TABLE) {
+      this.fsstSymbolTable = FSSTCompressor.buildSymbolTable(stringSamples);
+      return this.fsstSymbolTable != null && this.fsstSymbolTable.length > 0;
+    }
+
+    return false;
+  }
+
+  /**
+   * Compress all string values in the page using the pre-built FSST symbol table.
+   * This modifies the string nodes in place to use compressed values.
+   * Must be called after buildFsstSymbolTable().
+   */
+  public void compressStringValues() {
+    if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {
+      return;
+    }
+
+    for (final DataRecord record : records) {
+      if (record == null) {
+        continue;
+      }
+      if (record instanceof StringNode stringNode) {
+        if (!stringNode.isCompressed()) {
+          byte[] originalValue = stringNode.getRawValueWithoutDecompression();
+          if (originalValue != null && originalValue.length > 0) {
+            byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
+            // Only use compressed value if it's actually smaller
+            if (compressedValue.length < originalValue.length) {
+              stringNode.setRawValue(compressedValue, true, fsstSymbolTable);
+            }
+          }
+        }
+      } else if (record instanceof ObjectStringNode objectStringNode) {
+        if (!objectStringNode.isCompressed()) {
+          byte[] originalValue = objectStringNode.getRawValueWithoutDecompression();
+          if (originalValue != null && originalValue.length > 0) {
+            byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
+            // Only use compressed value if it's actually smaller
+            if (compressedValue.length < originalValue.length) {
+              objectStringNode.setRawValue(compressedValue, true, fsstSymbolTable);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Set the FSST symbol table on all string nodes after deserialization.
+   * This allows nodes to use lazy decompression.
+   */
+  public void propagateFsstSymbolTableToNodes() {
+    if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {
+      return;
+    }
+
+    for (final DataRecord record : records) {
+      if (record == null) {
+        continue;
+      }
+      if (record instanceof StringNode stringNode) {
+        stringNode.setFsstSymbolTable(fsstSymbolTable);
+      } else if (record instanceof ObjectStringNode objectStringNode) {
+        objectStringNode.setFsstSymbolTable(fsstSymbolTable);
+      }
+    }
   }
 }
 
