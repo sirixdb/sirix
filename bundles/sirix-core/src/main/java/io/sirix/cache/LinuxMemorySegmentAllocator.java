@@ -477,8 +477,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private void preAllocateVirtualRegion(int poolIndex, long segmentSize) {
     long virtualSize = VIRTUAL_REGION_SIZE;
     
-    // Try full size, fall back to smaller sizes if needed (2GB -> 1GB -> 512MB)
-    long[] attemptSizes = {virtualSize, virtualSize / 2, virtualSize / 4};
+    // Try full size, fall back to smaller sizes if needed (4GB -> 2GB -> 1GB -> 512MB -> 256MB -> 128MB)
+    // More aggressive fallbacks to support CI environments with limited virtual memory
+    long[] attemptSizes = {virtualSize, virtualSize / 2, virtualSize / 4, virtualSize / 8, virtualSize / 16, virtualSize / 32};
     
     for (long attemptSize : attemptSizes) {
       try {
