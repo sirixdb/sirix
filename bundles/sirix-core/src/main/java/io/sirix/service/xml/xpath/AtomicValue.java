@@ -30,7 +30,7 @@ import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.service.xml.xpath.types.Type;
 import io.sirix.utils.NamePageHash;
 import io.sirix.utils.TypedValue;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.node.interfaces.Node;
@@ -224,7 +224,7 @@ public final class AtomicValue implements Node, ValueNode, ImmutableXmlNode {
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     throw new UnsupportedOperationException();
   }
 

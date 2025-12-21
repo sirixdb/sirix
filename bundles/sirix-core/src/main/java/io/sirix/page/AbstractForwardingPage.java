@@ -22,7 +22,7 @@ package io.sirix.page;
 
 import com.google.common.collect.ForwardingObject;
 import org.checkerframework.checker.index.qual.NonNegative;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.interfaces.Page;
 
 import java.util.List;
@@ -46,7 +46,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
   protected abstract Page delegate();
 
   @Override
-  public void commit(final PageTrx pageWriteTrx) {
+  public void commit(final StorageEngineWriter pageWriteTrx) {
     delegate().commit(requireNonNull(pageWriteTrx));
   }
 

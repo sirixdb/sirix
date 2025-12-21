@@ -31,20 +31,21 @@ package io.sirix.access;
 import com.google.common.base.MoreObjects;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
-import io.sirix.access.trx.node.HashType;
-import io.sirix.node.NodeSerializerImpl;
-import io.sirix.node.interfaces.RecordSerializer;
-import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.BinaryEncodingVersion;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerKind;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.bytepipe.LZ4Compressor;
+import io.sirix.node.NodeSerializerImpl;
+import io.sirix.node.interfaces.RecordSerializer;
+import io.sirix.settings.StringCompressionType;
 import io.sirix.settings.VersioningType;
-import io.sirix.utils.OS;
+import net.openhft.hashing.LongHashFunction;
+import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -169,8 +170,8 @@ public final class ResourceConfiguration {
   /**
    * Standard storage.
    */
-  private static final StorageType STORAGE =
-      OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
+  private static final StorageType STORAGE = StorageType.FILE_CHANNEL;
+      //OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
 
   /**
    * Standard versioning approach.
@@ -295,6 +296,11 @@ public final class ResourceConfiguration {
    */
   private final BinaryEncodingVersion binaryVersion;
 
+  /**
+   * String compression type for string-containing nodes.
+   */
+  public final StringCompressionType stringCompressionType;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -330,6 +336,7 @@ public final class ResourceConfiguration {
     customCommitTimestamps = builder.customCommitTimestamps;
     storeNodeHistory = builder.storeNodeHistory;
     binaryVersion = builder.binaryEncodingVersion;
+    stringCompressionType = builder.stringCompressionType;
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -376,6 +383,15 @@ public final class ResourceConfiguration {
    */
   public long getID() {
     return id;
+  }
+
+  /**
+   * Get the database ID from the parent database configuration.
+   *
+   * @return the database ID, or 0 if database configuration not set
+   */
+  public long getDatabaseId() {
+    return databaseConfig != null ? databaseConfig.getDatabaseId() : 0;
   }
 
   @Override
@@ -448,7 +464,8 @@ public final class ResourceConfiguration {
   private static final String[] JSONNAMES =
       { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
           "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
-          "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount" };
+          "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount",
+          "stringCompressionType" };
 
   /**
    * Serialize the configuration.
@@ -500,6 +517,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[15]).value(config.storeNodeHistory);
       // Child count.
       jsonWriter.name(JSONNAMES[16]).value(config.storeChildCount);
+      // String compression type.
+      jsonWriter.name(JSONNAMES[17]).value(config.stringCompressionType.name());
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -597,6 +616,15 @@ public final class ResourceConfiguration {
       assert name.equals(JSONNAMES[16]);
       final boolean storeChildCount = jsonReader.nextBoolean();
 
+      // String compression type (optional for backward compatibility with older configs)
+      StringCompressionType stringCompressionType = StringCompressionType.NONE;
+      if (jsonReader.hasNext()) {
+        name = jsonReader.nextName();
+        if (name.equals(JSONNAMES[17])) {
+          stringCompressionType = StringCompressionType.valueOf(jsonReader.nextString());
+        }
+      }
+
       jsonReader.endObject();
       jsonReader.close();
       fileReader.close();
@@ -619,7 +647,8 @@ public final class ResourceConfiguration {
              .storeDiffs(storeDiffs)
              .storeChildCount(storeChildCount)
              .customCommitTimestamps(customCommitTimestamps)
-             .storeNodeHistory(storeNodeHistory);
+             .storeNodeHistory(storeNodeHistory)
+             .stringCompressionType(stringCompressionType);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -709,9 +738,19 @@ public final class ResourceConfiguration {
     /**
      * Determines if node history should be stored or not.
      */
-    private boolean storeNodeHistory;
+    private boolean storeNodeHistory = true;
 
     private BinaryEncodingVersion binaryEncodingVersion = BINARY_ENCODING_VERSION;
+
+    /**
+     * If true, require native LZ4 support; otherwise builder will fall back to the stream LZ4 compressor.
+     */
+    private boolean requireNativeLz4 = false;
+
+    /**
+     * String compression type for string-containing nodes.
+     */
+    private StringCompressionType stringCompressionType = StringCompressionType.NONE;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -723,7 +762,7 @@ public final class ResourceConfiguration {
       this.resource = requireNonNull(resource);
       pathSummary = true;
       storeChildCount = true;
-      byteHandler = new ByteHandlerPipeline(new LZ4Compressor()); // new Encryptor(path));
+      byteHandler = selectDefaultByteHandler();
     }
 
     /**
@@ -735,6 +774,27 @@ public final class ResourceConfiguration {
     public Builder storageType(final StorageType type) {
       this.type = requireNonNull(type);
       return this;
+    }
+
+    /**
+     * Require native LZ4 support; if native is unavailable, builder throws.
+     *
+     * @param requireNative flag to enforce native LZ4
+     * @return builder
+     */
+    public Builder requireNativeLz4(boolean requireNative) {
+      this.requireNativeLz4 = requireNative;
+      return this;
+    }
+
+    private ByteHandlerPipeline selectDefaultByteHandler() {
+      if (FFILz4Compressor.isNativeAvailable()) {
+        return new ByteHandlerPipeline(new FFILz4Compressor());
+      }
+      if (requireNativeLz4) {
+        throw new IllegalStateException("Native LZ4 required but not available");
+      }
+      return new ByteHandlerPipeline(new LZ4Compressor());
     }
 
     /**
@@ -877,6 +937,23 @@ public final class ResourceConfiguration {
      */
     public Builder binaryEncodingVersion(BinaryEncodingVersion binaryEncodingVersion) {
       this.binaryEncodingVersion = requireNonNull(binaryEncodingVersion);
+      return this;
+    }
+
+    /**
+     * Set the string compression type for string-containing nodes.
+     * 
+     * <p>This controls whether and how strings in JSON/XML nodes are compressed:
+     * <ul>
+     *   <li>{@link StringCompressionType#NONE} - No per-string compression (default)</li>
+     *   <li>{@link StringCompressionType#FSST} - Fast Static Symbol Table compression</li>
+     * </ul>
+     *
+     * @param stringCompressionType the compression type to use
+     * @return reference to the builder object
+     */
+    public Builder stringCompressionType(StringCompressionType stringCompressionType) {
+      this.stringCompressionType = requireNonNull(stringCompressionType);
       return this;
     }
 

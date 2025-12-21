@@ -293,7 +293,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
       }
 
       final int length = (revisions.length == 1 && revisions[0] < 0)
-          ? resMgr.getMostRecentRevisionNumber()
+          ? session.getMostRecentRevisionNumber()
           : revisions.length;
 
       if (serializeRestSequence || length > 1) {
@@ -317,7 +317,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
   protected void emitEndDocument() {
     try {
       final int length = (revisions.length == 1 && revisions[0] < 0)
-          ? resMgr.getMostRecentRevisionNumber()
+          ? session.getMostRecentRevisionNumber()
           : revisions.length;
 
       if (serializeRestSequence || length > 1) {
@@ -343,7 +343,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
   protected void emitRevisionStartNode(final @NonNull XmlNodeReadOnlyTrx rtx) {
     try {
       final int length = (revisions.length == 1 && revisions[0] < 0)
-          ? resMgr.getMostRecentRevisionNumber()
+          ? session.getMostRecentRevisionNumber()
           : revisions.length;
 
       if (serializeRest || length > 1) {
@@ -375,7 +375,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
           }
 
           write(">");
-        } else if (serializeRest) {
+        } else {
           write(">");
         }
 
@@ -395,7 +395,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
   protected void emitRevisionEndNode(final @NonNull XmlNodeReadOnlyTrx rtx) {
     try {
       final int length = (revisions.length == 1 && revisions[0] < 0)
-          ? resMgr.getMostRecentRevisionNumber()
+          ? session.getMostRecentRevisionNumber()
           : revisions.length;
 
       if (serializeRest || length > 1) {
@@ -584,7 +584,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
     private final OutputStream stream;
 
     /** Resource manager to use. */
-    private final XmlResourceSession resourceMgr;
+    private final XmlResourceSession session;
 
     /** Further revisions to serialize. */
     private int[] versions;
@@ -608,18 +608,18 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
     /**
      * Constructor, setting the necessary stuff.
      *
-     * @param resourceMgr Sirix {@link ResourceSession}
+     * @param resourceSession Sirix {@link ResourceSession}
      * @param stream {@link OutputStream} to write to
      * @param revisions revisions to serialize
      */
-    public XmlSerializerBuilder(final XmlResourceSession resourceMgr, final OutputStream stream,
+    public XmlSerializerBuilder(final XmlResourceSession resourceSession, final OutputStream stream,
         final int... revisions) {
       maxLevel = -1;
       nodeKey = 0;
-      this.resourceMgr = requireNonNull(resourceMgr);
+      this.session = requireNonNull(resourceSession);
       this.stream = requireNonNull(stream);
       if (revisions == null || revisions.length == 0) {
-        version = this.resourceMgr.getMostRecentRevisionNumber();
+        version = this.session.getMostRecentRevisionNumber();
       } else {
         version = revisions[0];
         versions = new int[revisions.length - 1];
@@ -630,21 +630,21 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
     /**
      * Constructor.
      *
-     * @param resourceMgr Sirix {@link ResourceSession}
+     * @param resourceSession Sirix {@link ResourceSession}
      * @param nodeKey root node key of subtree to shredder
      * @param stream {@link OutputStream} to write to
      * @param properties {@link XmlSerializerProperties} to use
      * @param revisions revisions to serialize
      */
-    public XmlSerializerBuilder(final XmlResourceSession resourceMgr, final @NonNegative long nodeKey,
+    public XmlSerializerBuilder(final XmlResourceSession resourceSession, final @NonNegative long nodeKey,
         final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       maxLevel = -1;
-      this.resourceMgr = requireNonNull(resourceMgr);
+      this.session = requireNonNull(resourceSession);
       this.nodeKey = nodeKey;
       this.stream = requireNonNull(stream);
       if (revisions == null || revisions.length == 0) {
-        version = this.resourceMgr.getMostRecentRevisionNumber();
+        version = this.session.getMostRecentRevisionNumber();
       } else {
         version = revisions[0];
         versions = new int[revisions.length - 1];
@@ -793,7 +793,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
      * @return a new {@link Serializer} instance
      */
     public XmlSerializer build() {
-      return new XmlSerializer(resourceMgr, nodeKey, this, initialIndent, version, versions);
+      return new XmlSerializer(session, nodeKey, this, initialIndent, version, versions);
     }
   }
 }

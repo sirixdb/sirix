@@ -69,7 +69,7 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
-  public PageReadOnlyTrx getPageTrx() {
+  public StorageEngineReader getPageTrx() {
     return delegate().getPageTrx();
   }
 
@@ -94,7 +94,7 @@ public abstract class AbstractForwardingPathSummaryReader extends ForwardingObje
   }
 
   @Override
-  public long getId() {
+  public int getId() {
     return delegate().getId();
   }
 

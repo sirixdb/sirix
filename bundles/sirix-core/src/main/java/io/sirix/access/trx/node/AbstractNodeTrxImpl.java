@@ -19,6 +19,8 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.page.UberPage;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -41,6 +43,8 @@ import static java.util.concurrent.Executors.newScheduledThreadPool;
  */
 public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor, NF extends NodeFactory, N extends ImmutableNode, IN extends InternalNodeReadOnlyTrx<N>>
     implements NodeReadOnlyTrx, InternalNodeTrx<W>, NodeCursor {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(AbstractNodeTrxImpl.class);
 
   /**
    * Maximum number of node modifications before auto commit.
@@ -116,7 +120,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /**
    * The page write trx.
    */
-  protected PageTrx pageTrx;
+  protected StorageEngineWriter pageTrx;
 
   /**
    * The {@link IndexController} used within the resource manager this {@link NodeTrx} is bound to.
@@ -182,7 +186,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.updateOperationsOrdered = new TreeMap<>();
     this.updateOperationsUnordered = new HashMap<>();
 
-    this.pageTrx = (PageTrx) nodeReadOnlyTrx.getPageTrx();
+    this.pageTrx = (StorageEngineWriter) nodeReadOnlyTrx.getPageTrx();
 
     // Only auto commit by node modifications if it is more then 0.
     this.maxNodeCount = maxNodeCount;
@@ -259,10 +263,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     if (lock != null) {
       lock.lock();
     }
-    try {
-      runnable.run();
-    } finally {
-    }
+    runnable.run();
     if (lock != null) {
       lock.unlock();
     }
@@ -334,7 +335,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
     if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
+      LOGGER.debug("AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
       commit("autoCommit");
+      LOGGER.debug("AUTO-COMMIT completed");
     }
   }
 
@@ -346,7 +349,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * @param trxID     transaction ID
    * @param revNumber revision number
    */
-  private void reInstantiate(final @NonNegative long trxID, final @NonNegative int revNumber) {
+  private void reInstantiate(final @NonNegative int trxID, final @NonNegative int revNumber) {
     // Reset page transaction to new uber page.
     resourceSession.closeNodePageWriteTransaction(getId());
     pageTrx =
@@ -367,9 +370,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     reInstantiateIndexes();
   }
 
-  protected abstract AbstractNodeHashing<N, R> reInstantiateNodeHashing(PageTrx pageTrx);
+  protected abstract AbstractNodeHashing<N, R> reInstantiateNodeHashing(StorageEngineWriter pageTrx);
 
-  protected abstract NF reInstantiateNodeFactory(PageTrx pageTrx);
+  protected abstract NF reInstantiateNodeFactory(StorageEngineWriter pageTrx);
 
   private void reInstantiateIndexes() {
     // Get a new path summary instance.
@@ -397,7 +400,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     modificationCount = 0L;
 
     // Close current page transaction.
-    final long trxID = getId();
+    final int trxID = getId();
     final int revision = getRevisionNumber();
     final int revNumber = pageTrx.getUberPage().isBootstrap() ? 0 : revision - 1;
 
@@ -445,7 +448,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       resourceSession.assertAccess(revision);
 
       // Close current page transaction.
-      final long trxID = getId();
+      final int trxID = getId();
       final int revNumber = getRevisionNumber();
 
       // Reset internal transaction state to new uber page.
@@ -535,9 +538,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   @Override
-  public PageTrx getPageWtx() {
+  public StorageEngineWriter getPageWtx() {
     nodeReadOnlyTrx.assertNotClosed();
-    return (PageTrx) nodeReadOnlyTrx.getPageTrx();
+    return (StorageEngineWriter) nodeReadOnlyTrx.getPageTrx();
   }
 
   @Override
@@ -546,7 +549,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   @Override
-  public synchronized void close() {
+  public void close() {
     runLocked(() -> {
       if (!isClosed()) {
         // Make sure to commit all dirty data.
@@ -555,8 +558,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         }
 
         // Release all state immediately.
-        final long trxId = getId();
+        final int trxId = getId();
         nodeReadOnlyTrx.close();
+        
+        // CRITICAL FIX: Close StorageEngineWriter to trigger TIL.close() and clean up uncommitted pages
+        // Without this, TIL instances with uncommitted pages leak
+        if (pageTrx != null && !pageTrx.isClosed()) {
+          pageTrx.close();
+        }
+        
         resourceSession.closeWriteTransaction(trxId);
         removeCommitFile();
 

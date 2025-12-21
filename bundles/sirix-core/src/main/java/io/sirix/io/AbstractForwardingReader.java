@@ -2,7 +2,7 @@ package io.sirix.io;
 
 import com.google.common.collect.ForwardingObject;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
