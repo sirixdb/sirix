@@ -386,6 +386,97 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * @param guard  the PageGuard protecting the page from eviction
    */
   public record SlotLocation(KeyValueLeafPage page, int offset, MemorySegment data, PageGuard guard) {}
+  
+  /**
+   * Result of lookupSlotOrCached - either a cached record or a slot location.
+   */
+  public record SlotOrCachedResult(DataRecord cachedRecord, SlotLocation slotLocation) {
+    public boolean hasCachedRecord() {
+      return cachedRecord != null;
+    }
+    public boolean hasSlotLocation() {
+      return slotLocation != null;
+    }
+  }
+  
+  /**
+   * Lookup a node, returning cached record if available, otherwise slot location.
+   * This does ONE page lookup and checks the cache first, avoiding double lookups.
+   *
+   * @param recordKey the node key to look up
+   * @param indexType the index type
+   * @param index     the index number
+   * @return SlotOrCachedResult with either cachedRecord or slotLocation, or both null if not found
+   */
+  public SlotOrCachedResult lookupSlotOrCached(final long recordKey, @NonNull final IndexType indexType,
+      @NonNegative final int index) {
+    requireNonNull(indexType);
+    assertNotClosed();
+
+    if (recordKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      return new SlotOrCachedResult(null, null);
+    }
+
+    final long recordPageKey = pageKey(recordKey, indexType);
+    var indexLogKey = new IndexLogKey(indexType, recordPageKey, index, revisionNumber);
+
+    // Get the page reference (uses cache) - ONE lookup for both paths
+    final PageReferenceToPage pageReferenceToPage = switch (indexType) {
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(indexLogKey);
+      default -> null;
+    };
+
+    if (pageReferenceToPage == null || pageReferenceToPage.page == null) {
+      return new SlotOrCachedResult(null, null);
+    }
+
+    KeyValueLeafPage page = (KeyValueLeafPage) pageReferenceToPage.page;
+    int offset = StorageEngineReader.recordPageOffset(recordKey);
+
+    // OPTIMIZATION: Check if record is already cached in the page
+    DataRecord cachedRecord = page.getRecord(offset);
+    if (cachedRecord != null) {
+      DataRecord checked = checkItemIfDeleted(cachedRecord);
+      if (checked != null) {
+        return new SlotOrCachedResult(checked, null);
+      }
+      // Record was deleted - return not found
+      return new SlotOrCachedResult(null, null);
+    }
+    
+    // Not cached - acquire guard and return slot location
+    page.acquireGuard();
+
+    // Check if page is still valid after acquiring guard
+    if (page.isClosed()) {
+      page.releaseGuard();
+      return new SlotOrCachedResult(null, null);
+    }
+
+    // Get slot data
+    MemorySegment data = page.getSlot(offset);
+    if (data == null) {
+      // Try overflow page
+      try {
+        final PageReference reference = page.getPageReference(recordKey);
+        if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
+          data = ((OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig())).getData();
+        }
+      } catch (final SirixIOException e) {
+        page.releaseGuard();
+        return new SlotOrCachedResult(null, null);
+      }
+    }
+
+    if (data == null) {
+      page.releaseGuard();
+      return new SlotOrCachedResult(null, null);
+    }
+
+    // Create guard wrapper (guard already acquired above)
+    PageGuard guard = PageGuard.wrapAlreadyGuarded(page);
+    return new SlotOrCachedResult(null, new SlotLocation(page, offset, data, guard));
+  }
 
   /**
    * Lookup a slot directly without deserializing to a node object.

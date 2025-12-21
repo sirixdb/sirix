@@ -965,15 +965,15 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read structural keys using delta encoding
+      // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      int prevRev = DeltaVarIntCodec.decodeSigned(source);
-      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long firstChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long lastChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      // Read optional fields
+      // LAZY FIELDS (metadata - parsed on demand in singleton mode)
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long childCount = resourceConfiguration.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0;
       long hash = 0;
       long descendantCount = 0;
@@ -990,15 +990,15 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final ObjectNode node = (ObjectNode) record;
       final long nodeKey = node.getNodeKey();
-      // Write structural keys using delta encoding
+      // STRUCTURAL FIELDS FIRST
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
-      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
-      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getFirstChildKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getLastChildKey(), nodeKey);
-      // Write optional fields
+      // LAZY FIELDS (metadata)
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       if (resourceConfiguration.storeChildCount()) {
         DeltaVarIntCodec.encodeSigned(sink, (int) node.getChildCount());
       }
@@ -1027,16 +1027,16 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read structural keys using delta encoding
+      // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      int prevRev = DeltaVarIntCodec.decodeSigned(source);
-      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long firstChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long lastChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      // Read optional fields
+      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      // LAZY FIELDS (metadata)
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long childCount = resourceConfiguration.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0;
       long hash = 0;
       long descendantCount = 0;
@@ -1053,16 +1053,16 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final ArrayNode node = (ArrayNode) record;
       final long nodeKey = node.getNodeKey();
-      // Write structural keys using delta encoding
+      // STRUCTURAL FIELDS FIRST
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
-      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
-      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
-      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getFirstChildKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getLastChildKey(), nodeKey);
-      // Write optional fields
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
+      // LAZY FIELDS (metadata)
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       if (resourceConfiguration.storeChildCount()) {
         DeltaVarIntCodec.encodeSigned(sink, (int) node.getChildCount());
       }
@@ -1091,16 +1091,16 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Read structural keys using delta encoding
+      // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      int prevRev = DeltaVarIntCodec.decodeSigned(source);
-      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long firstChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      // LAZY FIELDS (metadata)
       int nameKey = DeltaVarIntCodec.decodeSigned(source);
-      // Read optional fields
+      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long hash = 0;
       long descendantCount = 0;
       if (resourceConfiguration.hashType != HashType.NONE) {
@@ -1116,16 +1116,16 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final ObjectKeyNode node = (ObjectKeyNode) record;
       final long nodeKey = node.getNodeKey();
-      // Write structural keys using delta encoding
+      // STRUCTURAL FIELDS FIRST
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
-      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
-      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
-      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getFirstChildKey(), nodeKey);
+      // LAZY FIELDS (metadata)
       DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
-      // Write optional fields
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       if (resourceConfiguration.hashType != HashType.NONE) {
         sink.writeLong(node.getHash());
         DeltaVarIntCodec.encodeSigned(sink, (int) node.getDescendantCount());
@@ -1151,11 +1151,12 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // STRUCTURAL FIELD (parentKey is the only structural field for leaf nodes)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      // LAZY FIELDS (metadata + value)
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
-      // Read string value
       int length = DeltaVarIntCodec.decodeSigned(source);
       byte[] value = new byte[length];
       source.read(value);
@@ -1167,7 +1168,9 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final ObjectStringNode node = (ObjectStringNode) record;
       final long nodeKey = node.getNodeKey();
+      // STRUCTURAL FIELD
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      // LAZY FIELDS (metadata + value)
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       if (resourceConfiguration.hashType != HashType.NONE) {
@@ -1197,7 +1200,9 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // STRUCTURAL FIELD (parentKey is the only structural field for leaf nodes)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      // LAZY FIELDS (metadata + value)
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       boolean value = source.readBoolean();
@@ -1210,7 +1215,9 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final ObjectBooleanNode node = (ObjectBooleanNode) record;
       final long nodeKey = node.getNodeKey();
+      // STRUCTURAL FIELD
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      // LAZY FIELDS (metadata + value)
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       sink.writeBoolean(node.getValue());
@@ -1238,7 +1245,9 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // STRUCTURAL FIELD (parentKey is the only structural field for leaf nodes)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      // LAZY FIELDS (metadata + value)
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
@@ -1251,7 +1260,9 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final ObjectNumberNode node = (ObjectNumberNode) record;
       final long nodeKey = node.getNodeKey();
+      // STRUCTURAL FIELD
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      // LAZY FIELDS (metadata + value)
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       if (resourceConfiguration.hashType != HashType.NONE) {
@@ -1278,7 +1289,9 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // STRUCTURAL FIELD (parentKey is the only structural field for leaf nodes)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      // LAZY FIELDS (metadata)
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
@@ -1290,7 +1303,9 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final ObjectNullNode node = (ObjectNullNode) record;
       final long nodeKey = node.getNodeKey();
+      // STRUCTURAL FIELD
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      // LAZY FIELDS (metadata)
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       if (resourceConfiguration.hashType != HashType.NONE) {
@@ -1317,13 +1332,14 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      int prevRev = DeltaVarIntCodec.decodeSigned(source);
-      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      // LAZY FIELDS (metadata + value)
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
-      // Read string value
       int length = DeltaVarIntCodec.decodeSigned(source);
       byte[] value = new byte[length];
       source.read(value);
@@ -1335,11 +1351,13 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final StringNode node = (StringNode) record;
       final long nodeKey = node.getNodeKey();
+      // STRUCTURAL FIELDS FIRST
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
-      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
-      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      // LAZY FIELDS (metadata + value)
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       if (resourceConfiguration.hashType != HashType.NONE) {
         sink.writeLong(node.getHash());
       }
@@ -1367,11 +1385,13 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      int prevRev = DeltaVarIntCodec.decodeSigned(source);
-      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      // LAZY FIELDS (metadata + value)
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       boolean value = source.readBoolean();
       long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
       return new BooleanNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
@@ -1382,11 +1402,13 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final BooleanNode node = (BooleanNode) record;
       final long nodeKey = node.getNodeKey();
+      // STRUCTURAL FIELDS FIRST
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
-      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
-      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      // LAZY FIELDS (metadata + value)
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       sink.writeBoolean(node.getValue());
       if (resourceConfiguration.hashType != HashType.NONE) {
         sink.writeLong(node.getHash());
@@ -1412,11 +1434,13 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      int prevRev = DeltaVarIntCodec.decodeSigned(source);
-      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      // LAZY FIELDS (metadata + value)
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
       Number value = deserializeNumber(source);
       return new NumberNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
@@ -1427,11 +1451,13 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final NumberNode node = (NumberNode) record;
       final long nodeKey = node.getNodeKey();
+      // STRUCTURAL FIELDS FIRST
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
-      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
-      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      // LAZY FIELDS (metadata + value)
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       if (resourceConfiguration.hashType != HashType.NONE) {
         sink.writeLong(node.getHash());
       }
@@ -1456,11 +1482,13 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      int prevRev = DeltaVarIntCodec.decodeSigned(source);
-      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      // LAZY FIELDS (metadata)
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
       return new NullNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, resourceConfiguration.nodeHashFunction, deweyID);
     }
@@ -1470,11 +1498,13 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final NullNode node = (NullNode) record;
       final long nodeKey = node.getNodeKey();
+      // STRUCTURAL FIELDS FIRST
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
-      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
-      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
       DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      // LAZY FIELDS (metadata)
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
       if (resourceConfiguration.hashType != HashType.NONE) {
         sink.writeLong(node.getHash());
       }
