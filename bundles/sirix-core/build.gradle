@@ -91,9 +91,11 @@ test {
     systemProperty "sirix.debug.memory.leaks", System.getProperty("sirix.debug.memory.leaks", "false")
     systemProperty "sirix.debug.pin.counts", System.getProperty("sirix.debug.pin.counts", "false")
     
-    // LZ4 fast decompression: ~10-15% faster reads, skips compressed buffer validation
-    // Enable with: -Dsirix.lz4.fast.decompress=true
-    systemProperty "sirix.lz4.fast.decompress", System.getProperty("sirix.lz4.fast.decompress", "true")
+    // LZ4 decompression mode: safe mode is actually faster in LZ4 1.9.x
+    // Fast mode was deprecated and may be slower due to internal safety checks
+    // Enable fast mode (for testing only): ./gradlew test -Plz4.fast=true
+    def useFastLz4 = project.hasProperty('lz4.fast')
+    systemProperty "sirix.lz4.fast.decompress", useFastLz4.toString()
     
     // Show test output for diagnostics
     testLogging {

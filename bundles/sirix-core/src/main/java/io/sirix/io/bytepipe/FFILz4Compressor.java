@@ -62,18 +62,8 @@ public final class FFILz4Compressor implements ByteHandler {
   /**
    * Whether to use LZ4_decompress_fast instead of LZ4_decompress_safe.
    * 
-   * <p>LZ4_decompress_fast is ~10-15% faster but is deprecated and has security implications:
-   * <ul>
-   *   <li>It doesn't validate that compressed data doesn't overflow the input buffer</li>
-   *   <li>Corrupted/malicious data could cause out-of-bounds reads</li>
-   * </ul>
-   * 
-   * <p>Safe to use in Sirix because:
-   * <ul>
-   *   <li>Data is from trusted storage (not untrusted user input)</li>
-   *   <li>Original size is stored in header and validated</li>
-   *   <li>Pages have checksums for corruption detection</li>
-   * </ul>
+   * <p><b>NOTE:</b> In LZ4 1.9.x, LZ4_decompress_fast was deprecated and is actually
+   * SLOWER than LZ4_decompress_safe in benchmarks. This flag is kept for testing only.
    * 
    * <p>Set via system property: -Dsirix.lz4.fast.decompress=true
    */
