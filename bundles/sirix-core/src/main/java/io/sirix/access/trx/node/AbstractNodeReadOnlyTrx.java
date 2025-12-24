@@ -420,14 +420,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moveToItemList(nodeKey);
     }
     
-    // Fast path: skip all flyweight/singleton logic when both are disabled
-    if (!FLYWEIGHT_ENABLED && !SINGLETON_ENABLED) {
-      return moveToLegacy(nodeKey);
-    }
-    
-    // Try flyweight/singleton mode
-    if (pageReadOnlyTrx instanceof NodeStorageEngineReader reader) {
-      return moveToFlyweight(nodeKey, reader);
+    // Use singleton mode directly (inlined for performance - avoids moveToFlyweight indirection)
+    if (SINGLETON_ENABLED && pageReadOnlyTrx instanceof NodeStorageEngineReader reader) {
+      return moveToSingleton(nodeKey, reader);
     }
     
     // Fallback to traditional object mode

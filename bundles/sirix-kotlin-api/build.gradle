@@ -37,3 +37,38 @@ description = 'Kotlin API for SirixDB.'
 kotlin {
     jvmToolchain(25)
 }
+
+test {
+    useJUnitPlatform()
+    
+    // JFR profiling: set JFR_PROFILE=1 to enable
+    def jfrProfile = System.getenv("JFR_PROFILE")
+    def jfrOutput = System.getenv("JFR_OUTPUT") ?: "/tmp/sirix-kotlin-flight.jfr"
+    
+    def baseArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '-XX:+UnlockDiagnosticVMOptions',
+        '-XX:+DebugNonSafepoints',
+    ]
+    
+    if (jfrProfile) {
+        baseArgs.add("-XX:StartFlightRecording=duration=120s,filename=${jfrOutput},settings=profile")
+        println "JFR profiling enabled: output=${jfrOutput}"
+    }
+    
+    jvmArgs = baseArgs
+    
+    // Pass through diagnostic system properties (same as sirix-core)
+    systemProperty "sirix.debug.path.summary", System.getProperty("sirix.debug.path.summary", "false")
+    systemProperty "sirix.debug.leak.diagnostics", System.getProperty("sirix.debug.leak.diagnostics", "false")
+    systemProperty "sirix.debug.memory.leaks", System.getProperty("sirix.debug.memory.leaks", "false")
+    systemProperty "sirix.debug.pin.counts", System.getProperty("sirix.debug.pin.counts", "false")
+    
+    testLogging {
+        showStandardStreams = true
+        exceptionFormat = 'full'
+    }
+}

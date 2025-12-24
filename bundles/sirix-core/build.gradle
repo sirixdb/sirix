@@ -1,4 +1,5 @@
 dependencies {
+    api implLibraries.jacksonCore
     api implLibraries.brackit
     api implLibraries.jcommander
     api implLibraries.aspectjrt
@@ -67,6 +68,7 @@ test {
     def baseArgs = [
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
         '--enable-native-access=ALL-UNNAMED',
         '-XX:+UnlockDiagnosticVMOptions',
         '-XX:+DebugNonSafepoints',

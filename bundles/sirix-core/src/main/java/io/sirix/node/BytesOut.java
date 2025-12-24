@@ -1,6 +1,5 @@
 package io.sirix.node;
 
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
@@ -106,6 +105,34 @@ public interface BytesOut<T> extends AutoCloseable {
      * @return this BytesOut for method chaining
      */
     BytesOut<T> write(byte[] bytes, int offset, int length);
+    
+    /**
+     * Write data from a MemorySegment directly, without intermediate byte[] allocation.
+     * This is a high-performance method for bulk data transfer between segments.
+     * 
+     * <p>Uses {@link MemorySegment#copy(MemorySegment, long, MemorySegment, long, long)}
+     * for efficient zero-copy transfer when possible.
+     * 
+     * <p><b>Performance note:</b> This default implementation allocates a temporary byte[]
+     * as a fallback for implementations without native MemorySegment support. The key
+     * implementations ({@link MemorySegmentBytesOut}, {@link PooledBytesOut}) override
+     * this method to use direct segment-to-segment copy with zero allocation.
+     * 
+     * @param source the source segment to copy from
+     * @param sourceOffset the offset in the source segment
+     * @param length the number of bytes to copy (if <= 0, no-op)
+     * @return this BytesOut for method chaining
+     */
+    default BytesOut<T> writeSegment(MemorySegment source, long sourceOffset, long length) {
+        // Fallback for implementations without native MemorySegment support.
+        // MemorySegmentBytesOut and PooledBytesOut override this for zero-allocation path.
+        if (length <= 0) {
+            return this;
+        }
+        byte[] temp = new byte[(int) length];
+        MemorySegment.copy(source, java.lang.foreign.ValueLayout.JAVA_BYTE, sourceOffset, temp, 0, (int) length);
+        return write(temp);
+    }
     
     /**
      * Write from a ByteBuffer at a specific position.

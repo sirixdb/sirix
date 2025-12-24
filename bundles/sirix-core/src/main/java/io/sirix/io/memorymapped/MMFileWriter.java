@@ -524,7 +524,25 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     protected MMFileReader delegate() {
         return reader;
     }
+
+    @Override
+    public void forceAll() {
+        try {
+            if (mappedRegion != null) {
+                mappedRegion.force();
+            }
+            if (dataFileChannel != null) {
+                dataFileChannel.force(true);
+            }
+            if (revisionsFileChannel != null) {
+                revisionsFileChannel.force(true);
+            }
+        } catch (final IOException e) {
+            throw new SirixIOException(e);
+        }
+    }
 }
+
 
 
 

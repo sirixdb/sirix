@@ -47,6 +47,18 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   private final Shard shard; // Single shard instance (simplified design)
   private final long maxWeightBytes;
   private final AtomicLong currentWeightBytes = new AtomicLong(0L);
+  
+  // ===== CACHE HIT/MISS INSTRUMENTATION =====
+  private static final AtomicLong CACHE_HITS = new AtomicLong();
+  private static final AtomicLong CACHE_MISSES = new AtomicLong();
+  
+  /** Get cache hit count for diagnostics */
+  public static long getCacheHits() { return CACHE_HITS.get(); }
+  /** Get cache miss count for diagnostics */
+  public static long getCacheMisses() { return CACHE_MISSES.get(); }
+  /** Reset cache counters */
+  public static void resetCacheCounters() { CACHE_HITS.set(0); CACHE_MISSES.set(0); }
+  // ===== END INSTRUMENTATION =====
 
   /**
    * Create a new page cache.
@@ -192,11 +204,13 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
     KeyValueLeafPage page = map.compute(key, (k, existing) -> {
       if (existing != null && !existing.isClosed()) {
         // Cache HIT - acquire guard atomically
+        CACHE_HITS.incrementAndGet();
         existing.markAccessed();
         existing.acquireGuard();
         return existing;
       }
       // Cache MISS - load via loader
+      CACHE_MISSES.incrementAndGet();
       KeyValueLeafPage loaded = loader.apply(k);
       if (loaded != null && !loaded.isClosed()) {
         loaded.markAccessed();

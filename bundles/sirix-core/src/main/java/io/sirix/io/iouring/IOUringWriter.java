@@ -353,4 +353,14 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
     return this;
   }
+
+  @Override
+  public void forceAll() {
+    if (dataFile != null) {
+      dataFile.dataSync().join();
+    }
+    if (revisionsFile != null) {
+      revisionsFile.dataSync().join();
+    }
+  }
 }

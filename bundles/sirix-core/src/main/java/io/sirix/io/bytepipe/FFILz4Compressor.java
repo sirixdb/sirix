@@ -23,6 +23,31 @@ public final class FFILz4Compressor implements ByteHandler {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(FFILz4Compressor.class);
 
+  /**
+   * Compression mode for LZ4.
+   * <ul>
+   *   <li>{@link #FAST} - Optimized for write-heavy workloads (bulk imports, shredding).
+   *       Uses LZ4_compress_fast which is ~10x faster than HC with ~95% of the compression ratio.</li>
+   *   <li>{@link #HIGH_COMPRESSION} - Optimized for read-heavy or storage-constrained workloads.
+   *       Uses LZ4_compress_HC which provides better compression but is 10-20x slower.
+   *       Decompression speed is identical for both modes.</li>
+   * </ul>
+   */
+  public enum CompressionMode {
+    /**
+     * Fast compression mode - optimized for write throughput.
+     * Best for: bulk imports, shredding, write-heavy workloads.
+     */
+    FAST,
+    
+    /**
+     * High compression mode - optimized for storage efficiency.
+     * Best for: read-heavy workloads, storage-constrained environments.
+     * Note: Decompression is equally fast for both modes.
+     */
+    HIGH_COMPRESSION
+  }
+
   private static final Linker LINKER = Linker.nativeLinker();
   private static final boolean NATIVE_LZ4_AVAILABLE;
 
@@ -46,16 +71,20 @@ public final class FFILz4Compressor implements ByteHandler {
   private static final int LZ4_FAST_ACCELERATION = 2;
 
   /**
-   * Size threshold for choosing fast vs HC compression mode.
-   * Pages smaller than this use fast mode (latency-sensitive).
-   * Pages larger than this use HC mode (better for storage).
+   * Size threshold for adaptive compression (only used in HIGH_COMPRESSION mode).
+   * Pages smaller than this use fast mode even in HC mode for latency.
    */
-  private static final int FAST_MODE_SIZE_THRESHOLD = 16 * 1024; // 16KB
+  private static final int ADAPTIVE_HC_THRESHOLD = 16 * 1024; // 16KB
 
   /**
    * Minimum size to attempt compression. Smaller data has too much overhead.
    */
   private static final int MIN_COMPRESSION_SIZE = 64;
+
+  /**
+   * The compression mode for this instance.
+   */
+  private final CompressionMode compressionMode;
 
   // Fallback to lz4-java if native not available
   private static final LZ4Compressor FALLBACK = new LZ4Compressor();
@@ -151,6 +180,33 @@ public final class FFILz4Compressor implements ByteHandler {
     LZ4_COMPRESS_HC = compressHC;
     LZ4_DECOMPRESS_SAFE = decompress;
     LZ4_COMPRESS_BOUND = compressBound;
+  }
+
+  /**
+   * Creates a new FFILz4Compressor with FAST compression mode (default).
+   * Best for write-heavy workloads like bulk imports and shredding.
+   */
+  public FFILz4Compressor() {
+    this(CompressionMode.FAST);
+  }
+
+  /**
+   * Creates a new FFILz4Compressor with the specified compression mode.
+   *
+   * @param compressionMode the compression mode to use
+   */
+  public FFILz4Compressor(CompressionMode compressionMode) {
+    this.compressionMode = compressionMode;
+    LOGGER.debug("FFILz4Compressor initialized with {} mode", compressionMode);
+  }
+
+  /**
+   * Returns the compression mode for this instance.
+   *
+   * @return the compression mode
+   */
+  public CompressionMode getCompressionMode() {
+    return compressionMode;
   }
 
   @Override
@@ -302,14 +358,14 @@ public final class FFILz4Compressor implements ByteHandler {
 
   /**
    * Compress data and return a new MemorySegment with compressed data.
-   * Uses adaptive compression: fast mode for small data, HC mode for large data.
    * Uses a confined Arena for temporary compression buffer.
    * 
-   * <p>Compression strategy:
+   * <p>Compression strategy depends on the configured {@link CompressionMode}:
    * <ul>
    *   <li>Data smaller than MIN_COMPRESSION_SIZE (64 bytes): returned as-is with header</li>
-   *   <li>Data smaller than FAST_MODE_SIZE_THRESHOLD (16KB): fast mode with acceleration</li>
-   *   <li>Data larger than threshold: HC mode for better compression ratio</li>
+   *   <li>{@link CompressionMode#FAST}: always uses LZ4 fast mode (~10x faster than HC)</li>
+   *   <li>{@link CompressionMode#HIGH_COMPRESSION}: uses fast mode for small data (&lt;16KB),
+   *       HC mode for larger data (better compression ratio)</li>
    * </ul>
    * 
    * <p>Handles both heap and native MemorySegments. Heap segments are copied
@@ -355,20 +411,27 @@ public final class FFILz4Compressor implements ByteHandler {
       // Write decompressed size header (for decompression)
       tempCompressed.set(JAVA_INT, 0, srcSize);
 
-      // Adaptive compression: use fast mode for small pages (latency-sensitive),
-      // HC mode for larger pages (better compression ratio for storage)
+      // Choose compression based on configured mode
       int compressedSize;
-      if (srcSize < FAST_MODE_SIZE_THRESHOLD) {
-        // Fast mode with acceleration for latency-sensitive small pages
+      if (compressionMode == CompressionMode.FAST) {
+        // Always use fast mode - optimized for write throughput
         compressedSize = compressSegmentFast(nativeSource, tempCompressed.asSlice(4), LZ4_FAST_ACCELERATION);
         if (compressedSize <= 0) {
           throw new RuntimeException("LZ4 fast compression failed: " + compressedSize);
         }
       } else {
-        // HC mode for larger pages where compression ratio matters more
-        compressedSize = compressSegmentHC(nativeSource, tempCompressed.asSlice(4), LZ4HC_CLEVEL_DEFAULT);
-        if (compressedSize <= 0) {
-          throw new RuntimeException("LZ4 HC compression failed: " + compressedSize);
+        // HIGH_COMPRESSION mode: use adaptive approach
+        // Small pages still use fast mode for latency, large pages use HC
+        if (srcSize < ADAPTIVE_HC_THRESHOLD) {
+          compressedSize = compressSegmentFast(nativeSource, tempCompressed.asSlice(4), LZ4_FAST_ACCELERATION);
+          if (compressedSize <= 0) {
+            throw new RuntimeException("LZ4 fast compression failed: " + compressedSize);
+          }
+        } else {
+          compressedSize = compressSegmentHC(nativeSource, tempCompressed.asSlice(4), LZ4HC_CLEVEL_DEFAULT);
+          if (compressedSize <= 0) {
+            throw new RuntimeException("LZ4 HC compression failed: " + compressedSize);
+          }
         }
       }
       

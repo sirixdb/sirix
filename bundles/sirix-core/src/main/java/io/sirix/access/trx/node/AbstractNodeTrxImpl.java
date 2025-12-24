@@ -50,6 +50,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * Maximum number of node modifications before auto commit.
    */
   private final int maxNodeCount;
+
+  /**
+   * {@code true} if transaction is auto-committing (by count or by delay), {@code false} otherwise.
+   * Auto-committing enables async fsync for better throughput.
+   */
+  private final boolean isAutoCommitting;
+
   /**
    * Scheduled executor service.
    */
@@ -190,6 +197,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
     // Only auto commit by node modifications if it is more then 0.
     this.maxNodeCount = maxNodeCount;
+    this.isAutoCommitting = maxNodeCount > 0 || !afterCommitDelay.isZero();
     this.modificationCount = 0L;
 
     this.state = State.RUNNING;
@@ -289,7 +297,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       final var preCommitRevision = getRevisionNumber();
 
-      final UberPage uberPage = pageTrx.commit(commitMessage, commitTimestamp);
+      final UberPage uberPage = pageTrx.commit(commitMessage, commitTimestamp, isAutoCommitting);
 
       // Remember successfully committed uber page in resource manager.
       resourceSession.setLastCommittedUberPage(uberPage);

@@ -116,6 +116,12 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
   private volatile boolean isClosed;
 
   /**
+   * Pending fsync future for async durability.
+   * For auto-commit mode, fsync runs in background; next commit waits for it.
+   */
+  private volatile java.util.concurrent.CompletableFuture<Void> pendingFsync;
+
+  /**
    * {@link XmlIndexController} instance.
    */
   private final IndexController<?, ?> indexController;
@@ -391,7 +397,8 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
   }
 
   @Override
-  public UberPage commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp) {
+  public UberPage commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
+                         final boolean isAutoCommitting) {
     pageRtx.assertNotClosed();
 
     pageRtx.resourceSession.getCommitLock().lock();
@@ -412,15 +419,37 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
       setUserIfPresent();
       setCommitMessageAndTimestampIfRequired(commitMessage, commitTimestamp);
 
+      // PIPELINING: Serialize pages WHILE previous fsync may still be running
+      // This overlaps CPU work (serialization) with IO work (fsync)
       parallelSerializationOfKeyValuePages();
 
-      // Recursively write indirectly referenced pages.
+      // Recursively write indirectly referenced pages (serializes to buffers)
       uberPage.commit(this);
 
+      // NOW wait for previous fsync before writing to storage
+      // This ensures ordering: previous commit is durable before new data hits disk
+      if (pendingFsync != null) {
+        pendingFsync.join();
+      }
+
+      // Write pages to storage (previous fsync complete, safe to write)
       storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(),
                                                      uberPageReference,
                                                      uberPage,
                                                      bufferBytes);
+
+      if (isAutoCommitting) {
+        // Auto-commit mode: fsync runs asynchronously for better throughput
+        // Next commit's serialization will overlap with this fsync
+        pendingFsync = java.util.concurrent.CompletableFuture.runAsync(() -> {
+          storagePageReaderWriter.forceAll();
+        });
+      } else {
+        // Regular commit: synchronous fsync for strict durability
+        // Data is guaranteed durable when commit() returns
+        storagePageReaderWriter.forceAll();
+        pendingFsync = null;
+      }
 
       final int revision = uberPage.getRevisionNumber();
       serializeIndexDefinitions(revision);
@@ -478,21 +507,35 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
     }
   }
 
+  /**
+   * Threshold for switching from sequential to parallel processing.
+   * For small commits, parallel stream overhead exceeds benefits.
+   */
+  private static final int PARALLEL_SERIALIZATION_THRESHOLD = 4;
+
   private void parallelSerializationOfKeyValuePages() {
     final var resourceConfig = getResourceSession().getResourceConfig();
 
-    log.getList()
-       .parallelStream()
-       .map(PageContainer::getModified)
-       .filter(page -> page instanceof KeyValueLeafPage)
-       .forEach(page -> {
-         try {
-           final var bytes = Bytes.elasticOffHeapByteBuffer(60_000);
-           PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
-         } catch (final Exception e) {
-           throw new SirixIOException(e);
-         }
-       });
+    // Filter KeyValueLeafPages first to get accurate count
+    var keyValuePages = log.getList()
+                           .stream()
+                           .map(PageContainer::getModified)
+                           .filter(page -> page instanceof KeyValueLeafPage)
+                           .toList();
+
+    // Adaptive: use sequential for small commits to avoid parallel stream overhead
+    var stream = keyValuePages.size() < PARALLEL_SERIALIZATION_THRESHOLD
+                 ? keyValuePages.stream()
+                 : keyValuePages.parallelStream();
+
+    stream.forEach(page -> {
+      try {
+        final var bytes = Bytes.elasticOffHeapByteBuffer(60_000);
+        PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
+      } catch (final Exception e) {
+        throw new SirixIOException(e);
+      }
+    });
   }
 
   private UberPage readUberPage() {
@@ -539,6 +582,12 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
   public void close() {
     if (!isClosed) {
       pageRtx.assertNotClosed();
+
+      // Wait for any pending async fsync to complete before closing
+      if (pendingFsync != null) {
+        pendingFsync.join();
+        pendingFsync = null;
+      }
 
       // Don't clear the cached containers here - they've either been:
       // 1. Already cleared and returned to pool during commit(), or

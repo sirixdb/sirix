@@ -353,6 +353,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
 
   /**
    * Add a hash and the descendant count.
+   * Called during postorder traversal to compute hashes from leaves to root.
    */
   public void addHashAndDescendantCount() {
     switch (hashType) {
@@ -362,18 +363,23 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         final long oldDescendantCount = getStructuralNode().getDescendantCount();
         final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
 
-        // Set start node.
+        // Set start node's hash.
+        // If hash is already set (from child processing), use it as-is.
+        // The parent's computeHash() was already added when the first child was processed.
+        // If hash is 0 (leaf node), compute it now.
         long hashToAdd = startNode.getHash() == 0L
             ? startNode.computeHash(bytes)
-            : startNode.getHash() + startNode.computeHash(bytes);
+            : startNode.getHash();  // Already includes own data hash from child processing
         Node node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
         node.setHash(hashToAdd);
 
-        // Set parent node.
+        // Set parent node's hash.
         if (startNode.hasParent()) {
           nodeReadOnlyTrx.moveTo(startNode.getParentKey());
           node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
           final var currentNodeHash = node.getHash();
+          // If parent's hash is 0, initialize with its own data hash.
+          // Otherwise, use existing hash (which already includes parent's data hash).
           long hash = currentNodeHash == 0L ? node.computeHash(bytes) : currentNodeHash;
           node.setHash(hash + hashToAdd * PRIME);
 
@@ -408,4 +414,5 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   public boolean isBulkInsert() {
     return bulkInsert;
   }
+
 }

@@ -197,6 +197,11 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
+    public void forceAll() {
+      // RAM storage has no persistence, nothing to force
+    }
+
+    @Override
     public RevisionRootPage readRevisionRootPage(int revision, ResourceConfiguration resourceConfiguration) {
       return mResourceRevisionRootsStorage.get(revision);
     }

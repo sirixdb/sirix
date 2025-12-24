@@ -29,6 +29,10 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import jdk.incubator.vector.LongVector;
+import jdk.incubator.vector.VectorOperators;
+import jdk.incubator.vector.VectorSpecies;
+
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -56,6 +60,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
   private static final int INT_SIZE = Integer.BYTES;
+  
+  /**
+   * SIMD vector species for bitmap operations.
+   * Uses the preferred species for the current platform (256-bit AVX2 or 512-bit AVX-512).
+   */
+  private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_PREFERRED;
   
   /**
    * Unaligned int layout for zero-copy deserialization.
@@ -236,6 +246,33 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private final int[] stringValueOffsets;
 
   /**
+   * Bitmap tracking which slots are populated (16 longs = 1024 bits).
+   * Bit i is set iff slotOffsets[i] >= 0.
+   * Used for O(k) iteration over populated slots instead of O(1024).
+   */
+  private final long[] slotBitmap;
+
+  /**
+   * Number of words in the slot bitmap (16 words * 64 bits = 1024 slots).
+   */
+  private static final int BITMAP_WORDS = 16;
+
+  /**
+   * Bitmap tracking which slots need preservation during lazy copy (16 longs = 1024 bits).
+   * Used by DIFFERENTIAL, INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning.
+   * Null means no preservation needed (e.g., INCREMENTAL non-full-dump or FULL versioning).
+   * At commit time, slots marked here but not in records[] are copied from completePageRef.
+   */
+  private long[] preservationBitmap;
+
+  /**
+   * Reference to the complete page for lazy slot copying at commit time.
+   * Set during combineRecordPagesForModification, used by addReferences() to copy
+   * slots that need preservation but weren't modified (records[i] == null).
+   */
+  private KeyValueLeafPage completePageRef;
+
+  /**
    * The index type.
    */
   private IndexType indexType;
@@ -320,6 +357,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.slotOffsets = new int[Constants.NDP_NODE_COUNT];
     this.deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
     this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
+    this.slotBitmap = new long[BITMAP_WORDS];  // All bits initially 0 (no slots populated)
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
     Arrays.fill(stringValueOffsets, -1);
@@ -377,6 +415,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.slotOffsets = new int[Constants.NDP_NODE_COUNT];
     this.deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
     this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
+    this.slotBitmap = new long[BITMAP_WORDS];  // Will be populated during deserialization
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
     Arrays.fill(stringValueOffsets, -1);
@@ -473,6 +512,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.lastStringValueIndex = -1;
     this.stringValueMemoryFreeSpaceStart = 0;
     this.fsstSymbolTable = null;
+    
+    // Build bitmap from provided slotOffsets for O(k) iteration
+    this.slotBitmap = new long[BITMAP_WORDS];
+    for (int i = 0; i < slotOffsets.length; i++) {
+      if (slotOffsets[i] >= 0) {
+        slotBitmap[i >>> 6] |= (1L << (i & 63));
+      }
+    }
     
     // Zero-copy: slotMemory is part of backingBuffer, track for release
     this.backingBuffer = backingBuffer;
@@ -602,6 +649,67 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return references;
   }
 
+  /**
+   * Set reference to the complete page for lazy slot copying at commit time.
+   * Used by DIFFERENTIAL, INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning.
+   *
+   * @param completePage the complete page to copy slots from
+   */
+  public void setCompletePageRef(KeyValueLeafPage completePage) {
+    this.completePageRef = completePage;
+  }
+
+  /**
+   * Get the complete page reference for lazy copying.
+   *
+   * @return the complete page reference, or null if not set
+   */
+  public KeyValueLeafPage getCompletePageRef() {
+    return completePageRef;
+  }
+
+  /**
+   * Mark a slot for preservation during lazy copy at commit time.
+   * At addReferences(), if this slot has records[i] == null, it will be copied from completePageRef.
+   *
+   * @param slotNumber the slot number to mark for preservation (0 to Constants.NDP_NODE_COUNT-1)
+   */
+  public void markSlotForPreservation(int slotNumber) {
+    if (preservationBitmap == null) {
+      preservationBitmap = new long[BITMAP_WORDS];
+    }
+    preservationBitmap[slotNumber >>> 6] |= (1L << (slotNumber & 63));
+  }
+
+  /**
+   * Check if a slot is marked for preservation.
+   *
+   * @param slotNumber the slot number to check
+   * @return true if the slot needs preservation
+   */
+  public boolean isSlotMarkedForPreservation(int slotNumber) {
+    return preservationBitmap != null && 
+           (preservationBitmap[slotNumber >>> 6] & (1L << (slotNumber & 63))) != 0;
+  }
+
+  /**
+   * Get the preservation bitmap for testing/debugging.
+   *
+   * @return the preservation bitmap, or null if no slots are marked
+   */
+  public long[] getPreservationBitmap() {
+    return preservationBitmap;
+  }
+
+  /**
+   * Check if any slots are marked for preservation.
+   *
+   * @return true if preservation bitmap is set and has marked slots
+   */
+  public boolean hasPreservationSlots() {
+    return preservationBitmap != null;
+  }
+
   private static final int ALIGNMENT = 4; // 4-byte alignment for int
 
   private static int alignOffset(int offset) {
@@ -688,6 +796,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       currentOffset = findFreeSpaceForSlots(requiredSize, true);
       slotOffsets[slotNumber] = alignOffset(currentOffset);
       updateLastSlotIndex(slotNumber, true);
+      // Update bitmap for newly populated slot
+      slotBitmap[slotNumber >>> 6] |= (1L << (slotNumber & 63));
     }
 
     // Perform shifting if size changed for existing slot
@@ -781,6 +891,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       currentOffset = findFreeSpaceForSlots(requiredSize, isSlotMemory);
       offsets[slotNumber] = alignOffset(currentOffset);
       updateLastSlotIndex(slotNumber, isSlotMemory);
+      // Update bitmap for newly populated slot (slot memory only)
+      if (isSlotMemory) {
+        slotBitmap[slotNumber >>> 6] |= (1L << (slotNumber & 63));
+      }
     }
 
     // Perform any necessary shifting.
@@ -878,6 +992,234 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   public int[] getSlotOffsets() {
     return slotOffsets;
+  }
+
+  /**
+   * Get the slot bitmap for O(k) iteration over populated slots.
+   * Bit i is set (1) iff slot i is populated (slotOffsets[i] >= 0).
+   * 
+   * @return the slot bitmap array (16 longs = 1024 bits, do not modify)
+   */
+  public long[] getSlotBitmap() {
+    return slotBitmap;
+  }
+
+  /**
+   * Check if a specific slot is populated using the bitmap.
+   * This is O(1) and avoids memory access to slotOffsets.
+   * 
+   * @param slotNumber the slot index (0-1023)
+   * @return true if the slot is populated
+   */
+  public boolean hasSlot(int slotNumber) {
+    return (slotBitmap[slotNumber >>> 6] & (1L << (slotNumber & 63))) != 0;
+  }
+
+  /**
+   * Returns a primitive int array of populated slot indices for O(k) iteration.
+   * <p>
+   * This enables efficient iteration over only populated slots instead of
+   * iterating all 1024 slots and checking for null. For sparse pages with
+   * k populated slots, this is O(k) instead of O(1024).
+   * <p>
+   * Note: This allocates a new array on each call. For hot paths where the
+   * same page is iterated multiple times, consider using {@link #forEachPopulatedSlot}.
+   * <p>
+   * Example usage:
+   * <pre>{@code
+   * int[] slots = page.populatedSlots();
+   * for (int i = 0; i < slots.length; i++) {
+   *     int slot = slots[i];
+   *     MemorySegment data = page.getSlot(slot);
+   *     // process data - no null check needed
+   * }
+   * }</pre>
+   * 
+   * @return primitive int array of populated slot indices in ascending order
+   */
+  public int[] populatedSlots() {
+    // First pass: count populated slots using SIMD
+    int count = populatedSlotCount();
+    
+    // Allocate exact-sized array
+    int[] result = new int[count];
+    int idx = 0;
+    
+    // Second pass: collect slot indices using Brian Kernighan's algorithm
+    for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
+      long word = slotBitmap[wordIndex];
+      int baseSlot = wordIndex << 6;  // wordIndex * 64
+      while (word != 0) {
+        int bit = Long.numberOfTrailingZeros(word);
+        result[idx++] = baseSlot + bit;
+        word &= word - 1;  // Clear lowest set bit
+      }
+    }
+    return result;
+  }
+  
+  /**
+   * Functional interface for slot consumer to enable zero-allocation iteration.
+   */
+  @FunctionalInterface
+  public interface SlotConsumer {
+    /**
+     * Process a populated slot.
+     * @param slotIndex the slot index
+     * @return true to continue iteration, false to stop early
+     */
+    boolean accept(int slotIndex);
+  }
+  
+  /**
+   * Zero-allocation iteration over populated slots.
+   * <p>
+   * This method iterates over populated slots without allocating any arrays.
+   * The consumer returns false to stop iteration early.
+   * <p>
+   * Example usage:
+   * <pre>{@code
+   * page.forEachPopulatedSlot(slot -> {
+   *     MemorySegment data = page.getSlot(slot);
+   *     // process data
+   *     return true;  // continue iteration
+   * });
+   * }</pre>
+   * 
+   * @param consumer the consumer to process each populated slot
+   * @return the number of slots processed
+   */
+  public int forEachPopulatedSlot(SlotConsumer consumer) {
+    int processed = 0;
+    for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
+      long word = slotBitmap[wordIndex];
+      int baseSlot = wordIndex << 6;  // wordIndex * 64
+      while (word != 0) {
+        int bit = Long.numberOfTrailingZeros(word);
+        int slot = baseSlot + bit;
+        processed++;
+        if (!consumer.accept(slot)) {
+          return processed;
+        }
+        word &= word - 1;  // Clear lowest set bit
+      }
+    }
+    return processed;
+  }
+
+  /**
+   * Get the count of populated slots using SIMD-accelerated population count.
+   * Uses Vector API for parallel bitCount across multiple longs.
+   * This is O(BITMAP_WORDS / SIMD_WIDTH) instead of O(1024).
+   * 
+   * @return number of populated slots
+   */
+  public int populatedSlotCount() {
+    int count = 0;
+    int i = 0;
+    
+    // SIMD loop: process LONG_SPECIES.length() longs at a time
+    final int simdWidth = LONG_SPECIES.length();
+    final int simdBound = BITMAP_WORDS - (BITMAP_WORDS % simdWidth);
+    
+    for (; i < simdBound; i += simdWidth) {
+      LongVector vec = LongVector.fromArray(LONG_SPECIES, slotBitmap, i);
+      // BITCOUNT lane operation - counts bits in each lane
+      LongVector popcnt = vec.lanewise(VectorOperators.BIT_COUNT);
+      count += (int) popcnt.reduceLanes(VectorOperators.ADD);
+    }
+    
+    // Scalar tail: process remaining longs
+    for (; i < BITMAP_WORDS; i++) {
+      count += Long.bitCount(slotBitmap[i]);
+    }
+    
+    return count;
+  }
+  
+  /**
+   * Check if all slots are populated using SIMD-accelerated comparison.
+   * 
+   * @return true if all 1024 slots are populated
+   */
+  public boolean isFullyPopulated() {
+    // All bits set = 0xFFFFFFFFFFFFFFFF = -1L
+    int i = 0;
+    final int simdWidth = LONG_SPECIES.length();
+    final int simdBound = BITMAP_WORDS - (BITMAP_WORDS % simdWidth);
+    final LongVector allOnes = LongVector.broadcast(LONG_SPECIES, -1L);
+    
+    for (; i < simdBound; i += simdWidth) {
+      LongVector vec = LongVector.fromArray(LONG_SPECIES, slotBitmap, i);
+      if (!vec.eq(allOnes).allTrue()) {
+        return false;
+      }
+    }
+    
+    // Scalar tail
+    for (; i < BITMAP_WORDS; i++) {
+      if (slotBitmap[i] != -1L) {
+        return false;
+      }
+    }
+    return true;
+  }
+  
+  /**
+   * SIMD-accelerated bitmap OR into destination array.
+   * Computes: dest[i] |= src[i] for all bitmap words.
+   * 
+   * @param dest destination bitmap (modified in place)
+   * @param src source bitmap to OR into dest
+   */
+  public static void bitmapOr(long[] dest, long[] src) {
+    int i = 0;
+    final int simdWidth = LONG_SPECIES.length();
+    final int simdBound = BITMAP_WORDS - (BITMAP_WORDS % simdWidth);
+    
+    for (; i < simdBound; i += simdWidth) {
+      LongVector destVec = LongVector.fromArray(LONG_SPECIES, dest, i);
+      LongVector srcVec = LongVector.fromArray(LONG_SPECIES, src, i);
+      destVec.or(srcVec).intoArray(dest, i);
+    }
+    
+    // Scalar tail
+    for (; i < BITMAP_WORDS; i++) {
+      dest[i] |= src[i];
+    }
+  }
+  
+  /**
+   * Check if any bits in src are NOT set in dest using SIMD.
+   * Returns true if there exist slots in src that are not yet in dest.
+   * Useful for early termination in page combining.
+   * 
+   * @param dest the "filled" bitmap
+   * @param src the source bitmap to check
+   * @return true if src has bits not present in dest
+   */
+  public static boolean hasNewBits(long[] dest, long[] src) {
+    int i = 0;
+    final int simdWidth = LONG_SPECIES.length();
+    final int simdBound = BITMAP_WORDS - (BITMAP_WORDS % simdWidth);
+    
+    for (; i < simdBound; i += simdWidth) {
+      LongVector destVec = LongVector.fromArray(LONG_SPECIES, dest, i);
+      LongVector srcVec = LongVector.fromArray(LONG_SPECIES, src, i);
+      // newBits = src & ~dest (bits in src but not in dest)
+      LongVector newBits = srcVec.and(destVec.not());
+      if (newBits.reduceLanes(VectorOperators.OR) != 0) {
+        return true;
+      }
+    }
+    
+    // Scalar tail
+    for (; i < BITMAP_WORDS; i++) {
+      if ((src[i] & ~dest[i]) != 0) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -1789,6 +2131,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
     
+    // Clear slot bitmap (all slots now empty)
+    Arrays.fill(slotBitmap, 0L);
+    
     // Reset free space pointers
     slotMemoryFreeSpaceStart = 0;
     deweyIdMemoryFreeSpaceStart = 0;
@@ -1823,6 +2168,30 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   // Add references to OverflowPages.
   public void addReferences(final ResourceConfiguration resourceConfiguration) {
     if (!addedReferences) {
+      // Lazy copy: copy preserved slots that weren't modified from completePageRef
+      // This is the deferred work from combineRecordPagesForModification for DIFFERENTIAL,
+      // INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning types.
+      if (preservationBitmap != null && completePageRef != null) {
+        for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+          // Check if slot needs preservation AND wasn't modified
+          boolean needsPreservation = (preservationBitmap[i >>> 6] & (1L << (i & 63))) != 0;
+          if (needsPreservation && records[i] == null) {
+            // Copy slot from completePage
+            MemorySegment slotData = completePageRef.getSlot(i);
+            if (slotData != null) {
+              setSlot(slotData, i);
+            }
+            // Copy deweyId too if stored
+            if (areDeweyIDsStored) {
+              MemorySegment deweyId = completePageRef.getDeweyId(i);
+              if (deweyId != null) {
+                setDeweyId(deweyId, i);
+              }
+            }
+          }
+        }
+      }
+
       if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
         processEntries(resourceConfiguration, records);
         for (int i = 0; i < records.length; i++) {

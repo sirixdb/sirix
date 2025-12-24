@@ -125,16 +125,6 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   }
 
   /**
-   * Begin a new {@link StorageEngineWriter}.
-   *
-   * @param revision revision number
-   * @return new {@link StorageEngineWriter} instance
-   * @throws SirixException           if Sirix fails to create a new instance
-   * @throws IllegalArgumentException if {@code revision < 0}
-   */
-  StorageEngineWriter beginPageTrx(@NonNegative int revision);
-
-  /**
    * Begin a read-only transaction on the latest committed revision.
    *
    * @return instance of a class, which implements the {@link XmlNodeReadOnlyTrx} interface
@@ -143,6 +133,16 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   default R beginNodeReadOnlyTrx() {
     return beginNodeReadOnlyTrx(getMostRecentRevisionNumber());
   }
+
+  /**
+   * Begin a new {@link StorageEngineWriter}.
+   *
+   * @param revision revision number
+   * @return new {@link StorageEngineWriter} instance
+   * @throws SirixException           if Sirix fails to create a new instance
+   * @throws IllegalArgumentException if {@code revision < 0}
+   */
+  StorageEngineWriter beginPageTrx(@NonNegative int revision);
 
   /**
    * Begin a read-only transaction on the given revision number.

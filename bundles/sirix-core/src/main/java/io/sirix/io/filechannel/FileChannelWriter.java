@@ -309,13 +309,27 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       @SuppressWarnings("DataFlowIssue") final var buffer = ((ByteBuffer) bufferedBytes.underlyingObject()).rewind();
       buffer.limit((int) bufferedBytes.readLimit());
       dataFileChannel.write(buffer, 0L);
-      dataFileChannel.force(false);
+      // NOTE: force() removed here - now called via forceAll() at end of commit for single barrier
       bufferedBytes.clear();
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
 
     return this;
+  }
+
+  @Override
+  public void forceAll() {
+    try {
+      if (dataFileChannel != null) {
+        dataFileChannel.force(true);
+      }
+      if (revisionsFileChannel != null) {
+        revisionsFileChannel.force(true);
+      }
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
   }
 
   private void flushBuffer(BytesOut<?> bufferedBytes) throws IOException {

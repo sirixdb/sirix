@@ -371,6 +371,123 @@ public final class DeltaVarIntCodec {
     return size;
   }
   
+  // ==================== DIRECT SEGMENT WRITE METHODS ====================
+  // These methods eliminate per-byte ensureCapacity() overhead by using direct segment writes
+  
+  /**
+   * Encode a node key as a delta from a base key, writing directly to a GrowingMemorySegment.
+   * This is the high-performance variant that eliminates per-byte capacity checks.
+   * 
+   * @param seg     the segment to write to
+   * @param key     the key to encode (may be NULL_NODE_KEY)
+   * @param baseKey the reference key for delta calculation
+   */
+  public static void encodeDelta(GrowingMemorySegment seg, long key, long baseKey) {
+    if (key == NULL_KEY) {
+      // NULL key: write single byte marker
+      seg.writeByte((byte) NULL_MARKER);
+      return;
+    }
+    
+    // Calculate delta and zigzag encode (add 1 to reserve 0 for NULL)
+    long delta = key - baseKey;
+    long zigzag = zigzagEncode(delta) + 1;
+    
+    // Use direct varint write (single ensureCapacity call)
+    seg.writeVarLong(zigzag);
+  }
+  
+  /**
+   * Encode a node key as a delta from a base key, writing directly to a PooledGrowingSegment.
+   * This is the high-performance variant that eliminates per-byte capacity checks.
+   * 
+   * @param seg     the segment to write to
+   * @param key     the key to encode (may be NULL_NODE_KEY)
+   * @param baseKey the reference key for delta calculation
+   */
+  public static void encodeDelta(PooledGrowingSegment seg, long key, long baseKey) {
+    if (key == NULL_KEY) {
+      // NULL key: write single byte marker
+      seg.writeByte((byte) NULL_MARKER);
+      return;
+    }
+    
+    // Calculate delta and zigzag encode (add 1 to reserve 0 for NULL)
+    long delta = key - baseKey;
+    long zigzag = zigzagEncode(delta) + 1;
+    
+    // Use direct varint write (single ensureCapacity call)
+    seg.writeVarLong(zigzag);
+  }
+  
+  /**
+   * Encode an absolute key directly to a GrowingMemorySegment.
+   * 
+   * @param seg the segment to write to
+   * @param key the absolute key (must be non-negative)
+   */
+  public static void encodeAbsolute(GrowingMemorySegment seg, long key) {
+    if (key < 0) {
+      throw new IllegalArgumentException("Absolute key must be non-negative: " + key);
+    }
+    seg.writeVarLong(key);
+  }
+  
+  /**
+   * Encode an absolute key directly to a PooledGrowingSegment.
+   * 
+   * @param seg the segment to write to
+   * @param key the absolute key (must be non-negative)
+   */
+  public static void encodeAbsolute(PooledGrowingSegment seg, long key) {
+    if (key < 0) {
+      throw new IllegalArgumentException("Absolute key must be non-negative: " + key);
+    }
+    seg.writeVarLong(key);
+  }
+  
+  /**
+   * Encode a signed long value using zigzag + varint directly to a GrowingMemorySegment.
+   * 
+   * @param seg   the segment to write to
+   * @param value the signed long value
+   */
+  public static void encodeSignedLong(GrowingMemorySegment seg, long value) {
+    long zigzag = zigzagEncode(value);
+    seg.writeVarLong(zigzag);
+  }
+  
+  /**
+   * Encode a signed long value using zigzag + varint directly to a PooledGrowingSegment.
+   * 
+   * @param seg   the segment to write to
+   * @param value the signed long value
+   */
+  public static void encodeSignedLong(PooledGrowingSegment seg, long value) {
+    long zigzag = zigzagEncode(value);
+    seg.writeVarLong(zigzag);
+  }
+  
+  /**
+   * Encode an unsigned long value using varint directly to a GrowingMemorySegment.
+   * 
+   * @param seg   the segment to write to
+   * @param value the unsigned long value (must be non-negative)
+   */
+  public static void encodeUnsignedLong(GrowingMemorySegment seg, long value) {
+    seg.writeVarLong(value);
+  }
+  
+  /**
+   * Encode an unsigned long value using varint directly to a PooledGrowingSegment.
+   * 
+   * @param seg   the segment to write to
+   * @param value the unsigned long value (must be non-negative)
+   */
+  public static void encodeUnsignedLong(PooledGrowingSegment seg, long value) {
+    seg.writeVarLong(value);
+  }
+  
   // ==================== MEMORY SEGMENT SUPPORT ====================
   // These methods support zero-allocation access by reading directly from MemorySegment
   

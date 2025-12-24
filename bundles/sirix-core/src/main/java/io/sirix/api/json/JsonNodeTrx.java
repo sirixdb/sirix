@@ -1,5 +1,6 @@
 package io.sirix.api.json;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.google.gson.stream.JsonReader;
 import io.brackit.query.jdm.Item;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
@@ -196,5 +197,163 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
   JsonNodeTrx insertSubtreeAsRightSibling(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode);
 
   JsonNodeTrx insertSubtreeAsRightSibling(Item item, Commit doImplicitCommit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken);
+
+  // ==================== Jackson JsonParser Methods ====================
+
+  /**
+   * Insert a subtree as first child using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsFirstChild(JsonParser parser);
+
+  /**
+   * Insert a subtree as first child using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @param doImplicitCommit whether to commit implicitly after insertion
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsFirstChild(JsonParser parser, Commit doImplicitCommit);
+
+  /**
+   * Insert a subtree as first child using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @param doImplicitCommit whether to commit implicitly after insertion
+   * @param checkParentNode whether to check parent node validity
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsFirstChild(JsonParser parser, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  /**
+   * Insert a subtree as first child using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @param commit whether to commit implicitly after insertion
+   * @param checkParentNode whether to check parent node validity
+   * @param skipRootToken whether to skip the root token
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsFirstChild(JsonParser parser, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken);
+
+  /**
+   * Insert a subtree as last child using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsLastChild(JsonParser parser);
+
+  /**
+   * Insert a subtree as last child using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @param doImplicitCommit whether to commit implicitly after insertion
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsLastChild(JsonParser parser, Commit doImplicitCommit);
+
+  /**
+   * Insert a subtree as last child using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @param doImplicitCommit whether to commit implicitly after insertion
+   * @param checkParentNode whether to check parent node validity
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsLastChild(JsonParser parser, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  /**
+   * Insert a subtree as last child using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @param commit whether to commit implicitly after insertion
+   * @param checkParentNode whether to check parent node validity
+   * @param skipRootToken whether to skip the root token
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsLastChild(JsonParser parser, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken);
+
+  /**
+   * Insert a subtree as left sibling using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsLeftSibling(JsonParser parser);
+
+  /**
+   * Insert a subtree as left sibling using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @param doImplicitCommit whether to commit implicitly after insertion
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsLeftSibling(JsonParser parser, Commit doImplicitCommit);
+
+  /**
+   * Insert a subtree as left sibling using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @param doImplicitCommit whether to commit implicitly after insertion
+   * @param checkParentNode whether to check parent node validity
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsLeftSibling(JsonParser parser, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  /**
+   * Insert a subtree as left sibling using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @param commit whether to commit implicitly after insertion
+   * @param checkParentNode whether to check parent node validity
+   * @param skipRootToken whether to skip the root token
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsLeftSibling(JsonParser parser, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken);
+
+  /**
+   * Insert a subtree as right sibling using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonParser parser);
+
+  /**
+   * Insert a subtree as right sibling using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @param doImplicitCommit whether to commit implicitly after insertion
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonParser parser, Commit doImplicitCommit);
+
+  /**
+   * Insert a subtree as right sibling using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @param doImplicitCommit whether to commit implicitly after insertion
+   * @param checkParentNode whether to check parent node validity
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonParser parser, Commit doImplicitCommit, CheckParentNode checkParentNode);
+
+  /**
+   * Insert a subtree as right sibling using Jackson streaming parser.
+   *
+   * @param parser Jackson {@link JsonParser} for streaming JSON input
+   * @param commit whether to commit implicitly after insertion
+   * @param checkParentNode whether to check parent node validity
+   * @param skipRootToken whether to skip the root token
+   * @return the transaction instance
+   */
+  JsonNodeTrx insertSubtreeAsRightSibling(JsonParser parser, Commit commit, CheckParentNode checkParentNode,
       SkipRootToken skipRootToken);
 }

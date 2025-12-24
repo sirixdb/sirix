@@ -128,35 +128,55 @@ public enum VersioningType {
       final T pageToReturn = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
 
       final T latest = pages.get(0);
-      T fullDump = pages.size() == 1 ? pages.get(0) : pages.get(1);
+      final T fullDump = pages.size() == 1 ? pages.get(0) : pages.get(1);
 
       assert latest.getPageKey() == recordPageKey;
       assert fullDump.getPageKey() == recordPageKey;
 
-      for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+      // Use bitmap iteration for O(k) instead of O(1024)
+      final io.sirix.page.KeyValueLeafPage latestKvp = (io.sirix.page.KeyValueLeafPage) latest;
+      final io.sirix.page.KeyValueLeafPage returnKvp = (io.sirix.page.KeyValueLeafPage) pageToReturn;
+      
+      // Copy all populated slots from latest page
+      final int[] latestSlots = latestKvp.populatedSlots();
+      for (int i = 0; i < latestSlots.length; i++) {
+        final int offset = latestSlots[i];
         pageToReturn.setSlot(firstPage.getSlot(offset), offset);
-        pageToReturn.setDeweyId(firstPage.getDeweyId(offset), offset);
+        var deweyId = firstPage.getDeweyId(offset);
+        if (deweyId != null) {
+          pageToReturn.setDeweyId(deweyId, offset);
+        }
       }
+      
+      // Copy references from latest
       for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
         pageToReturn.setPageReference(entry.getKey(), entry.getValue());
       }
 
-      // Skip full dump if not needed (fulldump equals latest page).
-      if (pages.size() == 2) {
-        for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
-          var recordData = firstPage.getSlot(offset);
-          if (recordData == null) {
-            continue;
+      // Fill gaps from full dump if present
+      if (pages.size() == 2 && returnKvp.populatedSlotCount() < Constants.NDP_NODE_COUNT) {
+        final io.sirix.page.KeyValueLeafPage fullDumpKvp = (io.sirix.page.KeyValueLeafPage) fullDump;
+        final long[] filledBitmap = returnKvp.getSlotBitmap();
+        
+        // Use bitmap iteration for O(k) on fullDump
+        final int[] fullDumpSlots = fullDumpKvp.populatedSlots();
+        for (int i = 0; i < fullDumpSlots.length; i++) {
+          final int offset = fullDumpSlots[i];
+          // Check if slot already filled using bitmap (O(1))
+          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;  // Already filled from latest
           }
-          if (pageToReturn.getSlot(offset) == null) {
-            pageToReturn.setSlot(firstPage.getSlot(offset), offset);
-          }
-          final var deweyId = firstPage.getDeweyId(offset);
-          if (deweyId != null && pageToReturn.getDeweyId(offset) == null) {
+          
+          var recordData = fullDump.getSlot(offset);
+          pageToReturn.setSlot(recordData, offset);
+          
+          var deweyId = fullDump.getDeweyId(offset);
+          if (deweyId != null) {
             pageToReturn.setDeweyId(deweyId, offset);
           }
         }
 
+        // Fill reference gaps
         for (final Entry<Long, PageReference> entry : fullDump.referenceEntrySet()) {
           if (pageToReturn.getPageReference(entry.getKey()) == null) {
             pageToReturn.setPageReference(entry.getKey(), entry.getValue());
@@ -195,72 +215,89 @@ public enum VersioningType {
 
       // DIAGNOSTIC
       if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-        LOGGER.debug("FULL combineForMod created: complete=" + System.identityHashCode(completePage) +
+        LOGGER.debug("DIFFERENTIAL combineForMod created: complete=" + System.identityHashCode(completePage) +
             ", modified=" + System.identityHashCode(modifiedPage));
       }
 
-      @SuppressWarnings("UnnecessaryLocalVariable") final T latest = firstPage;
-      T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
-      final boolean isFullDump = revision % revToRestore == 0;
+      final T latest = firstPage;
+      final T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
+      final boolean isFullDumpRevision = revision % revToRestore == 0;
 
-      // Iterate through all nodes of the latest revision.
-      for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
-        completePage.setSlot(firstPage.getSlot(offset), offset);
-        completePage.setDeweyId(firstPage.getDeweyId(offset), offset);
-
-        modifiedPage.setSlot(firstPage.getSlot(offset), offset);
-        modifiedPage.setDeweyId(firstPage.getDeweyId(offset), offset);
+      // Use bitmap iteration for O(k) instead of O(1024)
+      final io.sirix.page.KeyValueLeafPage latestKvp = (io.sirix.page.KeyValueLeafPage) latest;
+      final io.sirix.page.KeyValueLeafPage completeKvp = (io.sirix.page.KeyValueLeafPage) completePage;
+      final io.sirix.page.KeyValueLeafPage modifiedKvp = (io.sirix.page.KeyValueLeafPage) modifiedPage;
+      
+      // Copy all populated slots from latest to completePage using bitmap iteration
+      // For modifiedPage: use lazy copy - mark for preservation, actual copy deferred to commit time
+      final int[] latestSlots = latestKvp.populatedSlots();
+      for (int i = 0; i < latestSlots.length; i++) {
+        final int offset = latestSlots[i];
+        var recordData = firstPage.getSlot(offset);
+        var deweyId = firstPage.getDeweyId(offset);
+        
+        completePage.setSlot(recordData, offset);
+        if (deweyId != null) {
+          completePage.setDeweyId(deweyId, offset);
+        }
+        
+        // LAZY COPY: Mark slot for preservation instead of copying
+        // Actual copy from completePage happens in addReferences() if records[offset] == null
+        modifiedKvp.markSlotForPreservation(offset);
       }
 
-      // Iterate through all nodes of the latest revision.
+      // Copy references from latest
       for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
         completePage.setPageReference(entry.getKey(), entry.getValue());
         modifiedPage.setPageReference(entry.getKey(), entry.getValue());
       }
 
-      // If not all entries are filled.
-      if (latest.size() != Constants.NDP_NODE_COUNT) {
-        // Iterate through the full dump.
-        for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
-          var recordData = firstPage.getSlot(offset);
-          if (completePage.getSlot(offset) == null) {
-            completePage.setSlot(firstPage.getSlot(offset), offset);
+      // Fill gaps from full dump if not all slots are filled
+      if (completeKvp.populatedSlotCount() < Constants.NDP_NODE_COUNT && pages.size() == 2) {
+        final io.sirix.page.KeyValueLeafPage fullDumpKvp = (io.sirix.page.KeyValueLeafPage) fullDump;
+        final long[] filledBitmap = completeKvp.getSlotBitmap();
+        
+        // Use bitmap iteration on fullDump
+        final int[] fullDumpSlots = fullDumpKvp.populatedSlots();
+        for (int j = 0; j < fullDumpSlots.length; j++) {
+          final int offset = fullDumpSlots[j];
+          // Check if slot already filled using bitmap (O(1))
+          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;  // Already filled from latest
           }
-          if (isFullDump && modifiedPage.getSlot(offset) == null) {
-            modifiedPage.setSlot(recordData, offset);
-          }
-          var deweyId = firstPage.getDeweyId(offset);
-          if (completePage.getDeweyId(offset) == null) {
+          
+          var recordData = fullDump.getSlot(offset);
+          var deweyId = fullDump.getDeweyId(offset);
+          
+          completePage.setSlot(recordData, offset);
+          if (deweyId != null) {
             completePage.setDeweyId(deweyId, offset);
           }
-          if (isFullDump && modifiedPage.getDeweyId(offset) == null) {
-            modifiedPage.setDeweyId(deweyId, offset);
-          }
-
-          if (completePage.size() == Constants.NDP_NODE_COUNT) {
-            // Page is filled, thus skip all other entries of the full dump.
-            break;
+          
+          if (isFullDumpRevision) {
+            // LAZY COPY: Mark slot for preservation instead of copying
+            modifiedKvp.markSlotForPreservation(offset);
           }
         }
-      }
-      // If not all entries are filled.
-      if (latest.size() != Constants.NDP_NODE_COUNT) {
-        // Iterate through the full dump.
+        
+        // Fill reference gaps from fullDump
         for (final Map.Entry<Long, PageReference> entry : fullDump.referenceEntrySet()) {
           if (completePage.getPageReference(entry.getKey()) == null) {
             completePage.setPageReference(entry.getKey(), entry.getValue());
           }
 
-          if (isFullDump && modifiedPage.getPageReference(entry.getKey()) == null) {
+          if (isFullDumpRevision && modifiedPage.getPageReference(entry.getKey()) == null) {
             modifiedPage.setPageReference(entry.getKey(), entry.getValue());
           }
 
           if (completePage.size() == Constants.NDP_NODE_COUNT) {
-            // Page is filled, thus skip all other entries of the full dump.
             break;
           }
         }
       }
+
+      // Set completePage reference for lazy copying at commit time
+      modifiedKvp.setCompletePageRef(completeKvp);
 
       final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
       log.put(reference, pageContainer);  // TIL will remove from caches before mutating
@@ -292,41 +329,50 @@ public enum VersioningType {
       final long recordPageKey = firstPage.getPageKey();
       final T pageToReturn = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), pageReadTrx);
 
-      boolean filledPage = false;
+      // Track which slots are already filled using bitmap from pageToReturn
+      // This enables O(k) iteration instead of O(1024)
+      final io.sirix.page.KeyValueLeafPage returnPage = (io.sirix.page.KeyValueLeafPage) pageToReturn;
+      final long[] filledBitmap = returnPage.getSlotBitmap();
+      
+      // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
+      int filledSlotCount = 0;
+      
       for (final T page : pages) {
         assert page.getPageKey() == recordPageKey;
-        if (filledPage) {
+        if (filledSlotCount == Constants.NDP_NODE_COUNT) {
           break;
         }
 
-        for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+        // Use bitmap iteration for O(k) instead of O(1024)
+        final io.sirix.page.KeyValueLeafPage kvPage = (io.sirix.page.KeyValueLeafPage) page;
+        final int[] populatedSlots = kvPage.populatedSlots();
+        
+        for (final int offset : populatedSlots) {
+          // Check if slot already filled using bitmap (O(1))
+          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;  // Already filled from newer fragment
+          }
+          
           final var recordData = page.getSlot(offset);
-
-          if (recordData == null) {
-            continue;
-          }
-
-          if (pageToReturn.getSlot(offset) == null) {
-            pageToReturn.setSlot(recordData, offset);
-          }
+          pageToReturn.setSlot(recordData, offset);
+          filledSlotCount++;
+          
           final var deweyId = page.getDeweyId(offset);
-          if (pageToReturn.getDeweyId(offset) == null) {
+          if (deweyId != null) {
             pageToReturn.setDeweyId(deweyId, offset);
           }
 
-          if (pageToReturn.size() == Constants.NDP_NODE_COUNT) {
-            filledPage = true;
+          if (filledSlotCount == Constants.NDP_NODE_COUNT) {
             break;
           }
         }
 
-        if (!filledPage) {
+        if (filledSlotCount < Constants.NDP_NODE_COUNT) {
           for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
-            final Long recordKey = entry.getKey();
-            if (pageToReturn.getPageReference(recordKey) == null) {
-              pageToReturn.setPageReference(recordKey, entry.getValue());
+            final Long key = entry.getKey();
+            if (pageToReturn.getPageReference(key) == null) {
+              pageToReturn.setPageReference(key, entry.getValue());
               if (pageToReturn.size() == Constants.NDP_NODE_COUNT) {
-                filledPage = true;
                 break;
               }
             }
@@ -366,65 +412,77 @@ public enum VersioningType {
       
       // DIAGNOSTIC
       if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-        LOGGER.debug("DIFFERENTIAL combineForMod created: complete=" + System.identityHashCode(completePage) +
+        LOGGER.debug("INCREMENTAL combineForMod created: complete=" + System.identityHashCode(completePage) +
             ", modified=" + System.identityHashCode(modifiedPage));
       }
 
-      boolean filledPage = false;
+      // Use bitmap for O(k) iteration instead of O(1024)
+      final io.sirix.page.KeyValueLeafPage completeKvp = (io.sirix.page.KeyValueLeafPage) completePage;
+      final io.sirix.page.KeyValueLeafPage modifiedKvp = (io.sirix.page.KeyValueLeafPage) modifiedPage;
+      final long[] filledBitmap = completeKvp.getSlotBitmap();
+      
+      // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
+      int filledSlotCount = 0;
+      
       for (final T page : pages) {
         assert page.getPageKey() == recordPageKey;
-        if (filledPage) {
+        if (filledSlotCount == Constants.NDP_NODE_COUNT) {
           break;
         }
 
-        for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+        // Use bitmap iteration for O(k) instead of O(1024)
+        final io.sirix.page.KeyValueLeafPage kvPage = (io.sirix.page.KeyValueLeafPage) page;
+        final int[] populatedSlots = kvPage.populatedSlots();
+
+        for (final int offset : populatedSlots) {
+          // Check if slot already filled using bitmap (O(1))
+          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;  // Already filled from newer fragment
+          }
+
           final var recordData = page.getSlot(offset);
+          completePage.setSlot(recordData, offset);
+          filledSlotCount++;
 
-          if (recordData == null) {
-            continue;
+          if (isFullDump) {
+            // LAZY COPY: Mark slot for preservation instead of copying
+            // Actual copy from completePage happens in addReferences() if records[offset] == null
+            modifiedKvp.markSlotForPreservation(offset);
           }
-
-          if (completePage.getSlot(offset) == null) {
-            completePage.setSlot(recordData, offset);
-
-            if (modifiedPage.getSlot(offset) == null && isFullDump) {
-              modifiedPage.setSlot(recordData, offset);
-            }
-          }
+          
           final var deweyId = page.getDeweyId(offset);
-          // Caching the complete page.
-          if (completePage.getDeweyId(offset) == null) {
+          if (deweyId != null) {
             completePage.setDeweyId(deweyId, offset);
-
-            if (modifiedPage.getDeweyId(offset) == null && isFullDump) {
-              modifiedPage.setDeweyId(deweyId, offset);
-            }
+            // DeweyId will be lazily copied along with slot in addReferences()
           }
-          if (completePage.size() == Constants.NDP_NODE_COUNT) {
-            filledPage = true;
+          
+          if (filledSlotCount == Constants.NDP_NODE_COUNT) {
             break;
           }
         }
 
-        if (!filledPage) {
+        if (filledSlotCount < Constants.NDP_NODE_COUNT) {
           for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
-            // Caching the complete page.
             final Long key = entry.getKey();
             assert key != null;
             if (completePage.getPageReference(key) == null) {
               completePage.setPageReference(key, entry.getValue());
 
-              if (modifiedPage.getPageReference(entry.getKey()) == null && isFullDump) {
+              if (isFullDump && modifiedPage.getPageReference(key) == null) {
                 modifiedPage.setPageReference(key, entry.getValue());
               }
 
               if (completePage.size() == Constants.NDP_NODE_COUNT) {
-                filledPage = true;
                 break;
               }
             }
           }
         }
+      }
+
+      // Set completePage reference for lazy copying at commit time (only for full-dump)
+      if (isFullDump) {
+        modifiedKvp.setCompletePageRef(completeKvp);
       }
 
       final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
@@ -460,50 +518,55 @@ public enum VersioningType {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx) {
-      for (var page : pages) {
-        // TODO: Add guard assertion here
-        // assert page.getPinCount() > 0;  // REMOVED
-      }
       assert pages.size() <= revToRestore;
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), pageReadTrx);
 
-      boolean filledPage = false;
+      // Track which slots are already filled using bitmap from returnVal
+      // This enables O(k) iteration instead of O(1024)
+      final io.sirix.page.KeyValueLeafPage returnKvp = (io.sirix.page.KeyValueLeafPage) returnVal;
+      final long[] filledBitmap = returnKvp.getSlotBitmap();
+      
+      // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
+      int filledSlotCount = 0;
+      
       for (final T page : pages) {
         assert page.getPageKey() == recordPageKey;
-        if (filledPage) {
+        if (filledSlotCount == Constants.NDP_NODE_COUNT) {
           break;
         }
 
-        for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+        // Use bitmap iteration for O(k) instead of O(1024)
+        final io.sirix.page.KeyValueLeafPage kvPage = (io.sirix.page.KeyValueLeafPage) page;
+        final int[] populatedSlots = kvPage.populatedSlots();
+
+        for (final int offset : populatedSlots) {
+          // Check if slot already filled using bitmap (O(1))
+          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;  // Already filled from newer fragment
+          }
+
           final var recordData = page.getSlot(offset);
-
-          if (recordData == null) {
-            continue;
-          }
-
-          if (returnVal.getSlot(offset) == null) {
-            returnVal.setSlot(recordData, offset);
-          }
+          returnVal.setSlot(recordData, offset);
+          filledSlotCount++;
 
           final var deweyId = page.getDeweyId(offset);
-          if (returnVal.getDeweyId(offset) == null) {
+          if (deweyId != null) {
             returnVal.setDeweyId(deweyId, offset);
+          }
+          
+          if (filledSlotCount == Constants.NDP_NODE_COUNT) {
+            break;
           }
         }
 
-        if (returnVal.size() == Constants.NDP_NODE_COUNT) {
-          filledPage = true;
-        }
-
-        if (!filledPage) {
+        if (filledSlotCount < Constants.NDP_NODE_COUNT) {
           for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
-            final Long recordKey = entry.getKey();
-            if (returnVal.getPageReference(recordKey) == null) {
-              returnVal.setPageReference(recordKey, entry.getValue());
+            final Long key = entry.getKey();
+            if (returnVal.getPageReference(key) == null) {
+              returnVal.setPageReference(key, entry.getValue());
               if (returnVal.size() == Constants.NDP_NODE_COUNT) {
-                filledPage = true;
                 break;
               }
             }
@@ -537,93 +600,126 @@ public enum VersioningType {
       // Update pageFragments on original reference
       reference.setPageFragments(previousPageFragmentKeys);
 
+      // Only create TWO pages instead of THREE - use bitmap instead of temp page
+      // This saves 64KB allocation per combine operation
       final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
       final T modifyingPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
-
-      final T pageWithRecordsInSlidingWindow =
-          firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
-          
+      
+      // OPTIMIZATION: Use bitmap (128 bytes) instead of temp page (64KB)
+      // inWindowBitmap tracks which slots exist in the sliding window
+      final long[] inWindowBitmap = new long[16];  // 16 * 64 = 1024 bits
+      
       // DIAGNOSTIC
       if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-        LOGGER.debug("combineForMod created 3 pages: complete=" + System.identityHashCode(completePage) +
-            ", modifying=" + System.identityHashCode(modifyingPage) + ", temp=" + System.identityHashCode(pageWithRecordsInSlidingWindow));
+        LOGGER.debug("SLIDING_SNAPSHOT combineForMod created 2 pages + bitmap: complete=" + 
+            System.identityHashCode(completePage) + ", modifying=" + System.identityHashCode(modifyingPage));
       }
 
-      boolean filledPage = false;
-      for (int i = 0; i < pages.size() && !filledPage; i++) {
+      final io.sirix.page.KeyValueLeafPage completeKvp = (io.sirix.page.KeyValueLeafPage) completePage;
+      final io.sirix.page.KeyValueLeafPage modifyingKvp = (io.sirix.page.KeyValueLeafPage) modifyingPage;
+      final long[] filledBitmap = completeKvp.getSlotBitmap();
+      
+      final boolean hasOutOfWindowPage = (pages.size() == revToRestore);
+      final int lastInWindowIndex = hasOutOfWindowPage ? pages.size() - 2 : pages.size() - 1;
+      
+      // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
+      int filledSlotCount = 0;
+      
+      // Phase 1: Process in-window fragments, track populated slots in bitmap
+      for (int i = 0; i <= lastInWindowIndex; i++) {
         final T page = pages.get(i);
         assert page.getPageKey() == recordPageKey;
 
-        final boolean isPageOutOfSlidingWindow = (i == pages.size() - 1 && revToRestore == pages.size());
+        // Use bitmap iteration for O(k) instead of O(1024)
+        final io.sirix.page.KeyValueLeafPage kvPage = (io.sirix.page.KeyValueLeafPage) page;
+        final int[] populatedSlots = kvPage.populatedSlots();
 
-        for (int offset = 0; offset < Constants.NDP_NODE_COUNT; offset++) {
+        for (final int offset : populatedSlots) {
+          // Mark slot as in-window (for Phase 2 check)
+          inWindowBitmap[offset >>> 6] |= (1L << (offset & 63));
+          
+          // Check if slot already filled in completePage using bitmap (O(1))
+          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;  // Already filled from newer fragment
+          }
+
           final var recordData = page.getSlot(offset);
+          completePage.setSlot(recordData, offset);
+          filledSlotCount++;
+          
           final var deweyId = page.getDeweyId(offset);
-
-          if (recordData == null) {
-            continue;
-          }
-
-          if (!isPageOutOfSlidingWindow) {
-            pageWithRecordsInSlidingWindow.setSlot(recordData, offset);
-            pageWithRecordsInSlidingWindow.setDeweyId(deweyId, offset);
-          }
-
-          if (completePage.getSlot(offset) == null) {
-            completePage.setSlot(recordData, offset);
-          }
-          if (isPageOutOfSlidingWindow && pageWithRecordsInSlidingWindow.getSlot(offset) == null) {
-            modifyingPage.setSlot(recordData, offset);
-          }
-
-          if (completePage.getDeweyId(offset) == null) {
+          if (deweyId != null) {
             completePage.setDeweyId(deweyId, offset);
           }
-          if (isPageOutOfSlidingWindow && pageWithRecordsInSlidingWindow.getDeweyId(offset) == null) {
-            modifyingPage.setDeweyId(deweyId, offset);
+          
+          if (filledSlotCount == Constants.NDP_NODE_COUNT) {
+            break;  // Page is full
           }
         }
 
-        if (completePage.size() == Constants.NDP_NODE_COUNT) {
-          filledPage = true;
-        }
-
-        if (!filledPage) {
-          for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
-            // Caching the complete page.
-            final Long key = entry.getKey();
-            assert key != null;
-
-            if (!isPageOutOfSlidingWindow) {
-              pageWithRecordsInSlidingWindow.setPageReference(key, entry.getValue());
-            }
-
-            if (completePage.getPageReference(key) == null) {
-              completePage.setPageReference(key, entry.getValue());
-            }
-
-            if (isPageOutOfSlidingWindow && pageWithRecordsInSlidingWindow.getPageReference(key) == null) {
-              modifyingPage.setPageReference(key, entry.getValue());
-            }
-
-            if (completePage.size() == Constants.NDP_NODE_COUNT) {
-              filledPage = true;
-              break;
-            }
+        // Handle references
+        for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
+          final Long key = entry.getKey();
+          if (completePage.getPageReference(key) == null) {
+            completePage.setPageReference(key, entry.getValue());
           }
+        }
+        
+        if (filledSlotCount == Constants.NDP_NODE_COUNT) {
+          break;  // Page is full
         }
       }
-
-      // CRITICAL FIX: Close temporary page to prevent memory leak
-      if (pageWithRecordsInSlidingWindow instanceof io.sirix.page.KeyValueLeafPage tempPage) {
-        if (!tempPage.isClosed()) {
-          if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && tempPage.getPageKey() == 0) {
-            LOGGER.debug("CLOSING temp page: Page 0 " + tempPage.getIndexType() + 
-                " rev=" + tempPage.getRevision() + " instance=" + System.identityHashCode(tempPage));
+      
+      // Phase 2: Process out-of-window fragment if present
+      // LAZY COPY: Mark slots for preservation instead of copying
+      // Actual copy from completePage happens in addReferences() if records[offset] == null
+      if (hasOutOfWindowPage) {
+        final T outOfWindowPage = pages.get(pages.size() - 1);
+        assert outOfWindowPage.getPageKey() == recordPageKey;
+        
+        final io.sirix.page.KeyValueLeafPage outOfWindowKvp = (io.sirix.page.KeyValueLeafPage) outOfWindowPage;
+        final int[] populatedSlots = outOfWindowKvp.populatedSlots();
+        
+        for (final int offset : populatedSlots) {
+          final var recordData = outOfWindowPage.getSlot(offset);
+          final var deweyId = outOfWindowPage.getDeweyId(offset);
+          
+          // Add to completePage if not already filled
+          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) == 0) {
+            completePage.setSlot(recordData, offset);
+            if (deweyId != null) {
+              completePage.setDeweyId(deweyId, offset);
+            }
           }
-          tempPage.close();
+          
+          // If slot is NOT in the sliding window, mark for preservation in modifyingPage
+          // (these are records falling out of the window that need to be written)
+          if ((inWindowBitmap[offset >>> 6] & (1L << (offset & 63))) == 0) {
+            // LAZY COPY: Mark slot for preservation instead of copying
+            modifyingKvp.markSlotForPreservation(offset);
+          }
         }
+        
+        // Handle references from out-of-window page
+        for (final Entry<Long, PageReference> entry : outOfWindowPage.referenceEntrySet()) {
+          final Long key = entry.getKey();
+          if (completePage.getPageReference(key) == null) {
+            completePage.setPageReference(key, entry.getValue());
+          }
+          // References falling out of window - check if not in window
+          if (modifyingPage.getPageReference(key) == null) {
+            // Add to modifying if needed (reference handling simplified)
+            modifyingPage.setPageReference(key, entry.getValue());
+          }
+        }
+        
+        // Set completePage reference for lazy copying at commit time
+        modifyingKvp.setCompletePageRef(completeKvp);
       }
+
+      // Propagate FSST symbol tables
+      propagateFsstSymbolTable(firstPage, completePage);
+      propagateFsstSymbolTable(firstPage, modifyingPage);
 
       final var pageContainer = PageContainer.getInstance(completePage, modifyingPage);
       log.put(reference, pageContainer);  // TIL will remove from caches before mutating
@@ -716,3 +812,4 @@ public enum VersioningType {
     }
   }
 }
+

@@ -326,11 +326,9 @@ public enum PageKind {
       }
       sink.writeInt(slotMemoryUsedSize);
       
-      // Bulk copy slotMemory (fast path - single copy instead of per-slot)
+      // Bulk copy slotMemory - direct segment-to-segment copy (zero allocation for MemorySegmentBytesOut/PooledBytesOut)
       final MemorySegment slotMem = keyValueLeafPage.getSlotMemory();
-      final byte[] slotBytes = new byte[slotMemoryUsedSize];
-      MemorySegment.copy(slotMem, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, slotBytes, 0, slotMemoryUsedSize);
-      sink.write(slotBytes);
+      sink.writeSegment(slotMem, 0, slotMemoryUsedSize);
 
       // Write dewey ID data if stored
       if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
@@ -350,9 +348,8 @@ public enum PageKind {
         
         final MemorySegment deweyMem = keyValueLeafPage.getDeweyIdMemory();
         if (deweyMem != null) {
-          final byte[] deweyBytes = new byte[deweyIdMemoryUsedSize];
-          MemorySegment.copy(deweyMem, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, deweyBytes, 0, deweyIdMemoryUsedSize);
-          sink.write(deweyBytes);
+          // Direct segment-to-segment copy (zero allocation for MemorySegmentBytesOut/PooledBytesOut)
+          sink.writeSegment(deweyMem, 0, deweyIdMemoryUsedSize);
         } else {
           // Write a single byte placeholder if no dewey ID memory
           sink.writeByte((byte) 0);
@@ -396,12 +393,9 @@ public enum PageKind {
         SlotOffsetCodec.encode(sink, keyValueLeafPage.getStringValueOffsets(), 
             keyValueLeafPage.getLastStringValueIndex());
         
-        // Write columnar string data bulk
+        // Write columnar string data - direct segment copy (zero allocation for MemorySegmentBytesOut/PooledBytesOut)
         MemorySegment stringMem = keyValueLeafPage.getStringValueMemory();
-        byte[] stringData = new byte[columnarSize];
-        MemorySegment.copy(stringMem, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, 
-            stringData, 0, columnarSize);
-        sink.write(stringData);
+        sink.writeSegment(stringMem, 0, columnarSize);
       } else {
         sink.writeByte((byte) 0); // No columnar data
       }

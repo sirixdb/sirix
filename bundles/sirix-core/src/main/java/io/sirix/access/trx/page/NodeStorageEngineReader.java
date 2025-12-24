@@ -690,6 +690,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public record PageReferenceToPage(PageReference reference, Page page) {
   }
 
+  /**
+   * Prefetch a page into the cache without blocking on the result.
+   * <p>
+   * This method loads the specified page into the buffer cache so that
+   * subsequent accesses to nodes on that page will be cache hits.
+   * <p>
+   * Called by prefetching axes (e.g., PrefetchingDescendantAxis) to
+   * asynchronously load pages that will be needed soon.
+   *
+   * @param recordPageKey the page key to prefetch
+   * @param indexType the index type (typically DOCUMENT)
+   */
   @Override
   public PageReferenceToPage getRecordPage(@NonNull IndexLogKey indexLogKey) {
     assertNotClosed();

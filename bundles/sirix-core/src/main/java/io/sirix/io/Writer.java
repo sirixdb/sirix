@@ -83,4 +83,13 @@ public interface Writer extends Reader {
    * Truncate, that is remove all file content.
    */
   Writer truncate();
+
+  /**
+   * Force all pending writes to durable storage.
+   * This is a single fsync barrier that ensures all written data is persisted.
+   * Should be called once at the end of a commit after all pages and uberpage beacons are written.
+   *
+   * @throws SirixIOException if an I/O error occurs during force
+   */
+  void forceAll();
 }

@@ -5,6 +5,7 @@ ext {
 }
 
 implLibraries = [
+        jacksonCore                 : 'com.fasterxml.jackson.core:jackson-core:2.18.2',
         jline                       : 'org.jline:jline:3.24.1',
         jcommander                  : 'com.beust:jcommander:1.69',
         aspectjrt                   : 'org.aspectj:aspectjrt:1.8.10',

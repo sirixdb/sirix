@@ -151,11 +151,22 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
      * @return this BytesOut for chaining
      */
     public BytesOut<MemorySegment> write(MemorySegment segment) {
-        long length = segment.byteSize();
-        long currentPos = growingSegment.position();
-        growingSegment.ensureCapacity(currentPos + length);
-        MemorySegment.copy(segment, 0, growingSegment.getSegment(), currentPos, length);
-        growingSegment.setPosition(currentPos + length);
+        growingSegment.writeSegment(segment, 0, segment.byteSize());
+        return this;
+    }
+    
+    /**
+     * Write data from a MemorySegment at a specific offset without intermediate byte[] allocation.
+     * This overrides the default implementation in BytesOut to use direct segment copy.
+     *
+     * @param source the source segment to copy from
+     * @param sourceOffset the offset in the source segment
+     * @param length the number of bytes to copy
+     * @return this BytesOut for chaining
+     */
+    @Override
+    public BytesOut<MemorySegment> writeSegment(MemorySegment source, long sourceOffset, long length) {
+        growingSegment.writeSegment(source, sourceOffset, length);
         return this;
     }
 

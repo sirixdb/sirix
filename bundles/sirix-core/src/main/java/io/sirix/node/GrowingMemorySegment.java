@@ -295,6 +295,112 @@ public class GrowingMemorySegment {
         position += length;
     }
     
+    // ==================== BATCH WRITE METHODS ====================
+    // These methods perform a single ensureCapacity() call for multiple bytes,
+    // eliminating per-byte capacity checks in hot paths.
+    
+    /**
+     * Write two bytes with a single capacity check.
+     * Useful for writing 2-byte VarInt values or type+flag combinations.
+     * 
+     * @param b0 first byte
+     * @param b1 second byte
+     */
+    public void writeBytes2(byte b0, byte b1) {
+        ensureCapacity(position + 2);
+        segment.set(ValueLayout.JAVA_BYTE, position, b0);
+        segment.set(ValueLayout.JAVA_BYTE, position + 1, b1);
+        position += 2;
+    }
+    
+    /**
+     * Write three bytes with a single capacity check.
+     * 
+     * @param b0 first byte
+     * @param b1 second byte
+     * @param b2 third byte
+     */
+    public void writeBytes3(byte b0, byte b1, byte b2) {
+        ensureCapacity(position + 3);
+        segment.set(ValueLayout.JAVA_BYTE, position, b0);
+        segment.set(ValueLayout.JAVA_BYTE, position + 1, b1);
+        segment.set(ValueLayout.JAVA_BYTE, position + 2, b2);
+        position += 3;
+    }
+    
+    /**
+     * Write a byte followed by an int (5 bytes total) with a single capacity check.
+     * Common pattern: type byte + 4-byte length/value.
+     * 
+     * @param b the byte to write
+     * @param value the int value to write (unaligned)
+     */
+    public void writeByteAndInt(byte b, int value) {
+        ensureCapacity(position + 5);
+        segment.set(ValueLayout.JAVA_BYTE, position, b);
+        segment.set(ValueLayout.JAVA_INT_UNALIGNED, position + 1, value);
+        position += 5;
+    }
+    
+    /**
+     * Write a byte followed by a long (9 bytes total) with a single capacity check.
+     * Common pattern: type byte + 8-byte value.
+     * 
+     * @param b the byte to write
+     * @param value the long value to write (unaligned)
+     */
+    public void writeByteAndLong(byte b, long value) {
+        ensureCapacity(position + 9);
+        segment.set(ValueLayout.JAVA_BYTE, position, b);
+        segment.set(ValueLayout.JAVA_LONG_UNALIGNED, position + 1, value);
+        position += 9;
+    }
+    
+    /**
+     * Write a variable-length unsigned long using varint encoding.
+     * Uses 7 bits per byte, MSB indicates continuation.
+     * 
+     * <p>Optimized with fast paths for 1-byte (0-127) and 2-byte (128-16383) values,
+     * which are the most common cases for delta-encoded node keys.
+     * 
+     * <p>This method performs a single ensureCapacity() call for the maximum possible
+     * varint size (10 bytes), eliminating per-byte capacity checks.
+     * 
+     * @param value the unsigned long value to write
+     * @return the number of bytes written (1-10)
+     */
+    public int writeVarLong(long value) {
+        // Max varint size is 10 bytes (ceil(64/7))
+        ensureCapacity(position + 10);
+        
+        // Fast path for 1-byte values (0-127) - most common case
+        if ((value & ~0x7FL) == 0) {
+            segment.set(ValueLayout.JAVA_BYTE, position, (byte) value);
+            position += 1;
+            return 1;
+        }
+        
+        // Fast path for 2-byte values (128-16383) - second most common
+        if ((value & ~0x3FFFL) == 0) {
+            segment.set(ValueLayout.JAVA_BYTE, position, (byte) ((value & 0x7F) | 0x80));
+            segment.set(ValueLayout.JAVA_BYTE, position + 1, (byte) (value >>> 7));
+            position += 2;
+            return 2;
+        }
+        
+        // General case for larger values
+        int bytesWritten = 0;
+        while ((value & ~0x7FL) != 0) {
+            segment.set(ValueLayout.JAVA_BYTE, position + bytesWritten, 
+                        (byte) ((value & 0x7F) | 0x80));
+            value >>>= 7;
+            bytesWritten++;
+        }
+        segment.set(ValueLayout.JAVA_BYTE, position + bytesWritten++, (byte) value);
+        position += bytesWritten;
+        return bytesWritten;
+    }
+    
     /**
      * Create a copy of the currently used data as a byte array.
      * 
@@ -308,6 +414,26 @@ public class GrowingMemorySegment {
         byte[] result = new byte[(int) position];
         MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, 0, result, 0, (int) position);
         return result;
+    }
+    
+    /**
+     * Write data from a MemorySegment directly, without intermediate byte[] allocation.
+     * This is a high-performance method for bulk data transfer between segments.
+     * 
+     * <p>Uses {@link MemorySegment#copy(MemorySegment, long, MemorySegment, long, long)}
+     * for efficient zero-copy transfer.
+     * 
+     * @param source the source segment to copy from
+     * @param sourceOffset the offset in the source segment
+     * @param length the number of bytes to copy
+     */
+    public void writeSegment(MemorySegment source, long sourceOffset, long length) {
+        if (length <= 0) {
+            return;  // Handle edge case: no-op for zero or negative length
+        }
+        ensureCapacity(position + length);
+        MemorySegment.copy(source, sourceOffset, segment, position, length);
+        position += length;
     }
     
     /**

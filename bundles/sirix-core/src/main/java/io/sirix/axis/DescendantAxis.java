@@ -24,6 +24,7 @@ package io.sirix.axis;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.api.NodeCursor;
+import io.sirix.settings.Fixed;
 
 /**
  * <p>
@@ -98,26 +99,27 @@ public final class DescendantAxis extends AbstractAxis {
     }
 
     // Always follow first child if there is one.
-    if (cursor.hasFirstChild()) {
-      key = cursor.getFirstChildKey();
-      if (cursor.hasRightSibling()) {
-        rightSiblingKeyStack.add(cursor.getRightSiblingKey());
+    // PERF: Avoid calling hasFirstChild() + getFirstChildKey() (reads the same flyweight field twice).
+    final long firstChildKey = cursor.getFirstChildKey();
+    if (firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      final long rightSiblingKey = cursor.getRightSiblingKey();
+      if (rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        rightSiblingKeyStack.add(rightSiblingKey);
       }
-      return key;
+      return firstChildKey;
     }
 
     // Then follow right sibling if there is one.
-    if (cursor.hasRightSibling()) {
-      final long currKey = cursor.getNodeKey();
-      key = cursor.getRightSiblingKey();
-      return hasNextNode(key, currKey);
+    // PERF: Avoid calling hasRightSibling() + getRightSiblingKey() (reads the same flyweight field twice).
+    final long rightSiblingKey = cursor.getRightSiblingKey();
+    if (rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      return hasNextNode(rightSiblingKey);
     }
 
     // Then follow right sibling on stack.
     if (!rightSiblingKeyStack.isEmpty()) {
-      final long currKey = cursor.getNodeKey();
       key = rightSiblingKeyStack.popLong();
-      return hasNextNode(key, currKey);
+      return hasNextNode(key);
     }
 
     return done();
@@ -138,7 +140,7 @@ public final class DescendantAxis extends AbstractAxis {
    * @param currKey current node key (unused after optimization, kept for API compatibility)
    * @return the key if traversal should continue, or done() if finished
    */
-  private long hasNextNode(@NonNegative final long key, final @NonNegative long currKey) {
+  private long hasNextNode(@NonNegative final long key) {
     // Check if the candidate is the right sibling of the start node
     // If so, we've finished traversing all descendants of the start subtree
     if (key == startNodeRightSiblingKey) {

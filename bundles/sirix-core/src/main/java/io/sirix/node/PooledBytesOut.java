@@ -153,6 +153,21 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
         return this;
     }
     
+    /**
+     * Write data from a MemorySegment at a specific offset without intermediate byte[] allocation.
+     * This overrides the default implementation in BytesOut to use direct segment copy.
+     *
+     * @param source the source segment to copy from
+     * @param sourceOffset the offset in the source segment
+     * @param length the number of bytes to copy
+     * @return this BytesOut for chaining
+     */
+    @Override
+    public BytesOut<MemorySegment> writeSegment(MemorySegment source, long sourceOffset, long length) {
+        segment.writeSegment(source, sourceOffset, length);
+        return this;
+    }
+    
     @Override
     public BytesOut<MemorySegment> write(long position, ByteBuffer buffer, int bufferPosition, int length) {
         long oldPos = segment.position();

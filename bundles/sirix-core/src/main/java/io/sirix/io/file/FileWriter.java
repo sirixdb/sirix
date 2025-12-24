@@ -256,4 +256,18 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 
     return this;
   }
+
+  @Override
+  public void forceAll() {
+    try {
+      if (dataFile != null) {
+        dataFile.getFD().sync();
+      }
+      if (revisionsFile != null) {
+        revisionsFile.getFD().sync();
+      }
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
 }

@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.node.json;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 import io.brackit.query.atomic.QNm;
@@ -56,6 +57,7 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.*;
 import io.sirix.page.NamePage;
 import io.sirix.service.InsertPosition;
+import io.sirix.service.json.shredder.JacksonJsonShredder;
 import io.sirix.service.json.shredder.JsonItemShredder;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.Constants;
@@ -391,6 +393,228 @@ final class JsonNodeTrxImpl extends
       }
     });
     return this;
+  }
+
+  // ==================== Jackson JsonParser Methods ====================
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsFirstChild(final JsonParser parser) {
+    return insertSubtree(parser, InsertPosition.AS_FIRST_CHILD, Commit.IMPLICIT, CheckParentNode.YES, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsFirstChild(final JsonParser parser, Commit commit) {
+    return insertSubtree(parser, InsertPosition.AS_FIRST_CHILD, commit, CheckParentNode.YES, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsFirstChild(final JsonParser parser, Commit commit, CheckParentNode checkParentNode) {
+    return insertSubtree(parser, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsFirstChild(final JsonParser parser, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken) {
+    return insertSubtree(parser, InsertPosition.AS_FIRST_CHILD, commit, checkParentNode, skipRootToken);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLastChild(final JsonParser parser) {
+    return insertSubtree(parser, InsertPosition.AS_LAST_CHILD, Commit.IMPLICIT, CheckParentNode.YES, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLastChild(final JsonParser parser, Commit commit) {
+    return insertSubtree(parser, InsertPosition.AS_LAST_CHILD, commit, CheckParentNode.YES, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLastChild(final JsonParser parser, Commit commit, CheckParentNode checkParentNode) {
+    return insertSubtree(parser, InsertPosition.AS_LAST_CHILD, commit, checkParentNode, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLastChild(final JsonParser parser, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken) {
+    return insertSubtree(parser, InsertPosition.AS_LAST_CHILD, commit, checkParentNode, skipRootToken);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLeftSibling(final JsonParser parser) {
+    return insertSubtree(parser, InsertPosition.AS_LEFT_SIBLING, Commit.IMPLICIT, CheckParentNode.YES, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLeftSibling(final JsonParser parser, Commit commit) {
+    return insertSubtree(parser, InsertPosition.AS_LEFT_SIBLING, commit, CheckParentNode.YES, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLeftSibling(final JsonParser parser, Commit commit, CheckParentNode checkParentNode) {
+    return insertSubtree(parser, InsertPosition.AS_LEFT_SIBLING, commit, checkParentNode, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsLeftSibling(final JsonParser parser, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken) {
+    return insertSubtree(parser, InsertPosition.AS_LEFT_SIBLING, commit, checkParentNode, skipRootToken);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsRightSibling(final JsonParser parser) {
+    return insertSubtree(parser, InsertPosition.AS_RIGHT_SIBLING, Commit.IMPLICIT, CheckParentNode.YES, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsRightSibling(final JsonParser parser, Commit commit) {
+    return insertSubtree(parser, InsertPosition.AS_RIGHT_SIBLING, commit, CheckParentNode.YES, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsRightSibling(final JsonParser parser, Commit commit, CheckParentNode checkParentNode) {
+    return insertSubtree(parser, InsertPosition.AS_RIGHT_SIBLING, commit, checkParentNode, SkipRootToken.NO);
+  }
+
+  @Override
+  public JsonNodeTrx insertSubtreeAsRightSibling(final JsonParser parser, Commit commit, CheckParentNode checkParentNode,
+      SkipRootToken skipRootToken) {
+    return insertSubtree(parser, InsertPosition.AS_RIGHT_SIBLING, commit, checkParentNode, skipRootToken);
+  }
+
+  private JsonNodeTrx insertSubtree(final JsonParser parser, final InsertPosition insertionPosition, Commit commit,
+      final CheckParentNode checkParentNode, final SkipRootToken doSkipRootJsonToken) {
+    nodeReadOnlyTrx.assertNotClosed();
+    requireNonNull(parser);
+    assert insertionPosition != null;
+
+    runLocked(() -> {
+      try {
+        assertRunning();
+        
+        // Peek the first token to validate JSON structure
+        com.fasterxml.jackson.core.JsonToken peekedToken = parser.nextToken();
+        
+        if (peekedToken != com.fasterxml.jackson.core.JsonToken.START_OBJECT 
+            && peekedToken != com.fasterxml.jackson.core.JsonToken.START_ARRAY) {
+          throw new SirixUsageException("JSON to insert must begin with an array or object.");
+        }
+
+        var skipRootJsonToken = doSkipRootJsonToken;
+        final var nodeKind = getKind();
+
+        // $CASES-OMITTED$
+        switch (insertionPosition) {
+          case AS_FIRST_CHILD, AS_LAST_CHILD -> {
+            if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT) {
+              throw new IllegalStateException(
+                  "Current node must either be the document root, an array or an object key.");
+            }
+            switch (peekedToken) {
+              case START_OBJECT -> {
+                if (nodeKind == NodeKind.OBJECT)
+                  skipRootJsonToken = SkipRootToken.YES;
+              }
+              case START_ARRAY -> {
+                if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
+                  throw new IllegalStateException("Current node in storage must be an array node.");
+                }
+              }
+              // $CASES-OMITTED$
+              default -> {
+              }
+            }
+          }
+          case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
+            if (checkParentNode == CheckParentNode.YES) {
+              final NodeKind parentKind = getParentKind();
+              if (parentKind != NodeKind.ARRAY) {
+                throw new IllegalStateException("Current parent node must be an array node.");
+              }
+            }
+          }
+          default -> throw new UnsupportedOperationException();
+        }
+
+        checkAccessAndCommit();
+        beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber();
+        nodeHashing.setBulkInsert(true);
+        if (isAutoCommitting) {
+          nodeHashing.setAutoCommit(true);
+        }
+        var nodeKey = getCurrentNode().getNodeKey();
+        
+        // Create a wrapper parser that replays the peeked token
+        final var wrappedParser = new PeekedTokenJsonParser(parser, peekedToken);
+        final var shredderBuilder = new JacksonJsonShredder.Builder(this, wrappedParser, insertionPosition);
+
+        if (skipRootJsonToken == SkipRootToken.YES) {
+          shredderBuilder.skipRootJsonToken();
+        }
+
+        final var shredder = shredderBuilder.build();
+        shredder.call();
+        moveTo(nodeKey);
+
+        switch (insertionPosition) {
+          case AS_FIRST_CHILD -> moveToFirstChild();
+          case AS_LAST_CHILD -> moveToLastChild();
+          case AS_LEFT_SIBLING -> moveToLeftSibling();
+          case AS_RIGHT_SIBLING -> moveToRightSibling();
+          default -> {
+            // May not happen.
+          }
+        }
+
+        adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
+
+        // bulk inserts will be disabled for auto-commits after the first commit
+        if (!isAutoCommitting) {
+          adaptHashesInPostorderTraversal();
+        }
+
+        nodeHashing.setBulkInsert(false);
+
+        if (commit == Commit.IMPLICIT) {
+          commit();
+        }
+
+      } catch (final IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    });
+    return this;
+  }
+
+  /**
+   * Wrapper parser that replays a peeked token before delegating to the underlying parser.
+   * This is needed because Jackson's parser doesn't have a true peek() - we consumed the first
+   * token to validate it, so we need to replay it for the shredder.
+   */
+  private static class PeekedTokenJsonParser extends com.fasterxml.jackson.core.util.JsonParserDelegate {
+    private com.fasterxml.jackson.core.JsonToken peekedToken;
+    private boolean peekedTokenConsumed = false;
+
+    PeekedTokenJsonParser(JsonParser delegate, com.fasterxml.jackson.core.JsonToken peekedToken) {
+      super(delegate);
+      this.peekedToken = peekedToken;
+    }
+
+    @Override
+    public com.fasterxml.jackson.core.JsonToken nextToken() throws IOException {
+      if (!peekedTokenConsumed) {
+        peekedTokenConsumed = true;
+        return peekedToken;
+      }
+      return super.nextToken();
+    }
+
+    @Override
+    public com.fasterxml.jackson.core.JsonToken getCurrentToken() {
+      if (!peekedTokenConsumed) {
+        return peekedToken;
+      }
+      return super.getCurrentToken();
+    }
   }
 
   @Override
