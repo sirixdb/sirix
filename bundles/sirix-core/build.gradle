@@ -91,6 +91,10 @@ test {
     systemProperty "sirix.debug.memory.leaks", System.getProperty("sirix.debug.memory.leaks", "false")
     systemProperty "sirix.debug.pin.counts", System.getProperty("sirix.debug.pin.counts", "false")
     
+    // LZ4 fast decompression: ~10-15% faster reads, skips compressed buffer validation
+    // Enable with: -Dsirix.lz4.fast.decompress=true
+    systemProperty "sirix.lz4.fast.decompress", System.getProperty("sirix.lz4.fast.decompress", "true")
+    
     // Show test output for diagnostics
     testLogging {
         showStandardStreams = true

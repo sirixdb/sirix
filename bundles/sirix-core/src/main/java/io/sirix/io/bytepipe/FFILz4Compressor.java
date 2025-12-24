@@ -56,7 +56,29 @@ public final class FFILz4Compressor implements ByteHandler {
   private static final MethodHandle LZ4_COMPRESS_FAST;
   private static final MethodHandle LZ4_COMPRESS_HC;
   private static final MethodHandle LZ4_DECOMPRESS_SAFE;
+  private static final MethodHandle LZ4_DECOMPRESS_FAST;
   private static final MethodHandle LZ4_COMPRESS_BOUND;
+  
+  /**
+   * Whether to use LZ4_decompress_fast instead of LZ4_decompress_safe.
+   * 
+   * <p>LZ4_decompress_fast is ~10-15% faster but is deprecated and has security implications:
+   * <ul>
+   *   <li>It doesn't validate that compressed data doesn't overflow the input buffer</li>
+   *   <li>Corrupted/malicious data could cause out-of-bounds reads</li>
+   * </ul>
+   * 
+   * <p>Safe to use in Sirix because:
+   * <ul>
+   *   <li>Data is from trusted storage (not untrusted user input)</li>
+   *   <li>Original size is stored in header and validated</li>
+   *   <li>Pages have checksums for corruption detection</li>
+   * </ul>
+   * 
+   * <p>Set via system property: -Dsirix.lz4.fast.decompress=true
+   */
+  private static final boolean USE_FAST_DECOMPRESS = 
+      Boolean.getBoolean("sirix.lz4.fast.decompress");
 
   /**
    * LZ4HC compression level (1-12, where 9 is the default providing best ratio/speed tradeoff).
@@ -117,6 +139,7 @@ public final class FFILz4Compressor implements ByteHandler {
     MethodHandle compressFast = null;
     MethodHandle compressHC = null;
     MethodHandle decompress = null;
+    MethodHandle decompressFast = null;
     MethodHandle compressBound = null;
 
     try {
@@ -162,6 +185,14 @@ public final class FFILz4Compressor implements ByteHandler {
           FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT)
       );
 
+      // int LZ4_decompress_fast(const char* src, char* dst, int originalSize)
+      // DEPRECATED but ~10-15% faster - doesn't validate compressed buffer bounds
+      // Returns: number of bytes read from src, or negative on error
+      decompressFast = LINKER.downcallHandle(
+          lz4Lib.find("LZ4_decompress_fast").orElseThrow(),
+          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT)
+      );
+
       // int LZ4_compressBound(int inputSize)
       compressBound = LINKER.downcallHandle(
           lz4Lib.find("LZ4_compressBound").orElseThrow(),
@@ -179,7 +210,12 @@ public final class FFILz4Compressor implements ByteHandler {
     LZ4_COMPRESS_FAST = compressFast;
     LZ4_COMPRESS_HC = compressHC;
     LZ4_DECOMPRESS_SAFE = decompress;
+    LZ4_DECOMPRESS_FAST = decompressFast;
     LZ4_COMPRESS_BOUND = compressBound;
+    
+    if (USE_FAST_DECOMPRESS && available) {
+      LOGGER.info("LZ4 fast decompression enabled (sirix.lz4.fast.decompress=true)");
+    }
   }
 
   /**
@@ -313,7 +349,7 @@ public final class FFILz4Compressor implements ByteHandler {
 
   /**
    * Decompress data from source MemorySegment to destination MemorySegment.
-   * Zero-copy operation using FFI.
+   * Zero-copy operation using FFI. Uses safe mode (validates bounds).
    *
    * @param source compressed data
    * @param destination buffer for decompressed data (must be large enough)
@@ -334,6 +370,33 @@ public final class FFILz4Compressor implements ByteHandler {
       );
     } catch (Throwable e) {
       throw new RuntimeException("LZ4 decompression failed", e);
+    }
+  }
+  
+  /**
+   * Decompress data using fast mode (deprecated but ~10-15% faster).
+   * 
+   * <p><b>WARNING:</b> This doesn't validate compressed buffer bounds.
+   * Only use when data is from trusted source (like Sirix storage).
+   *
+   * @param source compressed data
+   * @param destination buffer for decompressed data (must be exactly originalSize)
+   * @param originalSize the expected decompressed size
+   * @return number of bytes read from source, or negative on error
+   */
+  public int decompressSegmentFast(MemorySegment source, MemorySegment destination, int originalSize) {
+    if (!NATIVE_LZ4_AVAILABLE) {
+      throw new UnsupportedOperationException("Native LZ4 not available");
+    }
+
+    try {
+      return (int) LZ4_DECOMPRESS_FAST.invokeExact(
+          source,
+          destination,
+          originalSize
+      );
+    } catch (Throwable e) {
+      throw new RuntimeException("LZ4 fast decompression failed", e);
     }
   }
 
@@ -568,17 +631,32 @@ public final class FFILz4Compressor implements ByteHandler {
     }
     
     try {
-      // Decompress
-      int actualSize = decompressSegment(
-          nativeCompressed.asSlice(4),
-          buffer,
-          (int) nativeCompressed.byteSize() - 4
-      );
-
-      if (actualSize < 0) {
-        // Release buffer on error
-        ALLOCATOR.release(buffer);
-        throw new RuntimeException("LZ4 decompression failed: " + actualSize);
+      // Decompress - choose between safe (validated) and fast (unvalidated) modes
+      int actualSize;
+      if (USE_FAST_DECOMPRESS) {
+        // Fast mode: ~10-15% faster, doesn't validate compressed buffer bounds
+        // Returns bytes read from source (not written to dest)
+        int bytesRead = decompressSegmentFast(
+            nativeCompressed.asSlice(4),
+            buffer,
+            decompressedSize
+        );
+        if (bytesRead < 0) {
+          ALLOCATOR.release(buffer);
+          throw new RuntimeException("LZ4 fast decompression failed: " + bytesRead);
+        }
+        actualSize = decompressedSize; // Fast mode always writes exactly originalSize bytes
+      } else {
+        // Safe mode: validates compressed buffer bounds
+        actualSize = decompressSegment(
+            nativeCompressed.asSlice(4),
+            buffer,
+            (int) nativeCompressed.byteSize() - 4
+        );
+        if (actualSize < 0) {
+          ALLOCATOR.release(buffer);
+          throw new RuntimeException("LZ4 decompression failed: " + actualSize);
+        }
       }
 
       if (actualSize != decompressedSize) {

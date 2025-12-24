@@ -59,7 +59,7 @@ public final class JsonShredderTest {
 
   @BeforeEach
   public void setUp() {
-    JsonTestHelper.deleteEverything();
+    //JsonTestHelper.deleteEverything();
   }
 
   @AfterEach
@@ -74,7 +74,6 @@ public final class JsonShredderTest {
     }
   }
 
-  @Disabled
   @Test
   public void testChicagoDescendantAxisParallel() throws InterruptedException {
 //    if (Files.notExists(PATHS.PATH1.getFile())) {
@@ -129,23 +128,23 @@ public final class JsonShredderTest {
 
         logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
 
-        stopWatch = new StopWatch();
-        stopWatch.start();
-
-        logger.info("start");
-        axis = new PostOrderAxis(rtx);
-
-        count = 0;
-
-        while (axis.hasNext()) {
-          final var nodeKey = axis.nextLong();
-          if (count % 50_000_000L == 0) {
-            logger.info("nodeKey: " + nodeKey);
-          }
-          count++;
-        }
-
-        logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS)+ "s].");
+//        stopWatch = new StopWatch();
+//        stopWatch.start();
+//
+//        logger.info("start");
+//        axis = new PostOrderAxis(rtx);
+//
+//        count = 0;
+//
+//        while (axis.hasNext()) {
+//          final var nodeKey = axis.nextLong();
+//          if (count % 50_000_000L == 0) {
+//            logger.info("nodeKey: " + nodeKey);
+//          }
+//          count++;
+//        }
+//
+//        logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS)+ "s].");
       }));
     }
 
@@ -154,7 +153,6 @@ public final class JsonShredderTest {
     THREAD_POOL.awaitTermination(20, TimeUnit.MINUTES);
   }
 
-  @Disabled
   @Test
   public void testChicagoDescendantAxis() {
 //    if (Files.notExists(PATHS.PATH1.getFile())) {
