@@ -38,6 +38,7 @@ import io.sirix.io.filechannel.FileChannelReader;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,6 +48,11 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Storage, to provide offheap memory mapped access.
+ * <p>
+ * Uses a shared Arena for memory-mapped segments to avoid creating a new Arena
+ * per reader. The Arena is managed at the storage level and shared across all
+ * readers. When the file grows (after commits), the mapping is remapped to
+ * cover the new file size.
  *
  * @author Johannes Lichtenberger
  */
@@ -79,6 +85,39 @@ public final class MMStorage implements IOStorage {
   private final Path dataFilePath;
 
   /**
+   * Shared arena for memory-mapped segments.
+   * Created on first reader creation, closed when storage is closed.
+   */
+  private volatile Arena sharedArena;
+
+  /**
+   * Shared memory-mapped segment for the data file.
+   * Remapped when file size grows.
+   */
+  private volatile MemorySegment sharedDataSegment;
+
+  /**
+   * Shared memory-mapped segment for the revisions offset file.
+   * Remapped when file size grows.
+   */
+  private volatile MemorySegment sharedRevisionsSegment;
+
+  /**
+   * Last known size of the data file when mapped.
+   */
+  private volatile long lastDataFileSize;
+
+  /**
+   * Last known size of the revisions file when mapped.
+   */
+  private volatile long lastRevisionsFileSize;
+
+  /**
+   * Lock for synchronizing remap operations.
+   */
+  private final Object remapLock = new Object();
+
+  /**
    * Constructor.
    *
    * @param resourceConfig the resource configuration
@@ -107,25 +146,50 @@ public final class MMStorage implements IOStorage {
 
       createRevisionsOffsetFileIfItDoesNotExist(revisionsOffsetFilePath);
 
-      final var arena = Arena.ofShared();
-      final var dataFileSegmentFileSize = Files.size(dataFilePath);
+      // Get or create shared memory-mapped segments
+      final MemorySegment dataSegment;
+      final MemorySegment revisionsSegment;
 
-      final var revisionsOffsetSegmentFileSize = Files.size(revisionsOffsetFilePath);
+      synchronized (remapLock) {
+        final long currentDataFileSize = Files.size(dataFilePath);
+        final long currentRevisionsFileSize = Files.size(revisionsOffsetFilePath);
 
-      try (final var dataFileChannel = FileChannel.open(dataFilePath);
-           final var revisionsOffsetFileChannel = FileChannel.open(revisionsOffsetFilePath)) {
-        final var dataFileSegment =
-            dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, dataFileSegmentFileSize, arena);
-        final var revisionsOffsetFileSegment =
-            revisionsOffsetFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, revisionsOffsetSegmentFileSize, arena);
-        return new MMFileReader(dataFileSegment,
-                                revisionsOffsetFileSegment,
-                                new ByteHandlerPipeline(byteHandlerPipeline),
-                                SerializationType.DATA,
-                                new PagePersister(),
-                                cache.synchronous(),
-                                arena);
+        // Check if we need to create or remap the segments
+        if (sharedArena == null || currentDataFileSize > lastDataFileSize
+            || currentRevisionsFileSize > lastRevisionsFileSize) {
+          
+          // Close old arena if it exists (will invalidate old segments)
+          if (sharedArena != null) {
+            sharedArena.close();
+          }
+
+          // Create new shared arena
+          sharedArena = Arena.ofShared();
+
+          try (final var dataFileChannel = FileChannel.open(dataFilePath);
+               final var revisionsOffsetFileChannel = FileChannel.open(revisionsOffsetFilePath)) {
+            sharedDataSegment =
+                dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, currentDataFileSize, sharedArena);
+            sharedRevisionsSegment =
+                revisionsOffsetFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, currentRevisionsFileSize, sharedArena);
+          }
+
+          lastDataFileSize = currentDataFileSize;
+          lastRevisionsFileSize = currentRevisionsFileSize;
+        }
+
+        dataSegment = sharedDataSegment;
+        revisionsSegment = sharedRevisionsSegment;
       }
+
+      // Create reader with shared segments (reader does NOT own the arena)
+      return new MMFileReader(dataSegment,
+                              revisionsSegment,
+                              new ByteHandlerPipeline(byteHandlerPipeline),
+                              SerializationType.DATA,
+                              new PagePersister(),
+                              cache.synchronous(),
+                              null);  // null arena - storage owns the arena, not the reader
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {
@@ -199,6 +263,14 @@ public final class MMStorage implements IOStorage {
 
   @Override
   public void close() {
+    synchronized (remapLock) {
+      if (sharedArena != null) {
+        sharedArena.close();
+        sharedArena = null;
+        sharedDataSegment = null;
+        sharedRevisionsSegment = null;
+      }
+    }
   }
 
   /**

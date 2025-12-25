@@ -526,7 +526,7 @@ public final class JacksonJsonShredderTest {
         .storeChildCount(true)
         .hashKind(HashType.ROLLING)
         .useTextCompression(false)
-        .storageType(StorageType.FILE_CHANNEL)
+        .storageType(StorageType.MEMORY_MAPPED)
         .useDeweyIDs(false)
         .byteHandlerPipeline(new ByteHandlerPipeline(new FFILz4Compressor()))
         .build());

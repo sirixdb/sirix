@@ -61,21 +61,32 @@ public final class MMFileReader extends AbstractReader {
 
   private final Cache<Integer, RevisionFileData> cache;
 
+  /**
+   * Arena for memory-mapped segments. May be null if the arena is managed externally
+   * (e.g., by MMStorage for shared segments).
+   */
+  @Nullable
   private final Arena arena;
 
   /**
    * Constructor.
    *
-   * @param byteHandler {@link ByteHandler} instance
+   * @param dataFileSegment     memory-mapped segment for the data file
+   * @param revisionFileSegment memory-mapped segment for the revisions file
+   * @param byteHandler         {@link ByteHandler} instance
+   * @param type                serialization type
+   * @param pagePersister       page persister
+   * @param cache               revision file data cache
+   * @param arena               arena managing the segments, or null if managed externally
    */
   public MMFileReader(final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment,
-      final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersistenter,
-      final Cache<Integer, RevisionFileData> cache, final Arena arena) {
-    super(byteHandler, pagePersistenter, type);
+      final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersister,
+      final Cache<Integer, RevisionFileData> cache, @Nullable final Arena arena) {
+    super(byteHandler, pagePersister, type);
     this.dataFileSegment = requireNonNull(dataFileSegment);
     this.revisionsOffsetFileSegment = requireNonNull(revisionFileSegment);
     this.cache = requireNonNull(cache);
-    this.arena = requireNonNull(arena);
+    this.arena = arena;  // May be null if managed externally (by MMStorage)
   }
 
   @Override
@@ -144,6 +155,10 @@ public final class MMFileReader extends AbstractReader {
 
   @Override
   public void close() {
-    arena.close();
+    // Only close the arena if we own it (not null).
+    // When arena is null, the storage (MMStorage) owns and manages the shared arena.
+    if (arena != null) {
+      arena.close();
+    }
   }
 }

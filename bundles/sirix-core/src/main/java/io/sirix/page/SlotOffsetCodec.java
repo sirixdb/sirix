@@ -37,7 +37,7 @@ import java.util.BitSet;
 
 /**
  * Codec for compressing slot offset arrays using bit-packing.
- * 
+ *
  * <p>This compression technique is inspired by best practices from DuckDB, RocksDB,
  * and Apache Parquet. It achieves significant space savings compared to raw int[1024] arrays:</p>
  * <ul>
@@ -45,7 +45,7 @@ import java.util.BitSet;
  *   <li>Realistic pages (80% full): ~50% savings</li>
  *   <li>Full pages: ~50% savings</li>
  * </ul>
- * 
+ *
  * <h2>Format</h2>
  * <pre>
  * ┌─────────────────────────────────────────────────────────────────┐
@@ -55,7 +55,7 @@ import java.util.BitSet;
  * │ (BitSet ~128B)    │ (1 byte)  │ (N×bitWidth bits)               │
  * └─────────────────────────────────────────────────────────────────┘
  * </pre>
- * 
+ *
  * <h2>Algorithm</h2>
  * <ol>
  *   <li>Build a presence bitmap indicating which slots are populated (offset >= 0)</li>
@@ -63,10 +63,10 @@ import java.util.BitSet;
  *   <li>Determine minimum bit width needed to represent max offset</li>
  *   <li>Bit-pack all offsets using the computed bit width</li>
  * </ol>
- * 
- * <p>Note: Delta encoding is not used because slot offsets are not guaranteed to be 
+ *
+ * <p>Note: Delta encoding is not used because slot offsets are not guaranteed to be
  * monotonically increasing when iterated in slot order.</p>
- * 
+ *
  * @author Johannes Lichtenberger
  */
 public final class SlotOffsetCodec {
@@ -77,13 +77,13 @@ public final class SlotOffsetCodec {
 
   /**
    * Encode slot offsets using bit-packing.
-   * 
+   *
    * <p>Format: [presence bitmap][bitWidth (1B)][bit-packed offsets]</p>
-   * 
-   * @param sink the output to write compressed data to
-   * @param slotOffsets the slot offset array (length must be Constants.NDP_NODE_COUNT)
+   *
+   * @param sink          the output to write compressed data to
+   * @param slotOffsets   the slot offset array (length must be Constants.NDP_NODE_COUNT)
    * @param lastSlotIndex unused, kept for API compatibility
-   * @throws NullPointerException if sink or slotOffsets is null
+   * @throws NullPointerException     if sink or slotOffsets is null
    * @throws IllegalArgumentException if slotOffsets.length != Constants.NDP_NODE_COUNT
    */
   public static void encode(final BytesOut<?> sink, final int[] slotOffsets, final int lastSlotIndex) {
@@ -103,14 +103,14 @@ public final class SlotOffsetCodec {
     // So we must scan all slots to find all populated ones
     final BitSet presence = new BitSet(Constants.NDP_NODE_COUNT);
     int populatedCount = 0;
-    
+
     for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
       if (slotOffsets[i] >= 0) {
         presence.set(i);
         populatedCount++;
       }
     }
-    
+
     SerializationType.serializeBitSet(sink, presence);
 
     if (populatedCount == 0) {
@@ -141,9 +141,9 @@ public final class SlotOffsetCodec {
 
   /**
    * Decode compressed slot offsets back to int[1024] array.
-   * 
+   *
    * <p>Empty slots are marked with -1.</p>
-   * 
+   *
    * @param source the input to read compressed data from
    * @return the decoded slot offset array of length Constants.NDP_NODE_COUNT
    * @throws NullPointerException if source is null
@@ -179,11 +179,11 @@ public final class SlotOffsetCodec {
 
   /**
    * Pack integers using exactly bitWidth bits each.
-   * 
+   *
    * <p>Values are packed in little-endian bit order within each byte.</p>
-   * 
-   * @param sink the output to write packed data to
-   * @param values the integer values to pack
+   *
+   * @param sink     the output to write packed data to
+   * @param values   the integer values to pack
    * @param bitWidth the number of bits to use per value (1-32)
    */
   static void writeBitPacked(final BytesOut<?> sink, final int[] values, final int bitWidth) {
@@ -218,9 +218,9 @@ public final class SlotOffsetCodec {
 
   /**
    * Unpack integers from bitWidth-bit packed format.
-   * 
-   * @param source the input to read packed data from
-   * @param count the number of integers to unpack
+   *
+   * @param source   the input to read packed data from
+   * @param count    the number of integers to unpack
    * @param bitWidth the number of bits per value (1-32)
    * @return the unpacked integer values
    */
@@ -256,7 +256,3 @@ public final class SlotOffsetCodec {
     return values;
   }
 }
-
-
-
-
