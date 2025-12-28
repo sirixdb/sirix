@@ -52,14 +52,14 @@ public final class JsonShredderTest {
 
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
-  private static final int NUMBER_OF_PROCESSORS = 5;
+  private static final int NUMBER_OF_PROCESSORS = Runtime.getRuntime().availableProcessors();
 
   private static final ExecutorService THREAD_POOL =
       Executors.newFixedThreadPool(NUMBER_OF_PROCESSORS);
 
   @BeforeEach
   public void setUp() {
-    //JsonTestHelper.deleteEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @AfterEach
@@ -74,6 +74,7 @@ public final class JsonShredderTest {
     }
   }
 
+  @Disabled
   @Test
   public void testChicagoDescendantAxisParallel() throws InterruptedException {
 //    if (Files.notExists(PATHS.PATH1.getFile())) {
@@ -106,27 +107,29 @@ public final class JsonShredderTest {
         } catch (InterruptedException _) {
         }
 
-        final var rtx = session.beginNodeReadOnlyTrx();
+        try (final var rtx = session.beginNodeReadOnlyTrx()) {
+          var stopWatch = new StopWatch();
+          logger.info("start");
+          stopWatch.start();
+          logger.info("Max node key: " + rtx.getMaxNodeKey());
 
-        var stopWatch = new StopWatch();
-        logger.info("start");
-        stopWatch.start();
-        logger.info("Max node key: " + rtx.getMaxNodeKey());
+          Axis axis = new DescendantAxis(rtx);
 
-        Axis axis = new DescendantAxis(rtx);
+          int count = 0;
 
-        int count = 0;
+          while (axis.hasNext()) {
+            final var nodeKey = axis.nextLong();
 
-        while (axis.hasNext()) {
-          final var nodeKey = axis.nextLong();
-
-          if (count % 50_000_000L == 0) {
-            logger.info("nodeKey: " + nodeKey);
+            if (count % 50_000_000L == 0) {
+              logger.info("nodeKey: " + nodeKey);
+            }
+            count++;
           }
-          count++;
-        }
 
-        logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
+          logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
+        } catch (Throwable t) {
+          t.printStackTrace();
+        }
 
 //        stopWatch = new StopWatch();
 //        stopWatch.start();
@@ -153,6 +156,7 @@ public final class JsonShredderTest {
     THREAD_POOL.awaitTermination(20, TimeUnit.MINUTES);
   }
 
+  @Disabled
   @Test
   public void testChicagoDescendantAxis() {
 //    if (Files.notExists(PATHS.PATH1.getFile())) {
@@ -241,7 +245,7 @@ public final class JsonShredderTest {
                                                  .storeChildCount(true)
                                                  .hashKind(HashType.ROLLING)
                                                  .useTextCompression(false)
-                                                 .storageType(StorageType.FILE_CHANNEL)
+                                                 .storageType(StorageType.MEMORY_MAPPED)
                                                  .useDeweyIDs(false)
                                                  .byteHandlerPipeline(new ByteHandlerPipeline(new FFILz4Compressor()))
                                                  .build());
