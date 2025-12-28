@@ -1,4 +1,12 @@
-<!-- 93dc24c7-29b9-440a-97ab-5be4ff6f2c41 df25a026-c148-4a2e-8736-190cfccd6131 -->
+---
+name: Zero-Copy Page Deserialization
+overview: ""
+todos:
+  - id: 0bc5980c-0955-43d6-baae-e90072b64cdd
+    content: Update AbstractReader.deserializeFromSegment() to pass DecompressionResult
+    status: pending
+---
+
 # Zero-Copy Page Deserialization
 
 ## Problem Statement
@@ -513,7 +521,3 @@ AFTER (zero-copy):
 3. **Run VersioningTest** - tests page combining (zero-copy fragments -> fresh combined page)
 4. **JFR Profile** - confirm `MemorySegment.copy()` eliminated from hot path
 5. **Memory leak check** - verify LinuxMemorySegmentAllocator shows 0 leaks
-
-### To-dos
-
-- [ ] Update AbstractReader.deserializeFromSegment() to pass DecompressionResult

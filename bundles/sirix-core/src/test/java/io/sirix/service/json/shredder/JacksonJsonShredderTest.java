@@ -504,7 +504,7 @@ public final class JacksonJsonShredderTest {
     logger.info("Speedup: " + String.format("%.2fx", (double) gsonTotal / jacksonTotal));
   }
 
- // @Disabled("Large file test - run manually")
+  @Disabled("Large file test - run manually")
   @Test
   public void testShredderAndTraverseChicago() {
     logger.info("start");
