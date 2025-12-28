@@ -27,20 +27,14 @@ public enum DatabaseType {
 
     @Override
     public Node getDocumentNode(SirixDeweyID id) {
-      final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                    Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                    null,
-                                                    0,
-                                                    0,
-                                                    id == null ? null : id.toBytes());
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  0,
-                                                                  0);
-
-      return new XmlDocumentRootNode(nodeDel, structDel);
+      return new XmlDocumentRootNode(
+          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+          Fixed.NULL_NODE_KEY.getStandardProperty(),
+          Fixed.NULL_NODE_KEY.getStandardProperty(),
+          0,
+          0,
+          null,
+          id);
     }
   },
 
@@ -53,21 +47,14 @@ public enum DatabaseType {
 
     @Override
     public Node getDocumentNode(SirixDeweyID id) {
-      final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                    Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                    null,
-                                                    0,
-                                                    0,
-                                                    id == null ? null : id.toBytes());
-      final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                                  0,
-                                                                  0);
-
-      return new JsonDocumentRootNode(nodeDel, structDel);
+      return new JsonDocumentRootNode(
+          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+          Fixed.NULL_NODE_KEY.getStandardProperty(),
+          Fixed.NULL_NODE_KEY.getStandardProperty(),
+          0,
+          0,
+          null,
+          id);
     }
   };
 

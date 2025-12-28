@@ -27,12 +27,10 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.Node;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
-
-import java.nio.ByteBuffer;
 
 /**
  * Delegate method for all nodes. That means that all nodes stored in Sirix are represented by an
@@ -51,8 +49,9 @@ public class NodeDelegate implements Node {
 
   /**
    * Key of the current node. Must be unique for all nodes.
+   * Non-final to support singleton node reuse.
    */
-  private final long nodeKey;
+  private long nodeKey;
 
   /**
    * The DeweyID data.
@@ -148,6 +147,11 @@ public class NodeDelegate implements Node {
   }
 
   @Override
+  public void setNodeKey(final long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
+
+  @Override
   public long getParentKey() {
     return parentKey;
   }
@@ -159,7 +163,7 @@ public class NodeDelegate implements Node {
   }
 
   @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
+  public long computeHash(BytesOut<?> bytes) {
     throw new UnsupportedOperationException();
   }
 

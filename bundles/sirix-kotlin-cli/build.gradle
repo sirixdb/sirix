@@ -6,6 +6,12 @@ apply plugin: 'kotlin'
 
 test {
     useJUnitPlatform()
+    jvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED'
+    ]
 }
 
 
@@ -13,6 +19,10 @@ tasks.withType(KotlinCompile).all {
     kotlinOptions {
         freeCompilerArgs += ["-Xopt-in=kotlin.RequiresOptIn"]
     }
+}
+
+kotlin {
+    jvmToolchain(25)
 }
 
 dependencies {
@@ -26,7 +36,7 @@ dependencies {
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine
     testImplementation testLibraries.junitVintageEngine
-    testImplementation testLibraries.junitJupiterApi
+    testImplementation testLibraries.junitPlatformLauncher
     testImplementation testLibraries.junitJupiterParams
     testImplementation testLibraries.jsonassert
 }

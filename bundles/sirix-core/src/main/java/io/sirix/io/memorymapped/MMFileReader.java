@@ -61,21 +61,32 @@ public final class MMFileReader extends AbstractReader {
 
   private final Cache<Integer, RevisionFileData> cache;
 
+  /**
+   * Arena for memory-mapped segments. May be null if the arena is managed externally
+   * (e.g., by MMStorage for shared segments).
+   */
+  @Nullable
   private final Arena arena;
 
   /**
    * Constructor.
    *
-   * @param byteHandler {@link ByteHandler} instance
+   * @param dataFileSegment     memory-mapped segment for the data file
+   * @param revisionFileSegment memory-mapped segment for the revisions file
+   * @param byteHandler         {@link ByteHandler} instance
+   * @param type                serialization type
+   * @param pagePersister       page persister
+   * @param cache               revision file data cache
+   * @param arena               arena managing the segments, or null if managed externally
    */
   public MMFileReader(final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment,
-      final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersistenter,
-      final Cache<Integer, RevisionFileData> cache, final Arena arena) {
-    super(byteHandler, pagePersistenter, type);
+      final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersister,
+      final Cache<Integer, RevisionFileData> cache, @Nullable final Arena arena) {
+    super(byteHandler, pagePersister, type);
     this.dataFileSegment = requireNonNull(dataFileSegment);
     this.revisionsOffsetFileSegment = requireNonNull(revisionFileSegment);
     this.cache = requireNonNull(cache);
-    this.arena = requireNonNull(arena);
+    this.arena = arena;  // May be null if managed externally (by MMStorage)
   }
 
   @Override
@@ -84,11 +95,19 @@ public final class MMFileReader extends AbstractReader {
       final long offset = reference.getKey() + LAYOUT_INT.byteSize();
       final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
 
-      final byte[] page = new byte[dataLength];
-
-      MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
-
-      return deserialize(resourceConfiguration, page);
+      // Check if we can use zero-copy MemorySegment path (Umbra-style)
+      if (byteHandler.supportsMemorySegments()) {
+        // Slice mmap segment directly instead of copying to byte[]
+        // For empty pipeline: identity (no decompression needed)
+        // For non-empty pipeline: decompressScoped() allocates buffer from pool
+        MemorySegment pageSlice = dataFileSegment.asSlice(offset, dataLength);
+        return deserializeFromSegment(resourceConfiguration, pageSlice);
+      } else {
+        // Fallback: copy to byte[] for stream-based decompression
+        final byte[] page = new byte[dataLength];
+        MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
+        return deserialize(resourceConfiguration, page);
+      }
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -101,12 +120,19 @@ public final class MMFileReader extends AbstractReader {
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
       final int dataLength = dataFileSegment.get(LAYOUT_INT, dataFileOffset);
+      final long offset = dataFileOffset + LAYOUT_INT.byteSize();
 
-      final byte[] page = new byte[dataLength];
-
-      MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, dataFileOffset + LAYOUT_INT.byteSize(), page, 0, dataLength);
-
-      return (RevisionRootPage) deserialize(resourceConfiguration, page);
+      // Check if we can use zero-copy MemorySegment path (Umbra-style)
+      if (byteHandler.supportsMemorySegments()) {
+        // Slice mmap segment directly instead of copying to byte[]
+        MemorySegment pageSlice = dataFileSegment.asSlice(offset, dataLength);
+        return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, pageSlice);
+      } else {
+        // Fallback: copy to byte[] for stream-based decompression
+        final byte[] page = new byte[dataLength];
+        MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
+        return (RevisionRootPage) deserialize(resourceConfiguration, page);
+      }
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -129,6 +155,10 @@ public final class MMFileReader extends AbstractReader {
 
   @Override
   public void close() {
-    arena.close();
+    // Only close the arena if we own it (not null).
+    // When arena is null, the storage (MMStorage) owns and manages the shared arena.
+    if (arena != null) {
+      arena.close();
+    }
   }
 }

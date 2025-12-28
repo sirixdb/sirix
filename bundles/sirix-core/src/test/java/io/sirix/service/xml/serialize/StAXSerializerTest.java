@@ -72,10 +72,10 @@ public class StAXSerializerTest {
     try {
       final ByteArrayOutputStream out = new ByteArrayOutputStream();
       final XmlSerializer xmlSerializer =
-          new XmlSerializer.XmlSerializerBuilder(holder.getResourceManager(), out).emitXMLDeclaration().build();
+          new XmlSerializer.XmlSerializerBuilder(holder.getResourceSession(), out).emitXMLDeclaration().build();
       xmlSerializer.call();
 
-      final XmlNodeReadOnlyTrx rtx = holder.getResourceManager().beginNodeReadOnlyTrx();
+      final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx();
       StAXSerializer serializer = new StAXSerializer(rtx);
       final StringBuilder strBuilder = new StringBuilder();
       boolean isEmptyElement = false;

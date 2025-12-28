@@ -7,8 +7,8 @@ import com.google.gson.JsonParser;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import io.sirix.access.trx.node.InternalResourceSession;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -49,11 +49,11 @@ public final class JsonNodeReadOnlyTrxImpl
    *
    * @param resourceManager     the current {@link ResourceSession} the reader is bound to
    * @param trxId               ID of the reader
-   * @param pageReadTransaction {@link PageReadOnlyTrx} to interact with the page layer
+   * @param pageReadTransaction {@link StorageEngineReader} to interact with the page layer
    * @param documentNode        the document node
    */
   JsonNodeReadOnlyTrxImpl(final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-      final @NonNegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableJsonNode documentNode) {
+      final @NonNegative int trxId, final StorageEngineReader pageReadTransaction, final ImmutableJsonNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
   }
 
@@ -80,7 +80,7 @@ public final class JsonNodeReadOnlyTrxImpl
 
   @Override
   public List<JsonObject> getUpdateOperations() {
-    final var revisionNumber = pageReadOnlyTrx instanceof PageTrx ? getRevisionNumber() - 1 : getRevisionNumber();
+    final var revisionNumber = pageReadOnlyTrx instanceof StorageEngineWriter ? getRevisionNumber() - 1 : getRevisionNumber();
     final var updateOperationsFile = resourceSession.getResourceConfig()
                                                     .getResource()
                                                     .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
@@ -123,7 +123,7 @@ public final class JsonNodeReadOnlyTrxImpl
 
         final int revisionNumber;
 
-        if (pageReadOnlyTrx instanceof PageTrx) {
+        if (pageReadOnlyTrx instanceof StorageEngineWriter) {
           revisionNumber = getRevisionNumber() - 1;
         } else {
           revisionNumber = getRevisionNumber();
@@ -267,54 +267,61 @@ public final class JsonNodeReadOnlyTrxImpl
   @Override
   public boolean isArray() {
     assertNotClosed();
-    return getCurrentNode().getKind() == NodeKind.ARRAY;
+    // Use getKind() for zero-allocation check
+    return getKind() == NodeKind.ARRAY;
   }
 
   @Override
   public boolean isObject() {
     assertNotClosed();
-    return getCurrentNode().getKind() == NodeKind.OBJECT;
+    // Use getKind() for zero-allocation check
+    return getKind() == NodeKind.OBJECT;
   }
 
   @Override
   public boolean isObjectKey() {
     assertNotClosed();
-    return getCurrentNode().getKind() == NodeKind.OBJECT_KEY;
+    // Use getKind() for zero-allocation check
+    return getKind() == NodeKind.OBJECT_KEY;
   }
 
   @Override
   public boolean isNumberValue() {
     assertNotClosed();
-    final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE;
+    // Use getKind() for zero-allocation check
+    final var kind = getKind();
+    return kind == NodeKind.NUMBER_VALUE || kind == NodeKind.OBJECT_NUMBER_VALUE;
   }
 
   @Override
   public boolean isNullValue() {
     assertNotClosed();
-    final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.NULL_VALUE || currentNode.getKind() == NodeKind.OBJECT_NULL_VALUE;
+    // Use getKind() for zero-allocation check
+    final var kind = getKind();
+    return kind == NodeKind.NULL_VALUE || kind == NodeKind.OBJECT_NULL_VALUE;
   }
 
   @Override
   public boolean isStringValue() {
     assertNotClosed();
-    final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.STRING_VALUE || currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE;
+    // Use getKind() for zero-allocation check
+    final var kind = getKind();
+    return kind == NodeKind.STRING_VALUE || kind == NodeKind.OBJECT_STRING_VALUE;
   }
 
   @Override
   public boolean isBooleanValue() {
     assertNotClosed();
-    final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.BOOLEAN_VALUE || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE;
+    // Use getKind() for zero-allocation check
+    final var kind = getKind();
+    return kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.OBJECT_BOOLEAN_VALUE;
   }
 
   @Override
   public boolean isDocumentRoot() {
     assertNotClosed();
-    final var currentNode = getCurrentNode();
-    return currentNode.getKind() == NodeKind.JSON_DOCUMENT;
+    // Use getKind() for zero-allocation check
+    return getKind() == NodeKind.JSON_DOCUMENT;
   }
 
   @Override

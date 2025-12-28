@@ -25,7 +25,7 @@ import com.google.common.base.MoreObjects;
 import io.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.api.ItemList;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
@@ -66,11 +66,11 @@ public final class XmlNodeReadOnlyTrxImpl
    *
    * @param resourceManager     the current {@link ResourceSession} the reader is bound to
    * @param trxId               ID of the reader
-   * @param pageReadTransaction {@link PageReadOnlyTrx} to interact with the page layer
+   * @param pageReadTransaction {@link StorageEngineReader} to interact with the page layer
    * @param documentNode        the document node
    */
   XmlNodeReadOnlyTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
-      final @NonNegative long trxId, final PageReadOnlyTrx pageReadTransaction, final ImmutableXmlNode documentNode) {
+      final @NonNegative int trxId, final StorageEngineReader pageReadTransaction, final ImmutableXmlNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
   }
 

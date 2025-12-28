@@ -60,7 +60,7 @@ public final class PathSummaryTest {
   public void setUp() {
     XmlTestHelper.deleteEverything();
     holder = Holder.generatePathSummary();
-    wtx = holder.getResourceManager().beginNodeTrx();
+    wtx = holder.getResourceSession().beginNodeTrx();
     XmlDocumentCreator.create(wtx);
   }
 
@@ -92,7 +92,7 @@ public final class PathSummaryTest {
     testInsertHelper(pathSummary);
     wtx.commit();
     wtx.close();
-    pathSummary = holder.getResourceManager().openPathSummary();
+    pathSummary = holder.getResourceSession().openPathSummary();
     testInsertHelper(pathSummary);
     pathSummary.close();
   }
@@ -227,7 +227,7 @@ public final class PathSummaryTest {
     testDeleteHelper(pathSummary);
     wtx.commit();
     wtx.close();
-    pathSummary = holder.getResourceManager().openPathSummary();
+    pathSummary = holder.getResourceSession().openPathSummary();
     testDeleteHelper(pathSummary);
     pathSummary.close();
   }
@@ -314,7 +314,7 @@ public final class PathSummaryTest {
     testSetQNmFirstHelper(pathSummary);
     wtx.commit();
     wtx.close();
-    pathSummary = holder.getResourceManager().openPathSummary();
+    pathSummary = holder.getResourceSession().openPathSummary();
     testSetQNmFirstHelper(pathSummary);
     pathSummary.close();
   }
@@ -491,7 +491,7 @@ public final class PathSummaryTest {
     wtx.commit();
     wtx.close();
 
-    try (final PathSummaryReader pathSummaryOnMostRecentRev = holder.getResourceManager().openPathSummary()) {
+    try (final PathSummaryReader pathSummaryOnMostRecentRev = holder.getResourceSession().openPathSummary()) {
       testSetQNmSecondHelper(pathSummaryOnMostRecentRev);
     }
   }
@@ -597,7 +597,7 @@ public final class PathSummaryTest {
     testSetQNmThirdHelper(pathSummary);
     wtx.commit();
     wtx.close();
-    pathSummary = holder.getResourceManager().openPathSummary();
+    pathSummary = holder.getResourceSession().openPathSummary();
     testSetQNmThirdHelper(pathSummary);
     pathSummary.close();
   }
@@ -727,7 +727,7 @@ public final class PathSummaryTest {
     testSetQNmFourthHelper(pathSummary);
     wtx.commit();
     wtx.close();
-    pathSummary = holder.getResourceManager().openPathSummary();
+    pathSummary = holder.getResourceSession().openPathSummary();
     testSetQNmFourthHelper(pathSummary);
     pathSummary.close();
   }
@@ -866,8 +866,8 @@ public final class PathSummaryTest {
     // System.out.println("level: " + pathSummary.getLevel());
     // }
 
-    try (final PathSummaryReader pathSummary = holder.getResourceManager().openPathSummary()) {
-      testFirstMoveToFirstChildBeforeMoveHelper(holder.getResourceManager().openPathSummary());
+    try (final PathSummaryReader pathSummary = holder.getResourceSession().openPathSummary()) {
+      testFirstMoveToFirstChildBeforeMoveHelper(holder.getResourceSession().openPathSummary());
     }
   }
 
@@ -1005,7 +1005,7 @@ public final class PathSummaryTest {
     System.out.println("nodes");
 
     OutputStream out = new ByteArrayOutputStream();
-    XmlSerializer serializer = new XmlSerializerBuilder(holder.getResourceManager(), out).emitIDs().prettyPrint().build();
+    XmlSerializer serializer = new XmlSerializerBuilder(holder.getResourceSession(), out).emitIDs().prettyPrint().build();
     serializer.call();
     System.out.println(out);
 
