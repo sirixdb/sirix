@@ -64,16 +64,6 @@ class HOTIndexIntegrationTest {
     }
   }
 
-  @BeforeEach
-  void setUp() {
-    JsonTestHelper.deleteEverything();
-  }
-
-  @AfterEach
-  void tearDown() {
-    JsonTestHelper.closeEverything();
-  }
-  
   // ===== Configuration Tests =====
   
   @Test
@@ -105,8 +95,15 @@ class HOTIndexIntegrationTest {
   class RBTreeBackendTests {
     
     @BeforeEach
-    void disableHOT() {
+    void setUp() {
+      JsonTestHelper.deleteEverything();
       System.clearProperty("sirix.index.useHOT");
+    }
+    
+    @AfterEach
+    void tearDown() {
+      JsonTestHelper.closeEverything();
+      JsonTestHelper.deleteEverything();
     }
 
     @Test
@@ -188,12 +185,15 @@ class HOTIndexIntegrationTest {
   class HOTBackendTests {
     
     @BeforeEach
-    void enableHOT() {
+    void setUp() {
+      JsonTestHelper.deleteEverything();
       System.setProperty("sirix.index.useHOT", "true");
     }
     
     @AfterEach
-    void disableHOT() {
+    void tearDown() {
+      JsonTestHelper.closeEverything();
+      JsonTestHelper.deleteEverything();
       System.clearProperty("sirix.index.useHOT");
     }
 
