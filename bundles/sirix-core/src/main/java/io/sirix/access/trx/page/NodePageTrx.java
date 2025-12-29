@@ -241,11 +241,11 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
 
     final long recordPageKey = pageRtx.pageKey(recordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
-    final var modifiedPage = cont.getModifiedAsUnorderedKeyValuePage();
+    final var modifiedPage = cont.getModifiedAsKeyValuePage();
 
     DataRecord record = pageRtx.getValue(modifiedPage, recordKey);
     if (record == null) {
-      final DataRecord oldRecord = pageRtx.getValue(cont.getCompleteAsUnorderedKeyValuePage(), recordKey);
+      final DataRecord oldRecord = pageRtx.getValue(cont.getCompleteAsKeyValuePage(), recordKey);
       if (oldRecord == null) {
         throw new SirixIOException(
             "Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType + ") (index: "
@@ -293,7 +293,7 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
 
     final long recordPageKey = pageRtx.pageKey(createdRecordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
-    final KeyValuePage<DataRecord> modified = cont.getModifiedAsUnorderedKeyValuePage();
+    final KeyValuePage<DataRecord> modified = cont.getModifiedAsKeyValuePage();
     modified.setRecord(record);
     return record;
   }
@@ -315,8 +315,8 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
                                                           -1,
                                                           pageRtx.getRevisionNumber(),
                                                           (SirixDeweyID) null));
-    cont.getModifiedAsUnorderedKeyValuePage().setRecord(delNode);
-    cont.getCompleteAsUnorderedKeyValuePage().setRecord(delNode);
+    cont.getModifiedAsKeyValuePage().setRecord(delNode);
+    cont.getCompleteAsKeyValuePage().setRecord(delNode);
   }
 
   @Override

@@ -238,22 +238,25 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Determine which trie type to use for the given index.
    * 
-   * <p>Currently all indexes use KEYED_TRIE (traditional bit-decomposed approach).
-   * HOT_TRIE support requires refactoring PageContainer and related code to use
-   * KeyValuePage interface instead of concrete KeyValueLeafPage class.</p>
+   * <p>Currently all indexes use KEYED_TRIE. HOT_TRIE is available but requires
+   * HOTLeafPage to implement setRecord()/getRecord() compatible with existing API.</p>
    * 
-   * <p>TODO: Enable HOT_TRIE for PATH, CAS, NAME after refactoring:
-   * - PageContainer.getModifiedAsUnorderedKeyValuePage() 
-   * - Names.setName() and related methods
-   * - All code that casts to KeyValueLeafPage</p>
+   * <p>TODO to enable HOT_TRIE:</p>
+   * <ul>
+   *   <li>Implement HOTLeafPage.setRecord() to store DataRecords</li>
+   *   <li>Implement HOTLeafPage.getRecord() to retrieve DataRecords</li>
+   *   <li>Bridge between HOT key-value storage and DataRecord storage</li>
+   * </ul>
    *
    * @param indexType the index type
    * @param indexNumber the index number
    * @return the trie type to use
    */
+  @SuppressWarnings("unused") // indexType/indexNumber will be used when HOT is enabled
   private TrieType getTrieType(@NonNull IndexType indexType, int indexNumber) {
-    // HOT_TRIE is not yet fully integrated - existing code expects KeyValueLeafPage
-    // To enable HOT, refactor code to use KeyValuePage interface:
+    // HOT_TRIE is not yet fully integrated with DataRecord storage.
+    // HOTLeafPage needs to implement setRecord()/getRecord() to be compatible.
+    // Once implemented, enable with:
     //   return switch (indexType) {
     //     case PATH, CAS, NAME -> TrieType.HOT_TRIE;
     //     default -> TrieType.KEYED_TRIE;
@@ -303,11 +306,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     final long recordPageKey = pageRtx.pageKey(recordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
-    final var modifiedPage = cont.getModifiedAsUnorderedKeyValuePage();
+    final var modifiedPage = cont.getModifiedAsKeyValuePage();
 
     DataRecord record = pageRtx.getValue(modifiedPage, recordKey);
     if (record == null) {
-      final DataRecord oldRecord = pageRtx.getValue(cont.getCompleteAsUnorderedKeyValuePage(), recordKey);
+      final DataRecord oldRecord = pageRtx.getValue(cont.getCompleteAsKeyValuePage(), recordKey);
       if (oldRecord == null) {
         throw new SirixIOException(
             "Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType + ") (index: "
@@ -355,7 +358,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     final long recordPageKey = pageRtx.pageKey(createdRecordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
-    final KeyValuePage<DataRecord> modified = cont.getModifiedAsUnorderedKeyValuePage();
+    final KeyValuePage<DataRecord> modified = cont.getModifiedAsKeyValuePage();
     modified.setRecord(record);
     return record;
   }
@@ -377,8 +380,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                                                           -1,
                                                           pageRtx.getRevisionNumber(),
                                                           (SirixDeweyID) null));
-    cont.getModifiedAsUnorderedKeyValuePage().setRecord(delNode);
-    cont.getCompleteAsUnorderedKeyValuePage().setRecord(delNode);
+    cont.getModifiedAsKeyValuePage().setRecord(delNode);
+    cont.getCompleteAsKeyValuePage().setRecord(delNode);
   }
 
   @Override

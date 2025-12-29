@@ -339,7 +339,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
-  public DataRecord getValue(final KeyValueLeafPage page, final long nodeKey) {
+  public DataRecord getValue(final io.sirix.page.interfaces.KeyValuePage<? extends DataRecord> page, final long nodeKey) {
     final var offset = StorageEngineReader.recordPageOffset(nodeKey);
     DataRecord record = page.getRecord(offset);
     if (record == null) {
@@ -365,16 +365,21 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return record;
   }
 
-  private DataRecord getDataRecord(long key, int offset, MemorySegment data, KeyValueLeafPage page) {
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private DataRecord getDataRecord(long key, int offset, MemorySegment data, io.sirix.page.interfaces.KeyValuePage<? extends DataRecord> page) {
     var record = resourceConfig.recordPersister.deserialize(new MemorySegmentBytesIn(data),
                                                             key,
                                                             page.getDeweyIdAsByteArray(offset),
                                                             resourceConfig);
     
     // Propagate FSST symbol table to string nodes for lazy decompression
-    propagateFsstSymbolTableToRecord(record, page);
+    // Only KeyValueLeafPage has FSST symbol table support
+    if (page instanceof KeyValueLeafPage kvPage) {
+      propagateFsstSymbolTableToRecord(record, kvPage);
+    }
     
-    page.setRecord(record);
+    // Use raw type to avoid generic mismatch with different KeyValuePage implementations
+    ((io.sirix.page.interfaces.KeyValuePage) page).setRecord(record);
     return record;
   }
 

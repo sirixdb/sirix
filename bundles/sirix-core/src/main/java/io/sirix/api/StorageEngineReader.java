@@ -285,5 +285,5 @@ public interface StorageEngineReader extends AutoCloseable {
    * @param nodeKey the node key of the record to read
    * @return the record or {@code null}
    */
-  DataRecord getValue(KeyValueLeafPage page, long nodeKey);
+  DataRecord getValue(io.sirix.page.interfaces.KeyValuePage<? extends DataRecord> page, long nodeKey);
 }

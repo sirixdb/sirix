@@ -30,7 +30,7 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public DataRecord getValue(KeyValueLeafPage page, long nodeKey) {
+  public DataRecord getValue(io.sirix.page.interfaces.KeyValuePage<? extends DataRecord> page, long nodeKey) {
     return delegate().getValue(page, nodeKey);
   }
 
