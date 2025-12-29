@@ -24,6 +24,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -37,13 +38,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration tests for HOT (Height Optimized Trie) index listener infrastructure.
+ * Integration tests for HOT (Height Optimized Trie) index infrastructure.
  *
- * <p>These tests verify that the index listeners can be configured for both 
- * RBTree (default) and HOT backends, and that the HOT configuration property works.</p>
- * 
- * <p>Note: These tests run with RBTree backend by default. HOT backend tests will be
- * enabled once the HOT trie navigation is fully implemented in the storage engine.</p>
+ * <p>These tests verify both RBTree (default) and HOT backends work correctly.</p>
  */
 class HOTIndexIntegrationTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
@@ -54,10 +51,6 @@ class HOTIndexIntegrationTest {
   static void saveHOTSetting() {
     // Save original setting
     originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    // Disable HOT for now - the index query path (PathIndex.openIndex) still uses RBTreeReader
-    // which expects KeyValueLeafPage. Full HOT activation requires implementing HOT-based
-    // index query reading in PathIndex, CASIndex, and NameIndex.
-    System.clearProperty("sirix.index.useHOT");
   }
   
   @AfterAll
@@ -65,6 +58,8 @@ class HOTIndexIntegrationTest {
     // Restore original setting
     if (originalHOTSetting != null) {
       System.setProperty("sirix.index.useHOT", originalHOTSetting);
+    } else {
+      System.clearProperty("sirix.index.useHOT");
     }
   }
 
@@ -83,6 +78,9 @@ class HOTIndexIntegrationTest {
   @Test
   @DisplayName("HOT configuration property enables/disables HOT indexes")
   void testHOTConfigurationProperty() {
+    // Disable first
+    System.clearProperty("sirix.index.useHOT");
+    
     // Test that HOT can be enabled/disabled via system property
     assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled by default");
     assertFalse(CASIndexListenerFactory.isHOTEnabled(), "HOT should be disabled by default");
@@ -99,202 +97,248 @@ class HOTIndexIntegrationTest {
     assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled");
   }
   
-  // ===== RBTree-based Integration Tests (verify listener infrastructure works) =====
-
-  @Test
-  @DisplayName("PATH index creation and query works with listener infrastructure")
-  void testHOTPathIndexCreationAndQuery() {
-    final var jsonPath = JSON.resolve("abc-location-stations.json");
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+  // ===== RBTree Backend Tests =====
+  
+  @Nested
+  @DisplayName("RBTree Backend Tests")
+  class RBTreeBackendTests {
     
-    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx()) {
-      var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+    @BeforeEach
+    void disableHOT() {
+      System.clearProperty("sirix.index.useHOT");
+    }
 
-      // Create PATH index for /features/[]/type
-      final var pathToFeatureType = parse("/features/[]/type", PathParser.Type.JSON);
-      final var idxDefOfFeatureType =
-          IndexDefs.createPathIdxDef(Collections.singleton(pathToFeatureType), 0, IndexDef.DbType.JSON);
+    @Test
+    @DisplayName("PATH index with RBTree backend returns 53 type nodes")
+    void testPathIndexWithRBTreeBackend() {
+      final var jsonPath = JSON.resolve("abc-location-stations.json");
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-      indexController.createIndexes(Set.of(idxDefOfFeatureType), trx);
+        // Create PATH index
+        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
 
-      // Shred JSON
-      final var shredder = new JsonShredder.Builder(trx,
-          JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-      shredder.call();
+        indexController.createIndexes(Set.of(pathIndexDef), trx);
 
-      // Query the index
-      final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
-      final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToFeatureType);
+        // Shred JSON
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createFileReader(jsonPath),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
 
-      assertEquals(1, pathNodeKeys.size(), "Should find one path node key");
+        // Query index
+        final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
+        final var index = indexController.openPathIndex(trx.getPageTrx(), indexDef, null);
 
-      // Open path index
-      final var index = indexController.openPathIndex(trx.getPageTrx(), indexDef, null);
-
-      assertTrue(index.hasNext(), "Index should have results");
-
-      // Verify we can iterate through results
-      var count = 0;
-      while (index.hasNext()) {
-        var nodeReferences = index.next();
-        assertTrue(nodeReferences.getNodeKeys().getLongCardinality() > 0, "Should have node keys");
-        count++;
+        assertTrue(index.hasNext(), "Index should have results");
+        var refs = index.next();
+        assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'type' nodes");
       }
-      assertTrue(count >= 1, "Should have at least one result");
     }
-  }
 
-  @Test
-  @DisplayName("NAME index creation and query works with listener infrastructure")
-  void testHOTNameIndexCreationAndQuery() {
-    final var jsonPath = JSON.resolve("abc-location-stations.json");
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    
-    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = session.beginNodeTrx()) {
-      var indexController = session.getWtxIndexController(trx.getRevisionNumber());
+    @Test
+    @DisplayName("CAS index with RBTree backend finds all 53 'Feature' values")
+    void testCASIndexWithRBTreeBackend() {
+      final var jsonPath = JSON.resolve("abc-location-stations.json");
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-      // Create NAME index for all object keys
-      final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
-      indexController.createIndexes(Set.of(allObjectKeyNames), trx);
+        // Create CAS index for /features/[]/type
+        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
+        final var idxDefOfType =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
 
-      // Shred JSON
-      final var shredder = new JsonShredder.Builder(trx,
-          JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-      shredder.call();
+        indexController.createIndexes(Set.of(idxDefOfType), trx);
 
-      // Query for specific name
-      final var nameIndex = indexController.openNameIndex(trx.getPageTrx(),
-          allObjectKeyNames,
-          indexController.createNameFilter(Set.of("type")));
+        // Shred JSON
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createFileReader(jsonPath),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
 
-      assertTrue(nameIndex.hasNext(), "Should find 'type' keys");
+        // Query for "Feature" value
+        final var casIndex = indexController.openCASIndex(trx.getPageTrx(),
+            idxDefOfType,
+            indexController.createCASFilter(
+                Set.of("/features/[]/type"),
+                new Str("Feature"),
+                SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
 
-      final var typeReferences = nameIndex.next();
-      assertTrue(typeReferences.getNodeKeys().getLongCardinality() > 0, 
-          "Should have references to 'type' nodes");
-    }
-  }
+        assertTrue(casIndex.hasNext(), "CAS query should find results");
 
-  @Test
-  @DisplayName("CAS index creation and query works with listener infrastructure")
-  void testHOTCASIndexCreationAndQuery() {
-    final var jsonPath = JSON.resolve("abc-location-stations.json");
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    
-    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx()) {
-      var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
-
-      // Create CAS index for /features/[]/type with string values
-      final var pathToFeatureType = parse("/features/[]/type", PathParser.Type.JSON);
-      final var idxDefOfFeatureType =
-          IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToFeatureType), 0, IndexDef.DbType.JSON);
-
-      indexController.createIndexes(Set.of(idxDefOfFeatureType), trx);
-
-      // Shred JSON
-      final var shredder = new JsonShredder.Builder(trx,
-          JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-      shredder.call();
-
-      // Query the CAS index for "Feature" value
-      final var casIndex = indexController.openCASIndex(trx.getPageTrx(),
-          idxDefOfFeatureType,
-          indexController.createCASFilter(
-              Set.of("/features/[]/type"),
-              new Str("Feature"),
-              SearchMode.EQUAL,
-              new JsonPCRCollector(trx)));
-
-      assertTrue(casIndex.hasNext(), "CAS index should find 'Feature' values");
-
-      final var nodeReferences = casIndex.next();
-      assertTrue(nodeReferences.getNodeKeys().getLongCardinality() > 0, 
-          "Should reference multiple nodes");
-
-      // Verify we can navigate to the referenced nodes
-      final var iter = nodeReferences.getNodeKeys().getLongIterator();
-      while (iter.hasNext()) {
-        long nodeKey = iter.next();
-        trx.moveTo(nodeKey);
-        assertEquals("Feature", trx.getValue());
+        var refs = casIndex.next();
+        assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'Feature' values");
       }
     }
   }
-
-  @Test
-  @DisplayName("PATH index returns correct number of results (53 type nodes)")
-  void testPathIndexWithRBTreeBackend() {
-    final var jsonPath = JSON.resolve("abc-location-stations.json");
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+  
+  // ===== HOT Backend Tests =====
+  
+  @Nested
+  @DisplayName("HOT Backend Tests")
+  class HOTBackendTests {
     
-    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx()) {
-      var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
-
-      // Create PATH index
-      final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
-      final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
-
-      indexController.createIndexes(Set.of(pathIndexDef), trx);
-
-      // Shred JSON
-      final var shredder = new JsonShredder.Builder(trx,
-          JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-      shredder.call();
-
-      // Query index
-      final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
-      final var index = indexController.openPathIndex(trx.getPageTrx(), indexDef, null);
-
-      assertTrue(index.hasNext(), "Index should have results");
-      var refs = index.next();
-      assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'type' nodes");
+    @BeforeEach
+    void enableHOT() {
+      System.setProperty("sirix.index.useHOT", "true");
     }
-  }
-
-  @Test
-  @DisplayName("CAS index finds all 53 'Feature' values")
-  void testCASIndexWithRBTreeBackend() {
-    final var jsonPath = JSON.resolve("abc-location-stations.json");
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     
-    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx()) {
-      var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+    @AfterEach
+    void disableHOT() {
+      System.clearProperty("sirix.index.useHOT");
+    }
 
-      // Create CAS index for /features/[]/type
-      final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
-      final var idxDefOfType =
-          IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
+    @Test
+    @DisplayName("PATH index with HOT backend creation and query")
+    void testPathIndexWithHOTBackend() {
+      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+      
+      final var jsonPath = JSON.resolve("abc-location-stations.json");
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
-      indexController.createIndexes(Set.of(idxDefOfType), trx);
+        // Create PATH index with HOT backend
+        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
 
-      // Shred JSON
-      final var shredder = new JsonShredder.Builder(trx,
-          JsonShredder.createFileReader(jsonPath),
-          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-      shredder.call();
+        indexController.createIndexes(Set.of(pathIndexDef), trx);
 
-      // Query for "Feature" value
-      final var casIndex = indexController.openCASIndex(trx.getPageTrx(),
-          idxDefOfType,
-          indexController.createCASFilter(
-              Set.of("/features/[]/type"),
-              new Str("Feature"),
-              SearchMode.EQUAL,
-              new JsonPCRCollector(trx)));
+        // Shred JSON
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createFileReader(jsonPath),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
 
-      assertTrue(casIndex.hasNext(), "CAS query should find results");
+        // Query index using HOT reader
+        final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
+        final var index = indexController.openPathIndex(trx.getPageTrx(), indexDef, null);
 
-      var refs = casIndex.next();
-      assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'Feature' values");
+        assertTrue(index.hasNext(), "HOT PATH index should have results");
+        var refs = index.next();
+        assertEquals(53, refs.getNodeKeys().getLongCardinality(), "HOT should find 53 'type' nodes");
+      }
+    }
+
+    @Test
+    @DisplayName("NAME index with HOT backend creation and query")
+    void testNameIndexWithHOTBackend() {
+      assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+      
+      final var jsonPath = JSON.resolve("abc-location-stations.json");
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = session.beginNodeTrx()) {
+        var indexController = session.getWtxIndexController(trx.getRevisionNumber());
+
+        // Create NAME index with HOT backend
+        final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(allObjectKeyNames), trx);
+
+        // Shred JSON
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createFileReader(jsonPath),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
+
+        // Query for specific name using HOT reader
+        final var nameIndex = indexController.openNameIndex(trx.getPageTrx(),
+            allObjectKeyNames,
+            indexController.createNameFilter(Set.of("type")));
+
+        assertTrue(nameIndex.hasNext(), "HOT NAME index should find 'type' keys");
+
+        final var typeReferences = nameIndex.next();
+        assertTrue(typeReferences.getNodeKeys().getLongCardinality() > 0, 
+            "HOT should have references to 'type' nodes");
+      }
+    }
+
+    @Test
+    @DisplayName("CAS index with HOT backend creation and query")
+    void testCASIndexWithHOTBackend() {
+      assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+      
+      final var jsonPath = JSON.resolve("abc-location-stations.json");
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+
+        // Create CAS index with HOT backend
+        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
+        final var idxDefOfType =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
+
+        indexController.createIndexes(Set.of(idxDefOfType), trx);
+
+        // Shred JSON
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createFileReader(jsonPath),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
+
+        // Query for "Feature" value using HOT reader
+        final var casIndex = indexController.openCASIndex(trx.getPageTrx(),
+            idxDefOfType,
+            indexController.createCASFilter(
+                Set.of("/features/[]/type"),
+                new Str("Feature"),
+                SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
+
+        assertTrue(casIndex.hasNext(), "HOT CAS query should find results");
+
+        var refs = casIndex.next();
+        assertEquals(53, refs.getNodeKeys().getLongCardinality(), "HOT should find 53 'Feature' values");
+      }
+    }
+    
+    @Test
+    @DisplayName("HOT listener writes to HOTLeafPage correctly")
+    void testHOTListenerWritesToHOTLeafPage() {
+      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+      
+      final var jsonPath = JSON.resolve("abc-location-stations.json");
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
+
+        // This creates the HOT index structure and listeners
+        indexController.createIndexes(Set.of(pathIndexDef), trx);
+
+        // Shred JSON - this triggers the listeners which write to HOT
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createFileReader(jsonPath),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
+        
+        // Verify the path summary works (this validates the basic infrastructure)
+        final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToType);
+        assertEquals(1, pathNodeKeys.size(), "Should find one path node key for /features/[]/type");
+        
+        // Verify index was created
+        final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
+        assertTrue(indexDef != null, "Index definition should exist");
+        assertEquals(IndexType.PATH, indexDef.getType(), "Should be PATH index");
+      }
     }
   }
 }

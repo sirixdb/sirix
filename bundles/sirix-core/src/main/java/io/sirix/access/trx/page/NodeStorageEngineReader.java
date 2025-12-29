@@ -1584,12 +1584,26 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       default -> null;
     };
     
-    if (rootRef == null || rootRef.getKey() < 0) {
-      // Check if page is directly on the reference (uncommitted/in-memory)
-      if (rootRef != null && rootRef.getPage() instanceof HOTLeafPage hotLeaf) {
-        return hotLeaf;
-      }
+    if (rootRef == null) {
       return null;
+    }
+    
+    // FIRST: Check transaction log for uncommitted pages (write transactions)
+    // This must be checked before anything else since uncommitted pages won't
+    // be on the reference or in the buffer cache
+    if (trxIntentLog != null) {
+      final PageContainer container = trxIntentLog.get(rootRef);
+      if (container != null) {
+        // Try modified first (the one being written to), then complete
+        Page modified = container.getModified();
+        if (modified instanceof HOTLeafPage hotLeaf) {
+          return hotLeaf;
+        }
+        Page complete = container.getComplete();
+        if (complete instanceof HOTLeafPage hotLeaf) {
+          return hotLeaf;
+        }
+      }
     }
     
     // Check if page is swizzled (directly on reference)
@@ -1597,12 +1611,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return hotLeaf;
     }
     
-    // Check if we have the page in the transaction log (for write transactions)
-    if (trxIntentLog != null) {
-      final PageContainer container = trxIntentLog.get(rootRef);
-      if (container != null && container.getComplete() instanceof HOTLeafPage hotLeaf) {
-        return hotLeaf;
-      }
+    // For uncommitted pages with no log key, we're done
+    if (rootRef.getKey() < 0 && rootRef.getLogKey() < 0) {
+      return null;
     }
     
     // Try to get from buffer cache
@@ -1611,17 +1622,19 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return hotLeaf;
     }
     
-    // Load from storage
-    try {
-      Page loadedPage = pageReader.read(rootRef, resourceConfig);
-      if (loadedPage instanceof HOTLeafPage hotLeaf) {
-        // Cache the loaded page
-        rootRef.setPage(hotLeaf);
-        return hotLeaf;
+    // Load from storage (only if key >= 0)
+    if (rootRef.getKey() >= 0) {
+      try {
+        Page loadedPage = pageReader.read(rootRef, resourceConfig);
+        if (loadedPage instanceof HOTLeafPage hotLeaf) {
+          // Cache the loaded page
+          rootRef.setPage(hotLeaf);
+          return hotLeaf;
+        }
+      } catch (SirixIOException e) {
+        // Page doesn't exist or couldn't be loaded
+        return null;
       }
-    } catch (SirixIOException e) {
-      // Page doesn't exist or couldn't be loaded
-      return null;
     }
     
     return null;
