@@ -141,11 +141,27 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * The indirect page trie writer - manages the trie structure of IndirectPages.
    */
   private final TrieWriter trieWriter;
+  
+  /**
+   * The keyed trie writer - manages HOT (Height Optimized Trie) structure.
+   * Used for cache-friendly secondary indexes (PATH, CAS, NAME).
+   */
+  private final KeyedTrieWriter keyedTrieWriter;
 
   /**
    * The revision to represent.
    */
   private final int representRevision;
+  
+  /**
+   * Trie type for routing page operations.
+   */
+  public enum TrieType {
+    /** Traditional bit-decomposed IndirectPage trie. */
+    INDIRECT_TRIE,
+    /** HOT-based keyed trie for secondary indexes. */
+    KEYED_TRIE
+  }
 
   /**
    * {@code true} if this page write trx will be bound to a node trx, {@code false} otherwise
@@ -189,6 +205,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final RevisionRootPage revisionRootPage, final NodeStorageEngineReader pageRtx,
       final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
     this.trieWriter = new TrieWriter();
+    this.keyedTrieWriter = new KeyedTrieWriter();
     storagePageReaderWriter = requireNonNull(writer);
     this.log = requireNonNull(log);
     newRevisionRootPage = requireNonNull(revisionRootPage);
@@ -216,6 +233,36 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         return false;
       }
     };
+  }
+  
+  /**
+   * Determine which trie type to use for the given index.
+   * Currently, all indexes use the traditional INDIRECT_TRIE.
+   * Set to KEYED_TRIE to enable HOT indexes (requires migration).
+   *
+   * @param indexType the index type
+   * @param indexNumber the index number
+   * @return the trie type to use
+   */
+  @SuppressWarnings("unused") // Will be used when HOT indexes are enabled
+  private TrieType getTrieType(@NonNull IndexType indexType, int indexNumber) {
+    // TODO: Add configuration to enable KEYED_TRIE per index
+    // For now, always use traditional trie for compatibility
+    // To test HOT indexes, change this to:
+    //   return switch (indexType) {
+    //     case PATH, CAS, NAME -> TrieType.KEYED_TRIE;
+    //     default -> TrieType.INDIRECT_TRIE;
+    //   };
+    return TrieType.INDIRECT_TRIE;
+  }
+  
+  /**
+   * Get the keyed trie writer for HOT index operations.
+   * 
+   * @return the keyed trie writer
+   */
+  public KeyedTrieWriter getKeyedTrieWriter() {
+    return keyedTrieWriter;
   }
 
   @Override
