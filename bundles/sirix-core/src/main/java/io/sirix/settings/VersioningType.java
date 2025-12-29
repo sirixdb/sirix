@@ -811,6 +811,95 @@ public enum VersioningType {
       }
     }
   }
+
+  // ===== HOT Leaf Page Combining Methods =====
+
+  /**
+   * Combine multiple HOT leaf page fragments into a single complete page.
+   *
+   * <p>Unlike slot-based combining for KeyValueLeafPage, HOT pages use key-based
+   * merging with NodeReferences OR semantics. Newer fragments take precedence,
+   * and tombstones (empty NodeReferences) indicate deletions.</p>
+   *
+   * @param pages the list of HOT leaf page fragments (newest first)
+   * @param revToRestore the revision to restore
+   * @param pageReadTrx the storage engine reader
+   * @return the combined HOT leaf page
+   */
+  public io.sirix.page.HOTLeafPage combineHOTLeafPages(
+      final List<io.sirix.page.HOTLeafPage> pages,
+      final @NonNegative int revToRestore,
+      final StorageEngineReader pageReadTrx) {
+    
+    if (pages.isEmpty()) {
+      throw new IllegalArgumentException("No pages to combine");
+    }
+    
+    if (pages.size() == 1) {
+      return pages.getFirst();
+    }
+    
+    // Start with a copy of the newest page
+    io.sirix.page.HOTLeafPage result = pages.getFirst().copy();
+    
+    // Merge older fragments (skip first as it's already the base)
+    for (int i = 1; i < pages.size(); i++) {
+      io.sirix.page.HOTLeafPage olderPage = pages.get(i);
+      
+      // Merge each entry from older page
+      for (int j = 0; j < olderPage.getEntryCount(); j++) {
+        byte[] key = olderPage.getKey(j);
+        
+        // Check if key exists in result
+        int existingIdx = result.findEntry(key);
+        if (existingIdx < 0) {
+          // Key doesn't exist in newer - copy from older
+          byte[] value = olderPage.getValue(j);
+          if (!io.sirix.index.hot.NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
+            // Not a tombstone - add entry
+            result.mergeWithNodeRefs(key, key.length, value, value.length);
+          }
+          // If it's a tombstone in older but not in newer, it stays deleted
+        }
+        // If key exists in newer fragment, it takes precedence (already in result)
+      }
+    }
+    
+    return result;
+  }
+
+  /**
+   * Combine HOT leaf page fragments for modification (COW).
+   *
+   * <p>Creates a copy of the combined page for modification while preserving
+   * the original for readers (Copy-on-Write isolation).</p>
+   *
+   * @param pages the list of HOT leaf page fragments (newest first)
+   * @param revToRestore the revision to restore
+   * @param pageReadTrx the storage engine reader
+   * @param reference the page reference
+   * @param log the transaction intent log
+   * @return the page container with complete and modified pages
+   */
+  public PageContainer combineHOTLeafPagesForModification(
+      final List<io.sirix.page.HOTLeafPage> pages,
+      final @NonNegative int revToRestore,
+      final StorageEngineReader pageReadTrx,
+      final PageReference reference,
+      final TransactionIntentLog log) {
+    
+    // Combine fragments
+    io.sirix.page.HOTLeafPage completePage = combineHOTLeafPages(pages, revToRestore, pageReadTrx);
+    
+    // Create COW copy for modification
+    io.sirix.page.HOTLeafPage modifiedPage = completePage.copy();
+    
+    // Create container with both pages
+    final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
+    log.put(reference, pageContainer);
+    
+    return pageContainer;
+  }
 }
 
 
