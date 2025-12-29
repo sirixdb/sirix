@@ -135,6 +135,34 @@ public final class PathPage extends AbstractForwardingPage {
     }
   }
 
+  /**
+   * Initialize HOT (Height Optimized Trie) path index tree.
+   *
+   * <p>Creates a cache-friendly HOT index instead of the traditional RBTree-based index.</p>
+   *
+   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param index       the index number
+   * @param log         the transaction intent log
+   */
+  public void createHOTPathIndexTree(final StorageEngineReader pageReadTrx, final int index,
+      final TransactionIntentLog log) {
+    PageReference reference = getOrCreateReference(index);
+    if (reference == null) {
+      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
+      reference = delegate.getOrCreateReference(index);
+    }
+    if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
+        && reference.getLogKey() == Constants.NULL_ID_INT) {
+      PageUtils.createHOTTree(reference, IndexType.PATH, pageReadTrx, log);
+      if (maxNodeKeys.get(index) == 0L) {
+        maxNodeKeys.put(index, 0L);
+      } else {
+        maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
+      }
+      currentMaxLevelsOfIndirectPages.put(index, 0);
+    }
+  }
+
   public int getCurrentMaxLevelOfIndirectPages(int index) {
     return currentMaxLevelsOfIndirectPages.get(index);
   }

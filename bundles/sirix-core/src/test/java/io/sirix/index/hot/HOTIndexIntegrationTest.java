@@ -54,7 +54,9 @@ class HOTIndexIntegrationTest {
   static void saveHOTSetting() {
     // Save original setting
     originalHOTSetting = System.getProperty("sirix.index.useHOT");
-    // Disable HOT for now (RBTree tests) until HOT storage engine integration is complete
+    // Disable HOT for now - the index query path (PathIndex.openIndex) still uses RBTreeReader
+    // which expects KeyValueLeafPage. Full HOT activation requires implementing HOT-based
+    // index query reading in PathIndex, CASIndex, and NameIndex.
     System.clearProperty("sirix.index.useHOT");
   }
   

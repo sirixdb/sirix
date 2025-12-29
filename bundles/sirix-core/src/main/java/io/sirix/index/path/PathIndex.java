@@ -22,6 +22,10 @@ public interface PathIndex<B, L extends ChangeListener> {
 
   default Iterator<NodeReferences> openIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
       final PathFilter filter) {
+    // Note: HOT index reading is handled by the listeners during indexing.
+    // The index query still uses RBTreeReader for now because RBTreeReader
+    // is the standard query interface. Full HOT query support requires
+    // implementing HOTLongIndexReader integration.
     final RBTreeReader<Long, NodeReferences> reader =
         RBTreeReader.getInstance(pageRtx.getResourceSession().getIndexCache(),
                                  pageRtx,

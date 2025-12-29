@@ -28,11 +28,19 @@
 package io.sirix.index.hot;
 
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.cache.PageContainer;
+import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.page.CASPage;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.NamePage;
+import io.sirix.page.PageReference;
+import io.sirix.page.PathPage;
+import io.sirix.page.RevisionRootPage;
+import io.sirix.page.interfaces.Page;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import static java.util.Objects.requireNonNull;
@@ -77,13 +85,10 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
   private final StorageEngineWriter pageTrx;
   private final HOTKeySerializer<K> keySerializer;
   private final IndexType indexType;
-  
-  /**
-   * Index number for multi-index support.
-   * Will be used when full storage engine integration is complete.
-   */
-  @SuppressWarnings("unused")
   private final int indexNumber;
+  
+  /** Cached root page reference. */
+  private PageReference rootReference;
 
   /**
    * Private constructor.
@@ -99,6 +104,45 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
     this.keySerializer = requireNonNull(keySerializer);
     this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
+    
+    // Initialize HOT index tree
+    initializeHOTIndex();
+  }
+
+  /**
+   * Initialize the HOT index tree structure.
+   */
+  private void initializeHOTIndex() {
+    try {
+      final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
+      
+      switch (indexType) {
+        case PATH -> {
+          final PathPage pathPage = pageTrx.getPathPage(revisionRootPage);
+          final PageReference reference = revisionRootPage.getPathPageReference();
+          pageTrx.appendLogRecord(reference, PageContainer.getInstance(pathPage, pathPage));
+          pathPage.createHOTPathIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+          rootReference = pathPage.getOrCreateReference(indexNumber);
+        }
+        case CAS -> {
+          final CASPage casPage = pageTrx.getCASPage(revisionRootPage);
+          final PageReference reference = revisionRootPage.getCASPageReference();
+          pageTrx.appendLogRecord(reference, PageContainer.getInstance(casPage, casPage));
+          casPage.createHOTCASIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+          rootReference = casPage.getOrCreateReference(indexNumber);
+        }
+        case NAME -> {
+          final NamePage namePage = pageTrx.getNamePage(revisionRootPage);
+          final PageReference reference = revisionRootPage.getNamePageReference();
+          pageTrx.appendLogRecord(reference, PageContainer.getInstance(namePage, namePage));
+          namePage.createHOTNameIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+          rootReference = namePage.getOrCreateReference(indexNumber);
+        }
+        default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + indexType);
+      }
+    } catch (SirixIOException e) {
+      throw new IllegalStateException("Failed to initialize HOT index", e);
+    }
   }
 
   /**
@@ -257,21 +301,45 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
   /**
    * Get the HOT leaf page for writing.
    *
-   * <p>For now, this is a simplified implementation that uses a single leaf page.
-   * A full implementation would navigate through HOTIndirectPage hierarchy.</p>
+   * <p>Retrieves or creates the HOT leaf page from the transaction log or storage.</p>
    *
    * @param keyBuf the key buffer
    * @param keyLen the key length
    * @return the HOT leaf page for writing
    */
   private HOTLeafPage getLeafForWrite(byte[] keyBuf, int keyLen) {
-    // TODO: Implement proper HOT trie navigation through HOTIndirectPages
-    // For now, create/get a single leaf page per index
-    long pageKey = computePageKey(keyBuf, keyLen);
+    if (rootReference == null) {
+      throw new IllegalStateException("HOT index not initialized");
+    }
     
-    // This would call pageTrx.prepareRecordPageViaHOT() in full implementation
-    // For now, create a new page if needed
-    return new HOTLeafPage(pageKey, pageTrx.getRevisionNumber(), indexType);
+    // Check transaction log first
+    PageContainer container = pageTrx.getLog().get(rootReference);
+    if (container != null) {
+      Page page = container.getModified();
+      if (page instanceof HOTLeafPage hotLeaf) {
+        return hotLeaf;
+      }
+    }
+    
+    // Try to load from storage
+    Page loadedPage = loadPage(rootReference);
+    if (loadedPage instanceof HOTLeafPage existingLeaf) {
+      // Create COW copy
+      HOTLeafPage modifiedLeaf = existingLeaf.copy();
+      container = PageContainer.getInstance(existingLeaf, modifiedLeaf);
+      pageTrx.getLog().put(rootReference, container);
+      return modifiedLeaf;
+    }
+    
+    // Create new leaf page if none exists
+    HOTLeafPage newLeaf = new HOTLeafPage(
+        rootReference.getKey() >= 0 ? rootReference.getKey() : 0,
+        pageTrx.getRevisionNumber(),
+        indexType
+    );
+    container = PageContainer.getInstance(newLeaf, newLeaf);
+    pageTrx.getLog().put(rootReference, container);
+    return newLeaf;
   }
 
   /**
@@ -282,28 +350,53 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
    * @return the HOT leaf page, or null if not found
    */
   private @Nullable HOTLeafPage getLeafForRead(byte[] keyBuf, int keyLen) {
-    // TODO: Implement proper HOT trie navigation
-    // For now, return null (would trigger fallback to RBTree)
+    if (rootReference == null) {
+      return null;
+    }
+    
+    // Check transaction log first
+    PageContainer container = pageTrx.getLog().get(rootReference);
+    if (container != null) {
+      Page page = container.getComplete();
+      if (page instanceof HOTLeafPage hotLeaf) {
+        return hotLeaf;
+      }
+    }
+    
+    // Try to load from storage
+    Page loadedPage = loadPage(rootReference);
+    if (loadedPage instanceof HOTLeafPage hotLeaf) {
+      return hotLeaf;
+    }
+    
     return null;
   }
 
   /**
-   * Compute page key from key bytes.
+   * Load a page from storage.
    *
-   * <p>For a full HOT implementation, this would navigate through the trie.
-   * For now, use a simple hash-based approach.</p>
-   *
-   * @param keyBuf the key buffer
-   * @param keyLen the key length
-   * @return the page key
+   * @param ref the page reference
+   * @return the loaded page, or null if not found
    */
-  private long computePageKey(byte[] keyBuf, int keyLen) {
-    // Simple hash for now - full implementation would use trie navigation
-    long hash = 0;
-    for (int i = 0; i < keyLen; i++) {
-      hash = hash * 31 + (keyBuf[i] & 0xFF);
+  private @Nullable Page loadPage(PageReference ref) {
+    if (ref.getKey() < 0 && ref.getLogKey() < 0) {
+      return null;
     }
-    return Math.abs(hash) % 1024; // Limit to 1024 pages for now
+    
+    // Check if page is in the reference itself
+    Page directPage = ref.getPage();
+    if (directPage != null) {
+      return directPage;
+    }
+    
+    // Check transaction log
+    PageContainer container = pageTrx.getLog().get(ref);
+    if (container != null) {
+      return container.getComplete();
+    }
+    
+    // For now, return null - full implementation would load from storage
+    return null;
   }
 }
 
