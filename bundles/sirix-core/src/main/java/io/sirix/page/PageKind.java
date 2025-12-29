@@ -859,6 +859,176 @@ public enum PageKind {
       sink.writeLong(deweyIDPage.getMaxNodeKey());
       sink.writeByte((byte) deweyIDPage.getCurrentMaxLevelOfIndirectPages());
     }
+  },
+
+  /**
+   * {@link HOTLeafPage} - HOT trie leaf page for cache-friendly secondary indexes.
+   */
+  HOT_LEAF_PAGE((byte) 12, HOTLeafPage.class) {
+    @Override
+    public Page deserializePage(@NonNull ResourceConfiguration resourceConfiguration, BytesIn<?> source,
+        @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      
+      // Read header
+      final long recordPageKey = Utils.getVarLong(source);
+      final int revision = source.readInt();
+      final IndexType indexType = IndexType.getType(source.readByte());
+      final int entryCount = source.readInt();
+      final int usedSlotMemorySize = source.readInt();
+      
+      // Read slot offsets
+      final int[] slotOffsets = new int[entryCount];
+      for (int i = 0; i < entryCount; i++) {
+        slotOffsets[i] = source.readInt();
+      }
+      
+      // Read slot memory (zero-copy when possible)
+      MemorySegmentAllocator allocator = OS.isWindows() 
+          ? WindowsMemorySegmentAllocator.getInstance() 
+          : LinuxMemorySegmentAllocator.getInstance();
+      
+      final MemorySegment slotMemory;
+      final Runnable releaser;
+      
+      final boolean canZeroCopy = decompressionResult != null && source instanceof MemorySegmentBytesIn;
+      if (canZeroCopy) {
+        final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
+        slotMemory = sourceSegment.asSlice(source.position(), usedSlotMemorySize);
+        source.skip(usedSlotMemorySize);
+        releaser = decompressionResult.transferOwnership();
+      } else {
+        slotMemory = allocator.allocate(usedSlotMemorySize);
+        if (source instanceof MemorySegmentBytesIn msSource) {
+          MemorySegment.copy(msSource.getSource(), source.position(), slotMemory, 0, usedSlotMemorySize);
+          source.skip(usedSlotMemorySize);
+        } else {
+          byte[] slotData = new byte[usedSlotMemorySize];
+          source.read(slotData);
+          MemorySegment.copy(slotData, 0, slotMemory, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, usedSlotMemorySize);
+        }
+        final MemorySegment segmentToRelease = slotMemory;
+        releaser = () -> allocator.release(segmentToRelease);
+      }
+      
+      return new HOTLeafPage(recordPageKey, revision, indexType, slotMemory, releaser, 
+                             slotOffsets, entryCount, usedSlotMemorySize);
+    }
+
+    @Override
+    public void serializePage(@NonNull ResourceConfiguration resourceConfig, @NonNull BytesOut<?> sink,
+        @NonNull Page page, @NonNull SerializationType type) {
+      HOTLeafPage hotLeaf = (HOTLeafPage) page;
+      sink.writeByte(HOT_LEAF_PAGE.id);
+      sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
+      
+      // Write header
+      Utils.putVarLong(sink, hotLeaf.getPageKey());
+      sink.writeInt(hotLeaf.getRevision());
+      sink.writeByte(hotLeaf.getIndexType().getID());
+      sink.writeInt(hotLeaf.getEntryCount());
+      sink.writeInt(hotLeaf.getUsedSlotsSize());
+      
+      // Write slot offsets
+      int entryCount = hotLeaf.getEntryCount();
+      for (int i = 0; i < entryCount; i++) {
+        MemorySegment slot = hotLeaf.getSlot(i);
+        if (slot != null) {
+          // Calculate offset from slot position
+          sink.writeInt((int) (slot.address() - hotLeaf.slots().address()));
+        } else {
+          sink.writeInt(0);
+        }
+      }
+      
+      // Write slot memory (bulk copy)
+      MemorySegment slots = hotLeaf.slots();
+      int usedSize = hotLeaf.getUsedSlotsSize();
+      byte[] slotData = new byte[usedSize];
+      MemorySegment.copy(slots, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, slotData, 0, usedSize);
+      sink.write(slotData);
+    }
+  },
+
+  /**
+   * {@link HOTIndirectPage} - HOT trie interior node with compound structure.
+   */
+  HOT_INDIRECT_PAGE((byte) 13, HOTIndirectPage.class) {
+    @Override
+    public Page deserializePage(@NonNull ResourceConfiguration resourceConfiguration, BytesIn<?> source,
+        @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+      
+      // Read header
+      final long pageKey = Utils.getVarLong(source);
+      final int revision = source.readInt();
+      final int height = source.readByte() & 0xFF;
+      final byte nodeTypeId = source.readByte();
+      final byte layoutTypeId = source.readByte();
+      final int numChildren = source.readInt();
+      
+      final HOTIndirectPage.NodeType nodeType = HOTIndirectPage.NodeType.values()[nodeTypeId];
+      
+      // Read discriminative bits based on layout type
+      final byte initialBytePos = source.readByte();
+      final long bitMask = source.readLong();
+      
+      // Read partial keys
+      final byte[] partialKeys = new byte[numChildren];
+      source.read(partialKeys);
+      
+      // Read child references (simple key-only format)
+      final PageReference[] children = new PageReference[numChildren];
+      for (int i = 0; i < numChildren; i++) {
+        PageReference ref = new PageReference();
+        ref.setKey(source.readLong());
+        children[i] = ref;
+      }
+      
+      // Create appropriate node type
+      return switch (nodeType) {
+        case BI_NODE -> HOTIndirectPage.createBiNode(pageKey, revision, 
+            initialBytePos * 8 + Long.numberOfTrailingZeros(bitMask), children[0], children[1]);
+        case SPAN_NODE -> HOTIndirectPage.createSpanNode(pageKey, revision, 
+            initialBytePos, bitMask, partialKeys, children);
+        case MULTI_NODE -> {
+          byte[] childIndexArray = new byte[256];
+          source.read(childIndexArray);
+          yield HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, childIndexArray, children);
+        }
+      };
+    }
+
+    @Override
+    public void serializePage(@NonNull ResourceConfiguration resourceConfig, @NonNull BytesOut<?> sink,
+        @NonNull Page page, @NonNull SerializationType type) {
+      HOTIndirectPage hotIndirect = (HOTIndirectPage) page;
+      sink.writeByte(HOT_INDIRECT_PAGE.id);
+      sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
+      
+      // Write header
+      Utils.putVarLong(sink, hotIndirect.getPageKey());
+      sink.writeInt(hotIndirect.getRevision());
+      sink.writeByte((byte) hotIndirect.getHeight());
+      sink.writeByte((byte) hotIndirect.getNodeType().ordinal());
+      sink.writeByte((byte) hotIndirect.getLayoutType().ordinal());
+      sink.writeInt(hotIndirect.getNumChildren());
+      
+      // TODO: Write discriminative bits properly based on layout type
+      // For now, write placeholder values
+      sink.writeByte((byte) 0); // initialBytePos
+      sink.writeLong(0L); // bitMask
+      
+      // Write partial keys (placeholder)
+      byte[] partialKeysData = new byte[hotIndirect.getNumChildren()];
+      sink.write(partialKeysData);
+      
+      // Write child references (simple key-only format for now)
+      for (int i = 0; i < hotIndirect.getNumChildren(); i++) {
+        PageReference ref = hotIndirect.getChildReference(i);
+        sink.writeLong(ref != null ? ref.getKey() : Constants.NULL_ID_LONG);
+      }
+    }
   };
 
   private static void writeDelegateType(Page delegate, BytesOut<?> sink) {
