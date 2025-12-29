@@ -48,6 +48,7 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.KeyValuePage;
+import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.Fixed;
@@ -1047,6 +1048,72 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public RevisionRootPage getActualRevisionRootPage() {
     pageRtx.assertNotClosed();
     return newRevisionRootPage;
+  }
+
+  @Override
+  public @Nullable HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber) {
+    pageRtx.assertNotClosed();
+    
+    // CRITICAL: Use newRevisionRootPage (not the delegate's rootPage) because
+    // HOT pages are stored against the new revision's PathPage/CASPage/NamePage references.
+    final RevisionRootPage actualRootPage = newRevisionRootPage;
+    
+    // Get the root reference for the index from the NEW revision root page
+    final PageReference rootRef = switch (indexType) {
+      case PATH -> {
+        final PathPage pathPage = getPathPage(actualRootPage);
+        if (pathPage == null || indexNumber >= pathPage.getReferences().size()) {
+          yield null;
+        }
+        yield pathPage.getOrCreateReference(indexNumber);
+      }
+      case CAS -> {
+        final CASPage casPage = getCASPage(actualRootPage);
+        if (casPage == null || indexNumber >= casPage.getReferences().size()) {
+          yield null;
+        }
+        yield casPage.getOrCreateReference(indexNumber);
+      }
+      case NAME -> {
+        final NamePage namePage = getNamePage(actualRootPage);
+        if (namePage == null || indexNumber >= namePage.getReferences().size()) {
+          yield null;
+        }
+        yield namePage.getOrCreateReference(indexNumber);
+      }
+      default -> null;
+    };
+    
+    if (rootRef == null) {
+      return null;
+    }
+    
+    // Check transaction log for uncommitted pages (this is the key for write transactions!)
+    final PageContainer container = log.get(rootRef);
+    if (container != null) {
+      // Try modified first (the one being written to), then complete
+      Page modified = container.getModified();
+      if (modified instanceof HOTLeafPage hotLeaf) {
+        return hotLeaf;
+      }
+      Page complete = container.getComplete();
+      if (complete instanceof HOTLeafPage hotLeaf) {
+        return hotLeaf;
+      }
+    }
+    
+    // Check if page is swizzled (directly on reference)
+    if (rootRef.getPage() instanceof HOTLeafPage hotLeaf) {
+      return hotLeaf;
+    }
+    
+    // For uncommitted pages with no storage key, we're done
+    if (rootRef.getKey() < 0 && rootRef.getLogKey() < 0) {
+      return null;
+    }
+    
+    // Try buffer cache or load from storage (for previously committed data)
+    return pageRtx.getHOTLeafPage(indexType, indexNumber);
   }
 
   @Override

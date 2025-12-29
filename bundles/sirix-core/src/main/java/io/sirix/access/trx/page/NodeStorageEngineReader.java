@@ -1558,24 +1558,30 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public @Nullable HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber) {
     assertNotClosed();
     
+    // CRITICAL: Use getActualRevisionRootPage() to get the current revision root,
+    // which for write transactions is the NEW revision root page where HOT pages are stored.
+    // Using the old 'rootPage' field would fail for write transactions because the HOT
+    // pages are stored against the new revision's PathPage/CASPage/NamePage references.
+    final RevisionRootPage actualRootPage = getActualRevisionRootPage();
+    
     // Get the root reference for the index
     final PageReference rootRef = switch (indexType) {
       case PATH -> {
-        final PathPage pathPage = getPathPage(rootPage);
+        final PathPage pathPage = getPathPage(actualRootPage);
         if (pathPage == null || indexNumber >= pathPage.getReferences().size()) {
           yield null;
         }
         yield pathPage.getOrCreateReference(indexNumber);
       }
       case CAS -> {
-        final CASPage casPage = getCASPage(rootPage);
+        final CASPage casPage = getCASPage(actualRootPage);
         if (casPage == null || indexNumber >= casPage.getReferences().size()) {
           yield null;
         }
         yield casPage.getOrCreateReference(indexNumber);
       }
       case NAME -> {
-        final NamePage namePage = getNamePage(rootPage);
+        final NamePage namePage = getNamePage(actualRootPage);
         if (namePage == null || indexNumber >= namePage.getReferences().size()) {
           yield null;
         }

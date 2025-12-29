@@ -340,5 +340,41 @@ class HOTIndexIntegrationTest {
         assertEquals(IndexType.PATH, indexDef.getType(), "Should be PATH index");
       }
     }
+    
+    @Test
+    @DisplayName("HOT PATH index works before commit (uncommitted data)")
+    void testHOTPathIndexBeforeCommit() {
+      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+      
+      final var jsonPath = JSON.resolve("abc-location-stations.json");
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
+
+        indexController.createIndexes(Set.of(pathIndexDef), trx);
+
+        // Shred WITHOUT commitAfterwards - data is in transaction log only
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createFileReader(jsonPath),
+            InsertPosition.AS_FIRST_CHILD).build();
+        shredder.call();
+        
+        // Query BEFORE commit - this tests uncommitted HOT page access
+        final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
+        final var index = indexController.openPathIndex(trx.getPageTrx(), indexDef, null);
+
+        assertTrue(index.hasNext(), "HOT PATH index should have results before commit");
+        var refs = index.next();
+        assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'type' nodes before commit");
+        
+        // Now commit
+        trx.commit();
+      }
+    }
   }
 }
