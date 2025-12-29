@@ -143,10 +143,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private final TrieWriter trieWriter;
   
   /**
-   * The keyed trie writer - manages HOT (Height Optimized Trie) structure.
+   * The HOT trie writer - manages HOT (Height Optimized Trie) structure.
    * Used for cache-friendly secondary indexes (PATH, CAS, NAME).
    */
-  private final KeyedTrieWriter keyedTrieWriter;
+  private final HOTTrieWriter hotTrieWriter;
 
   /**
    * The revision to represent.
@@ -157,10 +157,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Trie type for routing page operations.
    */
   public enum TrieType {
-    /** Traditional bit-decomposed IndirectPage trie. */
-    INDIRECT_TRIE,
-    /** HOT-based keyed trie for secondary indexes. */
-    KEYED_TRIE
+    /** Traditional bit-decomposed IndirectPage trie (existing approach). */
+    KEYED_TRIE,
+    /** HOT (Height Optimized Trie) for cache-friendly secondary indexes (new approach). */
+    HOT_TRIE
   }
 
   /**
@@ -205,7 +205,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final RevisionRootPage revisionRootPage, final NodeStorageEngineReader pageRtx,
       final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
     this.trieWriter = new TrieWriter();
-    this.keyedTrieWriter = new KeyedTrieWriter();
+    this.hotTrieWriter = new HOTTrieWriter();
     storagePageReaderWriter = requireNonNull(writer);
     this.log = requireNonNull(log);
     newRevisionRootPage = requireNonNull(revisionRootPage);
@@ -237,8 +237,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   
   /**
    * Determine which trie type to use for the given index.
-   * Currently, all indexes use the traditional INDIRECT_TRIE.
-   * Set to KEYED_TRIE to enable HOT indexes (requires migration).
+   * Currently, all indexes use the traditional KEYED_TRIE (bit-decomposed).
+   * Set to HOT_TRIE to enable HOT indexes (requires migration).
    *
    * @param indexType the index type
    * @param indexNumber the index number
@@ -246,23 +246,23 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   @SuppressWarnings("unused") // Will be used when HOT indexes are enabled
   private TrieType getTrieType(@NonNull IndexType indexType, int indexNumber) {
-    // TODO: Add configuration to enable KEYED_TRIE per index
+    // TODO: Add configuration to enable HOT_TRIE per index
     // For now, always use traditional trie for compatibility
     // To test HOT indexes, change this to:
     //   return switch (indexType) {
-    //     case PATH, CAS, NAME -> TrieType.KEYED_TRIE;
-    //     default -> TrieType.INDIRECT_TRIE;
+    //     case PATH, CAS, NAME -> TrieType.HOT_TRIE;
+    //     default -> TrieType.KEYED_TRIE;
     //   };
-    return TrieType.INDIRECT_TRIE;
+    return TrieType.KEYED_TRIE;
   }
   
   /**
-   * Get the keyed trie writer for HOT index operations.
+   * Get the HOT trie writer for HOT index operations.
    * 
-   * @return the keyed trie writer
+   * @return the HOT trie writer
    */
-  public KeyedTrieWriter getKeyedTrieWriter() {
-    return keyedTrieWriter;
+  public HOTTrieWriter getHOTTrieWriter() {
+    return hotTrieWriter;
   }
 
   @Override

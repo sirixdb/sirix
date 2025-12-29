@@ -44,7 +44,7 @@ import java.util.Objects;
  * 
  * <p>Since sibling pointers are incompatible with COW (modifying one leaf would
  * cascade COW to all siblings), this cursor uses in-order trie traversal with
- * a parent stack maintained by {@link KeyedTrieReader}.</p>
+ * a parent stack maintained by {@link HOTTrieReader}.</p>
  * 
  * <p><b>Key Features:</b></p>
  * <ul>
@@ -65,7 +65,7 @@ import java.util.Objects;
  * }</pre>
  * 
  * @author Johannes Lichtenberger
- * @see KeyedTrieReader
+ * @see HOTTrieReader
  * @see HOTLeafPage
  */
 public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, AutoCloseable {
@@ -95,7 +95,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
     }
   }
   
-  private final KeyedTrieReader reader;
+  private final HOTTrieReader reader;
   private final PageReference rootRef;
   private final byte[] fromKey;
   private final byte[] toKey;
@@ -117,7 +117,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * @param fromKey the start key (inclusive)
    * @param toKey the end key (inclusive)
    */
-  HOTRangeCursor(@NonNull KeyedTrieReader reader,
+  HOTRangeCursor(@NonNull HOTTrieReader reader,
                  @NonNull PageReference rootRef,
                  byte[] fromKey,
                  byte[] toKey) {

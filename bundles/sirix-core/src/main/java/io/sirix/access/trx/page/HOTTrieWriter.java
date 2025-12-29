@@ -47,10 +47,10 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import java.util.Objects;
 
 /**
- * Keyed trie writer for HOT (Height Optimized Trie) navigation.
+ * HOT trie writer for HOT (Height Optimized Trie) navigation.
  * 
- * <p>This class replaces the bit-decomposition approach of {@code TrieWriter} with
- * semantic key-based navigation using HOT compound nodes.</p>
+ * <p>This class provides an alternative to the bit-decomposition approach of {@code TrieWriter}
+ * using semantic key-based navigation with HOT compound nodes.</p>
  * 
  * <p><b>Key Features:</b></p>
  * <ul>
@@ -62,7 +62,7 @@ import java.util.Objects;
  * 
  * <p><b>Usage:</b></p>
  * <pre>{@code
- * KeyedTrieWriter writer = new KeyedTrieWriter();
+ * HOTTrieWriter writer = new HOTTrieWriter();
  * PageContainer container = writer.prepareKeyedLeafForModification(
  *     pageRtx, log, startReference, key, indexType, indexNumber);
  * HOTLeafPage leaf = (HOTLeafPage) container.getModified();
@@ -73,7 +73,7 @@ import java.util.Objects;
  * @see HOTLeafPage
  * @see HOTIndirectPage
  */
-public final class KeyedTrieWriter {
+public final class HOTTrieWriter {
 
   /** Maximum tree height (HOT typically has height 2-3). */
   private static final int MAX_TREE_HEIGHT = 8;
@@ -92,9 +92,9 @@ public final class KeyedTrieWriter {
   private int cowPathDepth = 0;
   
   /**
-   * Create a new KeyedTrieWriter.
+   * Create a new HOTTrieWriter.
    */
-  public KeyedTrieWriter() {
+  public HOTTrieWriter() {
     this.allocator = OS.isWindows() 
         ? WindowsMemorySegmentAllocator.getInstance() 
         : LinuxMemorySegmentAllocator.getInstance();

@@ -40,7 +40,7 @@ import java.lang.foreign.MemorySegment;
 import java.util.Objects;
 
 /**
- * Keyed trie reader for HOT (Height Optimized Trie) navigation.
+ * HOT trie reader for HOT (Height Optimized Trie) navigation.
  * 
  * <p>This class provides read-only access to HOT indexes with proper guard management
  * to prevent page eviction during active use.</p>
@@ -55,7 +55,7 @@ import java.util.Objects;
  * 
  * <p><b>Usage:</b></p>
  * <pre>{@code
- * try (KeyedTrieReader reader = new KeyedTrieReader(pageRtx)) {
+ * try (HOTTrieReader reader = new HOTTrieReader(pageRtx)) {
  *     MemorySegment value = reader.get(rootRef, key);
  *     if (value != null) {
  *         // Use value...
@@ -66,9 +66,9 @@ import java.util.Objects;
  * @author Johannes Lichtenberger
  * @see HOTLeafPage
  * @see HOTIndirectPage
- * @see KeyedTrieWriter
+ * @see HOTTrieWriter
  */
-public final class KeyedTrieReader implements AutoCloseable {
+public final class HOTTrieReader implements AutoCloseable {
 
   /** Maximum tree height. */
   private static final int MAX_TREE_HEIGHT = 8;
@@ -86,11 +86,11 @@ public final class KeyedTrieReader implements AutoCloseable {
   private HOTLeafPage guardedLeaf = null;
   
   /**
-   * Create a new KeyedTrieReader.
+   * Create a new HOTTrieReader.
    *
    * @param pageRtx the storage engine reader
    */
-  public KeyedTrieReader(@NonNull StorageEngineReader pageRtx) {
+  public HOTTrieReader(@NonNull StorageEngineReader pageRtx) {
     this.pageRtx = Objects.requireNonNull(pageRtx);
   }
   
