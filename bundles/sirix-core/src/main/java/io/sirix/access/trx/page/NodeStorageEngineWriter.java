@@ -237,23 +237,21 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   
   /**
    * Determine which trie type to use for the given index.
-   * Currently, all indexes use the traditional KEYED_TRIE (bit-decomposed).
-   * Set to HOT_TRIE to enable HOT indexes (requires migration).
+   * 
+   * <p>Secondary indexes (PATH, CAS, NAME) use HOT_TRIE for cache-friendly lookups.
+   * Core document indexes use KEYED_TRIE (bit-decomposed) for compatibility.</p>
    *
    * @param indexType the index type
    * @param indexNumber the index number
    * @return the trie type to use
    */
-  @SuppressWarnings("unused") // Will be used when HOT indexes are enabled
   private TrieType getTrieType(@NonNull IndexType indexType, int indexNumber) {
-    // TODO: Add configuration to enable HOT_TRIE per index
-    // For now, always use traditional trie for compatibility
-    // To test HOT indexes, change this to:
-    //   return switch (indexType) {
-    //     case PATH, CAS, NAME -> TrieType.HOT_TRIE;
-    //     default -> TrieType.KEYED_TRIE;
-    //   };
-    return TrieType.KEYED_TRIE;
+    return switch (indexType) {
+      // Secondary indexes use HOT for cache-friendly lookups
+      case PATH, CAS, NAME -> TrieType.HOT_TRIE;
+      // Core document indexes use traditional bit-decomposed trie
+      default -> TrieType.KEYED_TRIE;
+    };
   }
   
   /**
@@ -813,6 +811,22 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private PageContainer prepareRecordPage(final @NonNegative long recordPageKey, final int indexNumber,
       final IndexType indexType) {
     assert indexType != null;
+    
+    // Route to appropriate trie implementation
+    TrieType trieType = getTrieType(indexType, indexNumber);
+    if (trieType == TrieType.HOT_TRIE) {
+      return prepareRecordPageViaHOT(recordPageKey, indexNumber, indexType);
+    }
+    
+    // Traditional KEYED_TRIE path (bit-decomposed)
+    return prepareRecordPageViaKeyedTrie(recordPageKey, indexNumber, indexType);
+  }
+  
+  /**
+   * Prepare record page using traditional bit-decomposed KEYED_TRIE.
+   */
+  private PageContainer prepareRecordPageViaKeyedTrie(final @NonNegative long recordPageKey, final int indexNumber,
+      final IndexType indexType) {
 
     PageContainer mostRecentPageContainer1 =
         getMostRecentPageContainer(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
@@ -908,6 +922,76 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     return currPageContainer;
+  }
+  
+  /**
+   * Prepare record page using HOT (Height Optimized Trie).
+   * 
+   * <p>This method uses the HOTTrieWriter for cache-friendly secondary index operations.
+   * HOT uses semantic byte[] keys instead of bit-decomposed numeric keys.</p>
+   *
+   * @param recordPageKey the record page key (used as fallback key encoding)
+   * @param indexNumber the index number
+   * @param indexType the index type (PATH, CAS, or NAME)
+   * @return PageContainer with the HOT leaf page
+   */
+  private PageContainer prepareRecordPageViaHOT(final @NonNegative long recordPageKey, final int indexNumber,
+      final IndexType indexType) {
+    
+    // Get the root reference for this index
+    final PageReference rootRef = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
+    
+    // Encode the recordPageKey as a byte[] key for HOT navigation
+    // For proper integration, the caller should pass the semantic key directly
+    // This is a compatibility bridge for the existing API
+    byte[] key = encodeRecordPageKeyForHOT(recordPageKey);
+    
+    // Use HOT trie writer to navigate and prepare the leaf
+    PageContainer container = hotTrieWriter.prepareKeyedLeafForModification(
+        this, log, rootRef, key, indexType, indexNumber);
+    
+    if (container != null) {
+      return container;
+    }
+    
+    // Fallback: If HOT navigation fails (e.g., empty tree), 
+    // create a new HOT leaf page
+    HOTLeafPage newLeaf = new HOTLeafPage(recordPageKey, pageRtx.getRevisionNumber(), indexType);
+    container = PageContainer.getInstance(newLeaf, newLeaf);
+    
+    PageReference newRef = new PageReference();
+    newRef.setKey(recordPageKey);
+    log.put(newRef, container);
+    
+    // Update root reference to point to new leaf
+    if (rootRef.getKey() == Constants.NULL_ID_LONG) {
+      rootRef.setKey(recordPageKey);
+      log.put(rootRef, container);
+    }
+    
+    return container;
+  }
+  
+  /**
+   * Encode a recordPageKey as a byte[] for HOT navigation.
+   * 
+   * <p>This is a compatibility bridge. For optimal performance, callers should
+   * pass semantic keys directly to HOT methods.</p>
+   *
+   * @param recordPageKey the numeric page key
+   * @return the key as a byte array (big-endian)
+   */
+  private static byte[] encodeRecordPageKeyForHOT(long recordPageKey) {
+    byte[] key = new byte[8];
+    key[0] = (byte) (recordPageKey >>> 56);
+    key[1] = (byte) (recordPageKey >>> 48);
+    key[2] = (byte) (recordPageKey >>> 40);
+    key[3] = (byte) (recordPageKey >>> 32);
+    key[4] = (byte) (recordPageKey >>> 24);
+    key[5] = (byte) (recordPageKey >>> 16);
+    key[6] = (byte) (recordPageKey >>> 8);
+    key[7] = (byte) recordPageKey;
+    return key;
   }
 
   /**
