@@ -238,20 +238,27 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Determine which trie type to use for the given index.
    * 
-   * <p>Secondary indexes (PATH, CAS, NAME) use HOT_TRIE for cache-friendly lookups.
-   * Core document indexes use KEYED_TRIE (bit-decomposed) for compatibility.</p>
+   * <p>Currently all indexes use KEYED_TRIE (traditional bit-decomposed approach).
+   * HOT_TRIE support requires refactoring PageContainer and related code to use
+   * KeyValuePage interface instead of concrete KeyValueLeafPage class.</p>
+   * 
+   * <p>TODO: Enable HOT_TRIE for PATH, CAS, NAME after refactoring:
+   * - PageContainer.getModifiedAsUnorderedKeyValuePage() 
+   * - Names.setName() and related methods
+   * - All code that casts to KeyValueLeafPage</p>
    *
    * @param indexType the index type
    * @param indexNumber the index number
    * @return the trie type to use
    */
   private TrieType getTrieType(@NonNull IndexType indexType, int indexNumber) {
-    return switch (indexType) {
-      // Secondary indexes use HOT for cache-friendly lookups
-      case PATH, CAS, NAME -> TrieType.HOT_TRIE;
-      // Core document indexes use traditional bit-decomposed trie
-      default -> TrieType.KEYED_TRIE;
-    };
+    // HOT_TRIE is not yet fully integrated - existing code expects KeyValueLeafPage
+    // To enable HOT, refactor code to use KeyValuePage interface:
+    //   return switch (indexType) {
+    //     case PATH, CAS, NAME -> TrieType.HOT_TRIE;
+    //     default -> TrieType.KEYED_TRIE;
+    //   };
+    return TrieType.KEYED_TRIE;
   }
   
   /**
