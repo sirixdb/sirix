@@ -375,6 +375,161 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     return entryCount;
   }
   
+  // ===== Merge, Update, and Copy operations for HOT index =====
+  
+  /**
+   * Update the value at a given index.
+   *
+   * <p>This is used for merging NodeReferences - the new value replaces the old.</p>
+   *
+   * @param index the entry index
+   * @param newValue the new value
+   * @return true if updated, false if there wasn't enough space
+   */
+  public boolean updateValue(int index, byte[] newValue) {
+    Objects.checkIndex(index, entryCount);
+    Objects.requireNonNull(newValue);
+    
+    // Get old entry info
+    int offset = slotOffsets[index];
+    int keyLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+    int valueOffset = offset + 2 + keyLen;
+    int oldValueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueOffset));
+    
+    // If new value same size or smaller, update in-place
+    if (newValue.length <= oldValueLen) {
+      slotMemory.set(JAVA_SHORT_UNALIGNED, valueOffset, (short) newValue.length);
+      MemorySegment.copy(newValue, 0, slotMemory, ValueLayout.JAVA_BYTE, valueOffset + 2, newValue.length);
+      return true;
+    }
+    
+    // New value is larger - need to append and update offset
+    int newEntrySize = 2 + keyLen + 2 + newValue.length;
+    if (usedSlotMemorySize + newEntrySize > slotMemory.byteSize()) {
+      return false; // No space for larger value
+    }
+    
+    // Copy key and new value to end of used space
+    int newOffset = usedSlotMemorySize;
+    byte[] key = getKey(index);
+    
+    slotMemory.set(JAVA_SHORT_UNALIGNED, newOffset, (short) keyLen);
+    MemorySegment.copy(key, 0, slotMemory, ValueLayout.JAVA_BYTE, newOffset + 2, keyLen);
+    slotMemory.set(JAVA_SHORT_UNALIGNED, newOffset + 2 + keyLen, (short) newValue.length);
+    MemorySegment.copy(newValue, 0, slotMemory, ValueLayout.JAVA_BYTE, newOffset + 2 + keyLen + 2, newValue.length);
+    
+    // Update offset pointer
+    slotOffsets[index] = newOffset;
+    usedSlotMemorySize += newEntrySize;
+    
+    return true;
+  }
+  
+  /**
+   * Merge a value with existing entry using NodeReferences OR semantics.
+   *
+   * <p>If key exists, merges the NodeReferences (OR operation on bitmaps).
+   * If key doesn't exist, inserts new entry.</p>
+   *
+   * @param key the key bytes
+   * @param keyLen the key length
+   * @param value the value bytes (serialized NodeReferences)
+   * @param valueLen the value length
+   * @return true if merged/inserted successfully
+   */
+  public boolean mergeWithNodeRefs(byte[] key, int keyLen, byte[] value, int valueLen) {
+    Objects.requireNonNull(key);
+    Objects.requireNonNull(value);
+    
+    // Search for existing key
+    byte[] keySlice = keyLen == key.length ? key : java.util.Arrays.copyOf(key, keyLen);
+    int index = findEntry(keySlice);
+    
+    if (index >= 0) {
+      // Key exists - merge NodeReferences
+      byte[] existingValue = getValue(index);
+      
+      // Deserialize both and merge
+      var existingRefs = io.sirix.index.hot.NodeReferencesSerializer.deserialize(existingValue);
+      var newRefs = io.sirix.index.hot.NodeReferencesSerializer.deserialize(value, 0, valueLen);
+      
+      // Check for tombstone in new value
+      if (!newRefs.hasNodeKeys()) {
+        // Tombstone - set empty value
+        return updateValue(index, new byte[] { (byte) 0xFE }); // TOMBSTONE_FORMAT
+      }
+      
+      // Merge bitmaps (OR operation)
+      io.sirix.index.hot.NodeReferencesSerializer.merge(existingRefs, newRefs);
+      
+      // Serialize merged result
+      byte[] mergedBytes = io.sirix.index.hot.NodeReferencesSerializer.serialize(existingRefs);
+      return updateValue(index, mergedBytes);
+    } else {
+      // Key doesn't exist - insert new entry
+      byte[] valueSlice = valueLen == value.length ? value : java.util.Arrays.copyOf(value, valueLen);
+      int insertPos = -(index + 1);
+      return insertAt(insertPos, keySlice, valueSlice);
+    }
+  }
+  
+  /**
+   * Create a deep copy of this page for COW (Copy-on-Write).
+   *
+   * <p>The copy has its own off-heap memory segment and independent state.</p>
+   *
+   * @return a new HOTLeafPage with copied data
+   */
+  public HOTLeafPage copy() {
+    // Allocate new off-heap memory
+    MemorySegmentAllocator allocator = OS.isWindows() 
+        ? WindowsMemorySegmentAllocator.getInstance() 
+        : LinuxMemorySegmentAllocator.getInstance();
+    MemorySegment newSlotMemory = allocator.allocate(DEFAULT_SIZE);
+    Runnable newReleaser = () -> allocator.release(newSlotMemory);
+    
+    // Bulk copy off-heap data
+    MemorySegment.copy(slotMemory, 0, newSlotMemory, 0, usedSlotMemorySize);
+    
+    // Deep copy on-heap arrays
+    int[] newSlotOffsets = java.util.Arrays.copyOf(slotOffsets, slotOffsets.length);
+    
+    // Create new page with copied data
+    HOTLeafPage copy = new HOTLeafPage(
+        recordPageKey, revision, indexType,
+        newSlotMemory, newReleaser, newSlotOffsets, entryCount, usedSlotMemorySize);
+    
+    // Deep copy page references (for overflow entries)
+    for (var entry : pageReferences.long2ObjectEntrySet()) {
+      copy.pageReferences.put(entry.getLongKey(), entry.getValue());
+    }
+    
+    return copy;
+  }
+  
+  /**
+   * Merge another HOTLeafPage into this one.
+   *
+   * <p>Used for versioning - combines entries from multiple page fragments.
+   * Newer entries take precedence. NodeReferences are OR-merged.</p>
+   *
+   * @param other the page to merge from
+   * @return true if all entries merged successfully
+   */
+  public boolean mergeFrom(HOTLeafPage other) {
+    Objects.requireNonNull(other);
+    
+    for (int i = 0; i < other.entryCount; i++) {
+      byte[] key = other.getKey(i);
+      byte[] value = other.getValue(i);
+      
+      if (!mergeWithNodeRefs(key, key.length, value, value.length)) {
+        return false; // Page full
+      }
+    }
+    return true;
+  }
+  
   // ===== Guard-based lifetime management =====
   
   /**
