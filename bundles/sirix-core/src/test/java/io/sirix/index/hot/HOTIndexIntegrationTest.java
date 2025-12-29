@@ -19,24 +19,22 @@ import io.sirix.index.cas.CASIndexListenerFactory;
 import io.sirix.index.name.NameIndexListenerFactory;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JsonShredder;
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.Set;
-import java.util.Spliterator;
-import java.util.Spliterators;
-import java.util.stream.StreamSupport;
 
 import static io.brackit.query.util.path.Path.parse;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Integration tests for HOT (Height Optimized Trie) index listener infrastructure.
@@ -47,61 +45,63 @@ import static org.junit.Assert.assertTrue;
  * <p>Note: These tests run with RBTree backend by default. HOT backend tests will be
  * enabled once the HOT trie navigation is fully implemented in the storage engine.</p>
  */
-public final class HOTIndexIntegrationTest {
+class HOTIndexIntegrationTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
   
   private static String originalHOTSetting;
 
-  @BeforeClass
-  public static void saveHOTSetting() {
+  @BeforeAll
+  static void saveHOTSetting() {
     // Save original setting
     originalHOTSetting = System.getProperty("sirix.index.useHOT");
     // Disable HOT for now (RBTree tests) until HOT storage engine integration is complete
     System.clearProperty("sirix.index.useHOT");
   }
   
-  @AfterClass
-  public static void restoreHOTSetting() {
+  @AfterAll
+  static void restoreHOTSetting() {
     // Restore original setting
     if (originalHOTSetting != null) {
       System.setProperty("sirix.index.useHOT", originalHOTSetting);
     }
   }
 
-  @Before
-  public void setUp() {
+  @BeforeEach
+  void setUp() {
     JsonTestHelper.deleteEverything();
   }
 
-  @After
-  public void tearDown() {
+  @AfterEach
+  void tearDown() {
     JsonTestHelper.closeEverything();
   }
   
   // ===== Configuration Tests =====
   
   @Test
-  public void testHOTConfigurationProperty() {
+  @DisplayName("HOT configuration property enables/disables HOT indexes")
+  void testHOTConfigurationProperty() {
     // Test that HOT can be enabled/disabled via system property
-    assertFalse("HOT should be disabled by default", PathIndexListenerFactory.isHOTEnabled());
-    assertFalse("HOT should be disabled by default", CASIndexListenerFactory.isHOTEnabled());
-    assertFalse("HOT should be disabled by default", NameIndexListenerFactory.isHOTEnabled());
+    assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled by default");
+    assertFalse(CASIndexListenerFactory.isHOTEnabled(), "HOT should be disabled by default");
+    assertFalse(NameIndexListenerFactory.isHOTEnabled(), "HOT should be disabled by default");
     
     // Enable HOT
     System.setProperty("sirix.index.useHOT", "true");
-    assertTrue("HOT should be enabled", PathIndexListenerFactory.isHOTEnabled());
-    assertTrue("HOT should be enabled", CASIndexListenerFactory.isHOTEnabled());
-    assertTrue("HOT should be enabled", NameIndexListenerFactory.isHOTEnabled());
+    assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled");
+    assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled");
+    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled");
     
     // Disable HOT
     System.clearProperty("sirix.index.useHOT");
-    assertFalse("HOT should be disabled", PathIndexListenerFactory.isHOTEnabled());
+    assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled");
   }
   
   // ===== RBTree-based Integration Tests (verify listener infrastructure works) =====
 
   @Test
-  public void testHOTPathIndexCreationAndQuery() {
+  @DisplayName("PATH index creation and query works with listener infrastructure")
+  void testHOTPathIndexCreationAndQuery() {
     final var jsonPath = JSON.resolve("abc-location-stations.json");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     
@@ -126,26 +126,27 @@ public final class HOTIndexIntegrationTest {
       final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
       final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToFeatureType);
 
-      assertEquals("Should find one path node key", 1, pathNodeKeys.size());
+      assertEquals(1, pathNodeKeys.size(), "Should find one path node key");
 
       // Open path index
       final var index = indexController.openPathIndex(trx.getPageTrx(), indexDef, null);
 
-      assertTrue("Index should have results", index.hasNext());
+      assertTrue(index.hasNext(), "Index should have results");
 
       // Verify we can iterate through results
       var count = 0;
       while (index.hasNext()) {
         var nodeReferences = index.next();
-        assertTrue("Should have node keys", nodeReferences.getNodeKeys().getLongCardinality() > 0);
+        assertTrue(nodeReferences.getNodeKeys().getLongCardinality() > 0, "Should have node keys");
         count++;
       }
-      assertTrue("Should have at least one result", count >= 1);
+      assertTrue(count >= 1, "Should have at least one result");
     }
   }
 
   @Test
-  public void testHOTNameIndexCreationAndQuery() {
+  @DisplayName("NAME index creation and query works with listener infrastructure")
+  void testHOTNameIndexCreationAndQuery() {
     final var jsonPath = JSON.resolve("abc-location-stations.json");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     
@@ -168,16 +169,17 @@ public final class HOTIndexIntegrationTest {
           allObjectKeyNames,
           indexController.createNameFilter(Set.of("type")));
 
-      assertTrue("Should find 'type' keys", nameIndex.hasNext());
+      assertTrue(nameIndex.hasNext(), "Should find 'type' keys");
 
       final var typeReferences = nameIndex.next();
-      assertTrue("Should have references to 'type' nodes", 
-          typeReferences.getNodeKeys().getLongCardinality() > 0);
+      assertTrue(typeReferences.getNodeKeys().getLongCardinality() > 0, 
+          "Should have references to 'type' nodes");
     }
   }
 
   @Test
-  public void testHOTCASIndexCreationAndQuery() {
+  @DisplayName("CAS index creation and query works with listener infrastructure")
+  void testHOTCASIndexCreationAndQuery() {
     final var jsonPath = JSON.resolve("abc-location-stations.json");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     
@@ -207,11 +209,11 @@ public final class HOTIndexIntegrationTest {
               SearchMode.EQUAL,
               new JsonPCRCollector(trx)));
 
-      assertTrue("CAS index should find 'Feature' values", casIndex.hasNext());
+      assertTrue(casIndex.hasNext(), "CAS index should find 'Feature' values");
 
       final var nodeReferences = casIndex.next();
-      assertTrue("Should reference multiple nodes", 
-          nodeReferences.getNodeKeys().getLongCardinality() > 0);
+      assertTrue(nodeReferences.getNodeKeys().getLongCardinality() > 0, 
+          "Should reference multiple nodes");
 
       // Verify we can navigate to the referenced nodes
       final var iter = nodeReferences.getNodeKeys().getLongIterator();
@@ -224,7 +226,8 @@ public final class HOTIndexIntegrationTest {
   }
 
   @Test
-  public void testPathIndexWithRBTreeBackend() {
+  @DisplayName("PATH index returns correct number of results (53 type nodes)")
+  void testPathIndexWithRBTreeBackend() {
     final var jsonPath = JSON.resolve("abc-location-stations.json");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     
@@ -248,14 +251,15 @@ public final class HOTIndexIntegrationTest {
       final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
       final var index = indexController.openPathIndex(trx.getPageTrx(), indexDef, null);
 
-      assertTrue("Index should have results", index.hasNext());
+      assertTrue(index.hasNext(), "Index should have results");
       var refs = index.next();
-      assertEquals("Should find 53 'type' nodes", 53, refs.getNodeKeys().getLongCardinality());
+      assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'type' nodes");
     }
   }
 
   @Test
-  public void testCASIndexWithRBTreeBackend() {
+  @DisplayName("CAS index finds all 53 'Feature' values")
+  void testCASIndexWithRBTreeBackend() {
     final var jsonPath = JSON.resolve("abc-location-stations.json");
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     
@@ -285,11 +289,10 @@ public final class HOTIndexIntegrationTest {
               SearchMode.EQUAL,
               new JsonPCRCollector(trx)));
 
-      assertTrue("CAS query should find results", casIndex.hasNext());
+      assertTrue(casIndex.hasNext(), "CAS query should find results");
 
       var refs = casIndex.next();
-      assertEquals("Should find 53 'Feature' values", 53, refs.getNodeKeys().getLongCardinality());
+      assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'Feature' values");
     }
   }
 }
-
