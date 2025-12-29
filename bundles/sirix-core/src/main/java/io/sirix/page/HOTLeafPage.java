@@ -90,6 +90,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   /** Maximum entries per page before split. */
   public static final int MAX_ENTRIES = 512;
   
+  /**
+   * Unaligned short layout for zero-copy deserialization.
+   * When slotMemory is a slice, it may not be 2-byte aligned.
+   */
+  private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED = ValueLayout.JAVA_SHORT.withByteAlignment(1);
+  
   // ===== Page identity =====
   private final long recordPageKey;
   private final int revision;
@@ -238,7 +244,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public MemorySegment getKeySlice(int index) {
     Objects.checkIndex(index, entryCount);
     int offset = slotOffsets[index];
-    int keyLen = Short.toUnsignedInt(slotMemory.get(ValueLayout.JAVA_SHORT, offset));
+    int keyLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
     return slotMemory.asSlice(offset + 2, keyLen);
   }
   
@@ -251,9 +257,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public MemorySegment getValueSlice(int index) {
     Objects.checkIndex(index, entryCount);
     int offset = slotOffsets[index];
-    int keyLen = Short.toUnsignedInt(slotMemory.get(ValueLayout.JAVA_SHORT, offset));
+    int keyLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
     int valueOffset = offset + 2 + keyLen;
-    int valueLen = Short.toUnsignedInt(slotMemory.get(ValueLayout.JAVA_SHORT, valueOffset));
+    int valueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueOffset));
     return slotMemory.asSlice(valueOffset + 2, valueLen);
   }
   
@@ -337,11 +343,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     int offset = usedSlotMemorySize;
     slotOffsets[pos] = offset;
     
-    slotMemory.set(ValueLayout.JAVA_SHORT, offset, (short) key.length);
+    slotMemory.set(JAVA_SHORT_UNALIGNED, offset, (short) key.length);
     offset += 2;
     MemorySegment.copy(key, 0, slotMemory, ValueLayout.JAVA_BYTE, offset, key.length);
     offset += key.length;
-    slotMemory.set(ValueLayout.JAVA_SHORT, offset, (short) value.length);
+    slotMemory.set(JAVA_SHORT_UNALIGNED, offset, (short) value.length);
     offset += 2;
     MemorySegment.copy(value, 0, slotMemory, ValueLayout.JAVA_BYTE, offset, value.length);
     
@@ -479,9 +485,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       return null;
     }
     int offset = slotOffsets[slotNumber];
-    int keyLen = Short.toUnsignedInt(slotMemory.get(ValueLayout.JAVA_SHORT, offset));
+    int keyLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
     int valueOffset = offset + 2 + keyLen;
-    int valueLen = Short.toUnsignedInt(slotMemory.get(ValueLayout.JAVA_SHORT, valueOffset));
+    int valueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueOffset));
     int totalLen = 2 + keyLen + 2 + valueLen;
     return slotMemory.asSlice(offset, totalLen);
   }
