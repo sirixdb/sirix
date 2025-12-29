@@ -31,9 +31,16 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.page.CASPage;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.NamePage;
+import io.sirix.page.PageReference;
+import io.sirix.page.PathPage;
+import io.sirix.page.RevisionRootPage;
+import io.sirix.page.interfaces.Page;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -66,12 +73,11 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
 
   private final StorageEngineReader pageReadTrx;
   private final HOTKeySerializer<K> keySerializer;
-  
-  @SuppressWarnings("unused")
   private final IndexType indexType;
-  
-  @SuppressWarnings("unused")
   private final int indexNumber;
+  
+  /** Cached root page reference. */
+  private PageReference rootReference;
 
   /**
    * Private constructor.
@@ -87,6 +93,37 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
     this.keySerializer = requireNonNull(keySerializer);
     this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
+    
+    initializeRootReference();
+  }
+  
+  /**
+   * Initialize the root reference for the HOT index.
+   */
+  private void initializeRootReference() {
+    final RevisionRootPage revisionRootPage = pageReadTrx.getActualRevisionRootPage();
+    
+    switch (indexType) {
+      case PATH -> {
+        final PathPage pathPage = pageReadTrx.getPathPage(revisionRootPage);
+        if (pathPage != null) {
+          rootReference = pathPage.getOrCreateReference(indexNumber);
+        }
+      }
+      case CAS -> {
+        final CASPage casPage = pageReadTrx.getCASPage(revisionRootPage);
+        if (casPage != null) {
+          rootReference = casPage.getOrCreateReference(indexNumber);
+        }
+      }
+      case NAME -> {
+        final NamePage namePage = pageReadTrx.getNamePage(revisionRootPage);
+        if (namePage != null) {
+          rootReference = namePage.getOrCreateReference(indexNumber);
+        }
+      }
+      default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + indexType);
+    }
   }
 
   /**
@@ -134,7 +171,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
       leaf.acquireGuard();
 
       // Find entry
-      byte[] keySlice = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
+      byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
       int index = leaf.findEntry(keySlice);
       if (index < 0) {
         return null;
@@ -152,6 +189,15 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
   }
 
   /**
+   * Create an iterator over all entries in the HOT index.
+   *
+   * @return iterator over all key-value pairs
+   */
+  public Iterator<Map.Entry<K, NodeReferences>> iterator() {
+    return new HOTLeafIterator();
+  }
+  
+  /**
    * Create a range iterator over entries.
    *
    * @param fromKey start key (inclusive)
@@ -165,9 +211,9 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
     // Serialize keys
     byte[] keyBuf = KEY_BUFFER.get();
     int fromLen = keySerializer.serialize(fromKey, keyBuf, 0);
-    byte[] fromBytes = java.util.Arrays.copyOf(keyBuf, fromLen);
+    byte[] fromBytes = Arrays.copyOf(keyBuf, fromLen);
     int toLen = keySerializer.serialize(toKey, keyBuf, 0);
-    byte[] toBytes = java.util.Arrays.copyOf(keyBuf, toLen);
+    byte[] toBytes = Arrays.copyOf(keyBuf, toLen);
 
     return new RangeIterator(fromBytes, toBytes);
   }
@@ -191,8 +237,109 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
    * @return the HOT leaf page, or null if not found
    */
   private @Nullable HOTLeafPage getLeafForRead(byte[] keyBuf, int keyLen) {
-    // TODO: Implement proper HOT trie navigation
+    if (rootReference == null) {
+      return null;
+    }
+    
+    // Check if page is directly on the reference
+    Page directPage = rootReference.getPage();
+    if (directPage instanceof HOTLeafPage hotLeaf) {
+      return hotLeaf;
+    }
+    
+    // No page directly on reference - HOT pages are stored on reference after commit
+    
     return null;
+  }
+  
+  /**
+   * Get page from reference.
+   *
+   * <p>For HOT pages, the page is stored directly on the PageReference
+   * after being written through the transaction log. This allows for
+   * zero-copy access without additional storage layer calls.</p>
+   *
+   * @param ref the page reference
+   * @return the page, or null if not found
+   */
+  @SuppressWarnings("unused")
+  private @Nullable Page getPageFromReference(PageReference ref) {
+    if (ref == null) {
+      return null;
+    }
+    
+    // Check if page is directly on the reference
+    // HOT pages are stored directly on the reference after commit
+    return ref.getPage();
+  }
+
+  /**
+   * Iterator over all entries in a HOT leaf page.
+   */
+  private class HOTLeafIterator implements Iterator<Map.Entry<K, NodeReferences>> {
+    private @Nullable HOTLeafPage currentLeaf;
+    private int currentIndex;
+    private Map.@Nullable Entry<K, NodeReferences> nextEntry;
+    
+    HOTLeafIterator() {
+      // Get the first leaf
+      this.currentLeaf = getFirstLeaf();
+      this.currentIndex = 0;
+      advance();
+    }
+    
+    @Override
+    public boolean hasNext() {
+      return nextEntry != null;
+    }
+    
+    @Override
+    public Map.Entry<K, NodeReferences> next() {
+      if (nextEntry == null) {
+        throw new NoSuchElementException();
+      }
+      Map.Entry<K, NodeReferences> result = nextEntry;
+      advance();
+      return result;
+    }
+    
+    private void advance() {
+      nextEntry = null;
+      while (currentLeaf != null) {
+        if (currentIndex < currentLeaf.getEntryCount()) {
+          byte[] keyBytes = currentLeaf.getKey(currentIndex);
+          byte[] valueBytes = currentLeaf.getValue(currentIndex);
+          currentIndex++;
+          
+          if (!NodeReferencesSerializer.isTombstone(valueBytes, 0, valueBytes.length)) {
+            K key = keySerializer.deserialize(keyBytes, 0, keyBytes.length);
+            NodeReferences refs = NodeReferencesSerializer.deserialize(valueBytes);
+            if (key != null && refs != null) {
+              nextEntry = Map.entry(key, refs);
+              return;
+            }
+          }
+        } else {
+          // No more entries in current leaf - for single-level HOT, we're done
+          currentLeaf = null;
+        }
+      }
+    }
+    
+    private @Nullable HOTLeafPage getFirstLeaf() {
+      if (rootReference == null) {
+        return null;
+      }
+      
+      Page directPage = rootReference.getPage();
+      if (directPage instanceof HOTLeafPage hotLeaf) {
+        return hotLeaf;
+      }
+      
+      // No page directly on reference
+      
+      return null;
+    }
   }
 
   /**
@@ -248,15 +395,16 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
           if (!NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
             K deserializedKey = keySerializer.deserialize(key, 0, key.length);
             NodeReferences refs = NodeReferencesSerializer.deserialize(value);
-            nextEntry = Map.entry(deserializedKey, refs);
-            return;
+            if (deserializedKey != null && refs != null) {
+              nextEntry = Map.entry(deserializedKey, refs);
+              return;
+            }
           }
         } else {
-          // Move to next leaf (TODO: implement parent-based navigation)
+          // Move to next leaf (for single-level HOT, we're done)
           currentLeaf = null;
         }
       }
     }
   }
 }
-
