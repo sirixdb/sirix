@@ -171,5 +171,15 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
+  public DeweyIDPage getDeweyIDPage(@NonNull RevisionRootPage revisionRoot) {
+    return delegate().getDeweyIDPage(revisionRoot);
+  }
+
+  @Override
+  public HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber) {
+    return delegate().getHOTLeafPage(indexType, indexNumber);
+  }
+
+  @Override
   protected abstract @NonNull StorageEngineReader delegate();
 }

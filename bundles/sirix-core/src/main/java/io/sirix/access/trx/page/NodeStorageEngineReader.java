@@ -1553,4 +1553,77 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     assertNotClosed();
     return rootPage.getCommitCredentials();
   }
+
+  @Override
+  public @Nullable HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber) {
+    assertNotClosed();
+    
+    // Get the root reference for the index
+    final PageReference rootRef = switch (indexType) {
+      case PATH -> {
+        final PathPage pathPage = getPathPage(rootPage);
+        if (pathPage == null || indexNumber >= pathPage.getReferences().size()) {
+          yield null;
+        }
+        yield pathPage.getOrCreateReference(indexNumber);
+      }
+      case CAS -> {
+        final CASPage casPage = getCASPage(rootPage);
+        if (casPage == null || indexNumber >= casPage.getReferences().size()) {
+          yield null;
+        }
+        yield casPage.getOrCreateReference(indexNumber);
+      }
+      case NAME -> {
+        final NamePage namePage = getNamePage(rootPage);
+        if (namePage == null || indexNumber >= namePage.getReferences().size()) {
+          yield null;
+        }
+        yield namePage.getOrCreateReference(indexNumber);
+      }
+      default -> null;
+    };
+    
+    if (rootRef == null || rootRef.getKey() < 0) {
+      // Check if page is directly on the reference (uncommitted/in-memory)
+      if (rootRef != null && rootRef.getPage() instanceof HOTLeafPage hotLeaf) {
+        return hotLeaf;
+      }
+      return null;
+    }
+    
+    // Check if page is swizzled (directly on reference)
+    if (rootRef.getPage() instanceof HOTLeafPage hotLeaf) {
+      return hotLeaf;
+    }
+    
+    // Check if we have the page in the transaction log (for write transactions)
+    if (trxIntentLog != null) {
+      final PageContainer container = trxIntentLog.get(rootRef);
+      if (container != null && container.getComplete() instanceof HOTLeafPage hotLeaf) {
+        return hotLeaf;
+      }
+    }
+    
+    // Try to get from buffer cache
+    Page cachedPage = resourceBufferManager.getRecordPageCache().get(rootRef);
+    if (cachedPage instanceof HOTLeafPage hotLeaf) {
+      return hotLeaf;
+    }
+    
+    // Load from storage
+    try {
+      Page loadedPage = pageReader.read(rootRef, resourceConfig);
+      if (loadedPage instanceof HOTLeafPage hotLeaf) {
+        // Cache the loaded page
+        rootRef.setPage(hotLeaf);
+        return hotLeaf;
+      }
+    } catch (SirixIOException e) {
+      // Page doesn't exist or couldn't be loaded
+      return null;
+    }
+    
+    return null;
+  }
 }

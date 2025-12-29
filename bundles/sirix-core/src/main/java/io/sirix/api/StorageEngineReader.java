@@ -286,4 +286,17 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return the record or {@code null}
    */
   DataRecord getValue(io.sirix.page.interfaces.KeyValuePage<? extends DataRecord> page, long nodeKey);
+
+  /**
+   * Get the HOT leaf page for a given index.
+   *
+   * <p>This method properly loads HOT pages from storage and combines page fragments
+   * according to the versioning strategy. It handles both committed (persisted) and
+   * uncommitted (in-transaction-log) pages.</p>
+   *
+   * @param indexType   the index type (PATH, CAS, NAME)
+   * @param indexNumber the index number
+   * @return the HOT leaf page, or null if not found
+   */
+  io.sirix.page.HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber);
 }
