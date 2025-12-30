@@ -2407,18 +2407,19 @@ final class JsonNodeTrxImpl extends
 
       moveToParent();
 
-      final var node = getNode();
+      final var parentNode = getNode();
 
-      if (node.getKind() == NodeKind.ARRAY) {
-        pathNodeKey = ((ImmutableArrayNode) node).getPathNodeKey();
-      } else if (node.getKind() == NodeKind.OBJECT_KEY) {
-        pathNodeKey = ((ImmutableObjectKeyNode) node).getPathNodeKey();
+      if (parentNode.getKind() == NodeKind.ARRAY) {
+        pathNodeKey = ((ImmutableArrayNode) parentNode).getPathNodeKey();
+      } else if (parentNode.getKind() == NodeKind.OBJECT_KEY) {
+        pathNodeKey = ((ImmutableObjectKeyNode) parentNode).getPathNodeKey();
       } else {
         pathNodeKey = -1;
       }
 
       moveTo(nodeKey);
-      indexController.notifyChange(IndexController.ChangeType.DELETE, node, pathNodeKey);
+      // Pass the VALUE node (currentNode), not the parent node - CAS index needs the value to extract
+      indexController.notifyChange(IndexController.ChangeType.DELETE, currentNode, pathNodeKey);
     }
   }
 

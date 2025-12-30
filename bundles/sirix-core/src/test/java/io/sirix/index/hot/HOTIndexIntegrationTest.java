@@ -1534,17 +1534,11 @@ class HOTIndexIntegrationTest {
         assertTrue(processingIdx.hasNext(), "Latest: CAS index should find 'processing'");
         assertEquals(2, processingIdx.next().getNodeKeys().getLongCardinality(), "Latest: Should have 2 'processing' status");
 
-        // CAS: 'new' may still have entries if parent node deletion doesn't fully propagate
-        // to the CAS index (known limitation with HOT indexes and nested object deletions)
+        // CAS: 'new' entries should be completely removed (both were deleted)
         var newIdx = indexController.openCASIndex(rtx.getPageTrx(), casIndexDef,
             indexController.createCASFilter(Set.of("/orders/[]/status"), new Str("new"),
                 SearchMode.EQUAL, new JsonPCRCollector(rtx)));
-        // Note: Ideally this should be assertFalse, but deletion propagation through
-        // parent object removal is a known limitation
-        if (newIdx.hasNext()) {
-          long newCount = newIdx.next().getNodeKeys().getLongCardinality();
-          assertTrue(newCount <= 2, "Latest: 'new' count should be <= 2 (may have stale entries), got: " + newCount);
-        }
+        assertFalse(newIdx.hasNext(), "Latest: 'new' should be completely removed after deletions");
       }
     }
   }
