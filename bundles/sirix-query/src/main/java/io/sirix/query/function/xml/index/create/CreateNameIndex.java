@@ -72,7 +72,7 @@ public final class CreateNameIndex extends AbstractFunction {
       wtx.revertTo(rtx.getRevisionNumber());
     }
 
-    final XmlIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber() - 1);
+    final XmlIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
