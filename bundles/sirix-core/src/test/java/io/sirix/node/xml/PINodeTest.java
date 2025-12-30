@@ -23,6 +23,7 @@ package io.sirix.node.xml;
 
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixException;
 import io.sirix.node.NodeKind;
@@ -91,7 +92,7 @@ public class PINodeTest {
         17L,                                           // firstChildKey
         17L,                                           // lastChildKey
         config.storeChildCount() ? 1L : 0L,            // childCount
-        config.hashType != io.sirix.access.trx.node.HashType.NONE ? 1L : 0L, // descendantCount
+        config.hashType != HashType.NONE ? 1L : 0L, // descendantCount
         0L,                                            // hash
         1L,                                            // pathNodeKey
         14,                                            // prefixKey

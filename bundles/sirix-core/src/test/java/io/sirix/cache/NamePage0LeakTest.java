@@ -2,6 +2,7 @@ package io.sirix.cache;
 
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
+import io.sirix.index.IndexType;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.service.xml.shredder.XmlShredder;
 import org.junit.After;
@@ -96,14 +97,14 @@ public class NamePage0LeakTest {
       // Check specifically for NAME Page 0
       long namePage0Count = KeyValueLeafPage.ALL_LIVE_PAGES.stream()
           .filter(p -> p.getPageKey() == 0)
-          .filter(p -> p.getIndexType() == io.sirix.index.IndexType.NAME)
+          .filter(p -> p.getIndexType() == IndexType.NAME)
           .count();
       
       System.err.println("\nNAME Page 0 instances still live: " + namePage0Count);
       
       KeyValueLeafPage.ALL_LIVE_PAGES.stream()
           .filter(p -> p.getPageKey() == 0)
-          .filter(p -> p.getIndexType() == io.sirix.index.IndexType.NAME)
+          .filter(p -> p.getIndexType() == IndexType.NAME)
           .forEach(p -> System.err.println("  Page 0 NAME (rev " + p.getRevision() + 
                                             ", closed=" + p.isClosed() + ")"));
     } catch (Exception ex) {

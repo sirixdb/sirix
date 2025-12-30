@@ -11,6 +11,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.settings.StringCompressionType;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.*;
 
@@ -389,7 +390,7 @@ public final class JsonNodeTrxInsertTest {
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       // Enable FSST compression
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .stringCompressionType(io.sirix.settings.StringCompressionType.FSST)
+          .stringCompressionType(StringCompressionType.FSST)
           .build());
       try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
         wtx.insertObjectAsFirstChild();
@@ -431,7 +432,7 @@ public final class JsonNodeTrxInsertTest {
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       // Enable FSST compression
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .stringCompressionType(io.sirix.settings.StringCompressionType.FSST)
+          .stringCompressionType(StringCompressionType.FSST)
           .build());
       try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
         wtx.insertArrayAsFirstChild();
@@ -470,7 +471,7 @@ public final class JsonNodeTrxInsertTest {
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       // Enable FSST compression
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .stringCompressionType(io.sirix.settings.StringCompressionType.FSST)
+          .stringCompressionType(StringCompressionType.FSST)
           .build());
       try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
         wtx.insertArrayAsFirstChild();
@@ -507,7 +508,7 @@ public final class JsonNodeTrxInsertTest {
     }
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .stringCompressionType(io.sirix.settings.StringCompressionType.FSST)
+          .stringCompressionType(StringCompressionType.FSST)
           .build());
       try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
         wtx.insertArrayAsFirstChild();

@@ -23,6 +23,7 @@ package io.sirix;
 
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
+import io.sirix.access.IndexBackendType;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
@@ -199,6 +200,32 @@ public final class JsonTestHelper {
       final var database = Databases.openJsonDatabase(file);
       if (!database.existsResource(RESOURCE)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE).hashKind(HashType.ROLLING).build());
+      }
+      INSTANCES.put(file, database);
+      return database;
+    }
+  }
+
+  /**
+   * Getting a database with Red-Black tree indexes enabled for testing RBTree integration.
+   *
+   * @param file to be created
+   * @return a database-obj with RBTREE index backend
+   */
+  @Ignore
+  public static Database<JsonResourceSession> getDatabaseWithRedBlackTreeIndexes(final Path file) {
+    if (INSTANCES.containsKey(file)) {
+      return INSTANCES.get(file);
+    } else {
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createJsonDatabase(config);
+      }
+      final var database = Databases.openJsonDatabase(file);
+      if (!database.existsResource(RESOURCE)) {
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+            .indexBackendType(IndexBackendType.RBTREE)
+            .build());
       }
       INSTANCES.put(file, database);
       return database;

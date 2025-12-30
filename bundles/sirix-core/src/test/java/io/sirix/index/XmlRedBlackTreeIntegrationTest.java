@@ -41,7 +41,7 @@ public final class XmlRedBlackTreeIntegrationTest {
   @Before
   public void setUp() {
     XmlTestHelper.deleteEverything();
-    holder = Holder.openResourceSession();
+    holder = Holder.openResourceSessionWithRedBlackTreeIndexes();
   }
 
   @After

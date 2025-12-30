@@ -3,6 +3,7 @@ package io.sirix.access.trx.node;
 import cn.danielw.fop.*;
 import io.brackit.query.jdm.DocumentException;
 import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.ResourceStore;
 import io.sirix.access.User;
@@ -189,7 +190,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     
     // Use GLOBAL epoch tracker (shared across all databases/resources)
     // This follows PostgreSQL pattern where all sessions register with a global tracker
-    this.revisionEpochTracker = io.sirix.access.Databases.getGlobalEpochTracker();
+    this.revisionEpochTracker = Databases.getGlobalEpochTracker();
     
     // Register this resource's current revision with the global tracker
     // This allows MVCC-aware eviction across all resources

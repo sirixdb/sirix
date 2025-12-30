@@ -25,6 +25,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageFragmentKeyImpl;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.KeyValuePage;
@@ -134,8 +135,8 @@ public enum VersioningType {
       assert fullDump.getPageKey() == recordPageKey;
 
       // Use bitmap iteration for O(k) instead of O(1024)
-      final io.sirix.page.KeyValueLeafPage latestKvp = (io.sirix.page.KeyValueLeafPage) latest;
-      final io.sirix.page.KeyValueLeafPage returnKvp = (io.sirix.page.KeyValueLeafPage) pageToReturn;
+      final KeyValueLeafPage latestKvp = (KeyValueLeafPage) latest;
+      final KeyValueLeafPage returnKvp = (KeyValueLeafPage) pageToReturn;
       
       // Copy all populated slots from latest page
       final int[] latestSlots = latestKvp.populatedSlots();
@@ -155,7 +156,7 @@ public enum VersioningType {
 
       // Fill gaps from full dump if present
       if (pages.size() == 2 && returnKvp.populatedSlotCount() < Constants.NDP_NODE_COUNT) {
-        final io.sirix.page.KeyValueLeafPage fullDumpKvp = (io.sirix.page.KeyValueLeafPage) fullDump;
+        final KeyValueLeafPage fullDumpKvp = (KeyValueLeafPage) fullDump;
         final long[] filledBitmap = returnKvp.getSlotBitmap();
         
         // Use bitmap iteration for O(k) on fullDump
@@ -214,7 +215,7 @@ public enum VersioningType {
       final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
 
       // DIAGNOSTIC
-      if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
         LOGGER.debug("DIFFERENTIAL combineForMod created: complete=" + System.identityHashCode(completePage) +
             ", modified=" + System.identityHashCode(modifiedPage));
       }
@@ -224,9 +225,9 @@ public enum VersioningType {
       final boolean isFullDumpRevision = revision % revToRestore == 0;
 
       // Use bitmap iteration for O(k) instead of O(1024)
-      final io.sirix.page.KeyValueLeafPage latestKvp = (io.sirix.page.KeyValueLeafPage) latest;
-      final io.sirix.page.KeyValueLeafPage completeKvp = (io.sirix.page.KeyValueLeafPage) completePage;
-      final io.sirix.page.KeyValueLeafPage modifiedKvp = (io.sirix.page.KeyValueLeafPage) modifiedPage;
+      final KeyValueLeafPage latestKvp = (KeyValueLeafPage) latest;
+      final KeyValueLeafPage completeKvp = (KeyValueLeafPage) completePage;
+      final KeyValueLeafPage modifiedKvp = (KeyValueLeafPage) modifiedPage;
       
       // Copy all populated slots from latest to completePage using bitmap iteration
       // For modifiedPage: use lazy copy - mark for preservation, actual copy deferred to commit time
@@ -254,7 +255,7 @@ public enum VersioningType {
 
       // Fill gaps from full dump if not all slots are filled
       if (completeKvp.populatedSlotCount() < Constants.NDP_NODE_COUNT && pages.size() == 2) {
-        final io.sirix.page.KeyValueLeafPage fullDumpKvp = (io.sirix.page.KeyValueLeafPage) fullDump;
+        final KeyValueLeafPage fullDumpKvp = (KeyValueLeafPage) fullDump;
         final long[] filledBitmap = completeKvp.getSlotBitmap();
         
         // Use bitmap iteration on fullDump
@@ -331,7 +332,7 @@ public enum VersioningType {
 
       // Track which slots are already filled using bitmap from pageToReturn
       // This enables O(k) iteration instead of O(1024)
-      final io.sirix.page.KeyValueLeafPage returnPage = (io.sirix.page.KeyValueLeafPage) pageToReturn;
+      final KeyValueLeafPage returnPage = (KeyValueLeafPage) pageToReturn;
       final long[] filledBitmap = returnPage.getSlotBitmap();
       
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
@@ -344,7 +345,7 @@ public enum VersioningType {
         }
 
         // Use bitmap iteration for O(k) instead of O(1024)
-        final io.sirix.page.KeyValueLeafPage kvPage = (io.sirix.page.KeyValueLeafPage) page;
+        final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
         final int[] populatedSlots = kvPage.populatedSlots();
         
         for (final int offset : populatedSlots) {
@@ -411,14 +412,14 @@ public enum VersioningType {
       final boolean isFullDump = pages.size() == revToRestore;
       
       // DIAGNOSTIC
-      if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
         LOGGER.debug("INCREMENTAL combineForMod created: complete=" + System.identityHashCode(completePage) +
             ", modified=" + System.identityHashCode(modifiedPage));
       }
 
       // Use bitmap for O(k) iteration instead of O(1024)
-      final io.sirix.page.KeyValueLeafPage completeKvp = (io.sirix.page.KeyValueLeafPage) completePage;
-      final io.sirix.page.KeyValueLeafPage modifiedKvp = (io.sirix.page.KeyValueLeafPage) modifiedPage;
+      final KeyValueLeafPage completeKvp = (KeyValueLeafPage) completePage;
+      final KeyValueLeafPage modifiedKvp = (KeyValueLeafPage) modifiedPage;
       final long[] filledBitmap = completeKvp.getSlotBitmap();
       
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
@@ -431,7 +432,7 @@ public enum VersioningType {
         }
 
         // Use bitmap iteration for O(k) instead of O(1024)
-        final io.sirix.page.KeyValueLeafPage kvPage = (io.sirix.page.KeyValueLeafPage) page;
+        final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
         final int[] populatedSlots = kvPage.populatedSlots();
 
         for (final int offset : populatedSlots) {
@@ -525,7 +526,7 @@ public enum VersioningType {
 
       // Track which slots are already filled using bitmap from returnVal
       // This enables O(k) iteration instead of O(1024)
-      final io.sirix.page.KeyValueLeafPage returnKvp = (io.sirix.page.KeyValueLeafPage) returnVal;
+      final KeyValueLeafPage returnKvp = (KeyValueLeafPage) returnVal;
       final long[] filledBitmap = returnKvp.getSlotBitmap();
       
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
@@ -538,7 +539,7 @@ public enum VersioningType {
         }
 
         // Use bitmap iteration for O(k) instead of O(1024)
-        final io.sirix.page.KeyValueLeafPage kvPage = (io.sirix.page.KeyValueLeafPage) page;
+        final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
         final int[] populatedSlots = kvPage.populatedSlots();
 
         for (final int offset : populatedSlots) {
@@ -610,13 +611,13 @@ public enum VersioningType {
       final long[] inWindowBitmap = new long[16];  // 16 * 64 = 1024 bits
       
       // DIAGNOSTIC
-      if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
         LOGGER.debug("SLIDING_SNAPSHOT combineForMod created 2 pages + bitmap: complete=" + 
             System.identityHashCode(completePage) + ", modifying=" + System.identityHashCode(modifyingPage));
       }
 
-      final io.sirix.page.KeyValueLeafPage completeKvp = (io.sirix.page.KeyValueLeafPage) completePage;
-      final io.sirix.page.KeyValueLeafPage modifyingKvp = (io.sirix.page.KeyValueLeafPage) modifyingPage;
+      final KeyValueLeafPage completeKvp = (KeyValueLeafPage) completePage;
+      final KeyValueLeafPage modifyingKvp = (KeyValueLeafPage) modifyingPage;
       final long[] filledBitmap = completeKvp.getSlotBitmap();
       
       final boolean hasOutOfWindowPage = (pages.size() == revToRestore);
@@ -631,7 +632,7 @@ public enum VersioningType {
         assert page.getPageKey() == recordPageKey;
 
         // Use bitmap iteration for O(k) instead of O(1024)
-        final io.sirix.page.KeyValueLeafPage kvPage = (io.sirix.page.KeyValueLeafPage) page;
+        final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
         final int[] populatedSlots = kvPage.populatedSlots();
 
         for (final int offset : populatedSlots) {
@@ -677,7 +678,7 @@ public enum VersioningType {
         final T outOfWindowPage = pages.get(pages.size() - 1);
         assert outOfWindowPage.getPageKey() == recordPageKey;
         
-        final io.sirix.page.KeyValueLeafPage outOfWindowKvp = (io.sirix.page.KeyValueLeafPage) outOfWindowPage;
+        final KeyValueLeafPage outOfWindowKvp = (KeyValueLeafPage) outOfWindowPage;
         final int[] populatedSlots = outOfWindowKvp.populatedSlots();
         
         for (final int offset : populatedSlots) {
@@ -803,8 +804,8 @@ public enum VersioningType {
    */
   protected static <V extends DataRecord, T extends KeyValuePage<V>> void propagateFsstSymbolTable(
       final T sourcePage, final T targetPage) {
-    if (sourcePage instanceof io.sirix.page.KeyValueLeafPage sourceKvp 
-        && targetPage instanceof io.sirix.page.KeyValueLeafPage targetKvp) {
+    if (sourcePage instanceof KeyValueLeafPage sourceKvp 
+        && targetPage instanceof KeyValueLeafPage targetKvp) {
       byte[] fsstSymbolTable = sourceKvp.getFsstSymbolTable();
       if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
         targetKvp.setFsstSymbolTable(fsstSymbolTable);

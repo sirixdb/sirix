@@ -17,6 +17,8 @@ import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.path.PathIndexListenerFactory;
 import io.sirix.index.cas.CASIndexListenerFactory;
 import io.sirix.index.name.NameIndexListenerFactory;
+import io.sirix.access.IndexBackendType;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterAll;
@@ -108,12 +110,12 @@ class HOTIndexIntegrationTest {
     try {
       final var databaseWithDefault = JsonTestHelper.getDatabaseWithResourceConfig(
           JsonTestHelper.PATHS.PATH1.getFile(),
-          io.sirix.access.ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
               .build());  // No explicit index backend - should default to HOT
       
       try (final var manager = databaseWithDefault.beginResourceSession(JsonTestHelper.RESOURCE)) {
         // Verify default is HOT
-        assertEquals(io.sirix.access.IndexBackendType.HOT_TRIE, 
+        assertEquals(IndexBackendType.HOT_TRIE, 
             manager.getResourceConfig().indexBackendType,
             "Default index backend should be HOT_TRIE");
       }
@@ -126,12 +128,12 @@ class HOTIndexIntegrationTest {
     try {
       final var databaseWithHOT = JsonTestHelper.getDatabaseWithResourceConfig(
           JsonTestHelper.PATHS.PATH1.getFile(),
-          io.sirix.access.ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
               .useHOTIndexes()  // Explicitly set HOT
               .build());
       
       try (final var manager = databaseWithHOT.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        assertEquals(io.sirix.access.IndexBackendType.HOT_TRIE, 
+        assertEquals(IndexBackendType.HOT_TRIE, 
             manager.getResourceConfig().indexBackendType,
             "Resource should be configured for HOT");
       }
@@ -144,12 +146,12 @@ class HOTIndexIntegrationTest {
     try {
       final var databaseWithRBTree = JsonTestHelper.getDatabaseWithResourceConfig(
           JsonTestHelper.PATHS.PATH1.getFile(),
-          io.sirix.access.ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
               .useRBTreeIndexes()  // Explicitly use RBTREE
               .build());
       
       try (final var manager = databaseWithRBTree.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        assertEquals(io.sirix.access.IndexBackendType.RBTREE, 
+        assertEquals(IndexBackendType.RBTREE, 
             manager.getResourceConfig().indexBackendType,
             "Resource should be configured for RBTREE");
       }

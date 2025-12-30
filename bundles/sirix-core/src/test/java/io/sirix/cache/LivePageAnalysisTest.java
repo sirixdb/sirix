@@ -2,6 +2,7 @@ package io.sirix.cache;
 
 import io.sirix.XmlTestHelper;
 import io.sirix.Holder;
+import io.sirix.axis.DescendantAxis;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.service.xml.shredder.XmlShredder;
 import org.junit.After;
@@ -53,7 +54,7 @@ public class LivePageAnalysisTest {
     
     try {
       // Execute a simple axis operation
-      var axis = new io.sirix.axis.DescendantAxis(holder.getXmlNodeReadTrx());
+      var axis = new DescendantAxis(holder.getXmlNodeReadTrx());
       int count = 0;
       while (axis.hasNext()) {
         axis.nextLong();

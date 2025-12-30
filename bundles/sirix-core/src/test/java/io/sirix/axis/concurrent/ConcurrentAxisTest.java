@@ -21,6 +21,7 @@
 
 package io.sirix.axis.concurrent;
 
+import io.sirix.access.Databases;
 import io.sirix.api.Axis;
 import io.sirix.axis.ChildAxis;
 import io.sirix.axis.DescendantAxis;
@@ -75,14 +76,14 @@ public final class ConcurrentAxisTest {
   public void setUp() {
     try {
       // Capture finalizer count BEFORE test starts
-      finalizerCountBeforeTest = io.sirix.page.KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
+      finalizerCountBeforeTest = KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
       
       // Reset diagnostics (but NOT ALL_LIVE_PAGES to track cumulative leaks)
       if (DEBUG_LEAK_DIAGNOSTICS) {
-        io.sirix.page.KeyValueLeafPage.PAGES_CREATED.set(0);
-        io.sirix.page.KeyValueLeafPage.PAGES_CLOSED.set(0);
-        io.sirix.page.KeyValueLeafPage.PAGES_BY_TYPE.clear();
-        io.sirix.page.KeyValueLeafPage.PAGES_CLOSED_BY_TYPE.clear();
+        KeyValueLeafPage.PAGES_CREATED.set(0);
+        KeyValueLeafPage.PAGES_CLOSED.set(0);
+        KeyValueLeafPage.PAGES_BY_TYPE.clear();
+        KeyValueLeafPage.PAGES_CLOSED_BY_TYPE.clear();
       }
       
       XmlTestHelper.deleteEverything();
@@ -106,7 +107,7 @@ public final class ConcurrentAxisTest {
       // CRITICAL: Clear global BufferManager caches to prevent accumulation across tests
       // This should properly unpin and close all pages
       try {
-        var bufferMgr = io.sirix.access.Databases.getGlobalBufferManager();
+        var bufferMgr = Databases.getGlobalBufferManager();
         
         // DIAGNOSTIC: Track cache sizes before clearing
         int recordCacheSize = bufferMgr.getRecordPageCache().asMap().size();
@@ -115,10 +116,10 @@ public final class ConcurrentAxisTest {
         System.err.println("📊 Cache sizes before clear: RecordCache=" + recordCacheSize + 
                           ", FragmentCache=" + fragmentCacheSize + ", PageCache=" + pageCacheSize);
         
-        if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-          int beforeClear = io.sirix.page.KeyValueLeafPage.ALL_PAGE_0_INSTANCES.size();
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+          int beforeClear = KeyValueLeafPage.ALL_PAGE_0_INSTANCES.size();
           System.err.println("🧹 Before clearAllCaches: " + beforeClear + " Page 0 instances:");
-          for (var page : io.sirix.page.KeyValueLeafPage.ALL_PAGE_0_INSTANCES) {
+          for (var page : KeyValueLeafPage.ALL_PAGE_0_INSTANCES) {
             System.err.println("    " + page.getIndexType() + " rev=" + page.getRevision() + 
                               " instance=" + System.identityHashCode(page) + " closed=" + page.isClosed());
           }
@@ -130,11 +131,11 @@ public final class ConcurrentAxisTest {
         // We need to wait for those to finish closing pages before checking for leaks
         Thread.sleep(100);  // Give background threads time to complete
         
-        if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-          int afterClear = io.sirix.page.KeyValueLeafPage.ALL_PAGE_0_INSTANCES.size();
+        if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+          int afterClear = KeyValueLeafPage.ALL_PAGE_0_INSTANCES.size();
           System.err.println("🧹 After clearAllCaches (+100ms wait): " + afterClear + " Page 0 instances:");
-          synchronized (io.sirix.page.KeyValueLeafPage.ALL_PAGE_0_INSTANCES) {
-            for (var page : io.sirix.page.KeyValueLeafPage.ALL_PAGE_0_INSTANCES) {
+          synchronized (KeyValueLeafPage.ALL_PAGE_0_INSTANCES) {
+            for (var page : KeyValueLeafPage.ALL_PAGE_0_INSTANCES) {
               System.err.println("    " + page.getIndexType() + " rev=" + page.getRevision() + 
                                 " instance=" + System.identityHashCode(page) + " closed=" + page.isClosed());
             }
@@ -145,13 +146,13 @@ public final class ConcurrentAxisTest {
       }
       
       // DIAGNOSTIC: Verify all Page 0s were properly closed (should be ZERO after proper cleanup)
-      int remainingPage0s = io.sirix.page.KeyValueLeafPage.ALL_PAGE_0_INSTANCES.size();
+      int remainingPage0s = KeyValueLeafPage.ALL_PAGE_0_INSTANCES.size();
       if (remainingPage0s > 0) {
         // This is a REAL leak - pages should be closed and removed from ALL_PAGE_0_INSTANCES
         System.err.println("⚠️  LEAK DETECTED: " + remainingPage0s + " Page 0 instances still in ALL_PAGE_0_INSTANCES after cleanup!");
         
         // Make a snapshot to avoid ConcurrentModificationException
-        var snapshot = new java.util.ArrayList<>(io.sirix.page.KeyValueLeafPage.ALL_PAGE_0_INSTANCES);
+        var snapshot = new java.util.ArrayList<>(KeyValueLeafPage.ALL_PAGE_0_INSTANCES);
         System.err.println("  Set contents (snapshot of " + snapshot.size() + " pages):");
         int idx = 0;
         for (var page : snapshot) {
@@ -195,19 +196,19 @@ public final class ConcurrentAxisTest {
       }
       
       // CRITICAL: Capture finalizer count AFTER test cleanup
-      long finalizerCountAfterTest = io.sirix.page.KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
+      long finalizerCountAfterTest = KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
       long finalizerLeaksThisTest = finalizerCountAfterTest - finalizerCountBeforeTest;
       
       if (DEBUG_LEAK_DIAGNOSTICS) {
         // DIAGNOSTIC: Print page statistics
         System.err.println("\n========== PAGE STATISTICS ==========");
-        System.err.println("PAGES_CREATED: " + io.sirix.page.KeyValueLeafPage.PAGES_CREATED.get());
-        System.err.println("PAGES_CLOSED: " + io.sirix.page.KeyValueLeafPage.PAGES_CLOSED.get());
-        System.err.println("UNCLOSED LEAK: " + (io.sirix.page.KeyValueLeafPage.PAGES_CREATED.get() - io.sirix.page.KeyValueLeafPage.PAGES_CLOSED.get()));
+        System.err.println("PAGES_CREATED: " + KeyValueLeafPage.PAGES_CREATED.get());
+        System.err.println("PAGES_CLOSED: " + KeyValueLeafPage.PAGES_CLOSED.get());
+        System.err.println("UNCLOSED LEAK: " + (KeyValueLeafPage.PAGES_CREATED.get() - KeyValueLeafPage.PAGES_CLOSED.get()));
         
         System.err.println("\nPages by type (CREATED / CLOSED / LEAKED):");
-        io.sirix.page.KeyValueLeafPage.PAGES_BY_TYPE.forEach((type, created) -> {
-          long closed = io.sirix.page.KeyValueLeafPage.PAGES_CLOSED_BY_TYPE.getOrDefault(type, new java.util.concurrent.atomic.AtomicLong(0)).get();
+        KeyValueLeafPage.PAGES_BY_TYPE.forEach((type, created) -> {
+          long closed = KeyValueLeafPage.PAGES_CLOSED_BY_TYPE.getOrDefault(type, new java.util.concurrent.atomic.AtomicLong(0)).get();
           long leaked = created.get() - closed;
           System.err.println("  " + type + ": " + created.get() + " / " + closed + " / " + leaked);
         });
@@ -218,25 +219,25 @@ public final class ConcurrentAxisTest {
         System.err.println("Pages finalized during this test: " + finalizerLeaksThisTest);
         
         System.err.println("\n=== LEAKED PAGE ANALYSIS ===");
-        System.err.println("Live pages still in memory: " + io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES.size());
+        System.err.println("Live pages still in memory: " + KeyValueLeafPage.ALL_LIVE_PAGES.size());
         
         // Check how many leaked pages are in cache vs swizzled only
         try {
-          var bufMgr = io.sirix.access.Databases.getGlobalBufferManager();
-          long inRecordCache = io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES.stream()
+          var bufMgr = Databases.getGlobalBufferManager();
+          long inRecordCache = KeyValueLeafPage.ALL_LIVE_PAGES.stream()
             .filter(p -> bufMgr.getRecordPageCache().asMap().containsValue(p))
             .count();
-          long inFragmentCache = io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES.stream()
+          long inFragmentCache = KeyValueLeafPage.ALL_LIVE_PAGES.stream()
             .filter(p -> bufMgr.getRecordPageFragmentCache().asMap().containsValue(p))
             .count();
           
           System.err.println("  In RecordPageCache: " + inRecordCache);
           System.err.println("  In RecordPageFragmentCache: " + inFragmentCache);
-          System.err.println("  Only swizzled (not in cache): " + (io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES.size() - inRecordCache - inFragmentCache));
+          System.err.println("  Only swizzled (not in cache): " + (KeyValueLeafPage.ALL_LIVE_PAGES.size() - inRecordCache - inFragmentCache));
           
           // Group by type and check pin status
           var leakedByType = new java.util.HashMap<IndexType, java.util.List<KeyValueLeafPage>>();
-          io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES.forEach(page -> {
+          KeyValueLeafPage.ALL_LIVE_PAGES.forEach(page -> {
             leakedByType.computeIfAbsent(page.getIndexType(), _ -> new java.util.ArrayList<>()).add(page);
           });
           
@@ -253,9 +254,9 @@ public final class ConcurrentAxisTest {
           });
           
           System.err.println("\nLeak Analysis:");
-          long notClosed = io.sirix.page.KeyValueLeafPage.PAGES_CREATED.get() - io.sirix.page.KeyValueLeafPage.PAGES_CLOSED.get();
-          long stillLive = io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES.size();
-          long finalized = io.sirix.page.KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
+          long notClosed = KeyValueLeafPage.PAGES_CREATED.get() - KeyValueLeafPage.PAGES_CLOSED.get();
+          long stillLive = KeyValueLeafPage.ALL_LIVE_PAGES.size();
+          long finalized = KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
           long missing = notClosed - stillLive - finalized;
           
           System.err.println("  Not closed: " + notClosed);

@@ -53,7 +53,7 @@ public class VersioningTest {
   public void setUp() {
     // Clear global caches FIRST to ensure clean state from previous test
     try {
-      //io.sirix.access.Databases.getGlobalBufferManager().clearAllCaches();
+      //Databases.getGlobalBufferManager().clearAllCaches();
     } catch (Exception e) {
       // Ignore - buffer manager might not exist yet on first test
     }
@@ -75,7 +75,7 @@ public class VersioningTest {
     // Then clear global buffer manager caches to release memory segments
     // This is essential with global BufferManager to prevent memory pool exhaustion
     try {
-      io.sirix.access.Databases.getGlobalBufferManager().clearAllCaches();
+      Databases.getGlobalBufferManager().clearAllCaches();
     } catch (Exception e) {
       // Ignore - might happen if buffer manager not initialized yet
     }

@@ -126,6 +126,20 @@ public final class Holder {
   }
 
   /**
+   * Open a resource session with Red-Black tree indexes enabled.
+   *
+   * @return this holder instance
+   */
+  public static Holder openResourceSessionWithRedBlackTreeIndexes() {
+    final var database = XmlTestHelper.getDatabaseWithRedBlackTreeIndexes(XmlTestHelper.PATHS.PATH1.getFile());
+    final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+    final Holder holder = new Holder();
+    holder.setDatabase(database);
+    holder.setSession(session);
+    return holder;
+  }
+
+  /**
    * Generate a {@link XmlNodeTrx}.
    *
    * @return this holder instance
