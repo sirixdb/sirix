@@ -877,8 +877,8 @@ public enum PageKind {
       final int entryCount = source.readInt();
       final int usedSlotMemorySize = source.readInt();
       
-      // Read slot offsets
-      final int[] slotOffsets = new int[entryCount];
+      // Read slot offsets (allocate MAX_ENTRIES to allow insertions after deserialization)
+      final int[] slotOffsets = new int[HOTLeafPage.MAX_ENTRIES];
       for (int i = 0; i < entryCount; i++) {
         slotOffsets[i] = source.readInt();
       }
@@ -891,14 +891,18 @@ public enum PageKind {
       final MemorySegment slotMemory;
       final Runnable releaser;
       
+      // Note: For zero-copy we use just the needed size, but for regular allocation we use DEFAULT_SIZE
+      // to allow insertions after deserialization.
       final boolean canZeroCopy = decompressionResult != null && source instanceof MemorySegmentBytesIn;
       if (canZeroCopy) {
+        // Zero-copy mode: use slice of source memory (read-only after this)
         final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
         slotMemory = sourceSegment.asSlice(source.position(), usedSlotMemorySize);
         source.skip(usedSlotMemorySize);
         releaser = decompressionResult.transferOwnership();
       } else {
-        slotMemory = allocator.allocate(usedSlotMemorySize);
+        // Regular allocation: use DEFAULT_SIZE to allow insertions
+        slotMemory = allocator.allocate(HOTLeafPage.DEFAULT_SIZE);
         if (source instanceof MemorySegmentBytesIn msSource) {
           MemorySegment.copy(msSource.getSource(), source.position(), slotMemory, 0, usedSlotMemorySize);
           source.skip(usedSlotMemorySize);
