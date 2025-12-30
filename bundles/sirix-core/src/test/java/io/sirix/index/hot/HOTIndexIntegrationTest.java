@@ -2129,6 +2129,94 @@ class HOTIndexIntegrationTest {
         }
       }
     }
+
+    /**
+     * Test Case 10: Insert-only multi-revision test
+     * 
+     * Scenario: Insert values across multiple revisions without any deletions.
+     * Verifies that index correctly accumulates entries across commits.
+     * Expected: Index count increases with each revision.
+     */
+    @Test
+    @DisplayName("TC10: Insert-only across multiple revisions")
+    void testInsertOnlyMultipleRevisions() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Set.of(parse("/data/[]/value", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+        // Rev 1: Insert 2 values
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"data\": [{\"value\": \"alpha\"}, {\"value\": \"beta\"}]}"));
+        wtx.commit();
+
+        // Verify Rev 1: 2 distinct values
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var alphaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/data/[]/value"), new Str("alpha"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(alphaIdx.hasNext());
+          assertEquals(1, alphaIdx.next().getNodeKeys().getLongCardinality(), "Rev1: 1 'alpha'");
+        }
+
+        // Rev 2: Insert 2 more values
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToLastChild();
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"value\": \"gamma\"}"));
+        wtx.moveToRightSibling();
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"value\": \"delta\"}"));
+        wtx.commit();
+
+        // Verify Rev 2: all 4 values present
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          
+          var gammaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/data/[]/value"), new Str("gamma"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(gammaIdx.hasNext(), "Rev2: 'gamma' should be indexed");
+          
+          var deltaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/data/[]/value"), new Str("delta"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(deltaIdx.hasNext(), "Rev2: 'delta' should be indexed");
+          
+          // Original values still present
+          var alphaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/data/[]/value"), new Str("alpha"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(alphaIdx.hasNext(), "Rev2: 'alpha' still indexed");
+        }
+
+        // Rev 3: Insert duplicate value
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToLastChild();
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"value\": \"alpha\"}"));
+        wtx.commit();
+
+        // Verify Rev 3: 2 'alpha' entries
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var alphaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/data/[]/value"), new Str("alpha"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(alphaIdx.hasNext());
+          assertEquals(2, alphaIdx.next().getNodeKeys().getLongCardinality(), "Rev3: 2 'alpha' entries");
+        }
+      }
+    }
   }
 
   // ===== PATH Index Corner Cases =====
@@ -2458,6 +2546,59 @@ class HOTIndexIntegrationTest {
         }
       }
     }
+
+    /**
+     * PATH-TC7: Deep nesting deletion (5+ levels)
+     * 
+     * Scenario: Delete ancestor at level 2 in a 6-level deep structure.
+     * All descendant paths should be removed from index.
+     * Expected: Nested path entries are removed.
+     */
+    @Test
+    @DisplayName("PATH-TC7: Deep nesting ancestor deletion (6 levels)")
+    void testPathDeepNestingDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        // Index a 6-level deep path
+        final var deepPath = parse("/L1/L2/L3/L4/L5/L6", PathParser.Type.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(deepPath), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(pathIndexDef), wtx);
+
+        // Insert 6-level deep structure
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"L1\": {\"L2\": {\"L3\": {\"L4\": {\"L5\": {\"L6\": \"deepValue\"}}}}}}"));
+        wtx.commit();
+
+        // Verify deep path is indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
+          assertTrue(idx.hasNext(), "Before: deep path should be indexed");
+          assertEquals(1, idx.next().getNodeKeys().getLongCardinality());
+        }
+
+        // Delete L2 (ancestor at level 2), removing L3/L4/L5/L6
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // L1 key
+        wtx.moveToFirstChild(); // L1 object
+        wtx.moveToFirstChild(); // L2 key
+        assertEquals("L2", wtx.getName().getLocalName());
+        wtx.remove();
+        wtx.commit();
+
+        // Verify deep path is removed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
+          assertFalse(idx.hasNext(), "After: deep path should be removed from index");
+        }
+      }
+    }
   }
 
   // ===== NAME Index Corner Cases =====
@@ -2783,6 +2924,58 @@ class HOTIndexIntegrationTest {
               readController.createNameFilter(Set.of("status")));
           assertTrue(idx.hasNext());
           assertEquals(2, idx.next().getNodeKeys().getLongCardinality(), "After: 2 status names");
+        }
+      }
+    }
+
+    /**
+     * NAME-TC7: Deep nesting deletion (6 levels)
+     * 
+     * Scenario: Delete ancestor at level 2 in a 6-level deep structure.
+     * All descendant names should be removed from index.
+     * Expected: Nested name entries are removed.
+     */
+    @Test
+    @DisplayName("NAME-TC7: Deep nesting ancestor deletion (6 levels)")
+    void testNameDeepNestingDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(nameIndexDef), wtx);
+
+        // Insert 6-level deep structure with 2 "deepKey" names (one nested, one not)
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"L1\": {\"L2\": {\"L3\": {\"L4\": {\"L5\": {\"deepKey\": \"nested\"}}}}}, \"deepKey\": \"toplevel\"}"));
+        wtx.commit();
+
+        // Verify 2 "deepKey" names indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("deepKey")));
+          assertTrue(idx.hasNext(), "Before: 'deepKey' should be indexed");
+          assertEquals(2, idx.next().getNodeKeys().getLongCardinality(), "Before: 2 'deepKey' names");
+        }
+
+        // Delete L1 (ancestor), removing the nested deepKey but keeping toplevel one
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // L1 key
+        assertEquals("L1", wtx.getName().getLocalName());
+        wtx.remove();
+        wtx.commit();
+
+        // Verify only 1 "deepKey" remains (the toplevel one)
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("deepKey")));
+          assertTrue(idx.hasNext(), "After: 'deepKey' should still be indexed (1 remaining)");
+          assertEquals(1, idx.next().getNodeKeys().getLongCardinality(), "After: 1 'deepKey' name remains");
         }
       }
     }
