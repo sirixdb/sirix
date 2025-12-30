@@ -24,7 +24,9 @@ package io.sirix.settings;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
+import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageFragmentKeyImpl;
 import io.sirix.page.PageReference;
@@ -204,7 +206,7 @@ public enum VersioningType {
       final int revision = pageReadTrx.getUberPage().getRevisionNumber();
 
       // Update pageFragments on original reference
-      final List<io.sirix.page.interfaces.PageFragmentKey> pageFragmentKeys = List.of(new PageFragmentKeyImpl(
+      final List<PageFragmentKey> pageFragmentKeys = List.of(new PageFragmentKeyImpl(
           firstPage.getRevision(), 
           reference.getKey(),
           (int) pageReadTrx.getDatabaseId(),
@@ -827,8 +829,8 @@ public enum VersioningType {
    * @param pageReadTrx the storage engine reader
    * @return the combined HOT leaf page
    */
-  public io.sirix.page.HOTLeafPage combineHOTLeafPages(
-      final List<io.sirix.page.HOTLeafPage> pages,
+  public HOTLeafPage combineHOTLeafPages(
+      final List<HOTLeafPage> pages,
       final @NonNegative int revToRestore,
       final StorageEngineReader pageReadTrx) {
     
@@ -841,11 +843,11 @@ public enum VersioningType {
     }
     
     // Start with a copy of the newest page
-    io.sirix.page.HOTLeafPage result = pages.getFirst().copy();
+    HOTLeafPage result = pages.getFirst().copy();
     
     // Merge older fragments (skip first as it's already the base)
     for (int i = 1; i < pages.size(); i++) {
-      io.sirix.page.HOTLeafPage olderPage = pages.get(i);
+      HOTLeafPage olderPage = pages.get(i);
       
       // Merge each entry from older page
       for (int j = 0; j < olderPage.getEntryCount(); j++) {
@@ -856,7 +858,7 @@ public enum VersioningType {
         if (existingIdx < 0) {
           // Key doesn't exist in newer - copy from older
           byte[] value = olderPage.getValue(j);
-          if (!io.sirix.index.hot.NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
+          if (!NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
             // Not a tombstone - add entry
             result.mergeWithNodeRefs(key, key.length, value, value.length);
           }
@@ -883,17 +885,17 @@ public enum VersioningType {
    * @return the page container with complete and modified pages
    */
   public PageContainer combineHOTLeafPagesForModification(
-      final List<io.sirix.page.HOTLeafPage> pages,
+      final List<HOTLeafPage> pages,
       final @NonNegative int revToRestore,
       final StorageEngineReader pageReadTrx,
       final PageReference reference,
       final TransactionIntentLog log) {
     
     // Combine fragments
-    io.sirix.page.HOTLeafPage completePage = combineHOTLeafPages(pages, revToRestore, pageReadTrx);
+    HOTLeafPage completePage = combineHOTLeafPages(pages, revToRestore, pageReadTrx);
     
     // Create COW copy for modification
-    io.sirix.page.HOTLeafPage modifiedPage = completePage.copy();
+    HOTLeafPage modifiedPage = completePage.copy();
     
     // Create container with both pages
     final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);

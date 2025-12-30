@@ -9,7 +9,6 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
-import io.sirix.node.NullNode;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NameNode;
@@ -26,7 +25,9 @@ import io.sirix.node.json.ObjectNode;
 import io.sirix.node.json.ObjectNullNode;
 import io.sirix.node.json.ObjectNumberNode;
 import io.sirix.node.json.ObjectStringNode;
+import io.sirix.node.json.NullNode;
 import io.sirix.node.json.StringNode;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.service.xml.xpath.AtomicValue;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
@@ -120,7 +121,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * The current page reference (same page as currentPageGuard).
    * Cached to avoid re-lookup when moving within the same page.
    */
-  private io.sirix.page.KeyValueLeafPage currentPage;
+  private KeyValueLeafPage currentPage;
   
   /**
    * Reusable BytesIn instance for reading node data.
@@ -222,7 +223,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       case STRING_VALUE -> (N) ((StringNode) currentSingleton).toSnapshot();
       case NUMBER_VALUE -> (N) ((NumberNode) currentSingleton).toSnapshot();
       case BOOLEAN_VALUE -> (N) ((BooleanNode) currentSingleton).toSnapshot();
-      case NULL_VALUE -> (N) ((io.sirix.node.json.NullNode) currentSingleton).toSnapshot();
+      case NULL_VALUE -> (N) ((NullNode) currentSingleton).toSnapshot();
       case OBJECT_STRING_VALUE -> (N) ((ObjectStringNode) currentSingleton).toSnapshot();
       case OBJECT_NUMBER_VALUE -> (N) ((ObjectNumberNode) currentSingleton).toSnapshot();
       case OBJECT_BOOLEAN_VALUE -> (N) ((ObjectBooleanNode) currentSingleton).toSnapshot();
@@ -241,7 +242,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @SuppressWarnings("unchecked")
   protected N deserializeToSnapshot() {
     // Use the same deserialization as normal read path
-    var bytesIn = new io.sirix.node.MemorySegmentBytesIn(currentSlot);
+    var bytesIn = new MemorySegmentBytesIn(currentSlot);
     var record = resourceConfig.recordPersister.deserialize(bytesIn, currentNodeKey, currentDeweyId, resourceConfig);
     return (N) record;
   }
@@ -452,7 +453,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   private StringNode singletonString;
   private NumberNode singletonNumber;
   private BooleanNode singletonBoolean;
-  private io.sirix.node.json.NullNode singletonNull;
+  private NullNode singletonNull;
   private ObjectStringNode singletonObjectString;
   private ObjectNumberNode singletonObjectNumber;
   private ObjectBooleanNode singletonObjectBoolean;
@@ -540,7 +541,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     final int slotOffset = StorageEngineReader.recordPageOffset(nodeKey);
     
     MemorySegment data;
-    io.sirix.page.KeyValueLeafPage page;
+    KeyValueLeafPage page;
     
     // OPTIMIZATION: Check if we're moving within the same page
     if (currentPageKey == targetPageKey && currentPage != null && !currentPage.isClosed()) {
@@ -699,7 +700,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       }
       case NULL_VALUE -> {
         if (singletonNull == null) {
-          singletonNull = new io.sirix.node.json.NullNode(0, 0, 0, 0, 0, 0, 0,
+          singletonNull = new NullNode(0, 0, 0, 0, 0, 0, 0,
               resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonNull;
@@ -748,7 +749,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    */
   private void populateSingleton(ImmutableNode singleton, BytesIn<?> source, 
                                   long nodeKey, byte[] deweyId, NodeKind kind,
-                                  io.sirix.page.KeyValueLeafPage page) {
+                                  KeyValueLeafPage page) {
     switch (kind) {
       case OBJECT -> ((ObjectNode) singleton).readFrom(source, nodeKey, deweyId, 
           resourceConfig.nodeHashFunction, resourceConfig);
@@ -769,7 +770,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, resourceConfig);
       case BOOLEAN_VALUE -> ((BooleanNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
-      case NULL_VALUE -> ((io.sirix.node.json.NullNode) singleton).readFrom(source, nodeKey, deweyId,
+      case NULL_VALUE -> ((NullNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
       case OBJECT_STRING_VALUE -> {
         ObjectStringNode objectStringNode = (ObjectStringNode) singleton;
@@ -1484,7 +1485,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (node instanceof StructNode structNode) {
       return structNode;
     }
-    return new NullNode(node);
+    return new io.sirix.node.NullNode(node);
   }
 
   @Override

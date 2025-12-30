@@ -32,6 +32,7 @@ import io.sirix.cache.IndexLogKey;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.PageContainer;
+import io.sirix.cache.PageGuard;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
@@ -382,12 +383,12 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
 
     // DIAGNOSTIC: Track Page 0 closes during commit
-    if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && container.getComplete() instanceof io.sirix.page.KeyValueLeafPage completePage && completePage.getPageKey() == 0) {
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && container.getComplete() instanceof KeyValueLeafPage completePage && completePage.getPageKey() == 0) {
       LOGGER.debug("NodePageTrx.commit closing complete Page 0: instance={}", System.identityHashCode(completePage));
     }
     container.getComplete().close();
     
-    if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page instanceof io.sirix.page.KeyValueLeafPage kvPage && kvPage.getPageKey() == 0) {
+    if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page instanceof KeyValueLeafPage kvPage && kvPage.getPageKey() == 0) {
       LOGGER.debug("NodePageTrx.commit closing modified Page 0: instance={}", System.identityHashCode(kvPage));
     }
     page.close();
@@ -866,7 +867,7 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
     } finally {
       // Release guards on ALL fragments after combining
       for (var page : result.pages()) {
-        io.sirix.page.KeyValueLeafPage kvPage = (io.sirix.page.KeyValueLeafPage) page;
+        KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
         kvPage.releaseGuard();
         assert kvPage.getGuardCount() == 0 : 
             "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
@@ -923,7 +924,7 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
   @Override
   protected void finalize() {
     // DIAGNOSTIC: Detect if NodePageTrx is GC'd without being closed
-    if (!isClosed && io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+    if (!isClosed && KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
       LOGGER.warn("⚠️  NodePageTrx FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL", 
           pageRtx.getTrxId(), System.identityHashCode(this), System.identityHashCode(log), log.getList().size());
     }
@@ -935,7 +936,7 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
    *
    * @return a PageGuard that must be closed when done with the node
    */
-  public io.sirix.cache.PageGuard acquireGuardForCurrentNode() {
+  public PageGuard acquireGuardForCurrentNode() {
     // The current node is in the pageRtx's currentPageGuard
     // We need to return a new guard on the same page
     // Get the page containing the current node from pageRtx
@@ -943,7 +944,7 @@ final class NodePageTrx extends AbstractForwardingStorageEngineReader implements
     if (currentPage == null) {
       throw new IllegalStateException("No current page - cannot acquire guard");
     }
-    return new io.sirix.cache.PageGuard(currentPage);
+    return new PageGuard(currentPage);
   }
   
   /**

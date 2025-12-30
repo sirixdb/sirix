@@ -28,7 +28,12 @@
 package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import io.sirix.page.CASPage;
+import io.sirix.page.NamePage;
+import io.sirix.page.PathPage;
+import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
+import io.sirix.page.interfaces.Page;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
@@ -94,23 +99,23 @@ public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheK
   private void unswizzlePageReferences(RevisionRootPage revisionRootPage) {
     // Unswizzle references to index trees (hold KeyValueLeafPage instances)
     var nameRef = revisionRootPage.getNamePageReference();
-    if (nameRef != null && nameRef.getPage() instanceof io.sirix.page.NamePage namePage) {
+    if (nameRef != null && nameRef.getPage() instanceof NamePage namePage) {
       // Unswizzle the NamePage's index tree references (hold KeyValueLeafPage Page 0s)
       unswizzleIndexPageReferences(namePage);
     }
     
     var pathSummaryRef = revisionRootPage.getPathSummaryPageReference();
-    if (pathSummaryRef != null && pathSummaryRef.getPage() instanceof io.sirix.page.PathSummaryPage pathSummaryPage) {
+    if (pathSummaryRef != null && pathSummaryRef.getPage() instanceof PathSummaryPage pathSummaryPage) {
       unswizzleIndexPageReferences(pathSummaryPage);
     }
     
     var casRef = revisionRootPage.getCASPageReference();
-    if (casRef != null && casRef.getPage() instanceof io.sirix.page.CASPage casPage) {
+    if (casRef != null && casRef.getPage() instanceof CASPage casPage) {
       unswizzleIndexPageReferences(casPage);
     }
     
     var pathRef = revisionRootPage.getPathPageReference();
-    if (pathRef != null && pathRef.getPage() instanceof io.sirix.page.PathPage pathPage) {
+    if (pathRef != null && pathRef.getPage() instanceof PathPage pathPage) {
       unswizzleIndexPageReferences(pathPage);
     }
     
@@ -124,7 +129,7 @@ public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheK
    * Unswizzle PageReferences in index pages (NamePage, PathPage, etc.)
    * These pages contain references to KeyValueLeafPage instances that need to be unswizzled.
    */
-  private void unswizzleIndexPageReferences(io.sirix.page.interfaces.Page indexPage) {
+  private void unswizzleIndexPageReferences(Page indexPage) {
     // Index pages extend AbstractForwardingPage which has getReferences()
     for (var ref : indexPage.getReferences()) {
       if (ref != null) {

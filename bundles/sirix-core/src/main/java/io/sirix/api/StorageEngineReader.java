@@ -9,6 +9,7 @@ import io.sirix.cache.BufferManager;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.exception.SirixIOException;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -285,7 +286,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @param nodeKey the node key of the record to read
    * @return the record or {@code null}
    */
-  DataRecord getValue(io.sirix.page.interfaces.KeyValuePage<? extends DataRecord> page, long nodeKey);
+  DataRecord getValue(KeyValuePage<? extends DataRecord> page, long nodeKey);
 
   /**
    * Get the HOT leaf page for a given index.
@@ -298,5 +299,5 @@ public interface StorageEngineReader extends AutoCloseable {
    * @param indexNumber the index number
    * @return the HOT leaf page, or null if not found
    */
-  io.sirix.page.HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber);
+  HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber);
 }

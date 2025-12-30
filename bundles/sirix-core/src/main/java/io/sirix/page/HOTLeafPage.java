@@ -30,6 +30,7 @@ package io.sirix.page;
 
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
@@ -450,8 +451,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       byte[] existingValue = getValue(index);
       
       // Deserialize both and merge
-      var existingRefs = io.sirix.index.hot.NodeReferencesSerializer.deserialize(existingValue);
-      var newRefs = io.sirix.index.hot.NodeReferencesSerializer.deserialize(value, 0, valueLen);
+      var existingRefs = NodeReferencesSerializer.deserialize(existingValue);
+      var newRefs = NodeReferencesSerializer.deserialize(value, 0, valueLen);
       
       // Check for tombstone in new value
       if (!newRefs.hasNodeKeys()) {
@@ -460,10 +461,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       }
       
       // Merge bitmaps (OR operation)
-      io.sirix.index.hot.NodeReferencesSerializer.merge(existingRefs, newRefs);
+      NodeReferencesSerializer.merge(existingRefs, newRefs);
       
       // Serialize merged result
-      byte[] mergedBytes = io.sirix.index.hot.NodeReferencesSerializer.serialize(existingRefs);
+      byte[] mergedBytes = NodeReferencesSerializer.serialize(existingRefs);
       return updateValue(index, mergedBytes);
     } else {
       // Key doesn't exist - insert new entry

@@ -1,5 +1,6 @@
 package io.sirix.cache;
 
+import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
@@ -124,7 +125,7 @@ public final class BufferManagerImpl implements BufferManager {
    *
    * @param globalEpochTracker the global epoch tracker for MVCC-aware eviction
    */
-  public synchronized void startClockSweepers(io.sirix.access.trx.RevisionEpochTracker globalEpochTracker) {
+  public synchronized void startClockSweepers(RevisionEpochTracker globalEpochTracker) {
     if (!clockSweepers.isEmpty()) {
       // Already started
       return;

@@ -1,6 +1,7 @@
 package io.sirix.api;
 
 import io.sirix.cache.PageContainer;
+import io.sirix.cache.PageGuard;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
@@ -206,5 +207,5 @@ public interface StorageEngineWriter extends StorageEngineReader {
    *
    * @return a PageGuard that must be closed when done with the node
    */
-  io.sirix.cache.PageGuard acquireGuardForCurrentNode();
+  PageGuard acquireGuardForCurrentNode();
 }

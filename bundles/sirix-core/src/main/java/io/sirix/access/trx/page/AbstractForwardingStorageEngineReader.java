@@ -12,6 +12,7 @@ import io.sirix.io.Reader;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.*;
+import io.sirix.page.interfaces.KeyValuePage;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -30,7 +31,7 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public DataRecord getValue(io.sirix.page.interfaces.KeyValuePage<? extends DataRecord> page, long nodeKey) {
+  public DataRecord getValue(KeyValuePage<? extends DataRecord> page, long nodeKey) {
     return delegate().getValue(page, nodeKey);
   }
 

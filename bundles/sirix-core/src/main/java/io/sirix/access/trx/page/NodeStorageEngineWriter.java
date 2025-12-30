@@ -32,6 +32,7 @@ import io.sirix.cache.IndexLogKey;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.PageContainer;
+import io.sirix.cache.PageGuard;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
@@ -1171,15 +1172,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    *
    * @return a PageGuard that must be closed when done with the node
    */
-  public io.sirix.cache.PageGuard acquireGuardForCurrentNode() {
+  public PageGuard acquireGuardForCurrentNode() {
     // The current node is in the pageRtx's currentPageGuard
     // We need to return a new guard on the same page
     // Get the page containing the current node from pageRtx
-    final var currentPage = ((io.sirix.access.trx.page.NodeStorageEngineReader) pageRtx).getCurrentPage();
+    final var currentPage = ((NodeStorageEngineReader) pageRtx).getCurrentPage();
     if (currentPage == null) {
       throw new IllegalStateException("No current page - cannot acquire guard");
     }
-    return new io.sirix.cache.PageGuard(currentPage);
+    return new PageGuard(currentPage);
   }
   
   /**

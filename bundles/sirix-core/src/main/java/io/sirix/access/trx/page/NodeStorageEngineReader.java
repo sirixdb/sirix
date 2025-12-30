@@ -23,6 +23,7 @@ package io.sirix.access.trx.page;
 
 import com.google.common.base.MoreObjects;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.api.NodeReadOnlyTrx;
@@ -38,6 +39,8 @@ import io.sirix.node.DeletedNode;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.node.json.ObjectStringNode;
+import io.sirix.node.json.StringNode;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
@@ -140,7 +143,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Epoch tracker ticket for this transaction (for MVCC-aware eviction).
    * Registered when transaction opens, deregistered when it closes.
    */
-  private final io.sirix.access.trx.RevisionEpochTracker.Ticket epochTicket;
+  private final RevisionEpochTracker.Ticket epochTicket;
 
   /**
    * Current page guard - protects the page where cursor is currently positioned.
@@ -339,7 +342,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
-  public DataRecord getValue(final io.sirix.page.interfaces.KeyValuePage<? extends DataRecord> page, final long nodeKey) {
+  public DataRecord getValue(final KeyValuePage<? extends DataRecord> page, final long nodeKey) {
     final var offset = StorageEngineReader.recordPageOffset(nodeKey);
     DataRecord record = page.getRecord(offset);
     if (record == null) {
@@ -366,7 +369,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
-  private DataRecord getDataRecord(long key, int offset, MemorySegment data, io.sirix.page.interfaces.KeyValuePage<? extends DataRecord> page) {
+  private DataRecord getDataRecord(long key, int offset, MemorySegment data, KeyValuePage<? extends DataRecord> page) {
     var record = resourceConfig.recordPersister.deserialize(new MemorySegmentBytesIn(data),
                                                             key,
                                                             page.getDeweyIdAsByteArray(offset),
@@ -379,7 +382,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
     
     // Use raw type to avoid generic mismatch with different KeyValuePage implementations
-    ((io.sirix.page.interfaces.KeyValuePage) page).setRecord(record);
+    ((KeyValuePage) page).setRecord(record);
     return record;
   }
 
@@ -393,9 +396,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
     final byte[] fsstSymbolTable = page.getFsstSymbolTable();
     if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-      if (record instanceof io.sirix.node.json.StringNode stringNode) {
+      if (record instanceof StringNode stringNode) {
         stringNode.setFsstSymbolTable(fsstSymbolTable);
-      } else if (record instanceof io.sirix.node.json.ObjectStringNode objectStringNode) {
+      } else if (record instanceof ObjectStringNode objectStringNode) {
         objectStringNode.setFsstSymbolTable(fsstSymbolTable);
       }
     }
