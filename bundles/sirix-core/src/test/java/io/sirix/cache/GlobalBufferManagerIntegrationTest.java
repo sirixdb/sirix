@@ -100,32 +100,6 @@ public class GlobalBufferManagerIntegrationTest {
   }
 
   @Test
-  public void testGlobalBufferManagerIsShared() {
-    // Create two databases
-    Databases.createJsonDatabase(new DatabaseConfiguration(database1Path));
-    Databases.createJsonDatabase(new DatabaseConfiguration(database2Path));
-
-    try (final Database<JsonResourceSession> db1 = Databases.openJsonDatabase(database1Path);
-         final Database<JsonResourceSession> db2 = Databases.openJsonDatabase(database2Path)) {
-
-      // Create resources in both databases
-      db1.createResource(ResourceConfiguration.newBuilder("resource1").build());
-      db2.createResource(ResourceConfiguration.newBuilder("resource1").build());
-
-      try (final JsonResourceSession res1 = db1.beginResourceSession("resource1");
-           final JsonResourceSession res2 = db2.beginResourceSession("resource1")) {
-
-        // Both should use the same global BufferManager instance
-        final var bufferManager1 = Databases.getGlobalBufferManager();
-        final var bufferManager2 = Databases.getBufferManager(database2Path);
-
-        assertSame(bufferManager1, bufferManager2,
-            "All databases should share the same global BufferManager instance");
-      }
-    }
-  }
-
-  @Test
   public void testDatabaseIdPersistence() {
     // Create database
     Databases.createJsonDatabase(new DatabaseConfiguration(database1Path));

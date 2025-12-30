@@ -1,5 +1,6 @@
 package io.sirix.access;
 
+import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.api.*;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
@@ -16,8 +17,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static java.util.Objects.requireNonNull;
@@ -43,7 +42,7 @@ public final class Databases {
    * Single global BufferManager shared across all databases and resources.
    * This follows the PostgreSQL/MySQL/SQL Server architecture pattern where
    * a single buffer pool serves the entire database server instance.
-   * 
+   * <p>
    * Cache keys include (databaseId, resourceId) to prevent collisions.
    * Initialized lazily when first database is opened.
    */
@@ -54,7 +53,7 @@ public final class Databases {
    * Tracks minimum active revision globally. ClockSweepers use this to determine
    * which pages can be safely evicted.
    */
-  private static volatile io.sirix.access.trx.RevisionEpochTracker GLOBAL_EPOCH_TRACKER = null;
+  private static volatile RevisionEpochTracker GLOBAL_EPOCH_TRACKER = null;
 
   /**
    * Database ID counter for assigning unique IDs to databases.
@@ -388,7 +387,7 @@ public final class Databases {
           maxPathSummaryCacheSize);
       
       // Initialize global epoch tracker (large slot count for all databases/resources)
-      GLOBAL_EPOCH_TRACKER = new io.sirix.access.trx.RevisionEpochTracker(4096);
+      GLOBAL_EPOCH_TRACKER = new RevisionEpochTracker(4096);
       GLOBAL_EPOCH_TRACKER.setLastCommittedRevision(0);
       
       // Start GLOBAL ClockSweeper threads (PostgreSQL bgwriter pattern)
@@ -401,20 +400,6 @@ public final class Databases {
     }
   }
 
-  /**
-   * Get the global BufferManager instance.
-   * 
-   * @param databaseFile the database file path (kept for API compatibility, but ignored)
-   * @return the single global BufferManager instance
-   */
-  public static BufferManager getBufferManager(Path databaseFile) {
-    if (GLOBAL_BUFFER_MANAGER == null) {
-      // Initialize with default if called before any database is opened
-      initializeGlobalBufferManager(2L * (1L << 30)); // 2GB default
-    }
-    return GLOBAL_BUFFER_MANAGER;
-  }
-  
   /**
    * Get the global BufferManager instance directly.
    * 
@@ -435,10 +420,10 @@ public final class Databases {
    * 
    * @return the single global RevisionEpochTracker instance
    */
-  public static io.sirix.access.trx.RevisionEpochTracker getGlobalEpochTracker() {
+  public static RevisionEpochTracker getGlobalEpochTracker() {
     if (GLOBAL_EPOCH_TRACKER == null) {
       // Initialize with default if called before BufferManager is initialized
-      GLOBAL_EPOCH_TRACKER = new io.sirix.access.trx.RevisionEpochTracker(4096);
+      GLOBAL_EPOCH_TRACKER = new RevisionEpochTracker(4096);
       GLOBAL_EPOCH_TRACKER.setLastCommittedRevision(0);
     }
     return GLOBAL_EPOCH_TRACKER;
