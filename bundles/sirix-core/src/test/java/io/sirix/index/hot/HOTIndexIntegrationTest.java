@@ -50,9 +50,10 @@ class HOTIndexIntegrationTest {
   private static String originalHOTSetting;
 
   @BeforeAll
-  static void saveHOTSetting() {
-    // Save original setting
+  static void enableHOTByDefault() {
+    // Save original setting and enable HOT by default for all tests
     originalHOTSetting = System.getProperty("sirix.index.useHOT");
+    System.setProperty("sirix.index.useHOT", "true");
   }
   
   @AfterAll
@@ -74,9 +75,9 @@ class HOTIndexIntegrationTest {
     System.clearProperty("sirix.index.useHOT");
     
     // Test that HOT can be enabled/disabled via system property
-    assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled by default");
-    assertFalse(CASIndexListenerFactory.isHOTEnabled(), "HOT should be disabled by default");
-    assertFalse(NameIndexListenerFactory.isHOTEnabled(), "HOT should be disabled by default");
+    assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled when property cleared");
+    assertFalse(CASIndexListenerFactory.isHOTEnabled(), "HOT should be disabled when property cleared");
+    assertFalse(NameIndexListenerFactory.isHOTEnabled(), "HOT should be disabled when property cleared");
     
     // Enable HOT
     System.setProperty("sirix.index.useHOT", "true");
@@ -87,6 +88,9 @@ class HOTIndexIntegrationTest {
     // Disable HOT
     System.clearProperty("sirix.index.useHOT");
     assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled");
+    
+    // Re-enable HOT for subsequent tests (class default)
+    System.setProperty("sirix.index.useHOT", "true");
   }
   
   // ===== RBTree Backend Tests =====
@@ -98,12 +102,15 @@ class HOTIndexIntegrationTest {
     @BeforeEach
     void setUp() {
       JsonTestHelper.deleteEverything();
+      // Explicitly disable HOT for RBTree tests (overrides class-level default)
       System.clearProperty("sirix.index.useHOT");
     }
     
     @AfterEach
     void tearDown() {
       JsonTestHelper.closeEverything();
+      // Re-enable HOT for subsequent tests
+      System.setProperty("sirix.index.useHOT", "true");
       JsonTestHelper.deleteEverything();
     }
 
@@ -180,6 +187,7 @@ class HOTIndexIntegrationTest {
   }
   
   // ===== HOT Backend Tests =====
+  // Note: HOT is enabled by default at class level (@BeforeAll)
   
   @Nested
   @DisplayName("HOT Backend Tests")
@@ -188,14 +196,13 @@ class HOTIndexIntegrationTest {
     @BeforeEach
     void setUp() {
       JsonTestHelper.deleteEverything();
-      System.setProperty("sirix.index.useHOT", "true");
+      // HOT is already enabled by default - no need to set it
     }
     
     @AfterEach
     void tearDown() {
       JsonTestHelper.closeEverything();
       JsonTestHelper.deleteEverything();
-      System.clearProperty("sirix.index.useHOT");
     }
 
     @Test
@@ -1545,6 +1552,7 @@ class HOTIndexIntegrationTest {
 
   // ===== CAS Index Deletion Corner Cases =====
   // Formal proof of correctness: systematically test all deletion scenarios
+  // Note: HOT is enabled by default at class level (@BeforeAll)
   
   @Nested
   @DisplayName("CAS Index Deletion Corner Cases")
@@ -1553,14 +1561,12 @@ class HOTIndexIntegrationTest {
     @BeforeEach
     void setUp() {
       JsonTestHelper.deleteEverything();
-      System.setProperty("sirix.index.useHOT", "true");
     }
 
     @AfterEach
     void tearDown() {
       JsonTestHelper.closeEverything();
       JsonTestHelper.deleteEverything();
-      System.clearProperty("sirix.index.useHOT");
     }
 
     /**
@@ -2220,6 +2226,7 @@ class HOTIndexIntegrationTest {
   }
 
   // ===== PATH Index Corner Cases =====
+  // Note: HOT is enabled by default at class level (@BeforeAll)
   
   @Nested
   @DisplayName("PATH Index Corner Cases")
@@ -2228,14 +2235,12 @@ class HOTIndexIntegrationTest {
     @BeforeEach
     void setUp() {
       JsonTestHelper.deleteEverything();
-      System.setProperty("sirix.index.useHOT", "true");
     }
 
     @AfterEach
     void tearDown() {
       JsonTestHelper.closeEverything();
       JsonTestHelper.deleteEverything();
-      System.clearProperty("sirix.index.useHOT");
     }
 
     /**
@@ -2602,6 +2607,7 @@ class HOTIndexIntegrationTest {
   }
 
   // ===== NAME Index Corner Cases =====
+  // Note: HOT is enabled by default at class level (@BeforeAll)
   
   @Nested
   @DisplayName("NAME Index Corner Cases")
@@ -2610,14 +2616,12 @@ class HOTIndexIntegrationTest {
     @BeforeEach
     void setUp() {
       JsonTestHelper.deleteEverything();
-      System.setProperty("sirix.index.useHOT", "true");
     }
 
     @AfterEach
     void tearDown() {
       JsonTestHelper.closeEverything();
       JsonTestHelper.deleteEverything();
-      System.clearProperty("sirix.index.useHOT");
     }
 
     /**
