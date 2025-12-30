@@ -63,6 +63,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     // Index builders for all index definitions.
     final var indexBuilders = new HashSet<JsonNodeVisitor>(indexDefs.size());
     for (final IndexDef indexDef : indexDefs) {
+      // Store the index definition so it can be serialized during commit
+      indexes.add(indexDef);
       switch (indexDef.getType()) {
         case PATH -> indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageWtx(),
                                                               nodeWriteTrx.getPathSummary(),

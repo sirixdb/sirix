@@ -142,7 +142,13 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
 
     useTextCompression = resourceManager.getResourceConfig().useTextCompression;
     deweyIDManager = new XmlDeweyIDManager(this);
-
+    
+    // Register index listeners for any existing indexes.
+    // This is critical for subsequent write transactions to update indexes on node modifications.
+    final var existingIndexDefs = indexController.getIndexes().getIndexDefs();
+    if (!existingIndexDefs.isEmpty()) {
+      indexController.createIndexListeners(existingIndexDefs, this);
+    }
   }
 
   @Override

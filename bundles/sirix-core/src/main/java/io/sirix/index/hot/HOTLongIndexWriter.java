@@ -41,6 +41,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
+import io.sirix.settings.Constants;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import static java.util.Objects.requireNonNull;
@@ -86,7 +87,8 @@ public final class HOTLongIndexWriter {
   @SuppressWarnings("unused")
   private final int indexNumber;
 
-  /** Cached root page reference. */
+  /** Cached root page reference (currently unused, kept for potential future caching). */
+  @SuppressWarnings("unused")
   private PageReference rootReference;
 
   /**
@@ -120,21 +122,52 @@ public final class HOTLongIndexWriter {
           final PathPage pathPage = pageTrx.getPathPage(revisionRootPage);
           final PageReference reference = revisionRootPage.getPathPageReference();
           pageTrx.appendLogRecord(reference, PageContainer.getInstance(pathPage, pathPage));
-          pathPage.createHOTPathIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+          
+          // Get existing reference first to check if index already exists
+          PageReference existingRef = pathPage.getOrCreateReference(indexNumber);
+          boolean indexExists = existingRef != null && 
+              (existingRef.getKey() != Constants.NULL_ID_LONG || 
+               existingRef.getLogKey() != Constants.NULL_ID_INT || 
+               existingRef.getPage() != null);
+          
+          if (!indexExists) {
+            // Only create new tree if index doesn't exist
+            pathPage.createHOTPathIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+          }
           rootReference = pathPage.getOrCreateReference(indexNumber);
         }
         case CAS -> {
           final CASPage casPage = pageTrx.getCASPage(revisionRootPage);
           final PageReference reference = revisionRootPage.getCASPageReference();
           pageTrx.appendLogRecord(reference, PageContainer.getInstance(casPage, casPage));
-          casPage.createHOTCASIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+          
+          // Get existing reference first to check if index already exists
+          PageReference existingRef = casPage.getOrCreateReference(indexNumber);
+          boolean indexExists = existingRef != null && 
+              (existingRef.getKey() != Constants.NULL_ID_LONG || 
+               existingRef.getLogKey() != Constants.NULL_ID_INT || 
+               existingRef.getPage() != null);
+          
+          if (!indexExists) {
+            casPage.createHOTCASIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+          }
           rootReference = casPage.getOrCreateReference(indexNumber);
         }
         case NAME -> {
           final NamePage namePage = pageTrx.getNamePage(revisionRootPage);
           final PageReference reference = revisionRootPage.getNamePageReference();
           pageTrx.appendLogRecord(reference, PageContainer.getInstance(namePage, namePage));
-          namePage.createHOTNameIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+          
+          // Get existing reference first to check if index already exists
+          PageReference existingRef = namePage.getOrCreateReference(indexNumber);
+          boolean indexExists = existingRef != null && 
+              (existingRef.getKey() != Constants.NULL_ID_LONG || 
+               existingRef.getLogKey() != Constants.NULL_ID_INT || 
+               existingRef.getPage() != null);
+          
+          if (!indexExists) {
+            namePage.createHOTNameIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+          }
           rootReference = namePage.getOrCreateReference(indexNumber);
         }
         default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + indexType);
@@ -283,18 +316,21 @@ public final class HOTLongIndexWriter {
   /**
    * Get the HOT leaf page for writing.
    *
-   * <p>Retrieves or creates the HOT leaf page from the transaction log or storage.</p>
+   * <p>Retrieves or creates the HOT leaf page from the transaction log or storage.
+   * Uses the storage engine's versioning-aware page loading for committed data.</p>
    *
    * @param key the primitive long key
    * @return the HOT leaf page for writing
    */
   private HOTLeafPage getLeafForWrite(long key) {
-    if (rootReference == null) {
+    // Get fresh reference from the index page to ensure consistency
+    PageReference currentRef = getRootReference();
+    if (currentRef == null) {
       throw new IllegalStateException("HOT index not initialized");
     }
     
-    // Check transaction log first
-    PageContainer container = pageTrx.getLog().get(rootReference);
+    // Check transaction log first (uncommitted modifications)
+    PageContainer container = pageTrx.getLog().get(currentRef);
     if (container != null) {
       Page page = container.getModified();
       if (page instanceof HOTLeafPage hotLeaf) {
@@ -302,40 +338,67 @@ public final class HOTLongIndexWriter {
       }
     }
     
-    // Try to load from storage
-    Page loadedPage = loadPage(rootReference);
-    if (loadedPage instanceof HOTLeafPage existingLeaf) {
-      // Create COW copy
+    // Use storage engine's versioning-aware page loading for committed data
+    HOTLeafPage existingLeaf = pageTrx.getHOTLeafPage(indexType, indexNumber);
+    if (existingLeaf != null) {
+      // Create COW copy for modifications
       HOTLeafPage modifiedLeaf = existingLeaf.copy();
       container = PageContainer.getInstance(existingLeaf, modifiedLeaf);
-      pageTrx.getLog().put(rootReference, container);
+      pageTrx.getLog().put(currentRef, container);
       return modifiedLeaf;
     }
     
     // Create new leaf page if none exists
     HOTLeafPage newLeaf = new HOTLeafPage(
-        rootReference.getKey() >= 0 ? rootReference.getKey() : 0,
+        currentRef.getKey() >= 0 ? currentRef.getKey() : 0,
         pageTrx.getRevisionNumber(),
         indexType
     );
     container = PageContainer.getInstance(newLeaf, newLeaf);
-    pageTrx.getLog().put(rootReference, container);
+    pageTrx.getLog().put(currentRef, container);
     return newLeaf;
+  }
+  
+  /**
+   * Get the root reference for the index from the index page.
+   * This ensures we always use the same reference object as the storage engine.
+   */
+  private PageReference getRootReference() {
+    final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
+    return switch (indexType) {
+      case PATH -> {
+        final PathPage pathPage = pageTrx.getPathPage(revisionRootPage);
+        yield pathPage.getOrCreateReference(indexNumber);
+      }
+      case CAS -> {
+        final CASPage casPage = pageTrx.getCASPage(revisionRootPage);
+        yield casPage.getOrCreateReference(indexNumber);
+      }
+      case NAME -> {
+        final NamePage namePage = pageTrx.getNamePage(revisionRootPage);
+        yield namePage.getOrCreateReference(indexNumber);
+      }
+      default -> null;
+    };
   }
 
   /**
    * Get the HOT leaf page for reading.
    *
+   * <p>Uses the storage engine's versioning-aware page loading.</p>
+   *
    * @param key the primitive long key
    * @return the HOT leaf page, or null if not found
    */
   private @Nullable HOTLeafPage getLeafForRead(long key) {
-    if (rootReference == null) {
+    // Get fresh reference from the index page to ensure consistency
+    PageReference currentRef = getRootReference();
+    if (currentRef == null) {
       return null;
     }
     
-    // Check transaction log first
-    PageContainer container = pageTrx.getLog().get(rootReference);
+    // Check transaction log first (uncommitted modifications)
+    PageContainer container = pageTrx.getLog().get(currentRef);
     if (container != null) {
       Page page = container.getComplete();
       if (page instanceof HOTLeafPage hotLeaf) {
@@ -343,41 +406,8 @@ public final class HOTLongIndexWriter {
       }
     }
     
-    // Try to load from storage
-    Page loadedPage = loadPage(rootReference);
-    if (loadedPage instanceof HOTLeafPage hotLeaf) {
-      return hotLeaf;
-    }
-    
-    return null;
-  }
-
-  /**
-   * Load a page from storage.
-   *
-   * @param ref the page reference
-   * @return the loaded page, or null if not found
-   */
-  private @Nullable Page loadPage(PageReference ref) {
-    if (ref.getKey() < 0 && ref.getLogKey() < 0) {
-      return null;
-    }
-    
-    // Check if page is in the reference itself
-    Page directPage = ref.getPage();
-    if (directPage != null) {
-      return directPage;
-    }
-    
-    // Check transaction log
-    PageContainer container = pageTrx.getLog().get(ref);
-    if (container != null) {
-      return container.getComplete();
-    }
-    
-    // For now, return null - full implementation would load from storage
-    // This would require calling pageRtx.loadPage(ref) or similar
-    return null;
+    // Use storage engine's versioning-aware page loading for committed data
+    return pageTrx.getHOTLeafPage(indexType, indexNumber);
   }
 }
 

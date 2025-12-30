@@ -88,7 +88,11 @@ public final class StorageEngineWriterFactory {
       final @NonNegative int lastCommitedRevision, final boolean isBoundToNodeTrx, final BufferManager bufferManager) {
     final ResourceConfiguration resourceConfig = resourceManager.getResourceConfig();
     final boolean usePathSummary = resourceConfig.withPathSummary;
-    final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(representRevision);
+    // Use representRevision + 1 because that's the NEW revision being created.
+    // The node transaction will use trx.getRevisionNumber() which returns the new revision,
+    // so we need to use the same revision for the index controller to ensure they share state.
+    final int newRevisionNumber = representRevision + 1;
+    final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(newRevisionNumber);
 
     // Deserialize index definitions.
     final Path indexes =

@@ -201,6 +201,13 @@ final class JsonNodeTrxImpl extends
 
     deweyIDManager = new JsonDeweyIDManager(this);
     storeNodeHistory = resourceManager.getResourceConfig().storeNodeHistory();
+    
+    // Register index listeners for any existing indexes.
+    // This is critical for subsequent write transactions to update indexes on node modifications.
+    final var existingIndexDefs = indexController.getIndexes().getIndexDefs();
+    if (!existingIndexDefs.isEmpty()) {
+      indexController.createIndexListeners(existingIndexDefs, this);
+    }
   }
 
   @Override

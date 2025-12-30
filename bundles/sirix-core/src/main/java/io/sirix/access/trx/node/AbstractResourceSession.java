@@ -226,9 +226,20 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   protected void initializeIndexController(final int revision, IndexController<?, ?> controller) {
     // Deserialize index definitions.
-    final Path indexes = getResourceConfig().getResource()
-                                            .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                            .resolve(revision + ".xml");
+    // For write transactions, the revision number is the NEW revision being created,
+    // but index definitions are stored at the LAST COMMITTED revision.
+    // Try the requested revision first, then fallback to previous revisions.
+    final Path indexesDir = getResourceConfig().getResource()
+                                               .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
+    Path indexes = indexesDir.resolve(revision + ".xml");
+    
+    // Search backward through revisions to find the most recent index definitions
+    int searchRevision = revision;
+    while (!Files.exists(indexes) && searchRevision > 0) {
+      searchRevision--;
+      indexes = indexesDir.resolve(searchRevision + ".xml");
+    }
+    
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());

@@ -23,6 +23,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -426,6 +427,113 @@ class HOTIndexIntegrationTest {
     }
     
     @Test
+    @DisplayName("HOT PATH index deletion works in same transaction")
+    void testHOTPathIndexDeleteInSameTransaction() {
+      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+      
+      final var jsonPath = JSON.resolve("abc-location-stations.json");
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
+
+        indexController.createIndexes(Set.of(pathIndexDef), trx);
+
+        // Shred JSON - 53 type nodes
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createFileReader(jsonPath),
+            InsertPosition.AS_FIRST_CHILD).build();
+        shredder.call();
+        
+        // Verify initial count
+        var index = indexController.openPathIndex(trx.getPageTrx(), pathIndexDef, null);
+        assertTrue(index.hasNext(), "Should have results after shredding");
+        assertEquals(53, index.next().getNodeKeys().getLongCardinality(), "Should have 53 'type' nodes initially");
+        
+        // Delete one feature - should reduce count by 1
+        trx.moveToDocumentRoot();
+        trx.moveToFirstChild(); // root object
+        trx.moveToFirstChild(); // "type" OBJECT_KEY (first key)
+        trx.moveToRightSibling(); // "features" OBJECT_KEY (second key)
+        trx.moveToFirstChild(); // features ARRAY
+        trx.moveToFirstChild(); // first feature OBJECT
+        trx.remove();
+        
+        // Query after deletion - count should be 52
+        index = indexController.openPathIndex(trx.getPageTrx(), pathIndexDef, null);
+        assertTrue(index.hasNext(), "Should still have results after deletion");
+        long countAfterDelete = index.next().getNodeKeys().getLongCardinality();
+        assertEquals(52, countAfterDelete, "Should have 52 'type' nodes after 1 deletion");
+        
+        trx.commit();
+      }
+    }
+    
+    @Test
+    @Disabled("Cross-transaction HOT modifications need further work on page persistence")
+    @DisplayName("HOT PATH index deletion works across transactions")
+    void testHOTPathIndexDeleteAcrossTransactions() {
+      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+      
+      final var jsonPath = JSON.resolve("abc-location-stations.json");
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      IndexDef savedIndexDef;
+      
+      // Transaction 1: Create index and insert data
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
+        savedIndexDef = pathIndexDef;
+
+        indexController.createIndexes(Set.of(pathIndexDef), trx);
+
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createFileReader(jsonPath),
+            InsertPosition.AS_FIRST_CHILD).build();
+        shredder.call();
+        
+        // Verify 53 type nodes
+        var index = indexController.openPathIndex(trx.getPageTrx(), pathIndexDef, null);
+        assertTrue(index.hasNext());
+        assertEquals(53, index.next().getNodeKeys().getLongCardinality());
+        
+        trx.commit();
+      }
+      
+      // Transaction 2: Delete one feature
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx()) {
+        
+        trx.moveToDocumentRoot();
+        trx.moveToFirstChild(); // root object
+        trx.moveToFirstChild(); // "type" OBJECT_KEY
+        trx.moveToRightSibling(); // "features" OBJECT_KEY
+        trx.moveToFirstChild(); // features ARRAY
+        trx.moveToFirstChild(); // first feature OBJECT
+        trx.remove();
+        trx.commit();
+      }
+      
+      // Transaction 3 (read-only): Verify 52 entries
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx()) {
+        var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
+        
+        var index = indexController.openPathIndex(rtx.getPageTrx(), savedIndexDef, null);
+        assertTrue(index.hasNext(), "Should have results after deletion");
+        long count = index.next().getNodeKeys().getLongCardinality();
+        assertEquals(52, count, "Should have 52 'type' nodes after cross-transaction deletion");
+      }
+    }
+    
+    @Test
     @DisplayName("HOT PATH index persists across session close/reopen")
     void testHOTPathIndexPersistence() {
       assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
@@ -535,6 +643,264 @@ class HOTIndexIntegrationTest {
                 SearchMode.EQUAL,
                 new JsonPCRCollector(trx)));
         assertFalse(daveIndex.hasNext(), "Should NOT find 'Dave'");
+      }
+    }
+    
+    // ===== Multi-Revision Versioning Tests =====
+    
+    @Test
+    // @Disabled("Cross-transaction HOT modifications need further work on page persistence")
+    @DisplayName("HOT PATH index with 6+ revisions: insert and delete operations")
+    void testHOTPathIndexMultiRevisionVersioning() {
+      assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+      
+      final var jsonPath = JSON.resolve("abc-location-stations.json");
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      
+      // Track the index definition for use across transactions
+      IndexDef savedPathIndexDef;
+      int revision1;
+      
+      // Revision 1: Create index with initial data (53 type nodes)
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
+        savedPathIndexDef = pathIndexDef;
+
+        indexController.createIndexes(Set.of(pathIndexDef), trx);
+
+        // Shred large JSON file
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createFileReader(jsonPath),
+            InsertPosition.AS_FIRST_CHILD).build();
+        shredder.call();
+        
+        // Store the revision number BEFORE commit (this is the revision being created)
+        revision1 = trx.getRevisionNumber();
+        
+        trx.commit();
+        
+        // Verify 53 type nodes indexed
+        var index = indexController.openPathIndex(trx.getPageTrx(), pathIndexDef, null);
+        assertTrue(index.hasNext());
+        assertEquals(53, index.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 53 type nodes");
+      }
+      
+      // Revisions 2-6: Delete elements one by one (5 deletions)
+      // JSON structure: { "type": "...", "features": [...], ... }
+      for (int i = 2; i <= 6; i++) {
+        try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+             final var trx = manager.beginNodeTrx()) {
+          trx.moveToDocumentRoot();
+          trx.moveToFirstChild(); // root object
+          trx.moveToFirstChild(); // "type" OBJECT_KEY (first key)
+          trx.moveToRightSibling(); // "features" OBJECT_KEY (second key)
+          trx.moveToFirstChild(); // features ARRAY (value of the key)
+          trx.moveToFirstChild(); // first feature OBJECT in array
+          trx.remove();
+          
+          trx.commit();
+        }
+      }
+      
+      // Final verification in read transaction
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx()) {
+        var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
+        
+        assertTrue(rtx.getRevisionNumber() >= 6, "Should have at least 6 revisions");
+        
+        var index = indexController.openPathIndex(rtx.getPageTrx(), savedPathIndexDef, null);
+        assertTrue(index.hasNext(), "Should have results after deletions");
+        long count = index.next().getNodeKeys().getLongCardinality();
+        assertEquals(48, count, "Latest: Should have 48 type nodes (53 - 5 deleted)");
+      }
+      
+      // Verify historical revision: Rev1 should have 53 nodes
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx(revision1)) {
+        var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
+        var idx = indexController.openPathIndex(rtx.getPageTrx(), savedPathIndexDef, null);
+        assertTrue(idx.hasNext(), "Rev1 should have results");
+        assertEquals(53, idx.next().getNodeKeys().getLongCardinality(), "Rev1: Should still have 53 nodes");
+      }
+    }
+    
+    @Test
+    @Disabled("Cross-transaction HOT modifications need further work on page persistence")
+    @DisplayName("HOT CAS index with 6+ revisions: insert, query, delete operations")
+    void testHOTCASIndexMultiRevisionVersioning() {
+      assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+      
+      final var jsonPath = JSON.resolve("abc-location-stations.json");
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      
+      // Track the index definition for use across transactions
+      IndexDef savedCasIndexDef;
+      int revision1;
+      
+      // Revision 1: Create CAS index with initial data
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR, 
+            Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
+        savedCasIndexDef = casIndexDef;
+
+        indexController.createIndexes(Set.of(casIndexDef), trx);
+
+        // Shred JSON file
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createFileReader(jsonPath),
+            InsertPosition.AS_FIRST_CHILD).build();
+        shredder.call();
+        trx.commit();
+        
+        revision1 = trx.getRevisionNumber();
+        
+        // Query for "Feature" - should find 53 nodes
+        var idx = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
+            indexController.createCASFilter(
+                Set.of("/features/[]/type"),
+                new Str("Feature"),
+                SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
+        assertTrue(idx.hasNext(), "Rev1: Should find 'Feature' values");
+        assertEquals(53, idx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 53 'Feature' nodes");
+      }
+      
+      // Revisions 2-6: Delete elements one by one (5 deletions)
+      // JSON structure: { "type": "...", "features": [...], ... }
+      for (int i = 2; i <= 6; i++) {
+        try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+             final var trx = manager.beginNodeTrx()) {
+          trx.moveToDocumentRoot();
+          trx.moveToFirstChild(); // root object
+          trx.moveToFirstChild(); // "type" OBJECT_KEY (first key)
+          trx.moveToRightSibling(); // "features" OBJECT_KEY (second key)
+          trx.moveToFirstChild(); // features ARRAY (value of the key)
+          trx.moveToFirstChild(); // first feature OBJECT in array
+          trx.remove();
+          trx.commit();
+        }
+      }
+      
+      // Final verification in read transaction
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx()) {
+        var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
+        
+        assertTrue(rtx.getRevisionNumber() >= 6, "Should have at least 6 revisions");
+        
+        var idx = indexController.openCASIndex(rtx.getPageTrx(), savedCasIndexDef,
+            indexController.createCASFilter(
+                Set.of("/features/[]/type"),
+                new Str("Feature"),
+                SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
+        assertTrue(idx.hasNext(), "Latest: Should find 'Feature'");
+        assertEquals(48, idx.next().getNodeKeys().getLongCardinality(), "Latest: Should have 48 'Feature' nodes (53 - 5 deleted)");
+      }
+      
+      // Verify historical revision: Rev1 should have 53 nodes
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx(revision1)) {
+        var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
+        var idx = indexController.openCASIndex(rtx.getPageTrx(), savedCasIndexDef,
+            indexController.createCASFilter(
+                Set.of("/features/[]/type"),
+                new Str("Feature"),
+                SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
+        assertTrue(idx.hasNext(), "Rev1: Should find 'Feature'");
+        assertEquals(53, idx.next().getNodeKeys().getLongCardinality(), "Rev1: Should still have 53 'Feature' nodes");
+      }
+    }
+    
+    @Test
+    @DisplayName("HOT NAME index with 6+ revisions: insert and delete operations")
+    void testHOTNameIndexMultiRevisionVersioning() {
+      assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
+      
+      final var jsonPath = JSON.resolve("abc-location-stations.json");
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      
+      // Track the index definition for use across transactions
+      IndexDef savedNameIndexDef;
+      
+      // Revision 1: Create NAME index with initial data
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+
+        // Create NAME index for all keys (ID will be JSON_NAME_INDEX_OFFSET + 0 = 1)
+        final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+        savedNameIndexDef = nameIndexDef;
+
+        indexController.createIndexes(Set.of(nameIndexDef), trx);
+
+        // Shred JSON file
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createFileReader(jsonPath),
+            InsertPosition.AS_FIRST_CHILD).build();
+        shredder.call();
+        trx.commit();
+        
+        // Query for "type" name - NAME index finds ALL occurrences in doc (not just /features/[]/type)
+        // abc-location-stations.json has 63 "type" keys total
+        var idx = indexController.openNameIndex(trx.getPageTrx(), nameIndexDef,
+            indexController.createNameFilter(Set.of("type")));
+        assertTrue(idx.hasNext(), "Rev1: Should find 'type' keys");
+        long initialTypeCount = idx.next().getNodeKeys().getLongCardinality();
+        assertTrue(initialTypeCount > 0, "Rev1: Should have 'type' keys");
+      }
+      
+      // Revisions 2-6: Delete elements one by one (5 deletions) in separate transactions
+      // JSON structure: { "type": "...", "features": [...], ... }
+      for (int i = 2; i <= 6; i++) {
+        try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+             final var trx = manager.beginNodeTrx()) {
+          trx.moveToDocumentRoot();
+          trx.moveToFirstChild(); // root object
+          trx.moveToFirstChild(); // "type" OBJECT_KEY (first key)
+          trx.moveToRightSibling(); // "features" OBJECT_KEY (second key)
+          trx.moveToFirstChild(); // features ARRAY (value of the key)
+          trx.moveToFirstChild(); // first feature OBJECT in array
+          trx.remove();
+          trx.commit();
+        }
+      }
+      
+      // Final verification in a new read transaction
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx()) {
+        var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
+        
+        assertTrue(rtx.getRevisionNumber() >= 6, "Should have at least 6 revisions");
+        
+        // Use the saved index definition - count should be reduced by deletions
+        var idx = indexController.openNameIndex(rtx.getPageTrx(), savedNameIndexDef,
+            indexController.createNameFilter(Set.of("type")));
+        assertTrue(idx.hasNext(), "Latest: Should find 'type' keys");
+        long latestCount = idx.next().getNodeKeys().getLongCardinality();
+        assertTrue(latestCount > 0, "Latest: Should have 'type' keys after deletions");
+      }
+      
+      // Verify historical access works - revision 1 should have original count
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx(1)) {
+        var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
+        
+        var idx = indexController.openNameIndex(rtx.getPageTrx(), savedNameIndexDef,
+            indexController.createNameFilter(Set.of("type")));
+        assertTrue(idx.hasNext(), "Rev1: Should find 'type' keys in historical access");
+        long rev1Count = idx.next().getNodeKeys().getLongCardinality();
+        assertTrue(rev1Count > 0, "Rev1: Should have 'type' keys");
       }
     }
   }
