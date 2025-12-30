@@ -2130,4 +2130,661 @@ class HOTIndexIntegrationTest {
       }
     }
   }
+
+  // ===== PATH Index Corner Cases =====
+  
+  @Nested
+  @DisplayName("PATH Index Corner Cases")
+  class PATHIndexCornerCaseTests {
+
+    @BeforeEach
+    void setUp() {
+      JsonTestHelper.deleteEverything();
+      System.setProperty("sirix.index.useHOT", "true");
+    }
+
+    @AfterEach
+    void tearDown() {
+      JsonTestHelper.closeEverything();
+      JsonTestHelper.deleteEverything();
+      System.clearProperty("sirix.index.useHOT");
+    }
+
+    /**
+     * PATH-TC1: Multiple paths in one index - insertion
+     * 
+     * Scenario: Create index covering multiple paths, verify all are indexed.
+     */
+    @Test
+    @DisplayName("PATH-TC1: Multiple paths in one index")
+    void testMultiplePathsInOneIndex() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        
+        // Create 3 separate indexes for each path
+        final var namePath = parse("/users/[]/name", PathParser.Type.JSON);
+        final var emailPath = parse("/users/[]/email", PathParser.Type.JSON);
+        final var rolePath = parse("/users/[]/role", PathParser.Type.JSON);
+        
+        final var nameIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(namePath), 0, IndexDef.DbType.JSON);
+        final var emailIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(emailPath), 1, IndexDef.DbType.JSON);
+        final var roleIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(rolePath), 2, IndexDef.DbType.JSON);
+        
+        indexController.createIndexes(Set.of(nameIndexDef, emailIndexDef, roleIndexDef), wtx);
+
+        // Insert data matching all paths
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"users\": [{\"name\": \"Alice\", \"email\": \"alice@test.com\", \"role\": \"admin\"}, " +
+            "{\"name\": \"Bob\", \"email\": \"bob@test.com\", \"role\": \"user\"}]}"));
+        wtx.commit();
+
+        // Verify all paths are indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          
+          // Check name path
+          var nameIdx = readController.openPathIndex(rtx.getPageTrx(), nameIndexDef, null);
+          assertTrue(nameIdx.hasNext(), "Path /users/[]/name should be indexed");
+          assertEquals(2, nameIdx.next().getNodeKeys().getLongCardinality(), "Should have 2 name nodes");
+          
+          // Check email path
+          var emailIdx = readController.openPathIndex(rtx.getPageTrx(), emailIndexDef, null);
+          assertTrue(emailIdx.hasNext(), "Path /users/[]/email should be indexed");
+          assertEquals(2, emailIdx.next().getNodeKeys().getLongCardinality(), "Should have 2 email nodes");
+          
+          // Check role path
+          var roleIdx = readController.openPathIndex(rtx.getPageTrx(), roleIndexDef, null);
+          assertTrue(roleIdx.hasNext(), "Path /users/[]/role should be indexed");
+          assertEquals(2, roleIdx.next().getNodeKeys().getLongCardinality(), "Should have 2 role nodes");
+        }
+      }
+    }
+
+    /**
+     * PATH-TC2: Insertions across multiple revisions
+     * 
+     * Scenario: Insert nodes matching path in multiple commits, verify count increases.
+     */
+    @Test
+    @DisplayName("PATH-TC2: Insertions across multiple revisions")
+    void testPathInsertionsAcrossRevisions() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var idPath = parse("/items/[]/id", PathParser.Type.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(
+            Collections.singleton(idPath), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(pathIndexDef), wtx);
+
+        // Rev 1: Insert 2 items
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"items\": [{\"id\": 1}, {\"id\": 2}]}"));
+        wtx.commit();
+
+        // Rev 2: Insert 2 more items
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "items" key
+        wtx.moveToFirstChild(); // items array
+        wtx.moveToLastChild(); // last item
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"id\": 3}"));
+        wtx.moveToRightSibling();
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"id\": 4}"));
+        wtx.commit();
+
+        // Rev 3: Insert 1 more item
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToLastChild();
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"id\": 5}"));
+        wtx.commit();
+
+        // Verify latest revision has 5 indexed paths
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
+          assertTrue(idx.hasNext());
+          assertEquals(5, idx.next().getNodeKeys().getLongCardinality(), "Latest: Should have 5 'id' paths");
+        }
+      }
+    }
+
+    /**
+     * PATH-TC3: Deletion removes path from index
+     * 
+     * Scenario: Delete node matching indexed path, verify removed from index.
+     */
+    @Test
+    @DisplayName("PATH-TC3: Deletion removes path from index")
+    void testPathDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var valuePath = parse("/data/value", PathParser.Type.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(
+            Collections.singleton(valuePath), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(pathIndexDef), wtx);
+
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"data\": {\"value\": \"test\", \"other\": \"keep\"}}"));
+        wtx.commit();
+
+        // Verify indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
+          assertTrue(idx.hasNext(), "Before: path should be indexed");
+        }
+
+        // Delete "value" key
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root
+        wtx.moveToFirstChild(); // "data"
+        wtx.moveToFirstChild(); // data object
+        wtx.moveToFirstChild(); // "value" key
+        assertEquals("value", wtx.getName().getLocalName());
+        wtx.remove();
+        wtx.commit();
+
+        // Verify removed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
+          assertFalse(idx.hasNext(), "After: path should be removed from index");
+        }
+      }
+    }
+
+    /**
+     * PATH-TC4: Parent deletion removes nested paths
+     * 
+     * Scenario: Delete parent, all nested paths should be removed from index.
+     */
+    @Test
+    @DisplayName("PATH-TC4: Parent deletion removes nested paths")
+    void testPathParentDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var deepPath = parse("/container/nested/deep/value", PathParser.Type.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(
+            Collections.singleton(deepPath), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(pathIndexDef), wtx);
+
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"container\": {\"nested\": {\"deep\": {\"value\": \"found\"}}}, \"other\": \"keep\"}"));
+        wtx.commit();
+
+        // Verify indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
+          assertTrue(idx.hasNext(), "Before: deep path should be indexed");
+        }
+
+        // Delete "container" (ancestor)
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild(); // "container"
+        assertEquals("container", wtx.getName().getLocalName());
+        wtx.remove();
+        wtx.commit();
+
+        // Verify removed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
+          assertFalse(idx.hasNext(), "After: nested path should be removed from index");
+        }
+      }
+    }
+
+    /**
+     * PATH-TC5: Cross-transaction persistence
+     * 
+     * Scenario: Insert, commit, close, reopen, verify index state persists.
+     */
+    @Test
+    @DisplayName("PATH-TC5: Cross-transaction persistence")
+    void testPathCrossTransactionPersistence() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var keyPath = parse("/data/key", PathParser.Type.JSON);
+      IndexDef pathIndexDef;
+
+      // Transaction 1: Create index and insert
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        pathIndexDef = IndexDefs.createPathIdxDef(
+            Collections.singleton(keyPath), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(pathIndexDef), wtx);
+
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"data\": {\"key\": \"value\"}}"));
+        wtx.commit();
+      }
+
+      // Transaction 2: Verify key is still indexed after reopening
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx()) {
+        var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+        var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
+        assertTrue(idx.hasNext(), "Transaction 2: path should be indexed after reopen");
+        assertEquals(1, idx.next().getNodeKeys().getLongCardinality());
+      }
+
+      // Transaction 3: Delete the key
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild(); // "data"
+        wtx.moveToFirstChild(); // data object
+        wtx.moveToFirstChild(); // "key"
+        wtx.remove();
+        wtx.commit();
+      }
+
+      // Transaction 4: Verify deletion persisted
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx()) {
+        var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+        var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
+        assertFalse(idx.hasNext(), "Transaction 4: deletion should persist across transactions");
+      }
+    }
+
+    /**
+     * PATH-TC6: Partial deletion with multiple matching nodes
+     * 
+     * Scenario: Multiple nodes match path, delete one, verify count decreases.
+     */
+    @Test
+    @DisplayName("PATH-TC6: Partial deletion of multiple matching paths")
+    void testPathPartialDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var statusPath = parse("/users/[]/status", PathParser.Type.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(
+            Collections.singleton(statusPath), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(pathIndexDef), wtx);
+
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"users\": [{\"status\": \"active\"}, {\"status\": \"inactive\"}, {\"status\": \"pending\"}]}"));
+        wtx.commit();
+
+        // Verify 3 paths indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
+          assertTrue(idx.hasNext());
+          assertEquals(3, idx.next().getNodeKeys().getLongCardinality(), "Before: 3 status paths");
+        }
+
+        // Delete middle user (with "inactive" status)
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild(); // first user
+        wtx.moveToRightSibling(); // second user
+        wtx.remove();
+        wtx.commit();
+
+        // Verify 2 paths remain
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
+          assertTrue(idx.hasNext());
+          assertEquals(2, idx.next().getNodeKeys().getLongCardinality(), "After: 2 status paths");
+        }
+      }
+    }
+  }
+
+  // ===== NAME Index Corner Cases =====
+  
+  @Nested
+  @DisplayName("NAME Index Corner Cases")
+  class NAMEIndexCornerCaseTests {
+
+    @BeforeEach
+    void setUp() {
+      JsonTestHelper.deleteEverything();
+      System.setProperty("sirix.index.useHOT", "true");
+    }
+
+    @AfterEach
+    void tearDown() {
+      JsonTestHelper.closeEverything();
+      JsonTestHelper.deleteEverything();
+      System.clearProperty("sirix.index.useHOT");
+    }
+
+    /**
+     * NAME-TC1: Multiple names in one index
+     * 
+     * Scenario: Create index for all names, query for specific names.
+     */
+    @Test
+    @DisplayName("NAME-TC1: Multiple names in one index")
+    void testMultipleNamesInOneIndex() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        // Create name index for ALL names (filtering done at query time)
+        final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(nameIndexDef), wtx);
+
+        // Insert data with multiple object keys
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"users\": [{\"name\": \"Alice\", \"email\": \"a@test.com\", \"role\": \"admin\"}, " +
+            "{\"name\": \"Bob\", \"email\": \"b@test.com\", \"role\": \"user\"}]}"));
+        wtx.commit();
+
+        // Verify names can be queried with filter
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          
+          var nameIdx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("name")));
+          assertTrue(nameIdx.hasNext(), "Name 'name' should be indexed");
+          assertEquals(2, nameIdx.next().getNodeKeys().getLongCardinality(), "Should have 2 'name' keys");
+          
+          var emailIdx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("email")));
+          assertTrue(emailIdx.hasNext(), "Name 'email' should be indexed");
+          assertEquals(2, emailIdx.next().getNodeKeys().getLongCardinality(), "Should have 2 'email' keys");
+          
+          var roleIdx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("role")));
+          assertTrue(roleIdx.hasNext(), "Name 'role' should be indexed");
+          assertEquals(2, roleIdx.next().getNodeKeys().getLongCardinality(), "Should have 2 'role' keys");
+        }
+      }
+    }
+
+    /**
+     * NAME-TC2: Insertions across multiple revisions
+     * 
+     * Scenario: Insert nodes with indexed names in multiple commits.
+     */
+    @Test
+    @DisplayName("NAME-TC2: Insertions across multiple revisions")
+    void testNameInsertionsAcrossRevisions() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(nameIndexDef), wtx);
+
+        // Rev 1: Insert 2 items with "status"
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"items\": [{\"status\": \"new\"}, {\"status\": \"old\"}]}"));
+        wtx.commit();
+
+        // Verify 2 "status" names indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("status")));
+          assertTrue(idx.hasNext());
+          assertEquals(2, idx.next().getNodeKeys().getLongCardinality(), "Rev1: 2 status names");
+        }
+
+        // Rev 2: Insert 2 more items
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToLastChild();
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"status\": \"pending\"}"));
+        wtx.moveToRightSibling();
+        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"status\": \"active\"}"));
+        wtx.commit();
+
+        // Verify 4 "status" names indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("status")));
+          assertTrue(idx.hasNext());
+          assertEquals(4, idx.next().getNodeKeys().getLongCardinality(), "Rev2: 4 status names");
+        }
+      }
+    }
+
+    /**
+     * NAME-TC3: Deletion removes name from index
+     * 
+     * Scenario: Delete object key, verify name count decreases.
+     */
+    @Test
+    @DisplayName("NAME-TC3: Deletion removes name from index")
+    void testNameDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(nameIndexDef), wtx);
+
+        // Insert with 2 "target" keys to test deletion
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"items\": [{\"target\": \"a\"}, {\"target\": \"b\"}]}"));
+        wtx.commit();
+
+        // Verify 2 "target" keys indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("target")));
+          assertTrue(idx.hasNext(), "Before: 'target' should be indexed");
+          assertEquals(2, idx.next().getNodeKeys().getLongCardinality(), "Before: 2 'target' keys");
+        }
+
+        // Delete first item (containing first "target" key)
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "items" key
+        wtx.moveToFirstChild(); // items array
+        wtx.moveToFirstChild(); // first object
+        wtx.remove();
+        wtx.commit();
+
+        // Verify 1 "target" key remains
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("target")));
+          assertTrue(idx.hasNext(), "After: 'target' should still be indexed (1 remaining)");
+          assertEquals(1, idx.next().getNodeKeys().getLongCardinality(), "After: 1 'target' key remains");
+        }
+      }
+    }
+
+    /**
+     * NAME-TC4: Parent deletion removes nested names
+     * 
+     * Scenario: Delete parent object, verify nested names count decreases.
+     */
+    @Test
+    @DisplayName("NAME-TC4: Parent deletion removes nested names")
+    void testNameParentDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(nameIndexDef), wtx);
+
+        // Insert with 2 "nested" keys - one will be deleted via parent
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"items\": [{\"container\": {\"nested\": \"a\"}}, {\"nested\": \"b\"}]}"));
+        wtx.commit();
+
+        // Verify 2 "nested" keys indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("nested")));
+          assertTrue(idx.hasNext(), "Before: 'nested' should be indexed");
+          assertEquals(2, idx.next().getNodeKeys().getLongCardinality(), "Before: 2 'nested' keys");
+        }
+
+        // Delete first item (contains "container" which contains "nested")
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "items" key
+        wtx.moveToFirstChild(); // items array
+        wtx.moveToFirstChild(); // first object
+        wtx.remove();
+        wtx.commit();
+
+        // Verify 1 "nested" key remains
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("nested")));
+          assertTrue(idx.hasNext(), "After: 'nested' should still be indexed (1 remaining)");
+          assertEquals(1, idx.next().getNodeKeys().getLongCardinality(), "After: 1 'nested' key remains");
+        }
+      }
+    }
+
+    /**
+     * NAME-TC5: Cross-transaction persistence
+     * 
+     * Scenario: Insert, commit, close, reopen, verify counts across transactions.
+     */
+    @Test
+    @DisplayName("NAME-TC5: Cross-transaction persistence")
+    void testNameCrossTransactionPersistence() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      IndexDef nameIndexDef;
+
+      // Transaction 1: Create index and insert with 2 "key" names
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(nameIndexDef), wtx);
+
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"items\": [{\"key\": \"a\"}, {\"key\": \"b\"}]}"));
+        wtx.commit();
+      }
+
+      // Transaction 2: Verify 2 "key" names indexed
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx()) {
+        var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+        var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+            readController.createNameFilter(Set.of("key")));
+        assertTrue(idx.hasNext(), "Transaction 2: 'key' should be indexed");
+        assertEquals(2, idx.next().getNodeKeys().getLongCardinality(), "Transaction 2: 2 'key' names");
+      }
+
+      // Transaction 3: Delete one item
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "items" key
+        wtx.moveToFirstChild(); // items array
+        wtx.moveToFirstChild(); // first object
+        wtx.remove();
+        wtx.commit();
+      }
+
+      // Transaction 4: Verify 1 "key" name remains
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx()) {
+        var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+        var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+            readController.createNameFilter(Set.of("key")));
+        assertTrue(idx.hasNext(), "Transaction 4: 'key' should still be indexed");
+        assertEquals(1, idx.next().getNodeKeys().getLongCardinality(), "Transaction 4: 1 'key' name remains");
+      }
+    }
+
+    /**
+     * NAME-TC6: Partial deletion with multiple matching names
+     * 
+     * Scenario: Multiple objects have same key name, delete one, verify count decreases.
+     */
+    @Test
+    @DisplayName("NAME-TC6: Partial deletion of multiple matching names")
+    void testNamePartialDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(nameIndexDef), wtx);
+
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"users\": [{\"status\": \"a\"}, {\"status\": \"b\"}, {\"status\": \"c\"}]}"));
+        wtx.commit();
+
+        // Verify 3 names indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("status")));
+          assertTrue(idx.hasNext());
+          assertEquals(3, idx.next().getNodeKeys().getLongCardinality(), "Before: 3 status names");
+        }
+
+        // Delete middle user
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToFirstChild();
+        wtx.moveToRightSibling();
+        wtx.remove();
+        wtx.commit();
+
+        // Verify 2 names remain
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
+              readController.createNameFilter(Set.of("status")));
+          assertTrue(idx.hasNext());
+          assertEquals(2, idx.next().getNodeKeys().getLongCardinality(), "After: 2 status names");
+        }
+      }
+    }
+  }
 }
