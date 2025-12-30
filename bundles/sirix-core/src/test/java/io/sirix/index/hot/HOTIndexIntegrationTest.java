@@ -1542,4 +1542,592 @@ class HOTIndexIntegrationTest {
       }
     }
   }
+
+  // ===== CAS Index Deletion Corner Cases =====
+  // Formal proof of correctness: systematically test all deletion scenarios
+  
+  @Nested
+  @DisplayName("CAS Index Deletion Corner Cases")
+  class CASIndexDeletionTests {
+
+    @BeforeEach
+    void setUp() {
+      JsonTestHelper.deleteEverything();
+      System.setProperty("sirix.index.useHOT", "true");
+    }
+
+    @AfterEach
+    void tearDown() {
+      JsonTestHelper.closeEverything();
+      JsonTestHelper.deleteEverything();
+      System.clearProperty("sirix.index.useHOT");
+    }
+
+    /**
+     * Test Case 1: Direct array value deletion
+     * 
+     * Scenario: Delete a string value in an array directly.
+     * Note: Object values cannot be deleted directly, but array values can.
+     * Expected: The value should be removed from the CAS index.
+     */
+    @Test
+    @DisplayName("TC1: Direct array value deletion removes entry from CAS index")
+    void testDirectArrayValueDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        // Create CAS index on /items/[] path (array elements)
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Set.of(parse("/items/[]", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+        // Insert JSON with array of strings
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"items\": [\"apple\", \"banana\", \"cherry\"]}"));
+        wtx.commit();
+
+        // Verify all values are indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/items/[]"), new Str("banana"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(idx.hasNext(), "Before deletion: 'banana' should be indexed");
+          assertEquals(1, idx.next().getNodeKeys().getLongCardinality());
+        }
+
+        // Navigate to "banana" and delete it directly
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "items" key
+        wtx.moveToFirstChild(); // items array
+        wtx.moveToFirstChild(); // "apple"
+        wtx.moveToRightSibling(); // "banana"
+        assertEquals("banana", wtx.getValue(), "Should be at 'banana' value node");
+        
+        wtx.remove(); // Direct deletion of array element
+        wtx.commit();
+
+        // Verify "banana" is removed from index
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          
+          // "banana" should be gone
+          var bananaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/items/[]"), new Str("banana"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertFalse(bananaIdx.hasNext(), "After deletion: 'banana' should be removed from index");
+          
+          // "apple" and "cherry" should still be there
+          var appleIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/items/[]"), new Str("apple"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(appleIdx.hasNext(), "'apple' should still be indexed");
+          
+          var cherryIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/items/[]"), new Str("cherry"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(cherryIdx.hasNext(), "'cherry' should still be indexed");
+        }
+      }
+    }
+
+    /**
+     * Test Case 2: Parent object key deletion
+     * 
+     * Scenario: Delete an object key that contains a string value.
+     * This is the main case the bug fix addressed - the value node must be
+     * passed to the index controller, not the parent node.
+     * Expected: The value should be removed from the CAS index.
+     */
+    @Test
+    @DisplayName("TC2: Parent object key deletion removes value from CAS index")
+    void testParentObjectKeyDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        // Create CAS index on /user/status path
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Set.of(parse("/user/status", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+        // Insert JSON with status value
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"user\": {\"name\": \"John\", \"status\": \"active\", \"role\": \"admin\"}}"));
+        wtx.commit();
+
+        // Verify "active" is indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/user/status"), new Str("active"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(idx.hasNext(), "Before deletion: 'active' should be indexed");
+          assertEquals(1, idx.next().getNodeKeys().getLongCardinality());
+        }
+
+        // Navigate to "status" object key and delete it (deletes key + value)
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "user" key
+        wtx.moveToFirstChild(); // user object
+        wtx.moveToFirstChild(); // "name" key
+        wtx.moveToRightSibling(); // "status" key
+        assertEquals("status", wtx.getName().getLocalName(), "Should be at 'status' key");
+        
+        wtx.remove(); // Delete the object key (and its value)
+        wtx.commit();
+
+        // Verify "active" is removed from index
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/user/status"), new Str("active"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertFalse(idx.hasNext(), "After deletion: 'active' should be removed from index");
+        }
+      }
+    }
+
+    /**
+     * Test Case 3: Grandparent object deletion
+     * 
+     * Scenario: Delete an ancestor object that contains nested object keys with values.
+     * The entire subtree is deleted, all values should be removed from CAS index.
+     * Expected: All nested values should be removed from the CAS index.
+     */
+    @Test
+    @DisplayName("TC3: Grandparent object deletion removes all nested values from CAS index")
+    void testGrandparentObjectDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        // Create CAS index on /data/user/status path
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Set.of(parse("/data/user/status", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+        // Insert JSON with nested structure
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"data\": {\"user\": {\"name\": \"John\", \"status\": \"active\"}}, \"other\": \"value\"}"));
+        wtx.commit();
+
+        // Verify "active" is indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/data/user/status"), new Str("active"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(idx.hasNext(), "Before deletion: 'active' should be indexed");
+        }
+
+        // Navigate to "data" object key (grandparent of value) and delete it
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "data" key
+        assertEquals("data", wtx.getName().getLocalName(), "Should be at 'data' key");
+        
+        wtx.remove(); // Delete entire "data" subtree including nested "active" value
+        wtx.commit();
+
+        // Verify "active" is removed from index
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/data/user/status"), new Str("active"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertFalse(idx.hasNext(), "After deletion: 'active' should be removed from index");
+        }
+      }
+    }
+
+    /**
+     * Test Case 4: Number value deletion
+     * 
+     * Scenario: Delete an object key containing a number value.
+     * Tests that NUMBER type values are correctly removed from CAS index.
+     * Expected: The number value should be removed from the CAS index.
+     */
+    @Test
+    @DisplayName("TC4: Number value deletion removes entry from CAS index")
+    void testNumberValueDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        // Create CAS index for strings on /product/price path
+        // (numbers are converted to strings for CAS indexing with Type.STR)
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Set.of(parse("/product/price", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+        // Insert JSON with price value (number will be indexed as string)
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"product\": {\"name\": \"Widget\", \"price\": 99.99, \"stock\": 100}}"));
+        wtx.commit();
+
+        // Verify 99.99 is indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/product/price"), new Str("99.99"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(idx.hasNext(), "Before deletion: 99.99 should be indexed");
+        }
+
+        // Navigate to "price" object key and delete it
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "product" key
+        wtx.moveToFirstChild(); // product object
+        wtx.moveToFirstChild(); // "name" key
+        wtx.moveToRightSibling(); // "price" key
+        assertEquals("price", wtx.getName().getLocalName(), "Should be at 'price' key");
+        
+        wtx.remove(); // Delete price key and value
+        wtx.commit();
+
+        // Verify 99.99 is removed from index
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/product/price"), new Str("99.99"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertFalse(idx.hasNext(), "After deletion: 99.99 should be removed from index");
+        }
+      }
+    }
+
+    /**
+     * Test Case 5: Boolean value deletion
+     * 
+     * Scenario: Delete an object key containing a boolean value.
+     * Tests that BOOLEAN type values are correctly removed from CAS index.
+     * Expected: The boolean value should be removed from the CAS index.
+     */
+    @Test
+    @DisplayName("TC5: Boolean value deletion removes entry from CAS index")
+    void testBooleanValueDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        // Create CAS index on /user/active path
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Set.of(parse("/user/active", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+        // Insert JSON with boolean value
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"user\": {\"name\": \"John\", \"active\": true, \"verified\": false}}"));
+        wtx.commit();
+
+        // Verify true is indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/user/active"), new Str("true"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(idx.hasNext(), "Before deletion: 'true' should be indexed");
+        }
+
+        // Navigate to "active" object key and delete it
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "user" key
+        wtx.moveToFirstChild(); // user object
+        wtx.moveToFirstChild(); // "name" key
+        wtx.moveToRightSibling(); // "active" key
+        assertEquals("active", wtx.getName().getLocalName(), "Should be at 'active' key");
+        
+        wtx.remove(); // Delete active key and value
+        wtx.commit();
+
+        // Verify true is removed from index
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/user/active"), new Str("true"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertFalse(idx.hasNext(), "After deletion: 'true' should be removed from index");
+        }
+      }
+    }
+
+    /**
+     * Test Case 6: Multiple identical values - partial deletion
+     * 
+     * Scenario: Multiple nodes have the same value. Delete one occurrence.
+     * Expected: Index count decreases by 1, other occurrences remain indexed.
+     */
+    @Test
+    @DisplayName("TC6: Partial deletion of multiple identical values")
+    void testMultipleIdenticalValuesPartialDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        // Create CAS index on /users/[]/status path
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Set.of(parse("/users/[]/status", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+        // Insert JSON with 3 users all having status "active"
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"users\": [{\"name\": \"Alice\", \"status\": \"active\"}, " +
+            "{\"name\": \"Bob\", \"status\": \"active\"}, " +
+            "{\"name\": \"Charlie\", \"status\": \"active\"}]}"));
+        wtx.commit();
+
+        // Verify 3 "active" values are indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/users/[]/status"), new Str("active"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(idx.hasNext(), "Before deletion: 'active' should be indexed");
+          assertEquals(3, idx.next().getNodeKeys().getLongCardinality(), "Should have 3 'active' values");
+        }
+
+        // Navigate to Bob's object and delete it (deletes Bob's status)
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "users" key
+        wtx.moveToFirstChild(); // users array
+        wtx.moveToFirstChild(); // Alice object
+        wtx.moveToRightSibling(); // Bob object
+        
+        wtx.remove(); // Delete Bob (including his "active" status)
+        wtx.commit();
+
+        // Verify now only 2 "active" values are indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/users/[]/status"), new Str("active"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(idx.hasNext(), "After deletion: 'active' should still be indexed");
+          assertEquals(2, idx.next().getNodeKeys().getLongCardinality(), "Should have 2 'active' values after deleting Bob");
+        }
+      }
+    }
+
+    /**
+     * Test Case 7: Deep nesting deletion
+     * 
+     * Scenario: Delete an ancestor in a deeply nested structure (5+ levels).
+     * All descendant values should be removed from CAS index.
+     * Expected: All nested values are removed from the CAS index.
+     */
+    @Test
+    @DisplayName("TC7: Deep nesting ancestor deletion removes all nested values")
+    void testDeepNestingDeletion() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        // Create CAS index on deep path
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Set.of(parse("/a/b/c/d/e/value", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+        // Insert deeply nested JSON
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"a\": {\"b\": {\"c\": {\"d\": {\"e\": {\"value\": \"deep\"}}}}}}"));
+        wtx.commit();
+
+        // Verify "deep" is indexed
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/a/b/c/d/e/value"), new Str("deep"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(idx.hasNext(), "Before deletion: 'deep' should be indexed");
+        }
+
+        // Navigate to "c" (middle ancestor) and delete it
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "a" key
+        wtx.moveToFirstChild(); // a object
+        wtx.moveToFirstChild(); // "b" key
+        wtx.moveToFirstChild(); // b object
+        wtx.moveToFirstChild(); // "c" key
+        assertEquals("c", wtx.getName().getLocalName(), "Should be at 'c' key");
+        
+        wtx.remove(); // Delete "c" and all descendants
+        wtx.commit();
+
+        // Verify "deep" is removed from index
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/a/b/c/d/e/value"), new Str("deep"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertFalse(idx.hasNext(), "After deletion: 'deep' should be removed from index");
+        }
+      }
+    }
+
+    /**
+     * Test Case 8: Cross-transaction deletion persistence
+     * 
+     * Scenario: Delete value in one transaction, commit, then verify in new transaction.
+     * Tests that deletions are properly persisted to storage.
+     * Expected: Deletion persists across transaction boundaries.
+     */
+    @Test
+    @DisplayName("TC8: Cross-transaction deletion persistence")
+    void testCrossTransactionDeletionPersistence() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      IndexDef casIndexDef;
+
+      // Transaction 1: Create index and insert data
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Set.of(parse("/data/value", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"data\": {\"value\": \"persistent\"}}"));
+        wtx.commit();
+      }
+
+      // Transaction 2: Delete the value
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        // Verify it exists before deletion
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/data/value"), new Str("persistent"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(idx.hasNext(), "Transaction 2: Value should exist before deletion");
+        }
+
+        // Navigate and delete
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "data" key
+        wtx.moveToFirstChild(); // data object
+        wtx.moveToFirstChild(); // "value" key
+        assertEquals("value", wtx.getName().getLocalName());
+        
+        wtx.remove();
+        wtx.commit();
+      }
+
+      // Transaction 3: Verify deletion persisted
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx()) {
+
+        var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+        var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+            readController.createCASFilter(Set.of("/data/value"), new Str("persistent"),
+                SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        assertFalse(idx.hasNext(), "Transaction 3: Deletion should persist across transactions");
+      }
+    }
+
+    /**
+     * Test Case 9: Mixed insert-delete-insert operations
+     * 
+     * Scenario: Insert values, delete some, insert more, verify final state.
+     * Tests that the index correctly handles interleaved operations.
+     * Expected: Final index state reflects all operations correctly.
+     */
+    @Test
+    @DisplayName("TC9: Mixed insert-delete-insert operations")
+    void testMixedInsertDeleteInsertOperations() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = manager.beginNodeTrx()) {
+
+        // Create CAS index on /items/[] path
+        var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Set.of(parse("/items/[]", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+        // Initial insert: apple, banana
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"items\": [\"apple\", \"banana\"]}"));
+        wtx.commit();
+
+        // Verify initial state
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          var appleIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/items/[]"), new Str("apple"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(appleIdx.hasNext(), "Step 1: 'apple' should be indexed");
+          
+          var bananaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/items/[]"), new Str("banana"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(bananaIdx.hasNext(), "Step 1: 'banana' should be indexed");
+        }
+
+        // Delete banana
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "items" key
+        wtx.moveToFirstChild(); // items array
+        wtx.moveToFirstChild(); // "apple"
+        wtx.moveToRightSibling(); // "banana"
+        assertEquals("banana", wtx.getValue());
+        wtx.remove();
+        wtx.commit();
+
+        // Insert cherry
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild(); // root object
+        wtx.moveToFirstChild(); // "items" key
+        wtx.moveToFirstChild(); // items array
+        wtx.moveToFirstChild(); // "apple"
+        wtx.insertStringValueAsRightSibling("cherry");
+        wtx.commit();
+
+        // Verify final state: apple (yes), banana (no), cherry (yes)
+        try (final var rtx = manager.beginNodeReadOnlyTrx()) {
+          var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
+          
+          var appleIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/items/[]"), new Str("apple"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(appleIdx.hasNext(), "Final: 'apple' should be indexed");
+          
+          var bananaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/items/[]"), new Str("banana"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertFalse(bananaIdx.hasNext(), "Final: 'banana' should be removed");
+          
+          var cherryIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
+              readController.createCASFilter(Set.of("/items/[]"), new Str("cherry"),
+                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          assertTrue(cherryIdx.hasNext(), "Final: 'cherry' should be indexed");
+        }
+      }
+    }
+  }
 }
