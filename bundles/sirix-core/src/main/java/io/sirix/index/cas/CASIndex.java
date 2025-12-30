@@ -1,10 +1,12 @@
 package io.sirix.index.cas;
 
 import com.google.common.collect.Iterators;
+import io.sirix.access.IndexBackendType;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.index.AtomicUtil;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexFilterAxis;
@@ -35,9 +37,9 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
   L createListener(StorageEngineWriter pageWriteTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
   default Iterator<NodeReferences> openIndex(StorageEngineReader pageRtx, IndexDef indexDef, CASFilterRange filter) {
-    // Check if HOT is enabled
-    if (CASIndexListenerFactory.isHOTEnabled()) {
-      return openHOTIndex(pageRtx, indexDef);
+    // Check if HOT is enabled (system property takes precedence, then resource config)
+    if (isHOTEnabled(pageRtx)) {
+      return openHOTIndexWithRangeFilter(pageRtx, indexDef, filter);
     }
     
     final RBTreeReader<CASValue, NodeReferences> reader =
@@ -52,13 +54,28 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
   }
 
   default Iterator<NodeReferences> openIndex(StorageEngineReader pageRtx, IndexDef indexDef, CASFilter filter) {
-    // Check if HOT is enabled
-    if (CASIndexListenerFactory.isHOTEnabled()) {
+    // Check if HOT is enabled (system property takes precedence, then resource config)
+    if (isHOTEnabled(pageRtx)) {
       return openHOTIndexWithFilter(pageRtx, indexDef, filter);
     }
     
     // Use RBTree (default)
     return openRBTreeIndex(pageRtx, indexDef, filter);
+  }
+  
+  /**
+   * Checks if HOT indexes should be used for reading.
+   */
+  private static boolean isHOTEnabled(final StorageEngineReader pageRtx) {
+    // System property takes precedence (for testing)
+    final String sysProp = System.getProperty(CASIndexListenerFactory.USE_HOT_PROPERTY);
+    if (sysProp != null) {
+      return Boolean.parseBoolean(sysProp);
+    }
+    
+    // Fall back to resource configuration
+    final var resourceConfig = pageRtx.getResourceSession().getResourceConfig();
+    return resourceConfig.indexBackendType == IndexBackendType.HOT_TRIE;
   }
   
   /**
@@ -94,6 +111,62 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         NodeReferences result = next;
         next = null;
         return result;
+      }
+    };
+  }
+  
+  /**
+   * Open HOT-based CAS index with range filter.
+   * Applies min/max bounds and inclusivity to filter results.
+   */
+  private Iterator<NodeReferences> openHOTIndexWithRangeFilter(StorageEngineReader pageRtx, IndexDef indexDef, CASFilterRange filter) {
+    final HOTIndexReader<CASValue> reader = HOTIndexReader.create(
+        pageRtx, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
+    
+    // Full scan with range filter applied
+    final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator = reader.iterator();
+    final CASFilterRange rangeFilter = filter;
+    
+    return new Iterator<>() {
+      private NodeReferences next = null;
+      
+      @Override
+      public boolean hasNext() {
+        if (next != null) {
+          return true;
+        }
+        while (entryIterator.hasNext()) {
+          Map.Entry<CASValue, NodeReferences> entry = entryIterator.next();
+          CASValue key = entry.getKey();
+          
+          // Apply range filter
+          if (rangeFilter == null || matchesRangeFilter(key, rangeFilter)) {
+            next = entry.getValue();
+            return true;
+          }
+        }
+        return false;
+      }
+      
+      @Override
+      public NodeReferences next() {
+        if (!hasNext()) {
+          throw new NoSuchElementException();
+        }
+        NodeReferences result = next;
+        next = null;
+        return result;
+      }
+      
+      private boolean matchesRangeFilter(CASValue key, CASFilterRange f) {
+        // Check PCRs
+        Set<Long> filterPCRs = f.getPCRs();
+        if (filterPCRs != null && !filterPCRs.isEmpty() && !filterPCRs.contains(key.getPathNodeKey())) {
+          return false;
+        }
+        
+        // Check range bounds
+        return f.inRange(AtomicUtil.toType(key.getAtomicValue(), key.getType()));
       }
     };
   }

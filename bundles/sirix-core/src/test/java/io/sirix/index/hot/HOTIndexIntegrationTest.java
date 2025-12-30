@@ -93,6 +93,74 @@ class HOTIndexIntegrationTest {
     System.setProperty("sirix.index.useHOT", "true");
   }
   
+  @Test
+  @DisplayName("Per-resource IndexBackendType configuration works correctly")
+  void testPerResourceIndexBackendConfiguration() {
+    // This test verifies that:
+    // 1. ResourceConfiguration.indexBackendType defaults to HOT_TRIE
+    // 2. ResourceConfiguration.indexBackendType can be explicitly set to RBTREE
+    // 3. Configuration is properly stored and accessible
+    
+    System.clearProperty("sirix.index.useHOT");
+    
+    // Test 1: Default configuration should be HOT_TRIE
+    JsonTestHelper.deleteEverything();
+    try {
+      final var databaseWithDefault = JsonTestHelper.getDatabaseWithResourceConfig(
+          JsonTestHelper.PATHS.PATH1.getFile(),
+          io.sirix.access.ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+              .build());  // No explicit index backend - should default to HOT
+      
+      try (final var manager = databaseWithDefault.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        // Verify default is HOT
+        assertEquals(io.sirix.access.IndexBackendType.HOT_TRIE, 
+            manager.getResourceConfig().indexBackendType,
+            "Default index backend should be HOT_TRIE");
+      }
+    } finally {
+      JsonTestHelper.closeEverything();
+    }
+    
+    // Test 2: Explicit HOT_TRIE configuration
+    JsonTestHelper.deleteEverything();
+    try {
+      final var databaseWithHOT = JsonTestHelper.getDatabaseWithResourceConfig(
+          JsonTestHelper.PATHS.PATH1.getFile(),
+          io.sirix.access.ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+              .useHOTIndexes()  // Explicitly set HOT
+              .build());
+      
+      try (final var manager = databaseWithHOT.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        assertEquals(io.sirix.access.IndexBackendType.HOT_TRIE, 
+            manager.getResourceConfig().indexBackendType,
+            "Resource should be configured for HOT");
+      }
+    } finally {
+      JsonTestHelper.closeEverything();
+    }
+    
+    // Test 3: Explicit RBTREE configuration (opt-out of HOT)
+    JsonTestHelper.deleteEverything();
+    try {
+      final var databaseWithRBTree = JsonTestHelper.getDatabaseWithResourceConfig(
+          JsonTestHelper.PATHS.PATH1.getFile(),
+          io.sirix.access.ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+              .useRBTreeIndexes()  // Explicitly use RBTREE
+              .build());
+      
+      try (final var manager = databaseWithRBTree.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        assertEquals(io.sirix.access.IndexBackendType.RBTREE, 
+            manager.getResourceConfig().indexBackendType,
+            "Resource should be configured for RBTREE");
+      }
+    } finally {
+      JsonTestHelper.closeEverything();
+    }
+    
+    // Re-enable HOT for subsequent tests
+    System.setProperty("sirix.index.useHOT", "true");
+  }
+  
   // ===== RBTree Backend Tests =====
   
   @Nested

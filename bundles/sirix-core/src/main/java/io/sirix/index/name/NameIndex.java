@@ -2,6 +2,7 @@ package io.sirix.index.name;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
+import io.sirix.access.IndexBackendType;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.ChangeListener;
@@ -28,13 +29,28 @@ public interface NameIndex<B, L extends ChangeListener> {
   L createListener(StorageEngineWriter pageTrx, IndexDef indexDef);
 
   default Iterator<NodeReferences> openIndex(StorageEngineReader pageRtx, IndexDef indexDef, NameFilter filter) {
-    // Check if HOT is enabled
-    if (NameIndexListenerFactory.isHOTEnabled()) {
+    // Check if HOT is enabled (system property takes precedence, then resource config)
+    if (isHOTEnabled(pageRtx)) {
       return openHOTIndex(pageRtx, indexDef, filter);
     }
     
     // Use RBTree (default)
     return openRBTreeIndex(pageRtx, indexDef, filter);
+  }
+  
+  /**
+   * Checks if HOT indexes should be used for reading.
+   */
+  private static boolean isHOTEnabled(final StorageEngineReader pageRtx) {
+    // System property takes precedence (for testing)
+    final String sysProp = System.getProperty(NameIndexListenerFactory.USE_HOT_PROPERTY);
+    if (sysProp != null) {
+      return Boolean.parseBoolean(sysProp);
+    }
+    
+    // Fall back to resource configuration
+    final var resourceConfig = pageRtx.getResourceSession().getResourceConfig();
+    return resourceConfig.indexBackendType == IndexBackendType.HOT_TRIE;
   }
   
   /**

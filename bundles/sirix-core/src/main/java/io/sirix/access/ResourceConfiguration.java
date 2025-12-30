@@ -301,6 +301,14 @@ public final class ResourceConfiguration {
    */
   public final StringCompressionType stringCompressionType;
 
+  /**
+   * Backend type for secondary indexes (PATH, CAS, NAME).
+   * 
+   * <p>Determines whether indexes use the traditional Red-Black Tree implementation
+   * or the newer Height-Optimized Trie (HOT) implementation.</p>
+   */
+  public final IndexBackendType indexBackendType;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -337,6 +345,7 @@ public final class ResourceConfiguration {
     storeNodeHistory = builder.storeNodeHistory;
     binaryVersion = builder.binaryEncodingVersion;
     stringCompressionType = builder.stringCompressionType;
+    indexBackendType = builder.indexBackendType;
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -465,7 +474,7 @@ public final class ResourceConfiguration {
       { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
           "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
           "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount",
-          "stringCompressionType" };
+          "stringCompressionType", "indexBackendType" };
 
   /**
    * Serialize the configuration.
@@ -519,6 +528,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[16]).value(config.storeChildCount);
       // String compression type.
       jsonWriter.name(JSONNAMES[17]).value(config.stringCompressionType.name());
+      // Index backend type.
+      jsonWriter.name(JSONNAMES[18]).value(config.indexBackendType.name());
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -625,6 +636,15 @@ public final class ResourceConfiguration {
         }
       }
 
+      // Index backend type (optional for backward compatibility with older configs)
+      IndexBackendType indexBackendType = IndexBackendType.RBTREE;
+      if (jsonReader.hasNext()) {
+        name = jsonReader.nextName();
+        if (name.equals(JSONNAMES[18])) {
+          indexBackendType = IndexBackendType.valueOf(jsonReader.nextString());
+        }
+      }
+
       jsonReader.endObject();
       jsonReader.close();
       fileReader.close();
@@ -648,7 +668,8 @@ public final class ResourceConfiguration {
              .storeChildCount(storeChildCount)
              .customCommitTimestamps(customCommitTimestamps)
              .storeNodeHistory(storeNodeHistory)
-             .stringCompressionType(stringCompressionType);
+             .stringCompressionType(stringCompressionType)
+             .indexBackendType(indexBackendType);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -751,6 +772,12 @@ public final class ResourceConfiguration {
      * String compression type for string-containing nodes.
      */
     private StringCompressionType stringCompressionType = StringCompressionType.NONE;
+
+    /**
+     * Backend type for secondary indexes (PATH, CAS, NAME).
+     * Defaults to HOT_TRIE for best performance.
+     */
+    private IndexBackendType indexBackendType = IndexBackendType.HOT_TRIE;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -957,6 +984,58 @@ public final class ResourceConfiguration {
       return this;
     }
 
+    /**
+     * Set the backend type for secondary indexes (PATH, CAS, NAME).
+     * 
+     * <p>This controls which data structure is used for storing index data:
+     * <ul>
+     *   <li>{@link IndexBackendType#RBTREE} - Red-Black Tree (default, stable)</li>
+     *   <li>{@link IndexBackendType#HOT_TRIE} - Height-Optimized Trie (high performance)</li>
+     * </ul>
+     *
+     * @param indexBackendType the index backend type to use
+     * @return reference to the builder object
+     */
+    public Builder indexBackendType(IndexBackendType indexBackendType) {
+      this.indexBackendType = requireNonNull(indexBackendType);
+      return this;
+    }
+
+    /**
+     * Enable HOT (Height-Optimized Trie) indexes for this resource.
+     * 
+     * <p>This is the default, so calling this method is optional unless
+     * explicitly overriding a previous setting.</p>
+     * 
+     * <p>This is a convenience method equivalent to calling
+     * {@code indexBackendType(IndexBackendType.HOT_TRIE)}.</p>
+     * 
+     * <p>HOT indexes provide better performance for large datasets due to
+     * improved cache utilization and reduced memory accesses.</p>
+     *
+     * @return reference to the builder object
+     */
+    public Builder useHOTIndexes() {
+      this.indexBackendType = IndexBackendType.HOT_TRIE;
+      return this;
+    }
+
+    /**
+     * Use RBTree (Red-Black Tree) indexes for this resource.
+     * 
+     * <p>This is a convenience method equivalent to calling
+     * {@code indexBackendType(IndexBackendType.RBTREE)}.</p>
+     * 
+     * <p>RBTree is the traditional index implementation. Use this if you
+     * prefer the more established implementation over the newer HOT backend.</p>
+     *
+     * @return reference to the builder object
+     */
+    public Builder useRBTreeIndexes() {
+      this.indexBackendType = IndexBackendType.RBTREE;
+      return this;
+    }
+
     @Override
     public String toString() {
       return MoreObjects.toStringHelper(this)
@@ -974,6 +1053,7 @@ public final class ResourceConfiguration {
                         .add("Max number of revisions to restore", maxNumberOfRevisionsToRestore)
                         .add("Use deweyIDs", useDeweyIDs)
                         .add("Byte handler pipeline", byteHandler)
+                        .add("Index backend type", indexBackendType)
                         .toString();
     }
 

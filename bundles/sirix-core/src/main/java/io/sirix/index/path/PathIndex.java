@@ -2,6 +2,7 @@ package io.sirix.index.path;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
+import io.sirix.access.IndexBackendType;
 import io.sirix.index.Filter;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexFilterAxis;
@@ -30,13 +31,28 @@ public interface PathIndex<B, L extends ChangeListener> {
   default Iterator<NodeReferences> openIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
       final PathFilter filter) {
     
-    // Check if HOT is enabled
-    if (PathIndexListenerFactory.isHOTEnabled()) {
+    // Check if HOT is enabled (system property takes precedence, then resource config)
+    if (isHOTEnabled(pageRtx)) {
       return openHOTIndex(pageRtx, indexDef, filter);
     }
     
     // Use RBTree (default)
     return openRBTreeIndex(pageRtx, indexDef, filter);
+  }
+  
+  /**
+   * Checks if HOT indexes should be used for reading.
+   */
+  private static boolean isHOTEnabled(final StorageEngineReader pageRtx) {
+    // System property takes precedence (for testing)
+    final String sysProp = System.getProperty(PathIndexListenerFactory.USE_HOT_PROPERTY);
+    if (sysProp != null) {
+      return Boolean.parseBoolean(sysProp);
+    }
+    
+    // Fall back to resource configuration
+    final var resourceConfig = pageRtx.getResourceSession().getResourceConfig();
+    return resourceConfig.indexBackendType == IndexBackendType.HOT_TRIE;
   }
   
   /**

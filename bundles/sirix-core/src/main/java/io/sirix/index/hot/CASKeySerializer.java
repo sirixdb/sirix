@@ -151,6 +151,12 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   /**
+   * Maximum bytes available for string value encoding.
+   * Header is 10 bytes (8 for pathNodeKey + 2 for typeId), buffer is 256 bytes.
+   */
+  private static final int MAX_STRING_VALUE_BYTES = 246;
+
+  /**
    * Encodes an atomic value in order-preserving format.
    *
    * @param value  the atomic value
@@ -170,8 +176,11 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       // String: UTF-8 is already lexicographically ordered
       String str = value.stringValue();
       byte[] utf8 = str.getBytes(StandardCharsets.UTF_8);
-      System.arraycopy(utf8, 0, dest, offset, utf8.length);
-      return utf8.length;
+      // Truncate to fit buffer (preserves lexicographic ordering for prefixes)
+      int maxLen = Math.min(utf8.length, dest.length - offset);
+      maxLen = Math.min(maxLen, MAX_STRING_VALUE_BYTES);
+      System.arraycopy(utf8, 0, dest, offset, maxLen);
+      return maxLen;
     }
   }
 
@@ -186,7 +195,18 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * </ul>
    */
   private int encodeNumericOrderPreserving(Atomic value, byte[] dest, int offset) {
-    double d = ((Numeric) value).doubleValue();
+    double d;
+    if (value instanceof Numeric numeric) {
+      d = numeric.doubleValue();
+    } else {
+      // Value is a string representation of a number - parse it
+      try {
+        d = Double.parseDouble(value.stringValue());
+      } catch (NumberFormatException e) {
+        // Can't parse as number - treat as 0 (or could throw)
+        d = 0.0;
+      }
+    }
 
     // Canonicalize NaN to sort last
     if (Double.isNaN(d)) {
@@ -281,7 +301,19 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       }
 
       double d = Double.longBitsToDouble(bits);
-      return new io.brackit.query.atomic.Dbl(d);
+      
+      // Return the appropriate type based on the stored type
+      if (type.instanceOf(Type.DEC)) {
+        return new io.brackit.query.atomic.Dec(java.math.BigDecimal.valueOf(d));
+      } else if (type.instanceOf(Type.INT)) {
+        return new io.brackit.query.atomic.Int32((int) d);
+      } else if (type.instanceOf(Type.LON)) {
+        return new io.brackit.query.atomic.Int64((long) d);
+      } else if (type.instanceOf(Type.FLO)) {
+        return new io.brackit.query.atomic.Flt((float) d);
+      } else {
+        return new io.brackit.query.atomic.Dbl(d);
+      }
     } else if (type.instanceOf(Type.BOOL)) {
       return new io.brackit.query.atomic.Bool(bytes[offset] == 1);
     } else {

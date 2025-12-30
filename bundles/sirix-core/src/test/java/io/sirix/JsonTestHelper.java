@@ -130,6 +130,32 @@ public final class JsonTestHelper {
   }
 
   /**
+   * Getting a database and create one if not existing, using a custom ResourceConfiguration.
+   *
+   * @param file           to be created
+   * @param resourceConfig the custom resource configuration to use
+   * @return a database-obj
+   */
+  @Ignore
+  public static Database<JsonResourceSession> getDatabaseWithResourceConfig(final Path file,
+      final ResourceConfiguration resourceConfig) {
+    if (INSTANCES.containsKey(file)) {
+      return INSTANCES.get(file);
+    } else {
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createJsonDatabase(config);
+      }
+      final var database = Databases.openJsonDatabase(file);
+      if (!database.existsResource(RESOURCE)) {
+        database.createResource(resourceConfig);
+      }
+      INSTANCES.put(file, database);
+      return database;
+    }
+  }
+
+  /**
    * Getting a database and create one if not existing. This includes the creation of a resource with
    * the settings in the builder as standard.
    *
