@@ -52,6 +52,11 @@ public final class NameIndexListener {
   }
 
   public void listen(IndexController.ChangeType type, @NonNull ImmutableNode node, QNm name) {
+    // Skip if name is null (can happen when node is loaded from disk without cached name)
+    if (name == null) {
+      return;
+    }
+
     final boolean included = (includes.isEmpty() || includes.contains(name));
     final boolean excluded = (!excludes.isEmpty() && excludes.contains(name));
 

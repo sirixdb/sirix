@@ -2429,6 +2429,14 @@ final class JsonNodeTrxImpl extends
    */
   private void removeName() {
     if (getCurrentNode() instanceof ImmutableNameNode node) {
+      // Ensure the name is resolved for index listener (ObjectKeyNode may have null cachedName when loaded from disk)
+      if (node instanceof ObjectKeyNode objectKeyNode && objectKeyNode.getName() == null) {
+        final String resolvedName = pageTrx.getName(objectKeyNode.getLocalNameKey(), node.getKind());
+        if (resolvedName != null) {
+          objectKeyNode.setName(resolvedName);
+        }
+      }
+
       indexController.notifyChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
       final NodeKind nodeKind = node.getKind();
       final NamePage page = pageTrx.getNamePage(pageTrx.getActualRevisionRootPage());
