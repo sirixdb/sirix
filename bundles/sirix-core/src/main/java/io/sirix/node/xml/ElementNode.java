@@ -35,6 +35,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.node.Bytes;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -48,6 +49,7 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Fixed;
+import io.sirix.utils.NamePageHash;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import net.openhft.hashing.LongHashFunction;
@@ -351,7 +353,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   public long getHash() {
     if (!lazyFieldsParsed) parseLazyFields();
     if (hash == 0L && hashFunction != null) {
-      hash = computeHash(io.sirix.node.Bytes.elasticOffHeapByteBuffer());
+      hash = computeHash(Bytes.elasticOffHeapByteBuffer());
     }
     return hash;
   }
@@ -399,7 +401,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getTypeKey() {
-    return io.sirix.utils.NamePageHash.generateHashForString("xs:untyped");
+    return NamePageHash.generateHashForString("xs:untyped");
   }
 
   @Override

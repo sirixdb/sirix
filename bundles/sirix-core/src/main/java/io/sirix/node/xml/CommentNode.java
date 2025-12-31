@@ -44,6 +44,7 @@ import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.Compression;
+import io.sirix.utils.NamePageHash;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -304,7 +305,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
 
   @Override
   public int getTypeKey() {
-    return io.sirix.utils.NamePageHash.generateHashForString("xs:untyped");
+    return NamePageHash.generateHashForString("xs:untyped");
   }
 
   @Override

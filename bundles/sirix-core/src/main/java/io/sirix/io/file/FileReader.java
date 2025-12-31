@@ -31,7 +31,12 @@ import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.bytepipe.ByteHandler;
-import io.sirix.page.*;
+import io.sirix.page.PagePersister;
+import io.sirix.page.PageReference;
+import io.sirix.page.PageUtils;
+import io.sirix.page.RevisionRootPage;
+import io.sirix.page.SerializationType;
+import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.node.BytesOut;
 import io.sirix.node.BytesIn;
@@ -134,7 +139,7 @@ public final class FileReader implements Reader {
     
     // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page
     if (resourceConfiguration != null) {
-      io.sirix.page.PageUtils.fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+      PageUtils.fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
     }
     
     return deserializedPage;

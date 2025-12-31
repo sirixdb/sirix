@@ -33,6 +33,7 @@ import com.google.common.base.Objects;
 import io.brackit.query.atomic.QNm;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
@@ -43,6 +44,7 @@ import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
+import io.sirix.utils.NamePageHash;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -175,7 +177,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   @Override
   public long getHash() {
     if (hash == 0L && hashFunction != null) {
-      hash = computeHash(io.sirix.node.Bytes.elasticOffHeapByteBuffer());
+      hash = computeHash(Bytes.elasticOffHeapByteBuffer());
     }
     return hash;
   }
@@ -201,7 +203,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   public boolean isSameItem(@Nullable Node other) { return other != null && other.getNodeKey() == nodeKey; }
 
   @Override
-  public int getTypeKey() { return io.sirix.utils.NamePageHash.generateHashForString("xs:untyped"); }
+  public int getTypeKey() { return NamePageHash.generateHashForString("xs:untyped"); }
 
   @Override
   public void setTypeKey(int typeKey) { }

@@ -1,5 +1,8 @@
 package io.sirix.cache;
 
+import io.sirix.access.Databases;
+import io.sirix.index.IndexType;
+import io.sirix.page.KeyValueLeafPage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -198,11 +201,11 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       LOGGER.info("Shutting down LinuxMemorySegmentAllocator...");
       
       // Report page leak statistics before shutdown (only if DEBUG_MEMORY_LEAKS enabled)
-      if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-        long finalized = io.sirix.page.KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
-        long created = io.sirix.page.KeyValueLeafPage.PAGES_CREATED.get();
-        long closed = io.sirix.page.KeyValueLeafPage.PAGES_CLOSED.get();
-        var livePages = io.sirix.page.KeyValueLeafPage.ALL_LIVE_PAGES;
+      if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+        long finalized = KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
+        long created = KeyValueLeafPage.PAGES_CREATED.get();
+        long closed = KeyValueLeafPage.PAGES_CLOSED.get();
+        var livePages = KeyValueLeafPage.ALL_LIVE_PAGES;
         
         if (finalized > 0 || created > 0 || closed > 0 || !livePages.isEmpty()) {
           LOGGER.info("\n========== PAGE LEAK DIAGNOSTICS ==========");
@@ -214,11 +217,11 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           // Show finalized pages breakdown
           if (finalized > 0) {
             LOGGER.info("\nFinalized Pages (NOT closed properly) by Type:");
-            io.sirix.page.KeyValueLeafPage.FINALIZED_BY_TYPE.forEach((type, count) -> 
+            KeyValueLeafPage.FINALIZED_BY_TYPE.forEach((type, count) -> 
                 LOGGER.info("  {}: {} pages", type, count.get()));
             
             LOGGER.info("\nFinalized Pages (NOT closed properly) by Page Key (top 15):");
-            io.sirix.page.KeyValueLeafPage.FINALIZED_BY_PAGE_KEY.entrySet().stream()
+            KeyValueLeafPage.FINALIZED_BY_PAGE_KEY.entrySet().stream()
                 .sorted(java.util.Map.Entry.<Long, java.util.concurrent.atomic.AtomicLong>comparingByValue(
                     (a, b) -> Long.compare(b.get(), a.get())).reversed())
                 .limit(15)
@@ -229,7 +232,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           // CRITICAL: Create snapshot to avoid ConcurrentModificationException during iteration
           var livePageSnapshot = new java.util.ArrayList<>(livePages);
           var pageKeyCount = new java.util.HashMap<Long, Integer>();
-          var indexTypeCount = new java.util.HashMap<io.sirix.index.IndexType, Integer>();
+          var indexTypeCount = new java.util.HashMap<IndexType, Integer>();
           for (var page : livePageSnapshot) {
             pageKeyCount.merge(page.getPageKey(), 1, Integer::sum);
             indexTypeCount.merge(page.getIndexType(), 1, Integer::sum);
@@ -287,7 +290,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
               int notInAnyCache = 0;
             
             try {
-              var bufferMgr = io.sirix.access.Databases.getGlobalBufferManager();
+              var bufferMgr = Databases.getGlobalBufferManager();
               
               for (var page : livePages) {
                 // Skip pages with active guards (in use by transactions)
@@ -317,7 +320,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                   if (!found) {
                     // Check if in PageCache
                     for (var entry : bufferMgr.getPageCache().asMap().values()) {
-                      if (entry instanceof io.sirix.page.KeyValueLeafPage kvp && kvp == page) {
+                      if (entry instanceof KeyValueLeafPage kvp && kvp == page) {
                         inPageCache++;
                         found = true;
                         break;

@@ -33,6 +33,7 @@ import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
 import io.sirix.node.MemorySegmentBytesIn;
+import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
@@ -244,7 +245,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
         
         if (page instanceof KeyValueLeafPage keyValueLeafPage && keyValueLeafPage.getBytes() != null) {
             final var cached = keyValueLeafPage.getBytes();
-            if (cached instanceof io.sirix.node.MemorySegmentBytesOut msOut) {
+            if (cached instanceof MemorySegmentBytesOut msOut) {
                 MemorySegment segment = msOut.getDestination();
                 return segment.toArray(ValueLayout.JAVA_BYTE);
             }

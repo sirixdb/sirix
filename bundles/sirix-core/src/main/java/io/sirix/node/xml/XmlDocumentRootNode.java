@@ -32,6 +32,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
@@ -295,7 +296,7 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode {
   @Override
   public long getHash() {
     if (hash == 0L && hashFunction != null) {
-      hash = computeHash(io.sirix.node.Bytes.elasticOffHeapByteBuffer());
+      hash = computeHash(Bytes.elasticOffHeapByteBuffer());
     }
     return hash;
   }

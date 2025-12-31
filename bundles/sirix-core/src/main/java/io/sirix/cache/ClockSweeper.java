@@ -1,6 +1,7 @@
 package io.sirix.cache;
 
 import io.sirix.access.trx.RevisionEpochTracker;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -157,7 +158,7 @@ public final class ClockSweeper implements Runnable {
           
           // ATOMIC: Check guard count (PRIMARY protection)
           if (page.getGuardCount() > 0) {
-            if (io.sirix.page.KeyValueLeafPage.DEBUG_MEMORY_LEAKS && LOGGER.isDebugEnabled()) {
+            if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && LOGGER.isDebugEnabled()) {
               LOGGER.debug("ClockSweeper[{}] skip guarded page key={} type={} rev={} guards={}",
                   shardIndex, page.getPageKey(), page.getIndexType(), page.getRevision(), page.getGuardCount());
             }
