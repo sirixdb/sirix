@@ -24,6 +24,9 @@ out/
 
 # Visual Studio Code files 
 settings.json
+
+# Cursor IDE files
+.cursor/
 # Java classfiles
 *.class
 
