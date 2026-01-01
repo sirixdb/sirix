@@ -29,7 +29,7 @@
 package io.sirix.page;
 
 import com.google.common.base.MoreObjects;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
@@ -129,7 +129,7 @@ public final class UberPage implements Page {
   }
 
   //  @Override
-  //  public void serialize(final PageReadOnlyTrx pageReadOnlyTrx, final Bytes<ByteBuffer> out,
+  //  public void serialize(final StorageEngineReader pageReadOnlyTrx, final BytesOut<?> out,
   //      final SerializationType type) {
   //    out.writeInt(revisionCount);
   //    isBootstrap = false;
@@ -193,7 +193,7 @@ public final class UberPage implements Page {
   }
 
   @Override
-  public void commit(final @NonNull PageTrx pageWriteTrx) {
+  public void commit(final @NonNull StorageEngineWriter pageWriteTrx) {
     pageWriteTrx.commit(rootPageReference);
   }
 

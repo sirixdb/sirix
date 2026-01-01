@@ -48,7 +48,7 @@ public class ThreadTest {
   public void setUp() throws SirixException {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
-    holder = Holder.openResourceManager();
+    holder = Holder.openResourceSession();
   }
 
   @After
@@ -62,9 +62,9 @@ public class ThreadTest {
     final ExecutorService taskExecutor = Executors.newFixedThreadPool(WORKER_COUNT);
     long newKey = 10L;
     for (int i = 0; i < WORKER_COUNT; i++) {
-      taskExecutor.submit(new Task(holder.getResourceManager().beginNodeReadOnlyTrx(i)));
+      taskExecutor.submit(new Task(holder.getResourceSession().beginNodeReadOnlyTrx(i)));
 
-      try (final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx()) {
+      try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx()) {
         wtx.moveTo(newKey);
         wtx.setValue("value" + i);
         newKey = wtx.getNodeKey();

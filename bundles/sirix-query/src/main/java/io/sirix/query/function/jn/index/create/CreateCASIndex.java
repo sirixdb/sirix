@@ -71,7 +71,7 @@ public final class CreateCASIndex extends AbstractFunction {
       wtx.revertTo(rtx.getRevisionNumber());
     }
 
-    final JsonIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber() - 1);
+    final JsonIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));

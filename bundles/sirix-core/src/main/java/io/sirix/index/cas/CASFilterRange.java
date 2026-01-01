@@ -56,6 +56,14 @@ public final class CASFilterRange implements Filter {
     this.incMax = incMax;
   }
 
+  /**
+   * Get the set of path class records (PCRs) for filtering.
+   * @return set of PCRs from the path filter
+   */
+  public Set<Long> getPCRs() {
+    return pathFilter.getPCRs();
+  }
+
   @Override
   public <K extends Comparable<? super K>> boolean filter(final RBNodeKey<K> node) {
     final K key = node.getKey();
@@ -69,7 +77,12 @@ public final class CASFilterRange implements Filter {
     return false;
   }
 
-  private boolean inRange(Atomic key) {
+  /**
+   * Check if an atomic value is within the range bounds.
+   * @param key the atomic value to check
+   * @return true if in range, false otherwise
+   */
+  public boolean inRange(Atomic key) {
     final int minKeyCompare = (min != null) ? min.compareTo(key) : -1;
     final int maxKeyCompare = (max != null) ? max.compareTo(key) : 1;
 

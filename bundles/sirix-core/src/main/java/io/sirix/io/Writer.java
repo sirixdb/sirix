@@ -22,11 +22,11 @@
 package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 
 import java.nio.ByteBuffer;
 
@@ -56,7 +56,7 @@ public interface Writer extends Reader {
    * @throws SirixIOException exception to be thrown if something bad happens
    */
   Writer write(ResourceConfiguration resourceConfiguration, PageReference pageReference, Page page,
-      Bytes<ByteBuffer> bufferedBytes);
+      BytesOut<?> bufferedBytes);
 
   /**
    * Write beacon for the first reference.
@@ -69,7 +69,7 @@ public interface Writer extends Reader {
    * @throws SirixIOException if an I/O error occured
    */
   Writer writeUberPageReference(ResourceConfiguration resourceConfiguration, PageReference pageReference, Page page,
-      Bytes<ByteBuffer> bufferedBytes);
+      BytesOut<?> bufferedBytes);
 
   /**
    * Truncate to a specific revision.
@@ -77,10 +77,19 @@ public interface Writer extends Reader {
    * @param revision the revision to truncate to.
    * @return this writer instance
    */
-  Writer truncateTo(PageReadOnlyTrx pageReadOnlyTrx, int revision);
+  Writer truncateTo(StorageEngineReader pageReadOnlyTrx, int revision);
 
   /**
    * Truncate, that is remove all file content.
    */
   Writer truncate();
+
+  /**
+   * Force all pending writes to durable storage.
+   * This is a single fsync barrier that ensures all written data is persisted.
+   * Should be called once at the end of a commit after all pages and uberpage beacons are written.
+   *
+   * @throws SirixIOException if an I/O error occurs during force
+   */
+  void forceAll();
 }

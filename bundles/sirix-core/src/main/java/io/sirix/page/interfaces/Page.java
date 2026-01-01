@@ -20,11 +20,8 @@
  */
 package io.sirix.page.interfaces;
 
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.PageReference;
-import io.sirix.page.delegates.BitmapReferencesPage;
-import io.sirix.page.delegates.FullReferencesPage;
-import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.settings.Constants;
 import org.checkerframework.checker.index.qual.NonNegative;
 
@@ -37,11 +34,7 @@ import java.util.List;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
-public interface Page extends Closeable {
-
-  default Page clearPage() {
-    return this;
-  }
+public interface Page extends AutoCloseable {
 
   /**
    * Get all page references.
@@ -53,9 +46,9 @@ public interface Page extends Closeable {
   /**
    * Commit page.
    *
-   * @param pageWriteTrx {@link PageTrx} implementation
+   * @param pageWriteTrx {@link StorageEngineWriter} implementation
    */
-  default void commit(PageTrx pageWriteTrx) {
+  default void commit(StorageEngineWriter pageWriteTrx) {
     final var references = getReferences();
     //    final var log = pageWriteTrx.getLog();
     //    final List<CompletableFuture<Void>> futures = new ArrayList<>(references.size());
@@ -107,5 +100,9 @@ public interface Page extends Closeable {
   @Override
   default void close() {
     // Nothing to do.
+  }
+
+  default boolean isClosed() {
+    return false;
   }
 }

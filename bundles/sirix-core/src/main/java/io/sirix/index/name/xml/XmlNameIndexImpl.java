@@ -1,7 +1,7 @@
 package io.sirix.index.name.xml;
 
 import io.sirix.access.DatabaseType;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexDef;
 import io.sirix.index.name.NameIndexBuilderFactory;
 import io.sirix.index.name.NameIndexListenerFactory;
@@ -18,14 +18,14 @@ public final class XmlNameIndexImpl implements XmlNameIndex {
   }
 
   @Override
-  public XmlNameIndexBuilder createBuilder(final PageTrx pageWriteTrx,
+  public XmlNameIndexBuilder createBuilder(final StorageEngineWriter pageWriteTrx,
       final IndexDef indexDef) {
     final var nameIndexBuilderDelegate = nameIndexBuilderFactory.create(pageWriteTrx, indexDef);
     return new XmlNameIndexBuilder(nameIndexBuilderDelegate);
   }
 
   @Override
-  public XmlNameIndexListener createListener(final PageTrx pageWriteTrx,
+  public XmlNameIndexListener createListener(final StorageEngineWriter pageWriteTrx,
       final IndexDef indexDef) {
     final var nameIndexListenerDelegate = nameIndexListenerFactory.create(pageWriteTrx, indexDef);
     return new XmlNameIndexListener(nameIndexListenerDelegate);

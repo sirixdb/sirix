@@ -24,7 +24,8 @@ package io.sirix.node.xml;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.utils.NamePageHash;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
 import org.junit.After;
@@ -32,7 +33,7 @@ import org.junit.Before;
 import org.junit.Test;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixException;
 import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
@@ -54,16 +55,16 @@ public class AttributeNodeTest {
   private Holder holder;
 
   /**
-   * Sirix {@link PageReadOnlyTrx} instance.
+   * Sirix {@link StorageEngineReader} instance.
    */
-  private PageReadOnlyTrx pageReadOnlyTrx;
+  private StorageEngineReader pageReadOnlyTrx;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
-    holder = Holder.generateDeweyIDResourceMgr();
-    pageReadOnlyTrx = holder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceSession();
+    pageReadOnlyTrx = holder.getResourceSession().beginPageReadOnlyTrx();
   }
 
   @After
@@ -76,22 +77,34 @@ public class AttributeNodeTest {
   public void testAttributeNode() {
     final byte[] value = { (byte) 17, (byte) 18 };
 
-    final NodeDelegate del =
-        new NodeDelegate(99, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
-
-    final AttributeNode node = new AttributeNode(del, nameDel, valDel, new QNm("ns", "a", "p"));
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    // Create AttributeNode with primitive fields
+    final AttributeNode node = new AttributeNode(
+        99L,                                             // nodeKey
+        13L,                                             // parentKey
+        Constants.NULL_REVISION_NUMBER,                  // previousRevision
+        0,                                               // lastModifiedRevision
+        1L,                                              // pathNodeKey
+        14,                                              // prefixKey
+        15,                                              // localNameKey
+        13,                                              // uriKey
+        0,                                               // hash
+        value,                                           // value
+        LongHashFunction.xx3(),                          // hashFunction
+        SirixDeweyID.newRootID(),                        // deweyID
+        new QNm("ns", "a", "p"));
+    var hashBytes = Bytes.elasticOffHeapByteBuffer();
+    node.setHash(node.computeHash(hashBytes));
 
     // Create empty node.
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
+    data.writeByte(NodeKind.ATTRIBUTE.getId()); // Write NodeKind byte
     node.getKind().serialize(data, node, pageReadOnlyTrx.getResourceSession().getResourceConfig());
-    final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(data,
+    var bytesIn = data.asBytesIn();
+    bytesIn.readByte(); // Skip NodeKind byte
+    final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(bytesIn,
                                                                                node.getNodeKey(),
                                                                                node.getDeweyID().toBytes(),
                                                                                pageReadOnlyTrx.getResourceSession().getResourceConfig());

@@ -24,6 +24,9 @@ out/
 
 # Visual Studio Code files 
 settings.json
+
+# Cursor IDE files
+.cursor/
 # Java classfiles
 *.class
 
@@ -49,3 +52,20 @@ bundles/sirix-rest-api/.idea/compiler.xml
 /bundles/sirix-rest-api/zgc-generational-insert.log
 /bundles/sirix-core/zgc-generational-insert.log
 /bundles/sirix-core/src/test/resources/json/cityofchicago.json
+/bundles/sirix-core/bin/
+
+# Diagnostic and profiling files
+memory-leak-diagnostic.log
+*.jfr
+async-profiler-*/
+**/g1.log.*
+
+# Large log files
+*.log
+testAllTenth-*.log
+fmse-*.log
+*-debug-*.log
+*-leak-analysis-*.log
+
+# AI development docs (kept in private repo)
+ai-docs/

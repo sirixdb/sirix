@@ -2,7 +2,7 @@ import org.jetbrains.kotlin.gradle.dsl.jvm.JvmTargetValidationMode
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
 buildscript {
-    ext.kotlin_version = '2.2.10'
+    ext.kotlin_version = '2.2.20'
     repositories {
         maven {
             url "https://plugins.gradle.org/m2/"
@@ -12,7 +12,7 @@ buildscript {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.2"
         classpath 'net.researchgate:gradle-release:3.1.0'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.51.0"
-        classpath "gradle.plugin.com.github.jengelman.gradle.plugins:shadow:7.0.0"
+        classpath "com.gradleup.shadow:shadow-gradle-plugin:8.3.3"
         classpath "com.diffplug.spotless:spotless-plugin-gradle:7.2.1"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
@@ -38,10 +38,6 @@ release {
     failOnSnapshotDependencies = false
     tagTemplate = 'sirix-$version'
     buildTasks = ['releaseBuild']
-}
-
-tasks.withType(KotlinJvmCompile).configureEach {
-    jvmTargetValidationMode.set(JvmTargetValidationMode.WARNING)
 }
 
 task releaseBuild {
@@ -89,37 +85,46 @@ subprojects {
     apply plugin: 'maven-publish'
     apply plugin: 'signing'
     apply plugin: 'com.github.ben-manes.versions'
-    apply plugin: "com.github.johnrengelman.shadow"
+    // Shadow plugin applied selectively in subprojects that need it
     apply plugin: "com.diffplug.spotless"
+
+    tasks.withType(KotlinJvmCompile).configureEach {
+        jvmTargetValidationMode.set(JvmTargetValidationMode.WARNING)
+    }
 
     java {
         withSourcesJar()
         withJavadocJar()
         toolchain {
-            languageVersion = JavaLanguageVersion.of(22)
+            languageVersion = JavaLanguageVersion.of(25)
         }
+        sourceCompatibility = JavaVersion.VERSION_25
+        targetCompatibility = JavaVersion.VERSION_25
     }
 
 
     javadoc {
         failOnError = false
         options {
-            addStringOption('-release', '22')
+            addStringOption('-release', '25')
             addBooleanOption('-enable-preview', true)
         }
     }
 
     compileJava {
         options.compilerArgs += ["--enable-preview",
+                                 "--add-modules=jdk.incubator.vector",
                                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
                                  "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
                                  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
                                  "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
-                                 "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED"]
+                                 "--add-exports=java.base/java.lang.reflect=ALL-UNNAMED"
+        ]
     }
 
     compileTestJava {
         options.compilerArgs += ["--enable-preview",
+                                 "--add-modules=jdk.incubator.vector",
                                  "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
                                  "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
                                  "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
@@ -260,13 +265,14 @@ subprojects {
                  "--add-opens=java.base/java.io=ALL-UNNAMED",
                  "--add-opens=java.base/java.util=ALL-UNNAMED",
                  "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+                "--enable-native-access=ALL-UNNAMED",
                  "-XX:+UnlockDiagnosticVMOptions",
                  "-XX:+DebugNonSafepoints",
                  //"-XX:+UseShenandoahGC",
-            //     "-Xlog:gc*=debug:file=g1.log",
-//                 "-XX:+UseZGC",
+                 "-Xlog:gc*=debug:file=g1.log",
+                 "-XX:+UseZGC",
 //                 "-XX:+ZGenerational",
-             //    "-verbose:gc",
+                 "-verbose:gc",
                  "-XX:+HeapDumpOnOutOfMemoryError",
                  //"-XX:HeapDumpPath=heapdump.hprof",
                  "-XX:+UseStringDeduplication",
@@ -285,7 +291,7 @@ subprojects {
                 /* "-XX:MaxInlineSize=500" */])
 
         minHeapSize = '5g'
-        maxHeapSize = '8g'
+        maxHeapSize = '12g'
     }
 }
 

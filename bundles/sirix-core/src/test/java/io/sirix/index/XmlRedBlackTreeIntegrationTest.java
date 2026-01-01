@@ -41,7 +41,7 @@ public final class XmlRedBlackTreeIntegrationTest {
   @Before
   public void setUp() {
     XmlTestHelper.deleteEverything();
-    holder = Holder.openResourceManager();
+    holder = Holder.openResourceSessionWithRedBlackTreeIndexes();
   }
 
   @After
@@ -52,9 +52,9 @@ public final class XmlRedBlackTreeIntegrationTest {
 
   @Test
   public void testCASAttributeIndex() throws PathException {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
 
-    XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber());
+    XmlIndexController indexController = holder.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
 
     final IndexDef idxDef = IndexDefs.createCASIdxDef(false,
                                                       Type.STR,
@@ -78,7 +78,7 @@ public final class XmlRedBlackTreeIntegrationTest {
     final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
     RBTreeReader<CASValue, NodeReferences> reader =
-        RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+        RBTreeReader.getInstance(holder.getResourceSession().getIndexCache(),
                                  wtx.getPageTrx(),
                                  indexDef.getType(),
                                  indexDef.getID());
@@ -101,7 +101,7 @@ public final class XmlRedBlackTreeIntegrationTest {
     final var secondNodeKey = wtx.getNodeKey();
     wtx.commit();
 
-    reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+    reader = RBTreeReader.getInstance(holder.getResourceSession().getIndexCache(),
                                       wtx.getPageTrx(),
                                       indexDef.getType(),
                                       indexDef.getID());
@@ -114,7 +114,7 @@ public final class XmlRedBlackTreeIntegrationTest {
     wtx.remove();
     wtx.commit();
 
-    reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+    reader = RBTreeReader.getInstance(holder.getResourceSession().getIndexCache(),
                                       wtx.getPageTrx(),
                                       indexDef.getType(),
                                       indexDef.getID());
@@ -127,7 +127,7 @@ public final class XmlRedBlackTreeIntegrationTest {
     wtx.remove();
     wtx.commit();
 
-    reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+    reader = RBTreeReader.getInstance(holder.getResourceSession().getIndexCache(),
                                       wtx.getPageTrx(),
                                       indexDef.getType(),
                                       indexDef.getID());
@@ -144,9 +144,9 @@ public final class XmlRedBlackTreeIntegrationTest {
 
   @Test
   public void testCASTextIndex() {
-    final XmlNodeTrx wtx = holder.getResourceManager().beginNodeTrx();
+    final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx();
 
-    XmlIndexController indexController = holder.getResourceManager().getWtxIndexController(wtx.getRevisionNumber());
+    XmlIndexController indexController = holder.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
 
     final IndexDef idxDef = IndexDefs.createCASIdxDef(false,
                                                       Type.STR,
@@ -165,7 +165,7 @@ public final class XmlRedBlackTreeIntegrationTest {
     final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
     RBTreeReader<CASValue, NodeReferences> reader =
-        RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+        RBTreeReader.getInstance(holder.getResourceSession().getIndexCache(),
                                  wtx.getPageTrx(),
                                  indexDef.getType(),
                                  indexDef.getID());
@@ -177,7 +177,7 @@ public final class XmlRedBlackTreeIntegrationTest {
     wtx.moveTo(nodeKey);
     wtx.remove();
 
-    reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+    reader = RBTreeReader.getInstance(holder.getResourceSession().getIndexCache(),
                                       wtx.getPageTrx(),
                                       indexDef.getType(),
                                       indexDef.getID());
@@ -192,7 +192,7 @@ public final class XmlRedBlackTreeIntegrationTest {
     wtx.remove();
     wtx.commit();
 
-    reader = RBTreeReader.getInstance(holder.getResourceManager().getIndexCache(),
+    reader = RBTreeReader.getInstance(holder.getResourceSession().getIndexCache(),
                                       wtx.getPageTrx(),
                                       indexDef.getType(),
                                       indexDef.getID());

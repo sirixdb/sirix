@@ -47,7 +47,7 @@ public final class Holder {
   private Database<XmlResourceSession> database;
 
   /** {@link XmlResourceSession} implementation. */
-  private XmlResourceSession resMgr;
+  private XmlResourceSession resourceSession;
 
   /** {@link XmlNodeReadOnlyTrx} implementation. */
   private XmlNodeReadOnlyTrx rtx;
@@ -60,7 +60,7 @@ public final class Holder {
    *
    * @return this holder instance
    */
-  public static Holder generateDeweyIDResourceMgr() {
+  public static Holder generateDeweyIDResourceSession() {
     final Path file = XmlTestHelper.PATHS.PATH1.getFile();
     final DatabaseConfiguration config = new DatabaseConfiguration(file);
     if (!Files.exists(file)) {
@@ -73,7 +73,7 @@ public final class Holder {
     final XmlResourceSession resourceManager = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
-    holder.setResourceManager(resourceManager);
+    holder.setSession(resourceManager);
     return holder;
   }
 
@@ -93,7 +93,7 @@ public final class Holder {
     final XmlResourceSession resourceManager = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
-    holder.setResourceManager(resourceManager);
+    holder.setSession(resourceManager);
     return holder;
   }
 
@@ -102,12 +102,12 @@ public final class Holder {
    *
    * @return this holder instance
    */
-  public static Holder openResourceManager() {
+  public static Holder openResourceSession() {
     final var database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile());
-    final XmlResourceSession resMgr = database.beginResourceSession(XmlTestHelper.RESOURCE);
+    final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
-    holder.setResourceManager(resMgr);
+    holder.setSession(session);
     return holder;
   }
 
@@ -118,10 +118,24 @@ public final class Holder {
    */
   public static Holder openResourceManagerWithHashes() {
     final var database = XmlTestHelper.getDatabaseWithRollingHashesEnabled(XmlTestHelper.PATHS.PATH1.getFile());
-    final XmlResourceSession resMgr = database.beginResourceSession(XmlTestHelper.RESOURCE);
+    final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
-    holder.setResourceManager(resMgr);
+    holder.setSession(session);
+    return holder;
+  }
+
+  /**
+   * Open a resource session with Red-Black tree indexes enabled.
+   *
+   * @return this holder instance
+   */
+  public static Holder openResourceSessionWithRedBlackTreeIndexes() {
+    final var database = XmlTestHelper.getDatabaseWithRedBlackTreeIndexes(XmlTestHelper.PATHS.PATH1.getFile());
+    final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+    final Holder holder = new Holder();
+    holder.setDatabase(database);
+    holder.setSession(session);
     return holder;
   }
 
@@ -131,8 +145,8 @@ public final class Holder {
    * @return this holder instance
    */
   public static Holder generateWtx() {
-    final Holder holder = openResourceManager();
-    final XmlNodeTrx writer = holder.resMgr.beginNodeTrx();
+    final Holder holder = openResourceSession();
+    final XmlNodeTrx writer = holder.resourceSession.beginNodeTrx();
     holder.setXdmNodeWriteTrx(writer);
     return holder;
   }
@@ -144,7 +158,7 @@ public final class Holder {
    */
   public static Holder generateWtxAndResourceWithHashes() {
     final Holder holder = openResourceManagerWithHashes();
-    final XmlNodeTrx writer = holder.resMgr.beginNodeTrx();
+    final XmlNodeTrx writer = holder.resourceSession.beginNodeTrx();
     holder.setXdmNodeWriteTrx(writer);
     return holder;
   }
@@ -155,9 +169,9 @@ public final class Holder {
    * @return this holder instance
    */
   public static Holder generateRtx() {
-    final Holder holder = openResourceManager();
-    final XmlNodeReadOnlyTrx reader = holder.resMgr.beginNodeReadOnlyTrx();
-    holder.setXdmNodeReadTrx(reader);
+    final Holder holder = openResourceSession();
+    final XmlNodeReadOnlyTrx reader = holder.resourceSession.beginNodeReadOnlyTrx();
+    holder.setXmlNodeReadTrx(reader);
     return holder;
   }
 
@@ -172,8 +186,8 @@ public final class Holder {
       wtx.rollback();
       wtx.close();
     }
-    if (resMgr != null && !resMgr.isClosed()) {
-      resMgr.close();
+    if (resourceSession != null && !resourceSession.isClosed()) {
+      resourceSession.close();
     }
     if (database != null) {
       database.close();
@@ -194,8 +208,8 @@ public final class Holder {
    *
    * @return {@link ResourceSession} handle
    */
-  public XmlResourceSession getResourceManager() {
-    return resMgr;
+  public XmlResourceSession getResourceSession() {
+    return resourceSession;
   }
 
   /**
@@ -212,7 +226,7 @@ public final class Holder {
    *
    * @return {@link XmlNodeTrx} handle
    */
-  public XmlNodeTrx getXdmNodeWriteTrx() {
+  public XmlNodeTrx getXmlNodeTrx() {
     return wtx;
   }
 
@@ -230,7 +244,7 @@ public final class Holder {
    *
    * @param rtx {@link XmlNodeReadOnlyTrx} instance
    */
-  private void setXdmNodeReadTrx(final XmlNodeReadOnlyTrx rtx) {
+  private void setXmlNodeReadTrx(final XmlNodeReadOnlyTrx rtx) {
     this.rtx = rtx;
   }
 
@@ -239,8 +253,8 @@ public final class Holder {
    *
    * @param resourceManager {@link XmlResourceSession} instance
    */
-  private void setResourceManager(final XmlResourceSession resourceManager) {
-    resMgr = resourceManager;
+  private void setSession(final XmlResourceSession resourceManager) {
+    resourceSession = resourceManager;
   }
 
   /**

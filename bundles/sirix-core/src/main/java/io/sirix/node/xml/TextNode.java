@@ -30,110 +30,113 @@ package io.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
+import io.sirix.node.DeltaVarIntCodec;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
-import io.sirix.node.delegates.ValueNodeDelegate;
 import io.sirix.node.immutable.xml.ImmutableText;
+import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.utils.Compression;
+import io.sirix.utils.NamePageHash;
+import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.nio.ByteBuffer;
+import java.lang.foreign.MemorySegment;
 
 /**
- * <p>
- * Node representing a text node.
- * </p>
+ * Text node implementation using primitive fields.
+ *
+ * <p>Uses primitive fields for efficient storage with delta+varint encoding.
+ * Structural fields are parsed immediately; metadata and value are parsed lazily.</p>
+ *
+ * @author Johannes Lichtenberger
  */
-public final class TextNode extends AbstractStructForwardingNode implements ValueNode, ImmutableXmlNode {
+public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
 
-  /**
-   * Delegate for common value node information.
-   */
-  private final ValueNodeDelegate valueNodeDelegate;
+  // === IMMEDIATE STRUCTURAL FIELDS ===
+  private long nodeKey;
+  private long parentKey;
+  private long rightSiblingKey;
+  private long leftSiblingKey;
 
-  /**
-   * {@link StructNodeDelegate} reference.
-   */
-  private final StructNodeDelegate structNodeDelegate;
-
-  /**
-   * Value of the node.
-   */
-  private byte[] value;
-
+  // === LAZY FIELDS (Metadata) ===
+  private int previousRevision;
+  private int lastModifiedRevision;
   private long hash;
 
-  /**
-   * Constructor for TextNode.
-   *
-   * @param hashCode  the initial hash code
-   * @param valDel    delegate for {@link ValueNode} implementation
-   * @param structDel delegate for {@link StructNode} implementation
-   */
-  public TextNode(final long hashCode, final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
-    hash = hashCode;
-    assert structDel != null;
-    structNodeDelegate = structDel;
-    assert valDel != null;
-    this.valueNodeDelegate = valDel;
-  }
+  // === VALUE FIELD (Lazy) ===
+  private byte[] value;
+  private boolean isCompressed;
+
+  // === NON-SERIALIZED FIELDS ===
+  private LongHashFunction hashFunction;
+  private SirixDeweyID sirixDeweyID;
+  private byte[] deweyIDBytes;
+
+  // === LAZY PARSING STATE ===
+  private Object lazySource;
+  private long lazyOffset;
+  private boolean metadataParsed;
+  private boolean valueParsed;
+  private boolean hasHash;
+  private long valueOffset;
 
   /**
-   * Constructor for TextNode.
-   *
-   * @param valDel    delegate for {@link ValueNode} implementation
-   * @param structDel delegate for {@link StructNode} implementation
+   * Primary constructor with all primitive fields.
    */
-  public TextNode(final ValueNodeDelegate valDel, final StructNodeDelegate structDel) {
-    assert structDel != null;
-    structNodeDelegate = structDel;
-    assert valDel != null;
-    this.valueNodeDelegate = valDel;
-  }
-
-  @Override
-  public long computeHash(Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
-
-    final var rawValue = valueNodeDelegate.getRawValue();
-
-    bytes.clear();
-
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
-
-    bytes.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey());
-
-    bytes.write(rawValue);
-
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
-
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
-  }
-
-  @Override
-  public void setHash(final long hash) {
+  public TextNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey,
+      long hash, byte[] value, boolean isCompressed,
+      LongHashFunction hashFunction, byte[] deweyID) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
     this.hash = hash;
+    this.value = value;
+    this.isCompressed = isCompressed;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyID;
+    this.metadataParsed = true;
+    this.valueParsed = true;
   }
 
-  @Override
-  public long getHash() {
-    if (hash == 0L) {
-      hash = computeHash(Bytes.elasticHeapByteBuffer());
-    }
-    return hash;
+  /**
+   * Constructor with SirixDeweyID instead of byte array.
+   */
+  public TextNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey,
+      long hash, byte[] value, boolean isCompressed,
+      LongHashFunction hashFunction, SirixDeweyID deweyID) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.hash = hash;
+    this.value = value;
+    this.isCompressed = isCompressed;
+    this.hashFunction = hashFunction;
+    this.sirixDeweyID = deweyID;
+    this.metadataParsed = true;
+    this.valueParsed = true;
   }
 
   @Override
@@ -142,38 +145,167 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   }
 
   @Override
+  public long getNodeKey() {
+    return nodeKey;
+  }
+
+  @Override
+  public void setNodeKey(long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
+
+  // === IMMEDIATE STRUCTURAL GETTERS (no lazy parsing) ===
+
+  @Override
+  public long getParentKey() {
+    return parentKey;
+  }
+
+  public void setParentKey(long parentKey) {
+    this.parentKey = parentKey;
+  }
+
+  @Override
+  public boolean hasParent() {
+    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public long getRightSiblingKey() {
+    return rightSiblingKey;
+  }
+
+  public void setRightSiblingKey(long key) {
+    this.rightSiblingKey = key;
+  }
+
+  @Override
+  public boolean hasRightSibling() {
+    return rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public long getLeftSiblingKey() {
+    return leftSiblingKey;
+  }
+
+  public void setLeftSiblingKey(long key) {
+    this.leftSiblingKey = key;
+  }
+
+  @Override
+  public boolean hasLeftSibling() {
+    return leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  // === LAZY GETTERS ===
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    if (!metadataParsed) parseMetadataFields();
+    return previousRevision;
+  }
+
+  @Override
+  public void setPreviousRevision(int revision) {
+    this.previousRevision = revision;
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    if (!metadataParsed) parseMetadataFields();
+    return lastModifiedRevision;
+  }
+
+  @Override
+  public void setLastModifiedRevision(int revision) {
+    this.lastModifiedRevision = revision;
+  }
+
+  @Override
+  public long getHash() {
+    if (!metadataParsed) parseMetadataFields();
+    if (hash == 0L && hashFunction != null) {
+      hash = computeHash(Bytes.elasticOffHeapByteBuffer());
+    }
+    return hash;
+  }
+
+  @Override
+  public void setHash(long hash) {
+    this.hash = hash;
+  }
+
+  @Override
   public byte[] getRawValue() {
-    if (value == null) {
-      value = valueNodeDelegate.getRawValue();
+    if (!valueParsed) parseValueField();
+    if (value != null && isCompressed) {
+      // Lazy decompress
+      value = Compression.decompress(value);
+      isCompressed = false;
     }
     return value;
   }
 
   @Override
-  public void setRawValue(final byte[] value) {
-    this.value = null;
-    hash = 0L;
-    valueNodeDelegate.setRawValue(value);
+  public void setRawValue(byte[] value) {
+    this.value = value;
+    this.isCompressed = false;
+    this.hash = 0L;
   }
+
+  @Override
+  public String getValue() {
+    return new String(getRawValue(), Constants.DEFAULT_ENCODING);
+  }
+
+  // === LEAF NODE METHODS (no children) ===
 
   @Override
   public long getFirstChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
-  @Override
-  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
-    return visitor.visit(ImmutableText.of(this));
+  public void setFirstChildKey(long key) {
+    // No-op - text nodes can't have children
   }
 
   @Override
-  public void decrementChildCount() {
-    throw new UnsupportedOperationException();
+  public boolean hasFirstChild() {
+    return false;
+  }
+
+  @Override
+  public long getLastChildKey() {
+    return Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  public void setLastChildKey(long key) {
+    // No-op - text nodes can't have children
+  }
+
+  @Override
+  public boolean hasLastChild() {
+    return false;
+  }
+
+  @Override
+  public long getChildCount() {
+    return 0;
+  }
+
+  public void setChildCount(long childCount) {
+    // No-op
   }
 
   @Override
   public void incrementChildCount() {
-    throw new UnsupportedOperationException();
+    // No-op
+  }
+
+  @Override
+  public void decrementChildCount() {
+    // No-op
   }
 
   @Override
@@ -182,30 +314,210 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   }
 
   @Override
-  public void decrementDescendantCount() {
-    throw new UnsupportedOperationException();
+  public void setDescendantCount(long descendantCount) {
+    // No-op
   }
 
   @Override
   public void incrementDescendantCount() {
-    throw new UnsupportedOperationException();
+    // No-op
   }
 
   @Override
-  public void setDescendantCount(long descendantCount) {
-    throw new UnsupportedOperationException();
+  public void decrementDescendantCount() {
+    // No-op
+  }
+
+  // === NON-SERIALIZED FIELD ACCESSORS ===
+
+  @Override
+  public boolean isSameItem(@Nullable Node other) {
+    return other != null && other.getNodeKey() == nodeKey;
+  }
+
+  @Override
+  public int getTypeKey() {
+    return NamePageHash.generateHashForString("xs:untyped");
+  }
+
+  @Override
+  public void setTypeKey(int typeKey) {
+    // Not stored
+  }
+
+  @Override
+  public void setDeweyID(SirixDeweyID id) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = null;
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    if (deweyIDBytes != null && sirixDeweyID == null) {
+      sirixDeweyID = new SirixDeweyID(deweyIDBytes);
+    }
+    return sirixDeweyID;
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    if (deweyIDBytes == null && sirixDeweyID != null) {
+      deweyIDBytes = sirixDeweyID.toBytes();
+    }
+    return deweyIDBytes;
+  }
+
+  public LongHashFunction getHashFunction() {
+    return hashFunction;
+  }
+
+  public boolean isCompressed() {
+    return isCompressed;
+  }
+
+  // === HASH COMPUTATION ===
+
+  @Override
+  public long computeHash(BytesOut<?> bytes) {
+    if (hashFunction == null) {
+      return 0L;
+    }
+
+    bytes.clear();
+    bytes.writeLong(nodeKey)
+         .writeLong(parentKey)
+         .writeByte(NodeKind.TEXT.getId());
+
+    bytes.writeLong(leftSiblingKey).writeLong(rightSiblingKey);
+    bytes.write(getRawValue());
+
+    final var buffer = ((java.nio.ByteBuffer) bytes.underlyingObject()).rewind();
+    buffer.limit((int) bytes.readLimit());
+
+    return hashFunction.hashBytes(buffer);
+  }
+
+  // === LAZY PARSING ===
+
+  /**
+   * Populate this node from a BytesIn source for singleton reuse.
+   */
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
+      LongHashFunction hashFunction, ResourceConfiguration config) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
+
+    // IMMEDIATE: Structural fields
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+
+    // LAZY: Store offset for deferred parsing
+    this.lazySource = source.getSource();
+    this.lazyOffset = source.position();
+    this.metadataParsed = false;
+    this.valueParsed = false;
+    this.hasHash = config.hashType != HashType.NONE;
+    this.valueOffset = 0;
+
+    // Initialize lazy fields
+    this.previousRevision = 0;
+    this.lastModifiedRevision = 0;
+    this.hash = 0;
+    this.value = null;
+    this.isCompressed = false;
+  }
+
+  private void parseMetadataFields() {
+    if (metadataParsed) {
+      return;
+    }
+
+    if (lazySource == null) {
+      metadataParsed = true;
+      return;
+    }
+
+    BytesIn<?> bytesIn = createBytesIn(lazyOffset);
+
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    if (hasHash) {
+      this.hash = bytesIn.readLong();
+    }
+    this.valueOffset = bytesIn.position();
+    this.metadataParsed = true;
+  }
+
+  private void parseValueField() {
+    if (valueParsed) {
+      return;
+    }
+
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
+
+    if (lazySource == null) {
+      valueParsed = true;
+      return;
+    }
+
+    BytesIn<?> bytesIn = createBytesIn(valueOffset);
+
+    this.isCompressed = bytesIn.readBoolean();
+    int length = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.value = new byte[length];
+    bytesIn.read(this.value);
+    this.valueParsed = true;
+  }
+
+  private BytesIn<?> createBytesIn(long offset) {
+    if (lazySource instanceof MemorySegment segment) {
+      var bytesIn = new MemorySegmentBytesIn(segment);
+      bytesIn.position(offset);
+      return bytesIn;
+    } else if (lazySource instanceof byte[] bytes) {
+      var bytesIn = new ByteArrayBytesIn(bytes);
+      bytesIn.position(offset);
+      return bytesIn;
+    } else {
+      throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
+    }
+  }
+
+  /**
+   * Create a deep copy snapshot of this node.
+   */
+  public TextNode toSnapshot() {
+    if (!metadataParsed) parseMetadataFields();
+    if (!valueParsed) parseValueField();
+
+    return new TextNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
+        rightSiblingKey, leftSiblingKey, hash,
+        value != null ? value.clone() : null, isCompressed,
+        hashFunction,
+        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+  }
+
+  @Override
+  public VisitResult acceptVisitor(XmlNodeVisitor visitor) {
+    return visitor.visit(ImmutableText.of(this));
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(structNodeDelegate.getNodeDelegate(), valueNodeDelegate);
+    return Objects.hashCode(nodeKey, parentKey, getValue());
   }
 
   @Override
-  public boolean equals(final @Nullable Object obj) {
+  public boolean equals(@Nullable Object obj) {
     if (obj instanceof TextNode other) {
-      return Objects.equal(structNodeDelegate.getNodeDelegate(), other.getNodeDelegate()) && valueNodeDelegate.equals(
-          other.valueNodeDelegate);
+      return nodeKey == other.nodeKey
+          && parentKey == other.parentKey
+          && java.util.Arrays.equals(getRawValue(), other.getRawValue());
     }
     return false;
   }
@@ -213,43 +525,12 @@ public final class TextNode extends AbstractStructForwardingNode implements Valu
   @Override
   public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
-                      .add("node delegate", structNodeDelegate.getNodeDelegate())
-                      .add("struct delegate", structNodeDelegate)
-                      .add("value delegate", valueNodeDelegate)
+                      .add("nodeKey", nodeKey)
+                      .add("parentKey", parentKey)
+                      .add("rightSiblingKey", rightSiblingKey)
+                      .add("leftSiblingKey", leftSiblingKey)
+                      .add("value", getValue())
+                      .add("compressed", isCompressed)
                       .toString();
-  }
-
-  public ValueNodeDelegate getValNodeDelegate() {
-    return valueNodeDelegate;
-  }
-
-  @Override
-  protected @NonNull NodeDelegate delegate() {
-    return structNodeDelegate.getNodeDelegate();
-  }
-
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
-  }
-
-  @Override
-  public String getValue() {
-    return new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING);
-  }
-
-  @Override
-  public SirixDeweyID getDeweyID() {
-    return structNodeDelegate.getNodeDelegate().getDeweyID();
-  }
-
-  @Override
-  public int getTypeKey() {
-    return structNodeDelegate.getNodeDelegate().getTypeKey();
-  }
-
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    return structNodeDelegate.getDeweyIDAsBytes();
   }
 }

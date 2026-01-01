@@ -445,8 +445,7 @@ public final class JsonResourceCopy implements Callable<Void> {
                 wtx.insertObjectRecordAsFirstChild(key, new BooleanValue(rtx.getBooleanValue()));
             case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsFirstChild(key, new NullValue());
             case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsFirstChild(key,
-                                                                           new io.sirix.access.trx.node.json.objectvalue.StringValue(
-                                                                               rtx.getValue()));
+                                                                           new StringValue(rtx.getValue()));
             case OBJECT_NUMBER_VALUE -> wtx.insertObjectRecordAsFirstChild(key, new NumberValue(rtx.getNumberValue()));
           }
           rtx.moveToParent();
@@ -460,8 +459,7 @@ public final class JsonResourceCopy implements Callable<Void> {
                 wtx.insertObjectRecordAsLeftSibling(key, new BooleanValue(rtx.getBooleanValue()));
             case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, new NullValue());
             case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsLeftSibling(key,
-                                                                            new io.sirix.access.trx.node.json.objectvalue.StringValue(
-                                                                                rtx.getValue()));
+                                                                            new StringValue(rtx.getValue()));
             case OBJECT_NUMBER_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, new NumberValue(rtx.getNumberValue()));
           }
           rtx.moveToParent();
@@ -475,8 +473,7 @@ public final class JsonResourceCopy implements Callable<Void> {
                 wtx.insertObjectRecordAsRightSibling(key, new BooleanValue(rtx.getBooleanValue()));
             case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsRightSibling(key, new NullValue());
             case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsRightSibling(key,
-                                                                             new io.sirix.access.trx.node.json.objectvalue.StringValue(
-                                                                                 rtx.getValue()));
+                                                                             new StringValue(rtx.getValue()));
             case OBJECT_NUMBER_VALUE ->
                 wtx.insertObjectRecordAsRightSibling(key, new NumberValue(rtx.getNumberValue()));
           }
