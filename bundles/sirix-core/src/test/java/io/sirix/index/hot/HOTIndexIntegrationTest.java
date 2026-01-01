@@ -551,7 +551,6 @@ class HOTIndexIntegrationTest {
     }
     
     @Test
-    @Disabled("Cross-transaction HOT modifications need further work on page persistence")
     @DisplayName("HOT PATH index deletion works across transactions")
     void testHOTPathIndexDeleteAcrossTransactions() {
       assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
@@ -807,7 +806,6 @@ class HOTIndexIntegrationTest {
     }
     
     @Test
-    @Disabled("Cross-transaction HOT modifications need further work on page persistence")
     @DisplayName("HOT CAS index with 6+ revisions: insert, query, delete operations")
     void testHOTCASIndexMultiRevisionVersioning() {
       assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
@@ -838,7 +836,10 @@ class HOTIndexIntegrationTest {
         shredder.call();
         trx.commit();
         
-        revision1 = trx.getRevisionNumber();
+        // This is the first commit, so the committed revision number is 1.
+        // Note: Don't use trx.getRevisionNumber() after commit on a write transaction,
+        // as it returns the next revision to be written, not the just-committed one.
+        revision1 = 1;
         
         // Query for "Feature" - should find 53 nodes
         var idx = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
