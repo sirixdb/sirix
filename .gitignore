@@ -66,3 +66,6 @@ testAllTenth-*.log
 fmse-*.log
 *-debug-*.log
 *-leak-analysis-*.log
+
+# AI development docs (kept in private repo)
+ai-docs/
