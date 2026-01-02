@@ -13,6 +13,7 @@ import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.io.Reader;
 
 import java.util.Optional;
@@ -300,4 +301,15 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return the HOT leaf page, or null if not found
    */
   HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber);
+  
+  /**
+   * Load a HOT page (HOTLeafPage or HOTIndirectPage) from storage.
+   *
+   * <p>This method loads HOT pages for tree navigation. It handles both committed
+   * (persisted) and uncommitted (in-transaction-log) pages.</p>
+   *
+   * @param reference the page reference
+   * @return the page (HOTLeafPage or HOTIndirectPage), or null if not found
+   */
+  io.sirix.page.interfaces.@Nullable Page loadHOTPage(@NonNull PageReference reference);
 }

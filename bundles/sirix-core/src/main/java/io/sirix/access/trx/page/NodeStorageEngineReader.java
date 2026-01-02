@@ -1648,4 +1648,63 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     
     return null;
   }
+  
+  @Override
+  public @Nullable Page loadHOTPage(@NonNull PageReference reference) {
+    assertNotClosed();
+    
+    if (reference == null) {
+      return null;
+    }
+    
+    // FIRST: Check transaction log for uncommitted pages (write transactions)
+    if (trxIntentLog != null) {
+      final PageContainer container = trxIntentLog.get(reference);
+      if (container != null) {
+        // Try modified first (the one being written to), then complete
+        Page modified = container.getModified();
+        if (modified instanceof HOTLeafPage || modified instanceof HOTIndirectPage) {
+          return modified;
+        }
+        Page complete = container.getComplete();
+        if (complete instanceof HOTLeafPage || complete instanceof HOTIndirectPage) {
+          return complete;
+        }
+      }
+    }
+    
+    // Check if page is swizzled (directly on reference)
+    Page swizzled = reference.getPage();
+    if (swizzled instanceof HOTLeafPage || swizzled instanceof HOTIndirectPage) {
+      return swizzled;
+    }
+    
+    // For uncommitted pages with no log key, we're done
+    if (reference.getKey() < 0 && reference.getLogKey() < 0) {
+      return null;
+    }
+    
+    // Try to get from buffer cache
+    Page cachedPage = resourceBufferManager.getRecordPageCache().get(reference);
+    if (cachedPage instanceof HOTLeafPage || cachedPage instanceof HOTIndirectPage) {
+      return cachedPage;
+    }
+    
+    // Load from storage (only if key >= 0)
+    if (reference.getKey() >= 0) {
+      try {
+        Page loadedPage = pageReader.read(reference, resourceConfig);
+        if (loadedPage instanceof HOTLeafPage || loadedPage instanceof HOTIndirectPage) {
+          // Cache the loaded page
+          reference.setPage(loadedPage);
+          return loadedPage;
+        }
+      } catch (SirixIOException e) {
+        // Page doesn't exist or couldn't be loaded
+        return null;
+      }
+    }
+    
+    return null;
+  }
 }

@@ -1116,6 +1116,31 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Try buffer cache or load from storage (for previously committed data)
     return pageRtx.getHOTLeafPage(indexType, indexNumber);
   }
+  
+  @Override
+  public io.sirix.page.interfaces.@Nullable Page loadHOTPage(@NonNull PageReference reference) {
+    pageRtx.assertNotClosed();
+    
+    if (reference == null) {
+      return null;
+    }
+    
+    // Check transaction log first for uncommitted pages
+    final PageContainer container = log.get(reference);
+    if (container != null) {
+      Page modified = container.getModified();
+      if (modified instanceof HOTLeafPage || modified instanceof HOTIndirectPage) {
+        return modified;
+      }
+      Page complete = container.getComplete();
+      if (complete instanceof HOTLeafPage || complete instanceof HOTIndirectPage) {
+        return complete;
+      }
+    }
+    
+    // Delegate to the reader
+    return pageRtx.loadHOTPage(reference);
+  }
 
   @Override
   protected @NonNull StorageEngineReader delegate() {

@@ -177,7 +177,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * @param key the search key
    * @return the leaf page, or null if not found
    */
-  @Nullable HOTLeafPage navigateToLeaf(@NonNull PageReference rootRef, byte[] key) {
+  public @Nullable HOTLeafPage navigateToLeaf(@NonNull PageReference rootRef, byte[] key) {
     pathDepth = 0;
     PageReference currentRef = rootRef;
     
@@ -220,7 +220,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * @param rootRef the root reference
    * @return the leftmost leaf, or null if empty
    */
-  @Nullable HOTLeafPage navigateToLeftmostLeaf(@NonNull PageReference rootRef) {
+  public @Nullable HOTLeafPage navigateToLeftmostLeaf(@NonNull PageReference rootRef) {
     pathDepth = 0;
     PageReference currentRef = rootRef;
     
@@ -256,7 +256,7 @@ public final class HOTTrieReader implements AutoCloseable {
    *
    * @return the next leaf, or null if no more leaves
    */
-  @Nullable HOTLeafPage advanceToNextLeaf() {
+  public @Nullable HOTLeafPage advanceToNextLeaf() {
     // Pop back up the tree until we find an unvisited sibling
     while (pathDepth > 0) {
       int parentIdx = pathDepth - 1;
@@ -348,14 +348,22 @@ public final class HOTTrieReader implements AutoCloseable {
   
   /**
    * Load a page from storage.
+   * Checks the page reference's in-memory page first, then falls back to storage.
    */
   private @Nullable Page loadPage(@NonNull PageReference ref) {
+    // First check if page is already in memory (from transaction log or cache)
+    Page inMemory = ref.getPage();
+    if (inMemory != null) {
+      return inMemory;
+    }
+    
     if (ref.getKey() < 0) {
       return null;
     }
-    // This would call the actual page loading logic via pageRtx
-    // For now, return null - actual implementation would use pageRtx.loadPage()
-    return null;
+    
+    // Load from storage via the storage engine reader
+    // The storage engine will handle versioning/fragment combining
+    return pageRtx.loadHOTPage(ref);
   }
   
   /**

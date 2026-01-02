@@ -27,11 +27,19 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.page.CASPage;
+import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.NamePage;
+import io.sirix.page.PageReference;
+import io.sirix.page.PathPage;
+import io.sirix.page.RevisionRootPage;
+import io.sirix.page.interfaces.Page;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.util.Arrays;
@@ -120,9 +128,16 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
       KEY_BUFFER.set(keyBuf);
       keyLen = keySerializer.serialize(key, keyBuf, 0);
     }
+    byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
 
-    // Get HOT leaf page using the storage engine's proper page loading
-    HOTLeafPage leaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+    // Get the root reference
+    PageReference rootRef = getRootReference();
+    if (rootRef == null) {
+      return null;
+    }
+
+    // Navigate to the correct leaf using tree traversal
+    HOTLeafPage leaf = navigateToLeaf(rootRef, keySlice);
     if (leaf == null) {
       return null;
     }
@@ -131,7 +146,6 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
       leaf.acquireGuard();
 
       // Find entry
-      byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
       int index = leaf.findEntry(keySlice);
       if (index < 0) {
         return null;
@@ -145,6 +159,74 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
       return NodeReferencesSerializer.deserialize(valueBytes);
     } finally {
       leaf.releaseGuard();
+    }
+  }
+  
+  /**
+   * Get the root reference for the index.
+   */
+  private @Nullable PageReference getRootReference() {
+    final RevisionRootPage rootPage = pageReadTrx.getActualRevisionRootPage();
+    return switch (indexType) {
+      case PATH -> {
+        final PathPage pathPage = pageReadTrx.getPathPage(rootPage);
+        if (pathPage == null || indexNumber >= pathPage.getReferences().size()) {
+          yield null;
+        }
+        yield pathPage.getOrCreateReference(indexNumber);
+      }
+      case CAS -> {
+        final CASPage casPage = pageReadTrx.getCASPage(rootPage);
+        if (casPage == null || indexNumber >= casPage.getReferences().size()) {
+          yield null;
+        }
+        yield casPage.getOrCreateReference(indexNumber);
+      }
+      case NAME -> {
+        final NamePage namePage = pageReadTrx.getNamePage(rootPage);
+        if (namePage == null || indexNumber >= namePage.getReferences().size()) {
+          yield null;
+        }
+        yield namePage.getOrCreateReference(indexNumber);
+      }
+      default -> null;
+    };
+  }
+  
+  /**
+   * Navigate to the leaf page containing the key.
+   * Handles both simple (single leaf) and complex (indirect page tree) structures.
+   */
+  private @Nullable HOTLeafPage navigateToLeaf(PageReference rootRef, byte[] key) {
+    PageReference currentRef = rootRef;
+    
+    while (true) {
+      Page page = pageReadTrx.loadHOTPage(currentRef);
+      if (page == null) {
+        // Try getHOTLeafPage as fallback for simple case
+        return pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+      }
+      
+      if (page instanceof HOTLeafPage hotLeaf) {
+        return hotLeaf;
+      }
+      
+      if (page instanceof HOTIndirectPage hotIndirect) {
+        // Navigate through indirect page
+        int childIndex = hotIndirect.findChildIndex(key);
+        if (childIndex < 0) {
+          childIndex = 0; // Default to first child
+        }
+        
+        PageReference childRef = hotIndirect.getChildReference(childIndex);
+        if (childRef == null) {
+          return null;
+        }
+        currentRef = childRef;
+      } else {
+        // Unknown page type
+        return null;
+      }
     }
   }
 
@@ -188,16 +270,26 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
   }
 
   /**
-   * Iterator over all entries in a HOT leaf page.
+   * Iterator over all entries in a HOT index, handling tree navigation.
    */
   private class HOTLeafIterator implements Iterator<Map.Entry<K, NodeReferences>> {
     private @Nullable HOTLeafPage currentLeaf;
     private int currentIndex;
     private Map.@Nullable Entry<K, NodeReferences> nextEntry;
+    private final @Nullable HOTTrieReader trieReader;
+    private final @Nullable PageReference rootRef;
     
     HOTLeafIterator() {
-      // Get the leaf using proper storage engine page loading
-      this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+      this.rootRef = getRootReference();
+      if (rootRef != null) {
+        this.trieReader = new HOTTrieReader(pageReadTrx);
+        // Navigate to leftmost leaf
+        this.currentLeaf = trieReader.navigateToLeftmostLeaf(rootRef);
+      } else {
+        this.trieReader = null;
+        // Fallback to simple case
+        this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+      }
       this.currentIndex = 0;
       advance();
     }
@@ -234,30 +326,52 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
             }
           }
         } else {
-          // No more entries in current leaf - for single-level HOT, we're done
-          currentLeaf = null;
+          // No more entries in current leaf - try to advance to next leaf
+          currentIndex = 0;
+          if (trieReader != null) {
+            currentLeaf = trieReader.advanceToNextLeaf();
+          } else {
+            currentLeaf = null;
+          }
         }
       }
     }
   }
 
   /**
-   * Range iterator over HOT entries.
+   * Range iterator over HOT entries, handling tree navigation.
    */
   private class RangeIterator implements Iterator<Map.Entry<K, NodeReferences>> {
-    @SuppressWarnings("unused")
     private final byte[] fromBytes;
     private final byte[] toBytes;
     private @Nullable HOTLeafPage currentLeaf;
     private int currentIndex;
     private Map.@Nullable Entry<K, NodeReferences> nextEntry;
+    private final @Nullable HOTTrieReader trieReader;
 
     RangeIterator(byte[] fromBytes, byte[] toBytes) {
       this.fromBytes = fromBytes;
       this.toBytes = toBytes;
-      // Get the leaf using proper storage engine page loading
-      this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
-      this.currentIndex = 0;
+      
+      PageReference rootRef = getRootReference();
+      if (rootRef != null) {
+        this.trieReader = new HOTTrieReader(pageReadTrx);
+        // Navigate to the leaf containing fromBytes
+        this.currentLeaf = trieReader.navigateToLeaf(rootRef, fromBytes);
+      } else {
+        this.trieReader = null;
+        // Fallback to simple case
+        this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+      }
+      
+      // Find the starting position within the leaf
+      if (currentLeaf != null) {
+        int startIndex = currentLeaf.findEntry(fromBytes);
+        this.currentIndex = startIndex >= 0 ? startIndex : -(startIndex + 1);
+      } else {
+        this.currentIndex = 0;
+      }
+      
       advance();
     }
 
@@ -288,6 +402,12 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
             currentLeaf = null;
             return;
           }
+          
+          // Skip entries before fromBytes
+          if (keySerializer.compare(key, 0, key.length, fromBytes, 0, fromBytes.length) < 0) {
+            currentIndex++;
+            continue;
+          }
 
           byte[] value = currentLeaf.getValue(currentIndex);
           currentIndex++;
@@ -301,8 +421,13 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
             }
           }
         } else {
-          // Move to next leaf (for single-level HOT, we're done)
-          currentLeaf = null;
+          // No more entries in current leaf - try to advance to next leaf
+          currentIndex = 0;
+          if (trieReader != null) {
+            currentLeaf = trieReader.advanceToNextLeaf();
+          } else {
+            currentLeaf = null;
+          }
         }
       }
     }
