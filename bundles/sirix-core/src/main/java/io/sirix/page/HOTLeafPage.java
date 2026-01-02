@@ -509,6 +509,74 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
   
   /**
+   * Split this page, moving the right half of entries to another page.
+   *
+   * <p>After split:</p>
+   * <ul>
+   *   <li>This page keeps entries [0, splitPoint)</li>
+   *   <li>Target page gets entries [splitPoint, entryCount)</li>
+   * </ul>
+   *
+   * @param target the page to receive the right half of entries
+   * @return the first key in the target page (split key for parent navigation)
+   */
+  public byte[] splitTo(@NonNull HOTLeafPage target) {
+    Objects.requireNonNull(target);
+    
+    if (entryCount < 2) {
+      throw new IllegalStateException("Cannot split page with less than 2 entries");
+    }
+    
+    // Split at midpoint
+    int splitPoint = entryCount / 2;
+    
+    // Copy right half to target
+    for (int i = splitPoint; i < entryCount; i++) {
+      byte[] key = getKey(i);
+      byte[] value = getValue(i);
+      
+      boolean inserted = target.insertAt(target.entryCount, key, value);
+      if (!inserted) {
+        throw new IllegalStateException("Failed to insert entry into split target - target page full");
+      }
+    }
+    
+    // Get the split key (first key in target)
+    byte[] splitKey = target.getKey(0);
+    
+    // Truncate this page to keep only left half
+    // Note: We don't reclaim memory, just reduce entry count
+    // The old entries become "garbage" that will be reclaimed on next COW
+    entryCount = splitPoint;
+    
+    return splitKey;
+  }
+  
+  /**
+   * Get the first (minimum) key in this page.
+   *
+   * @return the first key, or null if page is empty
+   */
+  public @Nullable byte[] getFirstKey() {
+    if (entryCount == 0) {
+      return null;
+    }
+    return getKey(0);
+  }
+  
+  /**
+   * Get the last (maximum) key in this page.
+   *
+   * @return the last key, or null if page is empty
+   */
+  public @Nullable byte[] getLastKey() {
+    if (entryCount == 0) {
+      return null;
+    }
+    return getKey(entryCount - 1);
+  }
+
+  /**
    * Merge another HOTLeafPage into this one.
    *
    * <p>Used for versioning - combines entries from multiple page fragments.

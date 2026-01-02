@@ -35,6 +35,7 @@ import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.CASPage;
+import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
@@ -88,8 +89,10 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
   private final IndexType indexType;
   private final int indexNumber;
   
-  /** Cached root page reference (currently unused, kept for potential future caching). */
-  @SuppressWarnings("unused")
+  /** HOT trie writer for handling page splits. */
+  private final io.sirix.access.trx.page.HOTTrieWriter trieWriter;
+  
+  /** Cached root page reference for the index. */
   private PageReference rootReference;
 
   /**
@@ -106,6 +109,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
     this.keySerializer = requireNonNull(keySerializer);
     this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
+    this.trieWriter = new io.sirix.access.trx.page.HOTTrieWriter();
     
     // Initialize HOT index tree
     initializeHOTIndex();
@@ -228,16 +232,42 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
     }
 
     // Get or create HOT leaf page
+    PageReference currentRef = getRootReference();
+    if (currentRef == null) {
+      throw new SirixIOException("HOT index not initialized for " + indexType);
+    }
+    
     HOTLeafPage leaf = getLeafForWrite(keyBuf, keyLen);
     
     // Merge entry
     boolean success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
     
     if (!success && leaf.needsSplit()) {
-      // TODO: Implement proper leaf split with HOTIndirectPage creation
-      // For now, throw an exception to make the problem visible
-      throw new SirixIOException("HOT leaf page is full and needs split - not yet implemented. " +
-          "Index: " + indexType + ", entries: " + leaf.getEntryCount());
+      // Handle split using HOTTrieWriter
+      byte[] splitKey = trieWriter.handleLeafSplit(pageTrx, pageTrx.getLog(), leaf, currentRef, currentRef);
+      
+      // Now determine which page should receive the new entry
+      // Compare key with splitKey to route to correct page
+      byte[] keySlice = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
+      int cmp = compareKeys(keySlice, splitKey);
+      
+      if (cmp < 0) {
+        // Key goes to left page (the original, now smaller)
+        success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
+      } else {
+        // Key goes to right page - need to get it from the log
+        PageContainer rightContainer = findRightPageAfterSplit(currentRef);
+        if (rightContainer != null && rightContainer.getModified() instanceof HOTLeafPage rightLeaf) {
+          success = rightLeaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
+        } else {
+          throw new SirixIOException("Failed to find right page after split");
+        }
+      }
+      
+      if (!success) {
+        throw new SirixIOException("Failed to insert after split - this should not happen. " +
+            "Index: " + indexType + ", entries: " + leaf.getEntryCount());
+      }
     }
 
     return value;
@@ -434,6 +464,124 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
       }
       default -> null;
     };
+  }
+  
+  /**
+   * Compare two byte array keys lexicographically.
+   *
+   * @param key1 first key
+   * @param key2 second key
+   * @return negative if key1 < key2, 0 if equal, positive if key1 > key2
+   */
+  private static int compareKeys(byte[] key1, byte[] key2) {
+    int minLen = Math.min(key1.length, key2.length);
+    for (int i = 0; i < minLen; i++) {
+      int cmp = (key1[i] & 0xFF) - (key2[i] & 0xFF);
+      if (cmp != 0) {
+        return cmp;
+      }
+    }
+    return key1.length - key2.length;
+  }
+  
+  /**
+   * Find the right page after a split by looking through the transaction log.
+   * After a split, the root reference should point to a HOTIndirectPage with two children.
+   *
+   * @param rootRef the root reference
+   * @return the page container for the right child, or null if not found
+   */
+  private @Nullable PageContainer findRightPageAfterSplit(PageReference rootRef) {
+    // After split, the root should be a HOTIndirectPage (BiNode) with two children
+    PageContainer rootContainer = pageTrx.getLog().get(rootRef);
+    if (rootContainer == null) {
+      return null;
+    }
+    
+    Page rootPage = rootContainer.getModified();
+    if (rootPage instanceof HOTIndirectPage indirectPage) {
+      // Get the right child (index 1)
+      if (indirectPage.getNumChildren() >= 2) {
+        PageReference rightRef = indirectPage.getChildReference(1);
+        if (rightRef != null) {
+          return pageTrx.getLog().get(rightRef);
+        }
+      }
+    }
+    
+    // If root is still a leaf page, something went wrong
+    return null;
+  }
+  
+  /**
+   * Navigate to the correct leaf page for a given key.
+   * Handles both simple (single leaf) and complex (indirect page tree) structures.
+   *
+   * @param key the search key
+   * @param keyLen the key length
+   * @return the appropriate HOTLeafPage, or null if not found
+   */
+  private @Nullable HOTLeafPage navigateToLeaf(byte[] key, int keyLen) {
+    PageReference rootRef = getRootReference();
+    if (rootRef == null) {
+      return null;
+    }
+    
+    // Check transaction log first
+    PageContainer container = pageTrx.getLog().get(rootRef);
+    if (container != null) {
+      Page page = container.getModified();
+      if (page instanceof HOTLeafPage hotLeaf) {
+        // Simple case - root is a leaf
+        return hotLeaf;
+      } else if (page instanceof HOTIndirectPage indirectPage) {
+        // Complex case - navigate through indirect pages
+        return navigateThroughIndirectPage(indirectPage, key, keyLen);
+      }
+    }
+    
+    // Fall back to storage engine
+    return pageTrx.getHOTLeafPage(indexType, indexNumber);
+  }
+  
+  /**
+   * Navigate through a HOTIndirectPage to find the appropriate leaf.
+   *
+   * @param indirectPage the indirect page to navigate through
+   * @param key the search key
+   * @param keyLen the key length
+   * @return the appropriate HOTLeafPage, or null if not found
+   */
+  private @Nullable HOTLeafPage navigateThroughIndirectPage(HOTIndirectPage indirectPage, byte[] key, int keyLen) {
+    byte[] keySlice = keyLen == key.length ? key : java.util.Arrays.copyOf(key, keyLen);
+    
+    // Find the appropriate child using the indirect page's lookup
+    int childIndex = indirectPage.findChildIndex(keySlice);
+    if (childIndex == HOTIndirectPage.NOT_FOUND) {
+      // Default to first child if not found
+      childIndex = 0;
+    }
+    
+    PageReference childRef = indirectPage.getChildReference(childIndex);
+    if (childRef == null) {
+      return null;
+    }
+    
+    // Check transaction log for child
+    PageContainer childContainer = pageTrx.getLog().get(childRef);
+    if (childContainer != null) {
+      Page childPage = childContainer.getModified();
+      if (childPage instanceof HOTLeafPage hotLeaf) {
+        return hotLeaf;
+      } else if (childPage instanceof HOTIndirectPage childIndirect) {
+        // Recursively navigate
+        return navigateThroughIndirectPage(childIndirect, key, keyLen);
+      }
+    }
+    
+    // Try to load from storage
+    // For now, return null - proper implementation would load from storage
+    return null;
   }
 }
 
