@@ -331,11 +331,25 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     pageRtx.assertNotClosed();
 
     // Allocate record key and increment record count.
+    // For RECORD_TO_REVISIONS: Use the record's own nodeKey (document node key) for page allocation.
+    // This is critical because later lookups via prepareRecordForModification use the document node key.
+    // Using an auto-allocated key would cause a mismatch where the record can't be found.
     // $CASES-OMITTED$
     final long createdRecordKey = switch (indexType) {
       case DOCUMENT -> newRevisionRootPage.incrementAndGetMaxNodeKeyInDocumentIndex();
       case CHANGED_NODES -> newRevisionRootPage.incrementAndGetMaxNodeKeyInChangedNodesIndex();
-      case RECORD_TO_REVISIONS -> newRevisionRootPage.incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
+      case RECORD_TO_REVISIONS -> {
+        // CRITICAL FIX: Use the document node key for page allocation, not an auto-allocated key.
+        // The RevisionReferencesNode stores document node key as its nodeKey, and we need to 
+        // be able to look it up later using that same key in prepareRecordForModification.
+        // Still update max key for proper tracking.
+        long documentNodeKey = record.getNodeKey();
+        long currentMax = newRevisionRootPage.getMaxNodeKeyInRecordToRevisionsIndex();
+        if (documentNodeKey > currentMax) {
+          newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(documentNodeKey);
+        }
+        yield documentNodeKey;
+      }
       case PATH_SUMMARY -> {
         // CRITICAL FIX: Use accessor method instead of direct .getPage() call
         // PageReference.getPage() can return null after TIL.put() nulls it

@@ -1631,15 +1631,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return hotLeaf;
     }
     
-    // Load from storage (only if key >= 0)
+    // Load from storage with proper versioning fragment combining
     if (rootRef.getKey() >= 0) {
       try {
-        Page loadedPage = pageReader.read(rootRef, resourceConfig);
-        if (loadedPage instanceof HOTLeafPage hotLeaf) {
-          // Cache the loaded page
-          rootRef.setPage(hotLeaf);
-          return hotLeaf;
-        }
+        return loadHOTLeafPageWithVersioning(rootRef);
       } catch (SirixIOException e) {
         // Page doesn't exist or couldn't be loaded
         return null;
@@ -1647,6 +1642,79 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
     
     return null;
+  }
+  
+  /**
+   * Load a HOTLeafPage from storage with proper versioning fragment combining.
+   * 
+   * <p>For FULL versioning, loads a single complete page.
+   * For INCREMENTAL/DIFFERENTIAL/SLIDING_SNAPSHOT, loads all fragments and combines them.</p>
+   *
+   * @param pageRef the page reference
+   * @return the combined HOTLeafPage, or null if not found
+   */
+  private @Nullable HOTLeafPage loadHOTLeafPageWithVersioning(PageReference pageRef) {
+    final VersioningType versioningType = resourceConfig.versioningType;
+    final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
+    
+    // FULL versioning fast path: Page on disk IS complete - load directly
+    if (versioningType == VersioningType.FULL) {
+      Page loadedPage = pageReader.read(pageRef, resourceConfig);
+      if (loadedPage instanceof HOTLeafPage hotLeaf) {
+        pageRef.setPage(hotLeaf);
+        return hotLeaf;
+      }
+      return null;
+    }
+    
+    // Other versioning types: load fragments and combine
+    List<HOTLeafPage> fragments = loadHOTPageFragments(pageRef);
+    if (fragments.isEmpty()) {
+      return null;
+    }
+    
+    // Combine fragments using VersioningType
+    HOTLeafPage combinedPage = versioningType.combineHOTLeafPages(fragments, revsToRestore, this);
+    pageRef.setPage(combinedPage);
+    return combinedPage;
+  }
+  
+  /**
+   * Load all HOTLeafPage fragments for versioning reconstruction.
+   *
+   * @param pageRef the page reference to the most recent fragment
+   * @return list of HOTLeafPage fragments (newest first)
+   */
+  private List<HOTLeafPage> loadHOTPageFragments(PageReference pageRef) {
+    final List<HOTLeafPage> fragments = new ArrayList<>();
+    
+    // Load the first (most recent) fragment
+    Page firstPage = pageReader.read(pageRef, resourceConfig);
+    if (!(firstPage instanceof HOTLeafPage hotLeaf)) {
+      return fragments;
+    }
+    fragments.add(hotLeaf);
+    
+    // Check if this is already a complete page (for FULL versioning) or no fragments
+    List<PageFragmentKey> pageFragments = pageRef.getPageFragments();
+    if (pageFragments.isEmpty()) {
+      return fragments;
+    }
+    
+    // Load additional fragments from the versioning chain
+    for (PageFragmentKey fragmentKey : pageFragments) {
+      PageReference fragmentRef = new PageReference()
+          .setKey(fragmentKey.key())
+          .setDatabaseId(databaseId)
+          .setResourceId(resourceId);
+      
+      Page fragmentPage = pageReader.read(fragmentRef, resourceConfig);
+      if (fragmentPage instanceof HOTLeafPage hotFragment) {
+        fragments.add(hotFragment);
+      }
+    }
+    
+    return fragments;
   }
   
   @Override
@@ -1693,11 +1761,19 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Load from storage (only if key >= 0)
     if (reference.getKey() >= 0) {
       try {
+        // First load the page to determine its type
         Page loadedPage = pageReader.read(reference, resourceConfig);
-        if (loadedPage instanceof HOTLeafPage || loadedPage instanceof HOTIndirectPage) {
-          // Cache the loaded page
+        
+        if (loadedPage instanceof HOTIndirectPage) {
+          // HOTIndirectPage doesn't need versioning combining - it's stored complete
           reference.setPage(loadedPage);
           return loadedPage;
+        }
+        
+        if (loadedPage instanceof HOTLeafPage) {
+          // HOTLeafPage needs proper versioning fragment combining
+          HOTLeafPage combinedPage = loadHOTLeafPageWithVersioning(reference);
+          return combinedPage;
         }
       } catch (SirixIOException e) {
         // Page doesn't exist or couldn't be loaded
