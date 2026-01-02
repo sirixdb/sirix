@@ -26,6 +26,7 @@ import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.page.BitmapChunkPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageFragmentKeyImpl;
@@ -902,6 +903,197 @@ public enum VersioningType {
     log.put(reference, pageContainer);
     
     return pageContainer;
+  }
+
+  // ===== Bitmap Chunk Page Versioning =====
+
+  /**
+   * Combine BitmapChunkPage fragments according to versioning strategy.
+   *
+   * <p>Takes a list of bitmap chunk page fragments (newest first) and combines them
+   * into a complete bitmap representing the current state.</p>
+   *
+   * @param fragments the list of bitmap chunk page fragments (newest first)
+   * @param revToRestore the revision to restore
+   * @param pageReadTrx the storage engine reader
+   * @return the combined bitmap chunk page with complete data
+   */
+  public BitmapChunkPage combineBitmapChunks(
+      final List<BitmapChunkPage> fragments,
+      final @NonNegative int revToRestore,
+      final StorageEngineReader pageReadTrx) {
+    
+    if (fragments.isEmpty()) {
+      throw new IllegalArgumentException("No fragments to combine");
+    }
+    
+    if (fragments.size() == 1) {
+      BitmapChunkPage singlePage = fragments.getFirst();
+      if (singlePage.isDeleted()) {
+        return singlePage; // Return tombstone as-is
+      }
+      if (singlePage.isFullSnapshot()) {
+        return singlePage; // Full snapshot - already complete
+      }
+      // Delta page without base - shouldn't happen in valid state
+      LOGGER.warn("Single delta page without base for chunk range [{}, {})",
+          singlePage.getRangeStart(), singlePage.getRangeEnd());
+      return singlePage.copyAsFull(singlePage.getRevision());
+    }
+    
+    // Find the base snapshot (should be the last/oldest page)
+    BitmapChunkPage basePage = fragments.getLast();
+    if (!basePage.isFullSnapshot() && !basePage.isDeleted()) {
+      LOGGER.warn("Base page is not a full snapshot for chunk range [{}, {})",
+          basePage.getRangeStart(), basePage.getRangeEnd());
+    }
+    
+    // Start with base bitmap
+    org.roaringbitmap.longlong.Roaring64Bitmap combined = 
+        basePage.getBitmap() != null ? basePage.getBitmap().clone() : new org.roaringbitmap.longlong.Roaring64Bitmap();
+    
+    // Apply deltas from oldest to newest (skip base)
+    for (int i = fragments.size() - 2; i >= 0; i--) {
+      BitmapChunkPage deltaPage = fragments.get(i);
+      
+      if (deltaPage.isDeleted()) {
+        // Tombstone - clear everything
+        combined = new org.roaringbitmap.longlong.Roaring64Bitmap();
+        continue;
+      }
+      
+      if (deltaPage.isFullSnapshot()) {
+        // Full snapshot replaces everything
+        combined = deltaPage.getBitmap() != null ? deltaPage.getBitmap().clone() : new org.roaringbitmap.longlong.Roaring64Bitmap();
+        continue;
+      }
+      
+      if (deltaPage.isDelta()) {
+        // Apply additions
+        if (deltaPage.getAdditions() != null && !deltaPage.getAdditions().isEmpty()) {
+          combined.or(deltaPage.getAdditions());
+        }
+        // Apply removals
+        if (deltaPage.getRemovals() != null && !deltaPage.getRemovals().isEmpty()) {
+          combined.andNot(deltaPage.getRemovals());
+        }
+      }
+    }
+    
+    // Create result as full snapshot
+    BitmapChunkPage newestPage = fragments.getFirst();
+    return BitmapChunkPage.createFull(
+        newestPage.getPageKey(),
+        newestPage.getRevision(),
+        newestPage.getIndexType(),
+        newestPage.getRangeStart(),
+        newestPage.getRangeEnd(),
+        combined
+    );
+  }
+
+  /**
+   * Prepare a BitmapChunkPage for modification.
+   *
+   * <p>Loads existing fragments, combines them, and creates a new page for
+   * the current transaction. The versioning strategy determines whether
+   * to create a full snapshot or a delta page.</p>
+   *
+   * @param fragments existing page fragments (newest first), may be empty for new chunks
+   * @param currentRevision the current transaction revision
+   * @param revsToRestore the threshold for full snapshots
+   * @param rangeStart the chunk range start
+   * @param rangeEnd the chunk range end
+   * @param indexType the index type
+   * @param reference the page reference
+   * @param log the transaction intent log
+   * @param pageReadTrx the storage engine reader
+   * @return the page container with complete and modified pages
+   */
+  public PageContainer prepareBitmapChunkForModification(
+      final List<BitmapChunkPage> fragments,
+      final int currentRevision,
+      final @NonNegative int revsToRestore,
+      final long rangeStart,
+      final long rangeEnd,
+      final io.sirix.index.IndexType indexType,
+      final PageReference reference,
+      final TransactionIntentLog log,
+      final StorageEngineReader pageReadTrx) {
+    
+    // Determine if we should create a full snapshot
+    final boolean isFullDump = shouldStoreBitmapFullSnapshot(fragments, currentRevision, revsToRestore);
+    
+    final long pageKey = reference.getKey() >= 0 ? reference.getKey() : allocateNewPageKey(pageReadTrx);
+    
+    if (fragments.isEmpty()) {
+      // New chunk - create empty full snapshot
+      BitmapChunkPage newPage = BitmapChunkPage.createEmptyFull(
+          pageKey, currentRevision, indexType, rangeStart, rangeEnd);
+      PageContainer container = PageContainer.getInstance(newPage, newPage);
+      log.put(reference, container);
+      return container;
+    }
+    
+    // Combine existing fragments
+    BitmapChunkPage completePage = combineBitmapChunks(fragments, revsToRestore, pageReadTrx);
+    
+    // Create modified page based on versioning strategy
+    BitmapChunkPage modifiedPage;
+    if (isFullDump) {
+      // Full snapshot - copy the complete page
+      modifiedPage = completePage.copyAsFull(currentRevision);
+    } else {
+      // Delta mode - create empty delta for tracking changes
+      modifiedPage = BitmapChunkPage.createEmptyDelta(
+          pageKey, currentRevision, indexType, rangeStart, rangeEnd);
+    }
+    
+    PageContainer container = PageContainer.getInstance(completePage, modifiedPage);
+    log.put(reference, container);
+    return container;
+  }
+
+  /**
+   * Determine if a full snapshot should be stored for bitmap chunks.
+   *
+   * <p>Strategy-specific logic:</p>
+   * <ul>
+   *   <li>FULL: Always returns true</li>
+   *   <li>INCREMENTAL: Returns true when chain length >= revsToRestore - 1</li>
+   *   <li>DIFFERENTIAL: Returns true when currentRevision % revsToRestore == 0</li>
+   *   <li>SLIDING_SNAPSHOT: Same as INCREMENTAL with window-based GC</li>
+   * </ul>
+   *
+   * @param fragments existing fragments (for chain length check)
+   * @param currentRevision the current revision
+   * @param revsToRestore the threshold
+   * @return true if full snapshot should be stored
+   */
+  public boolean shouldStoreBitmapFullSnapshot(
+      final List<BitmapChunkPage> fragments,
+      final int currentRevision,
+      final @NonNegative int revsToRestore) {
+    
+    // First revision is always full
+    if (currentRevision == 1 || fragments.isEmpty()) {
+      return true;
+    }
+    
+    return switch (this) {
+      case FULL -> true;
+      case DIFFERENTIAL -> currentRevision % revsToRestore == 0;
+      case INCREMENTAL, SLIDING_SNAPSHOT -> fragments.size() >= revsToRestore - 1;
+    };
+  }
+
+  /**
+   * Allocate a new page key.
+   * This is a placeholder - actual implementation uses RevisionRootPage.
+   */
+  private long allocateNewPageKey(StorageEngineReader pageReadTrx) {
+    // TODO: Integrate with RevisionRootPage page key allocation
+    return System.nanoTime(); // Temporary unique key
   }
 }
 

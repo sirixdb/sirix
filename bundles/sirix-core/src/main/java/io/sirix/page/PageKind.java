@@ -1033,6 +1033,53 @@ public enum PageKind {
         sink.writeLong(ref != null ? ref.getKey() : Constants.NULL_ID_LONG);
       }
     }
+  },
+
+  /**
+   * {@link BitmapChunkPage} - Versioned bitmap chunk for NodeReferences in HOT indexes.
+   */
+  BITMAP_CHUNK_PAGE((byte) 14, BitmapChunkPage.class) {
+    @Override
+    public Page deserializePage(@NonNull ResourceConfiguration resourceConfiguration, BytesIn<?> source,
+        @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      // Skip binary version byte for now
+      source.readByte();
+      
+      // Read page key (stored before calling deserialize)
+      final long pageKey = Utils.getVarLong(source);
+      
+      try {
+        // Create a DataInputStream wrapper for BitmapChunkPage.deserialize
+        byte[] remaining = source.toByteArray();
+        java.io.DataInputStream dis = new java.io.DataInputStream(
+            new java.io.ByteArrayInputStream(remaining, (int) source.position(), 
+                remaining.length - (int) source.position()));
+        return BitmapChunkPage.deserialize(dis, pageKey);
+      } catch (java.io.IOException e) {
+        throw new UncheckedIOException("Failed to deserialize BitmapChunkPage", e);
+      }
+    }
+
+    @Override
+    public void serializePage(@NonNull ResourceConfiguration resourceConfig, @NonNull BytesOut<?> sink,
+        @NonNull Page page, @NonNull SerializationType type) {
+      BitmapChunkPage chunkPage = (BitmapChunkPage) page;
+      sink.writeByte(BITMAP_CHUNK_PAGE.id);
+      sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
+      
+      // Write page key
+      Utils.putVarLong(sink, chunkPage.getPageKey());
+      
+      try {
+        // Serialize to byte array first, then write
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        chunkPage.serialize(new DataOutputStream(baos));
+        byte[] data = baos.toByteArray();
+        sink.write(data);
+      } catch (IOException e) {
+        throw new UncheckedIOException("Failed to serialize BitmapChunkPage", e);
+      }
+    }
   };
 
   private static void writeDelegateType(Page delegate, BytesOut<?> sink) {
