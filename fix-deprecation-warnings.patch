@@ -1,0 +1,42 @@
+From 814580e5b060f79fcce433bb9b16d77fd951dee1 Mon Sep 17 00:00:00 2001
+From: Johannes Lichtenberger <johannes@lichtenberger.io>
+Date: Thu, 1 Jan 2026 05:03:34 +0100
+Subject: [PATCH] Fix deprecation warnings for invalid escape sequences
+
+Changed dict``\s to dict``s in docstrings to fix:
+- DeprecationWarning in pysirix/sync_client.py:24
+- DeprecationWarning in pysirix/json_store.py:93
+---
+ pysirix/json_store.py  | 2 +-
+ pysirix/sync_client.py | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/pysirix/json_store.py b/pysirix/json_store.py
+index a1d3db9..96e1432 100644
+--- a/pysirix/json_store.py
++++ b/pysirix/json_store.py
+@@ -93,7 +93,7 @@ class JsonStoreBase(ABC):
+         """
+         Inserts a list of records into the store. New records are added at the the tail of the store.
+ 
+-        :param insert_list: either a JSON string of ``list`` of ``dict``\s, or a ``list`` that can be converted to JSON
++        :param insert_list: either a JSON string of ``list`` of ``dict``s, or a ``list`` that can be converted to JSON
+         :return: a ``str`` "{rest: []}" or an ``Awaitable[str]`` resolving to this string.
+         """
+         insert_list = dumps(insert_list)
+diff --git a/pysirix/sync_client.py b/pysirix/sync_client.py
+index 4b804e7..3e25311 100644
+--- a/pysirix/sync_client.py
++++ b/pysirix/sync_client.py
+@@ -26,7 +26,7 @@ class SyncClient:
+         the endpoint is called with the query ``withResources=true``
+ 
+         :param resources: whether to query resources as well
+-        :return: a ``list`` of ``dict``\s, where each ``dict`` has a ``name``
++        :return: a ``list`` of ``dict``s, where each ``dict`` has a ``name``
+                         field, a ``type`` field, and (if ``resources`` is
+                         ``True``) a ``resources`` field (containing a ``list`` of names).
+         :raises: :py:class:`pysirix.SirixServerError`.
+-- 
+2.43.0
+

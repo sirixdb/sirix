@@ -231,7 +231,14 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
     HOTLeafPage leaf = getLeafForWrite(keyBuf, keyLen);
     
     // Merge entry
-    leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
+    boolean success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
+    
+    if (!success && leaf.needsSplit()) {
+      // TODO: Implement proper leaf split with HOTIndirectPage creation
+      // For now, throw an exception to make the problem visible
+      throw new SirixIOException("HOT leaf page is full and needs split - not yet implemented. " +
+          "Index: " + indexType + ", entries: " + leaf.getEntryCount());
+    }
 
     return value;
   }
