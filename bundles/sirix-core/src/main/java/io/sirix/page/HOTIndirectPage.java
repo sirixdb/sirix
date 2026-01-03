@@ -28,8 +28,10 @@
 
 package io.sirix.page;
 
+import io.sirix.index.hot.SparsePartialKeys;
 import io.sirix.page.interfaces.Page;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -132,7 +134,8 @@ public final class HOTIndirectPage implements Page {
   private short[] bitPositions;
   
   // ===== Child data =====
-  private byte[] partialKeys; // Up to 256 partial keys
+  private byte[] partialKeys; // Up to 256 partial keys (raw storage)
+  private @Nullable SparsePartialKeys<Byte> sparsePartialKeys; // SIMD-accelerated search
   private final PageReference[] childReferences; // References to child pages
   
   // ===== MultiNode direct index (256 bytes) =====
@@ -155,7 +158,15 @@ public final class HOTIndirectPage implements Page {
     HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, 0, NodeType.BI_NODE, 2);
     page.layoutType = LayoutType.SINGLE_MASK;
     page.initialBytePos = (byte) (discriminativeBitPos / 8);
-    page.bitMask = 1L << (discriminativeBitPos % 64);
+    
+    // Compute bit mask for PEXT extraction
+    // getKeyWordAt uses little-endian: byte 0 goes to bits 0-7, byte 1 to bits 8-15, etc.
+    // Within each byte, bit 0 (MSB) is at position 7, bit 7 (LSB) is at position 0
+    int byteWithinWindow = (discriminativeBitPos / 8) - page.initialBytePos;
+    int bitWithinByte = discriminativeBitPos % 8; // 0=MSB, 7=LSB
+    int bitInWord = byteWithinWindow * 8 + (7 - bitWithinByte);
+    page.bitMask = 1L << bitInWord;
+    
     page.partialKeys = new byte[] { 0, 1 };
     page.childReferences[0] = leftChild;
     page.childReferences[1] = rightChild;
@@ -164,6 +175,9 @@ public final class HOTIndirectPage implements Page {
 
   /**
    * Create a new SpanNode with 2-16 children.
+   *
+   * <p><b>Reference:</b> SpanNode uses SparsePartialKeys for SIMD-accelerated
+   * child lookup. The search pattern is: {@code (denseKey & sparseKey) == sparseKey}</p>
    *
    * @param pageKey the page key
    * @param revision the revision
@@ -185,6 +199,13 @@ public final class HOTIndirectPage implements Page {
     page.initialBytePos = initialBytePos;
     page.bitMask = bitMask;
     page.partialKeys = partialKeys.clone();
+    
+    // Create SIMD-accelerated SparsePartialKeys for fast search
+    page.sparsePartialKeys = SparsePartialKeys.forBytes(children.length);
+    for (int i = 0; i < children.length; i++) {
+      page.sparsePartialKeys.setEntry(i, partialKeys[i]);
+    }
+    
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
     return page;
   }
@@ -253,6 +274,13 @@ public final class HOTIndirectPage implements Page {
     }
     if (other.partialKeys != null) {
       this.partialKeys = other.partialKeys.clone();
+      // Recreate SparsePartialKeys for SIMD search
+      if (other.nodeType == NodeType.SPAN_NODE) {
+        this.sparsePartialKeys = SparsePartialKeys.forBytes(other.numChildren);
+        for (int i = 0; i < other.numChildren; i++) {
+          this.sparsePartialKeys.setEntry(i, other.partialKeys[i]);
+        }
+      }
     }
     if (other.childIndex != null) {
       this.childIndex = other.childIndex.clone();
@@ -315,7 +343,14 @@ public final class HOTIndirectPage implements Page {
 
   /**
    * SpanNode lookup: Extract partial key and search in partial keys array.
-   * For small arrays (2-16), linear search is often faster than binary search.
+   * 
+   * <p><b>Reference:</b> SparsePartialKeys.hpp search() method</p>
+   * 
+   * <p>Uses SIMD-accelerated search when SparsePartialKeys is available.
+   * The search pattern is: {@code (densePartialKey & sparsePartialKey) == sparsePartialKey}</p>
+   * 
+   * <p>This finds ALL entries that could match the search key based on the
+   * discriminative bits. For an exact match, we take the first (lowest index) match.</p>
    */
   private int findChildSpanNode(byte[] key) {
     int bytePos = initialBytePos & 0xFF;
@@ -323,11 +358,24 @@ public final class HOTIndirectPage implements Page {
       return 0;
     }
     long keyWord = getKeyWordAt(key, bytePos);
-    int partialKey = (int) Long.compress(keyWord, bitMask); // PEXT intrinsic
+    int densePartialKey = (int) Long.compress(keyWord, bitMask); // PEXT intrinsic
     
-    // Linear search for small arrays (could use SIMD ByteVector for larger)
+    // Use SIMD-accelerated search if available
+    if (sparsePartialKeys != null) {
+      // SIMD search returns bitmask of all matching entries
+      int matchMask = sparsePartialKeys.search(densePartialKey);
+      if (matchMask == 0) {
+        return NOT_FOUND;
+      }
+      // Return lowest matching index (trailing zeros count)
+      return Integer.numberOfTrailingZeros(matchMask);
+    }
+    
+    // Fallback: Linear search (for deserialized pages without SparsePartialKeys)
     for (int i = 0; i < numChildren; i++) {
-      if ((partialKeys[i] & 0xFF) == (partialKey & 0xFF)) {
+      // Check: (denseKey & sparseKey[i]) == sparseKey[i]
+      int sparseKey = partialKeys[i] & 0xFF;
+      if ((densePartialKey & sparseKey) == sparseKey) {
         return i;
       }
     }

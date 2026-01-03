@@ -174,21 +174,22 @@ class HOTLeafPageSplitTest {
       rightRef.setKey(200L);
       
       // Create BiNode with discriminative bit at position 0 (MSB of first byte)
+      // Reference implementation: bit 0 = MSB (0x80), bit 7 = LSB (0x01)
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(
-          1L, 1, 7, leftRef, rightRef); // bit 7 = MSB of byte 0
+          1L, 1, 0, leftRef, rightRef); // bit 0 = MSB of byte 0
       
       assertEquals(2, biNode.getNumChildren());
       assertEquals(HOTIndirectPage.NodeType.BI_NODE, biNode.getNodeType());
       
-      // Keys with bit 7 = 0 should go left, bit 7 = 1 should go right
-      byte[] leftKey = new byte[] { 0x00, 0x01, 0x02 }; // bit 7 = 0
-      byte[] rightKey = new byte[] { (byte)0x80, 0x01, 0x02 }; // bit 7 = 1
+      // Keys with MSB = 0 should go left, MSB = 1 should go right
+      byte[] leftKey = new byte[] { 0x00, 0x01, 0x02 }; // MSB = 0
+      byte[] rightKey = new byte[] { (byte)0x80, 0x01, 0x02 }; // MSB = 1
       
       int leftChildIndex = biNode.findChildIndex(leftKey);
       int rightChildIndex = biNode.findChildIndex(rightKey);
       
-      assertEquals(0, leftChildIndex, "Key with bit 7 = 0 should route to child 0");
-      assertEquals(1, rightChildIndex, "Key with bit 7 = 1 should route to child 1");
+      assertEquals(0, leftChildIndex, "Key with MSB = 0 should route to child 0");
+      assertEquals(1, rightChildIndex, "Key with MSB = 1 should route to child 1");
     }
 
     @Test

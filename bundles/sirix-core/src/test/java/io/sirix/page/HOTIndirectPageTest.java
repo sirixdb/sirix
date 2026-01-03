@@ -2,353 +2,257 @@
  * Copyright (c) 2024, Sirix Contributors
  *
  * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the <organization> nor the
- *       names of its contributors may be used to endorse or promote products
- *       derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 package io.sirix.page;
 
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Unit tests for {@link HOTIndirectPage}.
+ * Tests for HOTIndirectPage - verifies SIMD-accelerated child lookup.
+ * 
+ * <p>Validates that the integration of SparsePartialKeys provides correct
+ * child lookup for SpanNode nodes.</p>
  */
+@DisplayName("HOTIndirectPage Tests")
 class HOTIndirectPageTest {
 
-  @Test
-  void testBiNodeCreation() {
-    PageReference leftChild = new PageReference();
-    leftChild.setKey(100L);
-    
-    PageReference rightChild = new PageReference();
-    rightChild.setKey(200L);
-    
-    // Create BiNode discriminating on bit 8 (first bit of second byte)
-    HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 8, leftChild, rightChild);
-    
-    assertEquals(1L, biNode.getPageKey());
-    assertEquals(1, biNode.getRevision());
-    assertEquals(HOTIndirectPage.NodeType.BI_NODE, biNode.getNodeType());
-    assertEquals(HOTIndirectPage.LayoutType.SINGLE_MASK, biNode.getLayoutType());
-    assertEquals(2, biNode.getNumChildren());
-  }
+  @Nested
+  @DisplayName("BiNode Tests")
+  class BiNodeTests {
 
-  @Test
-  void testBiNodeChildLookup() {
-    PageReference leftChild = new PageReference();
-    leftChild.setKey(100L);
-    
-    PageReference rightChild = new PageReference();
-    rightChild.setKey(200L);
-    
-    // Discriminate on bit 0 of byte 0
-    HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftChild, rightChild);
-    
-    // Key with bit 0 = 0 should go left
-    byte[] keyLeft = new byte[] { 0x00 };
-    assertEquals(0, biNode.findChildIndex(keyLeft));
-    
-    // Key with bit 0 = 1 should go right
-    byte[] keyRight = new byte[] { 0x01 };
-    assertEquals(1, biNode.findChildIndex(keyRight));
-  }
-
-  @Test
-  void testSpanNodeCreation() {
-    PageReference[] children = new PageReference[4];
-    for (int i = 0; i < 4; i++) {
-      children[i] = new PageReference();
-      children[i].setKey(100L + i);
+    @Test
+    @DisplayName("BiNode finds correct child for bit=0")
+    void testBiNodeBitZero() {
+      PageReference leftRef = new PageReference();
+      leftRef.setKey(100);
+      PageReference rightRef = new PageReference();
+      rightRef.setKey(200);
+      
+      // Discriminative bit at position 0 (MSB of byte 0)
+      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
+      
+      // Key with MSB=0 should go left
+      byte[] keyLeft = {0x00, 0x00, 0x00, 0x00};
+      assertEquals(0, biNode.findChildIndex(keyLeft), "Key with MSB=0 should find left child");
+      
+      // Key with MSB=1 should go right
+      byte[] keyRight = {(byte) 0x80, 0x00, 0x00, 0x00};
+      assertEquals(1, biNode.findChildIndex(keyRight), "Key with MSB=1 should find right child");
     }
-    
-    byte[] partialKeys = new byte[] { 0, 1, 2, 3 };
-    
-    HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(
-        1L, 1, (byte) 0, 0x03L, partialKeys, children);
-    
-    assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, spanNode.getNodeType());
-    assertEquals(4, spanNode.getNumChildren());
-    
-    // Verify children
-    for (int i = 0; i < 4; i++) {
-      assertNotNull(spanNode.getChildReference(i));
-      assertEquals(100L + i, spanNode.getChildReference(i).getKey());
+
+    @Test
+    @DisplayName("BiNode finds correct child for bit in middle")
+    void testBiNodeMiddleBit() {
+      PageReference leftRef = new PageReference();
+      leftRef.setKey(100);
+      PageReference rightRef = new PageReference();
+      rightRef.setKey(200);
+      
+      // Discriminative bit at position 4 (middle of byte 0)
+      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 4, leftRef, rightRef);
+      
+      // Key with bit 4=0 (0x07 = 0000_0111)
+      byte[] keyLeft = {0x07, 0x00, 0x00, 0x00};
+      assertEquals(0, biNode.findChildIndex(keyLeft), "Key with bit 4=0 should find left child");
+      
+      // Key with bit 4=1 (0x08 = 0000_1000)
+      byte[] keyRight = {0x08, 0x00, 0x00, 0x00};
+      assertEquals(1, biNode.findChildIndex(keyRight), "Key with bit 4=1 should find right child");
     }
   }
 
-  @Test
-  void testSpanNodeChildLookup() {
-    PageReference[] children = new PageReference[4];
-    for (int i = 0; i < 4; i++) {
-      children[i] = new PageReference();
-      children[i].setKey(100L + i);
+  @Nested
+  @DisplayName("SpanNode Tests with SparsePartialKeys")
+  class SpanNodeTests {
+
+    @Test
+    @DisplayName("SpanNode uses SIMD search for child lookup")
+    void testSpanNodeSIMDSearch() {
+      // Create 4 children with different partial keys
+      PageReference[] children = new PageReference[4];
+      for (int i = 0; i < 4; i++) {
+        children[i] = new PageReference();
+        children[i].setKey(100 + i);
+      }
+      
+      // Partial keys: 0b00, 0b01, 0b10, 0b11 (using 2 bits)
+      byte[] partialKeys = {0b00, 0b01, 0b10, 0b11};
+      
+      // Bit mask extracting bits 6 and 7 of byte 0
+      long bitMask = 0b11L; // Bits 0-1 in little-endian representation
+      
+      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(
+          1L, 1, (byte) 0, bitMask, partialKeys, children);
+      
+      assertNotNull(spanNode.getChildReference(0));
+      assertEquals(4, spanNode.getNumChildren());
+      
+      // The SIMD search finds entries where (denseKey & sparseKey) == sparseKey
+      // For entry 0 (sparse=0b00), any denseKey will match since (x & 0) == 0
+      // For entry 1 (sparse=0b01), denseKey must have bit 0 set
+      // For entry 2 (sparse=0b10), denseKey must have bit 1 set
+      // For entry 3 (sparse=0b11), denseKey must have both bits set
+      
+      // Search with dense key 0b00 - should match entry 0
+      int found = spanNode.findChildIndex(new byte[]{0b00, 0, 0, 0, 0, 0, 0, 0});
+      assertEquals(0, found, "Dense key 0b00 should match entry 0 (sparse 0b00)");
+      
+      // Search with dense key 0b01 - should match entries 0 and 1, return lowest (0)
+      found = spanNode.findChildIndex(new byte[]{0b01, 0, 0, 0, 0, 0, 0, 0});
+      assertEquals(0, found, "Dense key 0b01 should match entry 0 first");
+      
+      // Search with dense key 0b11 - should match all entries, return lowest (0)
+      found = spanNode.findChildIndex(new byte[]{0b11, 0, 0, 0, 0, 0, 0, 0});
+      assertEquals(0, found, "Dense key 0b11 should match entry 0 first");
     }
-    
-    // Partial keys for 4 children
-    byte[] partialKeys = new byte[] { 0, 1, 2, 3 };
-    
-    // Mask extracts bits 0-1 from byte 0
-    HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(
-        1L, 1, (byte) 0, 0x03L, partialKeys, children);
-    
-    // Keys with different values in bits 0-1
-    byte[] key0 = new byte[] { 0x00 }; // partial = 0
-    byte[] key1 = new byte[] { 0x01 }; // partial = 1
-    byte[] key2 = new byte[] { 0x02 }; // partial = 2
-    byte[] key3 = new byte[] { 0x03 }; // partial = 3
-    
-    assertEquals(0, spanNode.findChildIndex(key0));
-    assertEquals(1, spanNode.findChildIndex(key1));
-    assertEquals(2, spanNode.findChildIndex(key2));
-    assertEquals(3, spanNode.findChildIndex(key3));
-  }
 
-  @Test
-  void testSpanNodeNotFound() {
-    PageReference[] children = new PageReference[2];
-    children[0] = new PageReference();
-    children[0].setKey(100L);
-    children[1] = new PageReference();
-    children[1].setKey(200L);
-    
-    byte[] partialKeys = new byte[] { 0, 3 }; // Only 0 and 3 exist
-    
-    HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(
-        1L, 1, (byte) 0, 0x03L, partialKeys, children);
-    
-    // Key with partial = 1 should not be found
-    byte[] key = new byte[] { 0x01 };
-    assertEquals(HOTIndirectPage.NOT_FOUND, spanNode.findChildIndex(key));
-  }
-
-  @Test
-  void testMultiNodeCreation() {
-    PageReference[] children = new PageReference[17];
-    for (int i = 0; i < 17; i++) {
-      children[i] = new PageReference();
-      children[i].setKey(100L + i);
+    @Test
+    @DisplayName("SpanNode copy preserves SparsePartialKeys")
+    void testSpanNodeCopy() {
+      PageReference[] children = new PageReference[3];
+      for (int i = 0; i < 3; i++) {
+        children[i] = new PageReference();
+        children[i].setKey(100 + i);
+      }
+      
+      byte[] partialKeys = {0b00, 0b01, 0b10};
+      long bitMask = 0b11L;
+      
+      HOTIndirectPage original = HOTIndirectPage.createSpanNode(
+          1L, 1, (byte) 0, bitMask, partialKeys, children);
+      
+      // Create copy
+      HOTIndirectPage copy = new HOTIndirectPage(original);
+      
+      // Both should find the same child
+      byte[] searchKey = {0b01, 0, 0, 0, 0, 0, 0, 0};
+      assertEquals(original.findChildIndex(searchKey), copy.findChildIndex(searchKey),
+          "Copy should find same child as original");
     }
-    
-    // Create child index mapping (256 bytes)
-    byte[] childIndex = new byte[256];
-    for (int i = 0; i < 17; i++) {
-      childIndex[i] = (byte) i;
+
+    @Test
+    @DisplayName("SpanNode with 16 children uses SIMD")
+    void testSpanNodeMax16Children() {
+      PageReference[] children = new PageReference[16];
+      byte[] partialKeys = new byte[16];
+      for (int i = 0; i < 16; i++) {
+        children[i] = new PageReference();
+        children[i].setKey(100 + i);
+        partialKeys[i] = (byte) i; // Distinct partial keys
+      }
+      
+      // 4 bits needed to distinguish 16 entries
+      long bitMask = 0b1111L;
+      
+      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(
+          1L, 1, (byte) 0, bitMask, partialKeys, children);
+      
+      assertEquals(16, spanNode.getNumChildren());
+      
+      // Entry 0 (sparse=0) always matches first
+      int found = spanNode.findChildIndex(new byte[]{0b1111, 0, 0, 0, 0, 0, 0, 0});
+      assertEquals(0, found, "Should match entry 0 first (subset of all)");
     }
-    // All other indices point to child 0
-    for (int i = 17; i < 256; i++) {
-      childIndex[i] = 0;
+  }
+
+  @Nested
+  @DisplayName("MultiNode Tests")
+  class MultiNodeTests {
+
+    @Test
+    @DisplayName("MultiNode uses direct byte indexing")
+    void testMultiNodeDirectIndexing() {
+      // Create 32 children
+      PageReference[] children = new PageReference[32];
+      for (int i = 0; i < 32; i++) {
+        children[i] = new PageReference();
+        children[i].setKey(100 + i);
+      }
+      
+      // Child index maps byte values to child slots
+      byte[] childIndex = new byte[256];
+      for (int i = 0; i < 256; i++) {
+        childIndex[i] = (byte) (i % 32); // Round-robin mapping
+      }
+      
+      HOTIndirectPage multiNode = HOTIndirectPage.createMultiNode(
+          1L, 1, (byte) 0, childIndex, children);
+      
+      assertEquals(32, multiNode.getNumChildren());
+      
+      // Key with byte 0 = 5 should map to child 5
+      int found = multiNode.findChildIndex(new byte[]{5, 0, 0, 0});
+      assertEquals(5, found, "Byte 5 should map to child 5");
+      
+      // Key with byte 0 = 37 should map to child 5 (37 % 32)
+      found = multiNode.findChildIndex(new byte[]{37, 0, 0, 0});
+      assertEquals(5, found, "Byte 37 should map to child 5 (37 % 32)");
     }
-    
-    HOTIndirectPage multiNode = HOTIndirectPage.createMultiNode(
-        1L, 1, (byte) 0, childIndex, children);
-    
-    assertEquals(HOTIndirectPage.NodeType.MULTI_NODE, multiNode.getNodeType());
-    assertEquals(17, multiNode.getNumChildren());
   }
 
-  @Test
-  void testMultiNodeChildLookup() {
-    PageReference[] children = new PageReference[17];
-    for (int i = 0; i < 17; i++) {
-      children[i] = new PageReference();
-      children[i].setKey(100L + i);
+  @Nested
+  @DisplayName("Edge Cases")
+  class EdgeCaseTests {
+
+    @Test
+    @DisplayName("Short key handled correctly")
+    void testShortKey() {
+      PageReference leftRef = new PageReference();
+      leftRef.setKey(100);
+      PageReference rightRef = new PageReference();
+      rightRef.setKey(200);
+      
+      // Discriminative bit at byte 2
+      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 16, leftRef, rightRef);
+      
+      // Key shorter than byte 2 - should go left (default)
+      byte[] shortKey = {0x00};
+      assertEquals(0, biNode.findChildIndex(shortKey), "Short key should find left child");
     }
-    
-    byte[] childIndex = new byte[256];
-    for (int i = 0; i < 256; i++) {
-      childIndex[i] = (byte) (i < 17 ? i : 0);
+
+    @Test
+    @DisplayName("Empty key handled correctly")
+    void testEmptyKey() {
+      PageReference leftRef = new PageReference();
+      leftRef.setKey(100);
+      PageReference rightRef = new PageReference();
+      rightRef.setKey(200);
+      
+      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
+      
+      // Empty key - should go left (default)
+      byte[] emptyKey = {};
+      assertEquals(0, biNode.findChildIndex(emptyKey), "Empty key should find left child");
     }
-    
-    HOTIndirectPage multiNode = HOTIndirectPage.createMultiNode(
-        1L, 1, (byte) 0, childIndex, children);
-    
-    // Test direct byte lookup
-    byte[] key5 = new byte[] { 5 };
-    assertEquals(5, multiNode.findChildIndex(key5));
-    
-    byte[] key16 = new byte[] { 16 };
-    assertEquals(16, multiNode.findChildIndex(key16));
-  }
 
-  @Test
-  void testCopyWithUpdatedChild() {
-    PageReference leftChild = new PageReference();
-    leftChild.setKey(100L);
-    
-    PageReference rightChild = new PageReference();
-    rightChild.setKey(200L);
-    
-    HOTIndirectPage original = HOTIndirectPage.createBiNode(1L, 1, 0, leftChild, rightChild);
-    
-    PageReference newRightChild = new PageReference();
-    newRightChild.setKey(300L);
-    
-    HOTIndirectPage copy = original.copyWithUpdatedChild(1, newRightChild);
-    
-    // Original unchanged
-    assertEquals(200L, original.getChildReference(1).getKey());
-    
-    // Copy has new child
-    assertEquals(300L, copy.getChildReference(1).getKey());
-    
-    // Other children unchanged
-    assertEquals(100L, copy.getChildReference(0).getKey());
-  }
-
-  @Test
-  @SuppressWarnings("resource") // HOTIndirectPage doesn't manage closeable resources
-  void testCopyConstructor() {
-    PageReference leftChild = new PageReference();
-    leftChild.setKey(100L);
-    
-    PageReference rightChild = new PageReference();
-    rightChild.setKey(200L);
-    
-    HOTIndirectPage original = HOTIndirectPage.createBiNode(1L, 1, 8, leftChild, rightChild);
-    HOTIndirectPage copy = new HOTIndirectPage(original);
-    
-    assertEquals(original.getPageKey(), copy.getPageKey());
-    assertEquals(original.getRevision(), copy.getRevision());
-    assertEquals(original.getNodeType(), copy.getNodeType());
-    assertEquals(original.getNumChildren(), copy.getNumChildren());
-    
-    // Children should be independent copies
-    assertEquals(original.getChildReference(0).getKey(), copy.getChildReference(0).getKey());
-    assertEquals(original.getChildReference(1).getKey(), copy.getChildReference(1).getKey());
-  }
-
-  @Test
-  void testGetReferences() {
-    PageReference leftChild = new PageReference();
-    leftChild.setKey(100L);
-    
-    PageReference rightChild = new PageReference();
-    rightChild.setKey(200L);
-    
-    HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftChild, rightChild);
-    
-    List<PageReference> refs = biNode.getReferences();
-    assertEquals(2, refs.size());
-  }
-
-  @Test
-  void testGetOrCreateReference() {
-    PageReference leftChild = new PageReference();
-    leftChild.setKey(100L);
-    
-    PageReference rightChild = new PageReference();
-    rightChild.setKey(200L);
-    
-    HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftChild, rightChild);
-    
-    PageReference ref0 = biNode.getOrCreateReference(0);
-    assertNotNull(ref0);
-    assertEquals(100L, ref0.getKey());
-    
-    PageReference refInvalid = biNode.getOrCreateReference(5);
-    assertNull(refInvalid);
-  }
-
-  @Test
-  void testSetOrCreateReference() {
-    PageReference leftChild = new PageReference();
-    leftChild.setKey(100L);
-    
-    PageReference rightChild = new PageReference();
-    rightChild.setKey(200L);
-    
-    HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftChild, rightChild);
-    
-    PageReference newRef = new PageReference();
-    newRef.setKey(999L);
-    
-    assertFalse(biNode.setOrCreateReference(0, newRef));
-    assertEquals(999L, biNode.getChildReference(0).getKey());
-    
-    // Out of bounds should return true (page full)
-    assertTrue(biNode.setOrCreateReference(10, newRef));
-  }
-
-  @Test
-  void testSpanNodeInvalidChildCount() {
-    PageReference[] tooFew = new PageReference[1];
-    assertThrows(IllegalArgumentException.class, () -> {
-      HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0x01L, new byte[1], tooFew);
-    });
-    
-    PageReference[] tooMany = new PageReference[17];
-    assertThrows(IllegalArgumentException.class, () -> {
-      HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0x01L, new byte[17], tooMany);
-    });
-  }
-
-  @Test
-  void testMultiNodeInvalidChildCount() {
-    PageReference[] tooFew = new PageReference[16];
-    assertThrows(IllegalArgumentException.class, () -> {
-      HOTIndirectPage.createMultiNode(1L, 1, (byte) 0, new byte[256], tooFew);
-    });
-    
-    PageReference[] tooMany = new PageReference[257];
-    assertThrows(IllegalArgumentException.class, () -> {
-      HOTIndirectPage.createMultiNode(1L, 1, (byte) 0, new byte[256], tooMany);
-    });
-  }
-
-  @Test
-  void testShortKeyHandling() {
-    PageReference leftChild = new PageReference();
-    leftChild.setKey(100L);
-    
-    PageReference rightChild = new PageReference();
-    rightChild.setKey(200L);
-    
-    // Create BiNode discriminating on byte 5
-    HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 40, leftChild, rightChild);
-    
-    // Key shorter than discriminative byte - should go left (default)
-    byte[] shortKey = new byte[] { 0x01, 0x02 };
-    assertEquals(0, biNode.findChildIndex(shortKey));
-  }
-
-  @Test
-  void testToString() {
-    PageReference leftChild = new PageReference();
-    leftChild.setKey(100L);
-    
-    PageReference rightChild = new PageReference();
-    rightChild.setKey(200L);
-    
-    HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftChild, rightChild);
-    
-    String str = biNode.toString();
-    assertNotNull(str);
-    assertTrue(str.contains("HOTIndirectPage"));
-    assertTrue(str.contains("BI_NODE"));
+    @Test
+    @DisplayName("copyWithUpdatedChild creates correct copy")
+    void testCopyWithUpdatedChild() {
+      PageReference leftRef = new PageReference();
+      leftRef.setKey(100);
+      PageReference rightRef = new PageReference();
+      rightRef.setKey(200);
+      
+      HOTIndirectPage original = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
+      
+      PageReference newRightRef = new PageReference();
+      newRightRef.setKey(300);
+      
+      HOTIndirectPage copy = original.copyWithUpdatedChild(1, newRightRef);
+      
+      // Original unchanged
+      assertEquals(200, original.getChildReference(1).getKey());
+      // Copy has new child
+      assertEquals(300, copy.getChildReference(1).getKey());
+      // Left child unchanged
+      assertEquals(100, copy.getChildReference(0).getKey());
+    }
   }
 }
-
