@@ -63,7 +63,7 @@ afterReleaseBuild.dependsOn(uploadPublications)
 allprojects {
     group = 'io.sirix'
 
-//    apply plugin: 'jacoco'
+    apply plugin: 'jacoco'
     apply plugin: 'com.github.kt3k.coveralls'
     apply plugin: 'idea'
 
@@ -139,16 +139,16 @@ subprojects {
         }
     }
 
-//    jacoco {
-//        toolVersion = "0.8.7"
-//    }
-//
-//    jacocoTestReport {
-//        reports {
-//            xml.enabled = true
-//            html.enabled = true
-//        }
-//    }
+    jacoco {
+        toolVersion = "0.8.14"
+    }
+
+    jacocoTestReport {
+        reports {
+            xml.required = true
+            html.required = true
+        }
+    }
 
     publishing {
         publications {
