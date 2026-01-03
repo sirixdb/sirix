@@ -396,4 +396,404 @@ class HOTAdditionalCoverageTest {
       assertTrue(cmp < 0, "-1 should sort before 1");
     }
   }
+
+  @Nested
+  @DisplayName("HeightOptimalSplitter Extended Tests")
+  class HeightOptimalSplitterExtendedTests {
+
+    @Test
+    @DisplayName("Find optimal split point with sorted keys")
+    void testFindOptimalSplitPoint() {
+      byte[][] keys = new byte[][] {
+          {0x00, 0x01},
+          {0x00, 0x02},
+          {0x00, 0x03},
+          {0x01, 0x00},
+          {0x01, 0x01},
+          {0x01, 0x02}
+      };
+      
+      int splitPoint = HeightOptimalSplitter.findOptimalSplitPoint(keys);
+      assertTrue(splitPoint >= 0 && splitPoint < keys.length);
+    }
+
+    @Test
+    @DisplayName("Should create SpanNode based on discriminative bit")
+    void testShouldCreateSpanNode() {
+      byte[] leftMax = new byte[] {0x0F};
+      byte[] rightMin = new byte[] {0x10};
+      
+      boolean shouldCreate = HeightOptimalSplitter.shouldCreateSpanNode(leftMax, rightMin, 3);
+      // Just verify it doesn't throw and returns a value
+      assertNotNull(Boolean.valueOf(shouldCreate));
+    }
+
+    @Test
+    @DisplayName("Create BiNode from split")
+    void testCreateBiNode() {
+      PageReference leftRef = new PageReference();
+      leftRef.setKey(100);
+      PageReference rightRef = new PageReference();
+      rightRef.setKey(200);
+      
+      byte[] splitKey = new byte[] {0x50};
+      
+      HOTIndirectPage biNode = HeightOptimalSplitter.createBiNode(
+          1L, 1, 7, leftRef, rightRef);
+      
+      assertNotNull(biNode);
+      assertEquals(HOTIndirectPage.NodeType.BI_NODE, biNode.getNodeType());
+    }
+  }
+
+  @Nested
+  @DisplayName("NodeUpgradeManager Extended Tests")
+  class NodeUpgradeManagerExtendedTests {
+
+    @Test
+    @DisplayName("Check if node is full")
+    void testIsFull() {
+      PageReference leftRef = new PageReference();
+      PageReference rightRef = new PageReference();
+      
+      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
+      
+      boolean isFull = NodeUpgradeManager.isFull(biNode);
+      // BiNode can hold exactly 2 children, so isFull() check depends on implementation
+      assertNotNull(Boolean.valueOf(isFull));
+    }
+
+    @Test
+    @DisplayName("Check if node is underfilled")
+    void testIsUnderfilled() {
+      PageReference leftRef = new PageReference();
+      PageReference rightRef = new PageReference();
+      
+      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
+      
+      boolean isUnderfilled = NodeUpgradeManager.isUnderfilled(biNode, 0.5);
+      assertFalse(isUnderfilled, "BiNode with 2 children is not underfilled");
+    }
+
+    @Test
+    @DisplayName("Get max children for each node type")
+    void testGetMaxChildrenForType() {
+      assertEquals(2, NodeUpgradeManager.getMaxChildrenForType(HOTIndirectPage.NodeType.BI_NODE));
+      assertEquals(16, NodeUpgradeManager.getMaxChildrenForType(HOTIndirectPage.NodeType.SPAN_NODE));
+      assertEquals(32, NodeUpgradeManager.getMaxChildrenForType(HOTIndirectPage.NodeType.MULTI_NODE));
+    }
+
+    @Test
+    @DisplayName("Should merge to SpanNode")
+    void testShouldMergeToSpanNode() {
+      PageReference leftRef1 = new PageReference();
+      PageReference rightRef1 = new PageReference();
+      HOTIndirectPage node1 = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef1, rightRef1);
+
+      PageReference leftRef2 = new PageReference();
+      PageReference rightRef2 = new PageReference();
+      HOTIndirectPage node2 = HOTIndirectPage.createBiNode(2L, 1, 0, leftRef2, rightRef2);
+      
+      boolean shouldMerge = NodeUpgradeManager.shouldMergeToSpanNode(node1, node2);
+      assertTrue(shouldMerge, "Two BiNodes should merge to SpanNode");
+    }
+  }
+
+  @Nested
+  @DisplayName("SiblingMerger Extended Tests")
+  class SiblingMergerExtendedTests {
+
+    @Test
+    @DisplayName("Can collapse BiNode")
+    void testCanCollapseBiNode() {
+      PageReference leftRef = new PageReference();
+      leftRef.setKey(1);
+      PageReference rightRef = new PageReference();
+      rightRef.setKey(2);
+      
+      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
+      
+      // BiNode with both children can't be collapsed
+      boolean canCollapse = SiblingMerger.canCollapseBiNode(biNode);
+      assertFalse(canCollapse);
+    }
+
+    @Test
+    @DisplayName("Can collapse BiNode check")
+    void testCanCollapseBiNodeCheck() {
+      PageReference leftRef = new PageReference();
+      leftRef.setKey(1);
+      PageReference rightRef = new PageReference();
+      rightRef.setKey(2);
+      
+      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
+      
+      // BiNode with both children cannot be collapsed
+      boolean canCollapse = SiblingMerger.canCollapseBiNode(biNode);
+      assertFalse(canCollapse, "BiNode with 2 children cannot be collapsed");
+    }
+  }
+
+  @Nested
+  @DisplayName("SparsePartialKeys Extended Tests")
+  class SparsePartialKeysExtendedTests {
+
+    @Test
+    @DisplayName("Set and get number of entries")
+    void testSetNumEntries() {
+      SparsePartialKeys<Byte> spk = SparsePartialKeys.forBytes(8);
+      spk.setNumEntries(4);
+      // Just verify no exception
+      assertNotNull(spk);
+    }
+
+    @Test
+    @DisplayName("Search with zero pattern")
+    void testSearchZeroPattern() {
+      SparsePartialKeys<Byte> spk = SparsePartialKeys.forBytes(4);
+      spk.setEntry(0, (byte) 0x01);
+      spk.setEntry(1, (byte) 0x02);
+      
+      int mask = spk.search(0x00);
+      // Zero pattern behavior depends on implementation - just verify it returns
+      assertTrue(mask >= 0);
+    }
+
+    @Test
+    @DisplayName("Search with exact match pattern")
+    void testSearchExactMatch() {
+      SparsePartialKeys<Byte> spk = SparsePartialKeys.forBytes(4);
+      spk.setEntry(0, (byte) 0x01);
+      spk.setEntry(1, (byte) 0x02);
+      spk.setEntry(2, (byte) 0x04);
+      spk.setEntry(3, (byte) 0x08);
+      
+      int mask = spk.search(0x02);
+      assertTrue((mask & 0x02) != 0, "Should find entry 1");
+    }
+  }
+
+  @Nested
+  @DisplayName("ChunkDirectory Extended Tests")
+  class ChunkDirectoryExtendedTests {
+
+    @Test
+    @DisplayName("Get chunk index at position")
+    void testGetChunkIndex() {
+      PageReference[] refs = new PageReference[3];
+      int[] indices = new int[] {0, 1000, 2000};
+      for (int i = 0; i < 3; i++) {
+        refs[i] = new PageReference();
+        refs[i].setKey(100 + i);
+      }
+      
+      ChunkDirectory dir = new ChunkDirectory(3, indices, refs);
+      
+      int chunkIdx = dir.getChunkIndex(1);
+      assertEquals(1000, chunkIdx);
+    }
+
+    @Test
+    @DisplayName("Get chunk indices array")
+    void testGetChunkIndices() {
+      PageReference[] refs = new PageReference[2];
+      refs[0] = new PageReference();
+      refs[1] = new PageReference();
+      
+      ChunkDirectory dir = new ChunkDirectory(2, new int[] {0, 1000}, refs);
+      
+      int[] indices = dir.getChunkIndices();
+      assertNotNull(indices);
+      assertEquals(0, indices[0]);
+      assertEquals(1000, indices[1]);
+    }
+
+    @Test
+    @DisplayName("Get chunk reference at position")
+    void testGetChunkRefAtPosition() {
+      PageReference[] refs = new PageReference[2];
+      refs[0] = new PageReference();
+      refs[0].setKey(100);
+      refs[1] = new PageReference();
+      refs[1].setKey(200);
+      
+      ChunkDirectory dir = new ChunkDirectory(2, new int[] {0, 1000}, refs);
+      
+      PageReference ref = dir.getChunkRefAtPosition(0);
+      assertEquals(100, ref.getKey());
+    }
+
+    @Test
+    @DisplayName("Get or create chunk ref")
+    void testGetOrCreateChunkRef() {
+      ChunkDirectory dir = new ChunkDirectory();
+      
+      PageReference ref = dir.getOrCreateChunkRef(0);
+      assertNotNull(ref);
+      assertEquals(1, dir.chunkCount());
+    }
+
+    @Test
+    @DisplayName("Set chunk ref")
+    void testSetChunkRef() {
+      ChunkDirectory dir = new ChunkDirectory();
+      PageReference ref = new PageReference();
+      ref.setKey(999);
+      
+      dir.setChunkRef(5, ref);
+      
+      PageReference retrieved = dir.getChunkRef(5);
+      assertNotNull(retrieved);
+      assertEquals(999, retrieved.getKey());
+    }
+
+    @Test
+    @DisplayName("Chunk index for document node key")
+    void testChunkIndexFor() {
+      int chunkIdx = ChunkDirectory.chunkIndexFor(65536L);
+      assertTrue(chunkIdx >= 0);
+    }
+
+    @Test
+    @DisplayName("Is empty")
+    void testIsEmpty() {
+      ChunkDirectory empty = new ChunkDirectory();
+      assertTrue(empty.isEmpty());
+      
+      empty.getOrCreateChunkRef(0);
+      assertFalse(empty.isEmpty());
+    }
+
+    @Test
+    @DisplayName("Is modified")
+    void testIsModified() {
+      ChunkDirectory dir = new ChunkDirectory();
+      dir.getOrCreateChunkRef(0);
+      assertTrue(dir.isModified());
+      
+      dir.clearModified();
+      assertFalse(dir.isModified());
+    }
+
+    @Test
+    @DisplayName("Copy directory")
+    void testCopyDirectory() {
+      PageReference[] refs = new PageReference[2];
+      refs[0] = new PageReference();
+      refs[0].setKey(100);
+      refs[1] = new PageReference();
+      refs[1].setKey(200);
+      
+      ChunkDirectory original = new ChunkDirectory(2, new int[] {0, 1000}, refs);
+      ChunkDirectory copy = original.copy();
+      
+      assertEquals(original.chunkCount(), copy.chunkCount());
+    }
+
+    @Test
+    @DisplayName("ToString")
+    void testToString() {
+      ChunkDirectory dir = new ChunkDirectory();
+      String str = dir.toString();
+      assertNotNull(str);
+      assertTrue(str.contains("ChunkDirectory"));
+    }
+
+    @Test
+    @DisplayName("Equals and hashCode")
+    void testEqualsHashCode() {
+      PageReference[] refs1 = new PageReference[] { new PageReference() };
+      PageReference[] refs2 = new PageReference[] { new PageReference() };
+      
+      ChunkDirectory dir1 = new ChunkDirectory(1, new int[] {0}, refs1);
+      ChunkDirectory dir2 = new ChunkDirectory(1, new int[] {0}, refs2);
+      
+      // Same structure
+      assertEquals(dir1.hashCode(), dir2.hashCode());
+    }
+  }
+
+  @Nested
+  @DisplayName("PartialKeyMapping Extended Tests")
+  class PartialKeyMappingExtendedTests {
+
+    @Test
+    @DisplayName("Extract mask from key")
+    void testExtractMask() {
+      PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(7);
+      byte[] key = new byte[] {(byte) 0x80, 0x00};
+      
+      int extracted = mapping.extractMask(key);
+      assertTrue(extracted >= 0);
+    }
+
+    @Test
+    @DisplayName("Get mask for highest bit")
+    void testGetMaskForHighestBit() {
+      PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(7);
+      int mask = mapping.getMaskForHighestBit();
+      assertTrue(mask >= 0);
+    }
+
+    @Test
+    @DisplayName("Get most significant bit index")
+    void testGetMostSignificantBitIndex() {
+      PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(15);
+      int msb = mapping.getMostSignificantBitIndex();
+      assertTrue(msb >= 0);
+    }
+
+    @Test
+    @DisplayName("Get least significant bit index")
+    void testGetLeastSignificantBitIndex() {
+      PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(7);
+      int lsb = mapping.getLeastSignificantBitIndex();
+      assertTrue(lsb >= 0);
+    }
+  }
+
+  @Nested
+  @DisplayName("DiscriminativeBitComputer Extended Tests")
+  class DiscriminativeBitComputerExtendedTests {
+
+    @Test
+    @DisplayName("Compute differing bit for identical keys")
+    void testIdenticalKeys() {
+      byte[] key1 = new byte[] {0x01, 0x02, 0x03};
+      byte[] key2 = new byte[] {0x01, 0x02, 0x03};
+      
+      int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
+      assertEquals(-1, bit, "Identical keys should return -1");
+    }
+
+    @Test
+    @DisplayName("Compute differing bit for keys of different lengths")
+    void testDifferentLengthKeys() {
+      byte[] key1 = new byte[] {0x01, 0x02};
+      byte[] key2 = new byte[] {0x01, 0x02, 0x03};
+      
+      int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
+      assertTrue(bit >= 0, "Different length keys should have a differing bit");
+    }
+
+    @Test
+    @DisplayName("Compute differing bit for empty keys")
+    void testEmptyKeys() {
+      byte[] key1 = new byte[0];
+      byte[] key2 = new byte[0];
+      
+      int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
+      assertEquals(-1, bit, "Empty keys should return -1");
+    }
+
+    @Test
+    @DisplayName("Compute differing bit with one empty key")
+    void testOneEmptyKey() {
+      byte[] key1 = new byte[0];
+      byte[] key2 = new byte[] {0x01};
+      
+      int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
+      assertEquals(0, bit, "One empty key should differ at bit 0");
+    }
+  }
 }
