@@ -1660,9 +1660,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // FULL versioning fast path: Page on disk IS complete - load directly
     if (versioningType == VersioningType.FULL) {
       Page loadedPage = pageReader.read(pageRef, resourceConfig);
-      if (loadedPage instanceof HOTLeafPage hotLeaf) {
+        if (loadedPage instanceof HOTLeafPage hotLeaf) {
         pageRef.setPage(hotLeaf);
-        return hotLeaf;
+          return hotLeaf;
       }
       return null;
     }

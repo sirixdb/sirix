@@ -52,17 +52,38 @@ import java.util.Objects;
  * <ul>
  *   <li>BiNode: 2 children, 1 discriminative bit</li>
  *   <li>SpanNode: 2-16 children, SIMD-searchable partial keys</li>
- *   <li>MultiNode: 17-256 children, direct byte indexing</li>
+ *   <li>MultiNode: 17-32 children, direct byte indexing</li>
  * </ul>
+ * 
+ * <p><b>Cache-Line Alignment (Reference: thesis section 4.3.2):</b></p>
+ * <p>For optimal cache performance on modern CPUs:</p>
+ * <ul>
+ *   <li>Hot data (bitMask, partialKeys) should be aligned to 64-byte cache lines</li>
+ *   <li>BiNode fits in a single cache line (2 children + mask = ~24 bytes)</li>
+ *   <li>SpanNode uses up to 2 cache lines (16 children + mask + keys)</li>
+ *   <li>Child references are accessed only after lookup, can be in separate lines</li>
+ * </ul>
+ * 
+ * <p><b>SIMD Optimization (Reference: thesis section 4.3.3):</b></p>
+ * <p>SpanNode uses Long.compress() which maps to PEXT (Parallel Bit Extract)
+ * instruction on x86-64 with BMI2. Linear search of 2-16 partial keys is typically
+ * faster than binary search due to better branch prediction and cache locality.</p>
  * 
  * @author Johannes Lichtenberger
  * @see HOTLeafPage
  * @see Page
+ * @see <a href="https://github.com/speedskater/hot">Reference Implementation</a>
  */
 public final class HOTIndirectPage implements Page {
 
   /** Sentinel for "not found" in child lookup. */
   public static final int NOT_FOUND = -1;
+
+  /** Cache line size on modern x86-64 CPUs (64 bytes). */
+  public static final int CACHE_LINE_SIZE = 64;
+
+  /** Maximum children for a node (from reference: MAXIMUM_NUMBER_NODE_ENTRIES = 32). */
+  public static final int MAX_NODE_ENTRIES = 32;
 
   /**
    * Node type enumeration.
@@ -413,6 +434,133 @@ public final class HOTIndirectPage implements Page {
    */
   public int getHeight() {
     return height;
+  }
+
+  /**
+   * Get initial byte position for discriminative bit extraction.
+   *
+   * @return the initial byte position
+   */
+  public int getInitialBytePos() {
+    return initialBytePos & 0xFF;
+  }
+
+  /**
+   * Get the 64-bit discriminative bit mask.
+   *
+   * @return the bit mask
+   */
+  public long getBitMask() {
+    return bitMask;
+  }
+
+  /**
+   * Get partial key at index.
+   *
+   * @param index the index
+   * @return the partial key byte
+   */
+  public byte getPartialKey(int index) {
+    if (partialKeys == null || index < 0 || index >= partialKeys.length) {
+      return 0;
+    }
+    return partialKeys[index];
+  }
+
+  /**
+   * Create a copy with a new page key.
+   *
+   * @param newPageKey the new page key
+   * @param newRevision the new revision
+   * @return the copy with new page key
+   */
+  public HOTIndirectPage copyWithNewPageKey(long newPageKey, int newRevision) {
+    HOTIndirectPage copy = new HOTIndirectPage(newPageKey, newRevision, this.height, this.nodeType, this.numChildren);
+    copy.layoutType = this.layoutType;
+    copy.initialBytePos = this.initialBytePos;
+    copy.bitMask = this.bitMask;
+    
+    if (this.maskBytePosArray != null) {
+      copy.maskBytePosArray = this.maskBytePosArray.clone();
+    }
+    if (this.maskArray != null) {
+      copy.maskArray = this.maskArray.clone();
+    }
+    if (this.bitPositions != null) {
+      copy.bitPositions = this.bitPositions.clone();
+    }
+    if (this.partialKeys != null) {
+      copy.partialKeys = this.partialKeys.clone();
+    }
+    if (this.childIndex != null) {
+      copy.childIndex = this.childIndex.clone();
+    }
+    
+    for (int i = 0; i < this.numChildren; i++) {
+      if (this.childReferences[i] != null) {
+        copy.childReferences[i] = new PageReference(this.childReferences[i]);
+      }
+    }
+    
+    return copy;
+  }
+
+  /**
+   * Create a new SpanNode with explicit height.
+   *
+   * @param pageKey the page key
+   * @param revision the revision
+   * @param initialBytePos initial byte position for SINGLE_MASK
+   * @param bitMask the 64-bit mask for extracting discriminative bits
+   * @param partialKeys array of partial keys (extracted bits for each child)
+   * @param children array of child references
+   * @param height the height of this node
+   * @return new SpanNode
+   */
+  public static HOTIndirectPage createSpanNode(long pageKey, int revision,
+                                               int initialBytePos, long bitMask,
+                                               byte[] partialKeys,
+                                               PageReference[] children,
+                                               int height) {
+    if (children.length < 2 || children.length > 16) {
+      throw new IllegalArgumentException("SpanNode must have 2-16 children");
+    }
+    HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.SPAN_NODE, children.length);
+    page.layoutType = LayoutType.SINGLE_MASK;
+    page.initialBytePos = (byte) initialBytePos;
+    page.bitMask = bitMask;
+    page.partialKeys = partialKeys.clone();
+    System.arraycopy(children, 0, page.childReferences, 0, children.length);
+    return page;
+  }
+
+  /**
+   * Create a new MultiNode with explicit height.
+   *
+   * @param pageKey the page key
+   * @param revision the revision
+   * @param initialBytePos initial byte position
+   * @param bitMask the 64-bit mask for extracting discriminative bits
+   * @param partialKeys array of partial keys
+   * @param children array of child references
+   * @param height the height of this node
+   * @return new MultiNode
+   */
+  public static HOTIndirectPage createMultiNode(long pageKey, int revision,
+                                                int initialBytePos, long bitMask,
+                                                byte[] partialKeys,
+                                                PageReference[] children,
+                                                int height) {
+    if (children.length < 1 || children.length > 32) {
+      throw new IllegalArgumentException("MultiNode must have 1-32 children, got: " + children.length);
+    }
+    HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.MULTI_NODE, children.length);
+    page.layoutType = LayoutType.SINGLE_MASK;
+    page.initialBytePos = (byte) initialBytePos;
+    page.bitMask = bitMask;
+    page.partialKeys = partialKeys.clone();
+    System.arraycopy(children, 0, page.childReferences, 0, children.length);
+    return page;
   }
 
   // ===== Page interface implementation =====

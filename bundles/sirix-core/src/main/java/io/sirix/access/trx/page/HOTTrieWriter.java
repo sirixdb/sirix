@@ -513,12 +513,14 @@ public final class HOTTrieWriter {
       // Update the original parent reference
       parentRef.setKey(newParentKey);
       parentRef.setPage(newParent);
-      log.put(parentRef, PageContainer.getInstance(newParent, newParent));
+    log.put(parentRef, PageContainer.getInstance(newParent, newParent));
     }
   }
   
   /**
    * Create a new root node when the root splits.
+   * 
+   * <p>Reference: integrateBiNodeIntoTree() in HOTSingleThreaded.hpp lines 493-547.</p>
    */
   private void createNewRootForSplit(
       @NonNull StorageEngineWriter pageRtx,
@@ -530,16 +532,50 @@ public final class HOTTrieWriter {
     
     long newRootKey = nextPageKey++;
     
-    // Compute discriminative bit from split key
-    int discriminativeBit = computeDiscriminativeBit(splitKey);
+    // Get the actual pages to compute proper discriminative bit
+    HOTLeafPage leftPage = null;
+    HOTLeafPage rightPage = null;
+    
+    PageContainer leftContainer = log.get(leftChild);
+    if (leftContainer != null && leftContainer.getModified() instanceof HOTLeafPage lp) {
+      leftPage = lp;
+    }
+    
+    PageContainer rightContainer = log.get(rightChild);
+    if (rightContainer != null && rightContainer.getModified() instanceof HOTLeafPage rp) {
+      rightPage = rp;
+    }
+    
+    // Compute discriminative bit using proper algorithm
+    int discriminativeBit;
+    if (leftPage != null && rightPage != null) {
+      discriminativeBit = computeDiscriminativeBit(leftPage, rightPage);
+    } else {
+      // Fallback to legacy method
+      discriminativeBit = computeDiscriminativeBit(splitKey);
+    }
+    
+    // Determine child order based on bit value
+    // Reference: BiNode.hpp line 15-17 - bit value determines left/right placement
+    PageReference actualLeft = leftChild;
+    PageReference actualRight = rightChild;
+    
+    if (rightPage != null) {
+      byte[] rightMin = rightPage.getFirstKey();
+      if (rightMin != null && !io.sirix.index.hot.DiscriminativeBitComputer.isBitSet(rightMin, discriminativeBit)) {
+        // Right's min key has bit=0, so it should go left
+        actualLeft = rightChild;
+        actualRight = leftChild;
+      }
+    }
     
     // Create a BiNode pointing to the two children
     HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(
         newRootKey,
         pageRtx.getRevisionNumber(),
         discriminativeBit,
-        leftChild,
-        rightChild
+        actualLeft,
+        actualRight
     );
     
     // Update the root reference to point to the new root
@@ -555,24 +591,46 @@ public final class HOTTrieWriter {
   }
   
   /**
-   * Compute the discriminative bit position from a split key.
-   * The discriminative bit is the first bit position where keys can differ.
+   * Compute the discriminative bit position between left and right page.
+   * 
+   * <p>Uses the correct algorithm from Binna's thesis: XOR the bytes,
+   * find the first non-zero result, then use count-leading-zeros.</p>
+   * 
+   * <p>Reference: DiscriminativeBit.hpp line 52-55:
+   * {@code return __builtin_clz(existingByte ^ newKeyByte) - 24;}</p>
    *
-   * @param splitKey the key that separates left and right children
-   * @return the bit position (0-indexed from the start of the key)
+   * @param leftPage the left page (has the smaller keys)
+   * @param rightPage the right page (has the larger keys)
+   * @return the bit position (0-indexed from MSB)
    */
+  private int computeDiscriminativeBit(HOTLeafPage leftPage, HOTLeafPage rightPage) {
+    byte[] leftMax = leftPage.getLastKey();
+    byte[] rightMin = rightPage.getFirstKey();
+    
+    if (leftMax == null || rightMin == null) {
+      return 0;
+    }
+    
+    // Use the correct algorithm from DiscriminativeBitComputer
+    return io.sirix.index.hot.DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
+  }
+
+  /**
+   * Legacy method for backward compatibility - uses split key only.
+   * @deprecated Use {@link #computeDiscriminativeBit(HOTLeafPage, HOTLeafPage)} instead.
+   */
+  @Deprecated
   private int computeDiscriminativeBit(byte[] splitKey) {
     if (splitKey == null || splitKey.length == 0) {
       return 0;
     }
-    // Use the first byte's most significant set bit
-    // This is a simplified approach - a full HOT implementation would
-    // compute the actual differing bit between left's max and right's min
+    // This is a fallback - proper implementation uses left/right page keys
     int firstByte = splitKey[0] & 0xFF;
     if (firstByte == 0) {
       return 0;
     }
-    return 7 - Integer.numberOfLeadingZeros(firstByte) + 24; // Account for int size
+    // Reference formula: clz - 24 for byte in lower 8 bits of int
+    return Integer.numberOfLeadingZeros(firstByte) - 24;
   }
 }
 

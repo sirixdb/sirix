@@ -577,6 +577,21 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Get all keys in this page as an array.
+   *
+   * <p>Keys are returned in sorted order.</p>
+   *
+   * @return array of all keys (never null, may be empty)
+   */
+  public byte[][] getAllKeys() {
+    byte[][] keys = new byte[entryCount][];
+    for (int i = 0; i < entryCount; i++) {
+      keys[i] = getKey(i);
+    }
+    return keys;
+  }
+
+  /**
    * Merge another HOTLeafPage into this one.
    *
    * <p>Used for versioning - combines entries from multiple page fragments.

@@ -288,7 +288,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
       } else {
         this.trieReader = null;
         // Fallback to simple case
-        this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+      this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
       }
       this.currentIndex = 0;
       advance();
@@ -331,7 +331,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
           if (trieReader != null) {
             currentLeaf = trieReader.advanceToNextLeaf();
           } else {
-            currentLeaf = null;
+          currentLeaf = null;
           }
         }
       }
@@ -361,7 +361,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
       } else {
         this.trieReader = null;
         // Fallback to simple case
-        this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+      this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
       }
       
       // Find the starting position within the leaf
@@ -369,7 +369,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
         int startIndex = currentLeaf.findEntry(fromBytes);
         this.currentIndex = startIndex >= 0 ? startIndex : -(startIndex + 1);
       } else {
-        this.currentIndex = 0;
+      this.currentIndex = 0;
       }
       
       advance();
@@ -426,7 +426,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
           if (trieReader != null) {
             currentLeaf = trieReader.advanceToNextLeaf();
           } else {
-            currentLeaf = null;
+          currentLeaf = null;
           }
         }
       }
