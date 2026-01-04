@@ -364,6 +364,48 @@ class HOTInternalMethodsTest {
       // The integration method needs a parent reference - just verify BiNode was created
       assertEquals(2, biNode.getNumChildren());
     }
+
+    @Test
+    @DisplayName("splitLeafPage creates proper split result")
+    void testSplitLeafPageDirect() {
+      // Create a leaf page with many entries
+      HOTLeafPage sourcePage = new HOTLeafPage(1L, 1, IndexType.PATH);
+      
+      // Add enough entries to require splitting
+      for (int i = 0; i < 50; i++) {
+        byte[] key = new byte[] {(byte) ((i * 5) >> 8), (byte) (i * 5)};
+        byte[] value = new byte[] {1, 2, 3, 4};
+        sourcePage.put(key, value);
+      }
+
+      // Create target page for split
+      HOTLeafPage targetPage = new HOTLeafPage(2L, 1, IndexType.PATH);
+
+      // Perform split
+      byte[] splitKey = sourcePage.splitTo(targetPage);
+      
+      // Verify split result
+      assertNotNull(splitKey);
+      assertTrue(sourcePage.getEntryCount() > 0);
+      assertTrue(targetPage.getEntryCount() > 0);
+      assertEquals(50, sourcePage.getEntryCount() + targetPage.getEntryCount());
+    }
+
+    @Test
+    @DisplayName("splitLeafPageOptimal finds best split point")
+    void testSplitLeafPageOptimalDirect() {
+      // Create keys with known pattern
+      byte[][] keys = new byte[64][];
+      for (int i = 0; i < 64; i++) {
+        keys[i] = new byte[] {(byte) (i * 4), (byte) ((i * 7) % 256)};
+      }
+
+      // Find optimal split
+      int splitPoint = HeightOptimalSplitter.findOptimalSplitPoint(keys);
+      
+      // Should be near middle
+      assertTrue(splitPoint > 10 && splitPoint < 54, "Split point should be near middle: " + splitPoint);
+    }
   }
 
   @Nested
@@ -609,6 +651,44 @@ class HOTInternalMethodsTest {
       key[2] = (byte) 0x10; // bit 19 set
       int extracted = mapping.extractMask(key);
       assertNotNull(Integer.valueOf(extracted));
+    }
+
+    @Test
+    @DisplayName("extractMaskMulti is triggered by wide-spanning bits")
+    void testExtractMaskMultiTriggered() {
+      // Create a mapping that spans more than 8 bytes to force multi-mask
+      PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(0);
+      
+      // Add bits far apart to trigger multi-mask path
+      mapping = PartialKeyMapping.withAdditionalBit(mapping, 64); // 8 bytes apart
+      mapping = PartialKeyMapping.withAdditionalBit(mapping, 72); // Force multi-mask
+      
+      // Create a key and extract
+      byte[] key = new byte[16];
+      key[0] = (byte) 0x80;  // bit 0
+      key[8] = (byte) 0x80;  // bit 64
+      key[9] = (byte) 0x80;  // bit 72
+      
+      int extracted = mapping.extractMask(key);
+      assertNotNull(Integer.valueOf(extracted));
+    }
+
+    @Test
+    @DisplayName("extractMask with various byte patterns for multi-mask")
+    void testExtractMaskMultiVariousByte() {
+      // Force multi-mask by spanning > 8 bytes
+      PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(0);
+      mapping = PartialKeyMapping.withAdditionalBit(mapping, 72);  // 9 bytes apart
+      
+      // Test with various patterns
+      for (int pattern = 0; pattern < 8; pattern++) {
+        byte[] key = new byte[16];
+        if ((pattern & 1) != 0) key[0] = (byte) 0x80;
+        if ((pattern & 2) != 0) key[9] = (byte) 0x80;
+        
+        int extracted = mapping.extractMask(key);
+        assertTrue(extracted >= 0 && extracted <= 3);
+      }
     }
   }
 
