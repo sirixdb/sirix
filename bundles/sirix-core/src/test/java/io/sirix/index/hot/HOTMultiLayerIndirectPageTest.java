@@ -259,9 +259,9 @@ class HOTMultiLayerIndirectPageTest {
           final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
           indexController.createIndexes(Set.of(nameIndexDef), wtx);
 
-          // Insert data with many different field names
+          // Insert data with many different field names to exercise the index
           StringBuilder json = new StringBuilder("{");
-          for (int i = 0; i < 100; i++) {
+          for (int i = 0; i < 200; i++) {
             if (i > 0) json.append(",");
             json.append("\"field").append(i).append("\": ").append(i);
           }
@@ -269,6 +269,60 @@ class HOTMultiLayerIndirectPageTest {
 
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
+          
+          // Just verify data was indexed - don't query (name index requires filter)
+        }
+      }
+    }
+    
+    @Test
+    @DisplayName("Test HOTLongIndexWriter with CAS index for code coverage")
+    @Timeout(value = 120, unit = TimeUnit.SECONDS)
+    void testLongIndexWriterCASIndex() throws IOException {
+      Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .versioningApproach(VersioningType.FULL)
+            .build());
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+          var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+
+          // Create CAS index
+          final var pathToId = parse("/records/[]/id", io.brackit.query.util.path.PathParser.Type.JSON);
+          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
+              Collections.singleton(pathToId), 0, IndexDef.DbType.JSON);
+          indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+          // Insert large dataset
+          StringBuilder json = new StringBuilder("{\"records\": [");
+          for (int i = 0; i < 3000; i++) {
+            if (i > 0) json.append(",");
+            json.append("{\"id\": ").append(i).append("}");
+          }
+          json.append("]}");
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+          
+          // Query the CAS index with various search modes
+          for (SearchMode mode : new SearchMode[]{SearchMode.EQUAL, SearchMode.GREATER, SearchMode.LOWER}) {
+            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
+                indexController.createCASFilter(
+                    Set.of("/records/[]/id"),
+                    new Int32(1500),
+                    mode,
+                    new JsonPCRCollector(wtx)));
+            int count = 0;
+            while (casIndex.hasNext()) {
+              casIndex.next();
+              count++;
+              if (count > 50) break;
+            }
+            // Just verify it runs without error
+          }
         }
       }
     }
@@ -381,6 +435,60 @@ class HOTMultiLayerIndirectPageTest {
   @Nested
   @DisplayName("HOTLongIndexReader Tests")
   class LongIndexReaderTests {
+
+    @Test
+    @DisplayName("Test HOTIndexReader.navigateToLeaf with large dataset")
+    @Timeout(value = 120, unit = TimeUnit.SECONDS)
+    void testNavigateToLeafWithLargeDataset() throws IOException {
+      // This test forces the creation of HOTIndirectPages and tests navigation
+      Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .versioningApproach(VersioningType.FULL)
+            .build());
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+          var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+
+          // Create CAS index
+          final var pathToValue = parse("/entries/[]/key", io.brackit.query.util.path.PathParser.Type.JSON);
+          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
+              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+          // Insert VERY large dataset to force multiple page splits and indirect pages
+          StringBuilder json = new StringBuilder("{\"entries\": [");
+          for (int i = 0; i < 15000; i++) {
+            if (i > 0) json.append(",");
+            json.append("{\"key\": ").append(i).append("}");
+          }
+          json.append("]}");
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+
+          // Now do multiple range queries to exercise navigation through indirect pages
+          for (int start : new int[]{0, 5000, 10000, 14000}) {
+            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
+                indexController.createCASFilter(
+                    Set.of("/entries/[]/key"),
+                    new Int32(start),
+                    SearchMode.GREATER_OR_EQUAL,
+                    new JsonPCRCollector(wtx)));
+
+            int count = 0;
+            while (casIndex.hasNext()) {
+              casIndex.next();
+              count++;
+              if (count > 100) break; // Don't iterate forever
+            }
+            assertTrue(count > 0, "Should find entries starting from " + start);
+          }
+        }
+      }
+    }
 
     @Test
     @DisplayName("Test HOTLongIndexReader.get method")
