@@ -452,6 +452,49 @@ class HOTInternalMethodsTest {
       assertNotNull(success.mergedNode());
       assertTrue(success.replacesLeft());
     }
+
+    @Test
+    @DisplayName("mergeLeafPages combines two pages")
+    void testMergeLeafPages() {
+      HOTLeafPage left = new HOTLeafPage(1L, 1, IndexType.PATH);
+      HOTLeafPage right = new HOTLeafPage(2L, 1, IndexType.PATH);
+      HOTLeafPage target = new HOTLeafPage(3L, 1, IndexType.PATH);
+
+      // Add entries to left
+      for (int i = 0; i < 10; i++) {
+        left.put(new byte[] {(byte) i}, new byte[] {(byte) i});
+      }
+
+      // Add entries to right
+      for (int i = 0; i < 10; i++) {
+        right.put(new byte[] {(byte) (100 + i)}, new byte[] {(byte) (100 + i)});
+      }
+
+      // Merge
+      boolean success = SiblingMerger.mergeLeafPages(left, right, target);
+      assertTrue(success);
+      assertEquals(20, target.getEntryCount());
+    }
+
+    @Test
+    @DisplayName("mergeLeafPages fails when too many entries")
+    void testMergeLeafPagesOverflow() {
+      HOTLeafPage left = new HOTLeafPage(1L, 1, IndexType.PATH);
+      HOTLeafPage right = new HOTLeafPage(2L, 1, IndexType.PATH);
+      HOTLeafPage target = new HOTLeafPage(3L, 1, IndexType.PATH);
+
+      // Fill left page completely
+      for (int i = 0; i < HOTLeafPage.MAX_ENTRIES; i++) {
+        left.put(new byte[] {(byte) (i & 0xFF), (byte) ((i >> 8) & 0xFF)}, new byte[] {(byte) i});
+      }
+
+      // Add to right page
+      right.put(new byte[] {(byte) 0xFF, (byte) 0xFF}, new byte[] {1});
+
+      // Merge should fail
+      boolean success = SiblingMerger.mergeLeafPages(left, right, target);
+      assertFalse(success);
+    }
   }
 
   @Nested
