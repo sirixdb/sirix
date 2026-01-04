@@ -37,6 +37,7 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.DiscriminativeBitComputer;
+import io.sirix.index.hot.HeightOptimalSplitter;
 import io.sirix.index.hot.PartialKeyMapping;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -412,6 +413,7 @@ public final class HOTTrieWriter {
     
     // Allocate new page key for right sibling
     long newPageKey = nextPageKey++;
+    long newRootPageKey = nextPageKey++;
     
     // Create new HOTLeafPage with off-heap segment
     HOTLeafPage rightPage = new HOTLeafPage(
@@ -420,15 +422,21 @@ public final class HOTTrieWriter {
         fullPage.getIndexType()
     );
     
-    // Split entries (right half goes to new page)
-    byte[] splitKey = fullPage.splitTo(rightPage);
+    // Use HeightOptimalSplitter for proper height-optimal splitting
+    HeightOptimalSplitter.SplitResult splitResult = HeightOptimalSplitter.splitLeafPage(
+        fullPage, rightPage, newRootPageKey, pageRtx.getRevisionNumber());
+    
+    // Get the split key from boundary (first key in right page after split)
+    byte[] splitKey = rightPage.getFirstKey();
     
     // Create reference for the new right page
-    PageReference rightRef = new PageReference();
+    PageReference rightRef = splitResult.rightChild();
     rightRef.setKey(newPageKey);
     log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
     
     // Update the original page reference in the log
+    PageReference leftRef = splitResult.leftChild();
+    leftRef.setKey(pageRef.getKey());
     log.put(pageRef, PageContainer.getInstance(fullPage, fullPage));
     
     // Now we need to update the parent structure
@@ -438,8 +446,11 @@ public final class HOTTrieWriter {
       updateParentForSplit(pageRtx, log, cowPathRefs[parentIdx], cowPathNodes[parentIdx],
                            cowPathChildIndices[parentIdx], pageRef, rightRef, splitKey, rootReference);
     } else {
-      // Root split - need to create new root
-      createNewRootForSplit(pageRtx, log, pageRef, rightRef, splitKey, rootReference);
+      // Root split - use the new root from the splitter
+      HOTIndirectPage newRoot = splitResult.newRoot();
+      rootReference.setKey(newRootPageKey);
+      rootReference.setPage(newRoot);
+      log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
     }
     
     return splitKey;
