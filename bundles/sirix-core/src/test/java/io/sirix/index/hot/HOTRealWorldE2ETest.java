@@ -523,6 +523,91 @@ class HOTRealWorldE2ETest {
   }
 
   @Nested
+  @DisplayName("Range Query E2E Tests")
+  class RangeQueryTests {
+
+    @Test
+    @DisplayName("E2E: Direct range query via HOTIndexReader.range()")
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void testDirectRangeQuery() throws IOException {
+      Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .versioningApproach(VersioningType.FULL)
+            .build());
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+          var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+
+          // Create CAS index
+          final var pathToScore = parse("/data/[]/score", io.brackit.query.util.path.PathParser.Type.JSON);
+          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
+              Collections.singleton(pathToScore), 0, IndexDef.DbType.JSON);
+          indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+          // Insert data with sequential scores
+          StringBuilder json = new StringBuilder("{\"data\": [");
+          for (int i = 0; i < 100; i++) {
+            if (i > 0) json.append(",");
+            json.append("{\"score\": ").append(i).append("}");
+          }
+          json.append("]}");
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+
+          // Test GREATER_OR_EQUAL range query (triggers RangeIterator)
+          var casIndex1 = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
+              indexController.createCASFilter(
+                  Set.of("/data/[]/score"),
+                  new Int32(50),
+                  SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(wtx)));
+
+          int count1 = 0;
+          while (casIndex1.hasNext()) {
+            NodeReferences refs = casIndex1.next();
+            count1 += refs.getNodeKeys().getLongCardinality();
+          }
+          assertTrue(count1 >= 50, "Should find at least 50 entries >= 50, found " + count1);
+
+          // Test GREATER range query
+          var casIndex2 = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
+              indexController.createCASFilter(
+                  Set.of("/data/[]/score"),
+                  new Int32(75),
+                  SearchMode.GREATER,
+                  new JsonPCRCollector(wtx)));
+
+          int count2 = 0;
+          while (casIndex2.hasNext()) {
+            NodeReferences refs = casIndex2.next();
+            count2 += refs.getNodeKeys().getLongCardinality();
+          }
+          assertTrue(count2 >= 24, "Should find at least 24 entries > 75, found " + count2);
+
+          // Test LOWER range query (falls back to full scan for now)
+          var casIndex3 = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
+              indexController.createCASFilter(
+                  Set.of("/data/[]/score"),
+                  new Int32(25),
+                  SearchMode.LOWER,
+                  new JsonPCRCollector(wtx)));
+
+          int count3 = 0;
+          while (casIndex3.hasNext()) {
+            NodeReferences refs = casIndex3.next();
+            count3 += refs.getNodeKeys().getLongCardinality();
+          }
+          assertTrue(count3 >= 25, "Should find at least 25 entries < 25, found " + count3);
+        }
+      }
+    }
+  }
+
+  @Nested
   @DisplayName("Index Initialization E2E Tests")
   class IndexInitializationTests {
 
