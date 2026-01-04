@@ -261,6 +261,25 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
   }
 
   /**
+   * Create an iterator that starts from a specific key.
+   * This is used for efficient range queries (GREATER, GREATER_OR_EQUAL).
+   *
+   * @param fromKey start key (inclusive)
+   * @return iterator over key-value pairs starting from the key
+   */
+  public Iterator<Map.Entry<K, NodeReferences>> iteratorFrom(K fromKey) {
+    requireNonNull(fromKey);
+
+    // Serialize key
+    byte[] keyBuf = KEY_BUFFER.get();
+    int fromLen = keySerializer.serialize(fromKey, keyBuf, 0);
+    byte[] fromBytes = Arrays.copyOf(keyBuf, fromLen);
+
+    // Use RangeIterator with null toBytes to indicate "no upper bound"
+    return new RangeIterator(fromBytes, null);
+  }
+
+  /**
    * Get the storage engine reader.
    *
    * @return the storage engine reader
@@ -343,7 +362,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
    */
   private class RangeIterator implements Iterator<Map.Entry<K, NodeReferences>> {
     private final byte[] fromBytes;
-    private final byte[] toBytes;
+    private final byte @Nullable [] toBytes;  // null means no upper bound
     private @Nullable HOTLeafPage currentLeaf;
     private int currentIndex;
     private Map.@Nullable Entry<K, NodeReferences> nextEntry;
@@ -396,8 +415,8 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
         if (currentIndex < currentLeaf.getEntryCount()) {
           byte[] key = currentLeaf.getKey(currentIndex);
           
-          // Check if key is within range
-          if (keySerializer.compare(key, 0, key.length, toBytes, 0, toBytes.length) >= 0) {
+          // Check if key is within range (only if toBytes is set)
+          if (toBytes != null && keySerializer.compare(key, 0, key.length, toBytes, 0, toBytes.length) >= 0) {
             // Past end of range
             currentLeaf = null;
             return;

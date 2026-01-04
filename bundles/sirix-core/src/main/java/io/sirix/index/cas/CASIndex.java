@@ -202,9 +202,57 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         }
         return Collections.emptyIterator();
       }
+      
+      // Range queries: use reader.iteratorFrom() for efficient starting position
+      if (mode == SearchMode.GREATER || mode == SearchMode.GREATER_OR_EQUAL) {
+        // Start from the key and iterate forward
+        Iterator<Map.Entry<CASValue, NodeReferences>> rangeIter = reader.iteratorFrom(value);
+        
+        return new Iterator<>() {
+          private NodeReferences next = null;
+          private boolean skipFirst = (mode == SearchMode.GREATER); // Skip exact match for GREATER
+          
+          @Override
+          public boolean hasNext() {
+            if (next != null) {
+              return true;
+            }
+            while (rangeIter.hasNext()) {
+              Map.Entry<CASValue, NodeReferences> entry = rangeIter.next();
+              CASValue key = entry.getKey();
+              
+              // For GREATER mode, skip exact match
+              if (skipFirst && key.compareTo(value) == 0) {
+                skipFirst = false;
+                continue;
+              }
+              skipFirst = false;
+              
+              // Check PCR
+              if (!pcrsRequested.isEmpty() && !pcrsRequested.contains(key.getPathNodeKey())) {
+                continue;
+              }
+              
+              next = entry.getValue();
+              return true;
+            }
+            return false;
+          }
+          
+          @Override
+          public NodeReferences next() {
+            if (!hasNext()) {
+              throw new NoSuchElementException();
+            }
+            NodeReferences result = next;
+            next = null;
+            return result;
+          }
+        };
+      }
     }
     
-    // Fall back to full scan with filter
+    // Fall back to full scan with filter (when no specific PCR or no atomic key)
     final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator = reader.iterator();
     final CASFilter effectiveFilter = filter;
     
