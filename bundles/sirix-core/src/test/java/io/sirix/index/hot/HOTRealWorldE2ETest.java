@@ -22,6 +22,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
+import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -602,6 +603,62 @@ class HOTRealWorldE2ETest {
             count3 += refs.getNodeKeys().getLongCardinality();
           }
           assertTrue(count3 >= 25, "Should find at least 25 entries < 25, found " + count3);
+        }
+      }
+    }
+
+    @Test
+    @DisplayName("E2E: Bounded range query (from-to)")
+    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    void testBoundedRangeQuery() throws IOException {
+      Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .versioningApproach(VersioningType.FULL)
+            .build());
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+          var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+
+          // Create CAS index
+          final var pathToValue = parse("/items/[]/value", io.brackit.query.util.path.PathParser.Type.JSON);
+          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
+              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+          // Insert data
+          StringBuilder json = new StringBuilder("{\"items\": [");
+          for (int i = 0; i < 200; i++) {
+            if (i > 0) json.append(",");
+            json.append("{\"value\": ").append(i * 10).append("}");  // 0, 10, 20, ..., 1990
+          }
+          json.append("]}");
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+
+          // Create HOTIndexReader directly to test range()
+          var hotReader = HOTIndexReader.create(
+              wtx.getPageTrx(), CASKeySerializer.INSTANCE, 
+              casIndexDef.getType(), casIndexDef.getID());
+
+          // Get path node key using JsonPCRCollector
+          var pcrCollector = new JsonPCRCollector(wtx);
+          long pcr = pcrCollector.getPCRsForPaths(casIndexDef.getPaths()).getPCRs().iterator().next();
+
+          // Test bounded range: values from 500 (inclusive) to 1000 (exclusive)
+          CASValue fromKey = new CASValue(new Int32(500), Type.INR, pcr);
+          CASValue toKey = new CASValue(new Int32(1000), Type.INR, pcr);
+          
+          var rangeIter = hotReader.range(fromKey, toKey);
+          int rangeCount = 0;
+          while (rangeIter.hasNext()) {
+            java.util.Map.Entry<CASValue, NodeReferences> entry = rangeIter.next();
+            rangeCount++;
+          }
+          assertTrue(rangeCount > 0, "Bounded range query should find entries, found " + rangeCount);
         }
       }
     }
