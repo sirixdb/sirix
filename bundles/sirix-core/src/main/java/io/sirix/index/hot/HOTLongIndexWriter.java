@@ -117,61 +117,29 @@ public final class HOTLongIndexWriter {
     try {
       final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
       
-      switch (indexType) {
-        case PATH -> {
-          final PathPage pathPage = pageTrx.getPathPage(revisionRootPage);
-          final PageReference reference = revisionRootPage.getPathPageReference();
-          pageTrx.appendLogRecord(reference, PageContainer.getInstance(pathPage, pathPage));
-          
-          // Get existing reference first to check if index already exists
-          PageReference existingRef = pathPage.getOrCreateReference(indexNumber);
-          boolean indexExists = existingRef != null && 
-              (existingRef.getKey() != Constants.NULL_ID_LONG || 
-               existingRef.getLogKey() != Constants.NULL_ID_INT || 
-               existingRef.getPage() != null);
-          
-          if (!indexExists) {
-            // Only create new tree if index doesn't exist
-            pathPage.createHOTPathIndexTree(pageTrx, indexNumber, pageTrx.getLog());
-          }
-          rootReference = pathPage.getOrCreateReference(indexNumber);
-        }
-        case CAS -> {
-          final CASPage casPage = pageTrx.getCASPage(revisionRootPage);
-          final PageReference reference = revisionRootPage.getCASPageReference();
-          pageTrx.appendLogRecord(reference, PageContainer.getInstance(casPage, casPage));
-          
-          // Get existing reference first to check if index already exists
-          PageReference existingRef = casPage.getOrCreateReference(indexNumber);
-          boolean indexExists = existingRef != null && 
-              (existingRef.getKey() != Constants.NULL_ID_LONG || 
-               existingRef.getLogKey() != Constants.NULL_ID_INT || 
-               existingRef.getPage() != null);
-          
-          if (!indexExists) {
-            casPage.createHOTCASIndexTree(pageTrx, indexNumber, pageTrx.getLog());
-          }
-          rootReference = casPage.getOrCreateReference(indexNumber);
-        }
-        case NAME -> {
-          final NamePage namePage = pageTrx.getNamePage(revisionRootPage);
-          final PageReference reference = revisionRootPage.getNamePageReference();
-          pageTrx.appendLogRecord(reference, PageContainer.getInstance(namePage, namePage));
-          
-          // Get existing reference first to check if index already exists
-          PageReference existingRef = namePage.getOrCreateReference(indexNumber);
-          boolean indexExists = existingRef != null && 
-              (existingRef.getKey() != Constants.NULL_ID_LONG || 
-               existingRef.getLogKey() != Constants.NULL_ID_INT || 
-               existingRef.getPage() != null);
-          
-          if (!indexExists) {
-            namePage.createHOTNameIndexTree(pageTrx, indexNumber, pageTrx.getLog());
-          }
-          rootReference = namePage.getOrCreateReference(indexNumber);
-        }
-        default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + indexType);
+      // HOTLongIndexWriter is specialized for PATH indexes only.
+      // CAS and NAME indexes use HOTIndexWriter<K> instead.
+      if (indexType != IndexType.PATH) {
+        throw new IllegalArgumentException(
+            "HOTLongIndexWriter only supports PATH indexes, use HOTIndexWriter for " + indexType);
       }
+      
+      final PathPage pathPage = pageTrx.getPathPage(revisionRootPage);
+      final PageReference reference = revisionRootPage.getPathPageReference();
+      pageTrx.appendLogRecord(reference, PageContainer.getInstance(pathPage, pathPage));
+      
+      // Get existing reference first to check if index already exists
+      PageReference existingRef = pathPage.getOrCreateReference(indexNumber);
+      boolean indexExists = existingRef != null && 
+          (existingRef.getKey() != Constants.NULL_ID_LONG || 
+           existingRef.getLogKey() != Constants.NULL_ID_INT || 
+           existingRef.getPage() != null);
+      
+      if (!indexExists) {
+        // Only create new tree if index doesn't exist
+        pathPage.createHOTPathIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+      }
+      rootReference = pathPage.getOrCreateReference(indexNumber);
     } catch (SirixIOException e) {
       throw new IllegalStateException("Failed to initialize HOT index", e);
     }
