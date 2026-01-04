@@ -390,6 +390,12 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
       Page page = container.getModified();
       if (page instanceof HOTLeafPage hotLeaf) {
         return hotLeaf;
+      } else if (page instanceof HOTIndirectPage) {
+        // Navigate through the indirect page tree to find the right leaf
+        HOTLeafPage navigatedLeaf = navigateToLeaf(keyBuf, keyLen);
+        if (navigatedLeaf != null) {
+          return navigatedLeaf;
+        }
       }
     }
     
