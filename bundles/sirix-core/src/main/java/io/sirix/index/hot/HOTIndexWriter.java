@@ -40,6 +40,7 @@ import io.sirix.page.HOTLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
+import io.sirix.cache.TransactionIntentLog;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
@@ -77,13 +78,6 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
   private static final ThreadLocal<byte[]> VALUE_BUFFER =
       ThreadLocal.withInitial(() -> new byte[4096]);
 
-  /**
-   * Pre-allocated NodeReferences for reuse when creating new entries.
-   * Will be used when full HOT trie navigation is implemented.
-   */
-  @SuppressWarnings("unused")
-  private final NodeReferences tempRefs = new NodeReferences();
-
   private final StorageEngineWriter pageTrx;
   private final HOTKeySerializer<K> keySerializer;
   private final IndexType indexType;
@@ -94,6 +88,19 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
   
   /** Cached root page reference for the index. */
   private PageReference rootReference;
+
+  /**
+   * Result of navigating to a leaf page, including the path from root.
+   * This is needed for proper split handling.
+   */
+  private record LeafNavigationResult(
+      HOTLeafPage leaf,
+      PageReference leafRef,
+      HOTIndirectPage[] pathNodes,
+      PageReference[] pathRefs,
+      int[] pathChildIndices,
+      int pathDepth
+  ) {}
 
   /**
    * Private constructor.
@@ -113,6 +120,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
     
     // Initialize HOT index tree
     initializeHOTIndex();
+    
   }
 
   /**
@@ -124,9 +132,16 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
       
       switch (indexType) {
         case PATH -> {
-          final PathPage pathPage = pageTrx.getPathPage(revisionRootPage);
-          final PageReference reference = revisionRootPage.getPathPageReference();
-          pageTrx.appendLogRecord(reference, PageContainer.getInstance(pathPage, pathPage));
+          // CRITICAL: Check if PathPage is already in the transaction log first
+          final PageReference pathPageRef = revisionRootPage.getPathPageReference();
+          PageContainer pathContainer = pageTrx.getLog().get(pathPageRef);
+          final PathPage pathPage;
+          if (pathContainer != null && pathContainer.getModified() instanceof PathPage modifiedPath) {
+            pathPage = modifiedPath;
+          } else {
+            pathPage = pageTrx.getPathPage(revisionRootPage);
+            pageTrx.appendLogRecord(pathPageRef, PageContainer.getInstance(pathPage, pathPage));
+          }
           
           // Get existing reference first to check if index already exists
           PageReference existingRef = pathPage.getOrCreateReference(indexNumber);
@@ -141,9 +156,20 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
           rootReference = pathPage.getOrCreateReference(indexNumber);
         }
         case CAS -> {
-          final CASPage casPage = pageTrx.getCASPage(revisionRootPage);
-          final PageReference reference = revisionRootPage.getCASPageReference();
-          pageTrx.appendLogRecord(reference, PageContainer.getInstance(casPage, casPage));
+          // CRITICAL: Check if CASPage is already in the transaction log first
+          // This ensures we use the SAME CASPage instance that was modified by previous
+          // HOTIndexWriter instances in the same transaction
+          final PageReference casPageRef = revisionRootPage.getCASPageReference();
+          PageContainer casContainer = pageTrx.getLog().get(casPageRef);
+          final CASPage casPage;
+          if (casContainer != null && casContainer.getModified() instanceof CASPage modifiedCAS) {
+            // Use the CASPage from the log (contains modifications from this transaction)
+            casPage = modifiedCAS;
+          } else {
+            // Load from storage and put in log
+            casPage = pageTrx.getCASPage(revisionRootPage);
+            pageTrx.appendLogRecord(casPageRef, PageContainer.getInstance(casPage, casPage));
+          }
           
           // Get existing reference first to check if index already exists
           PageReference existingRef = casPage.getOrCreateReference(indexNumber);
@@ -158,9 +184,16 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
           rootReference = casPage.getOrCreateReference(indexNumber);
         }
         case NAME -> {
-          final NamePage namePage = pageTrx.getNamePage(revisionRootPage);
-          final PageReference reference = revisionRootPage.getNamePageReference();
-          pageTrx.appendLogRecord(reference, PageContainer.getInstance(namePage, namePage));
+          // CRITICAL: Check if NamePage is already in the transaction log first
+          final PageReference namePageRef = revisionRootPage.getNamePageReference();
+          PageContainer nameContainer = pageTrx.getLog().get(namePageRef);
+          final NamePage namePage;
+          if (nameContainer != null && nameContainer.getModified() instanceof NamePage modifiedName) {
+            namePage = modifiedName;
+          } else {
+            namePage = pageTrx.getNamePage(revisionRootPage);
+            pageTrx.appendLogRecord(namePageRef, PageContainer.getInstance(namePage, namePage));
+          }
           
           // Get existing reference first to check if index already exists
           PageReference existingRef = namePage.getOrCreateReference(indexNumber);
@@ -198,9 +231,24 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
   }
 
   /**
+   * Maximum retry attempts for insert after split/compact.
+   */
+  private static final int MAX_INSERT_RETRIES = 3;
+
+  /**
    * Index a key-value pair.
    *
    * <p>If the key already exists, merges the NodeReferences (OR operation).</p>
+   *
+   * <p><b>Edge Case Handling:</b> When many identical keys are merged, the value
+   * can grow very large. If the value becomes too large for a single page and
+   * the page has only 1 entry (so it can't be split), this method handles it by:
+   * <ol>
+   *   <li>Attempting to compact the page to reclaim fragmented space</li>
+   *   <li>Retrying the insert operation after compaction</li>
+   *   <li>If still failing after retries, throwing an informative exception</li>
+   * </ol>
+   * </p>
    *
    * @param key   the index key
    * @param value the node references
@@ -231,46 +279,114 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
       valueLen = NodeReferencesSerializer.serialize(value, valueBuf, 0);
     }
 
-    // Get or create HOT leaf page
-    PageReference currentRef = getRootReference();
-    if (currentRef == null) {
+    // IMPORTANT: Use the cached root reference to ensure consistency
+    // The same reference object must be used across all operations so that
+    // log.put updates are visible to subsequent log.get calls.
+    if (rootReference == null) {
       throw new SirixIOException("HOT index not initialized for " + indexType);
     }
+    PageReference rootRef = rootReference;
     
-    HOTLeafPage leaf = getLeafForWrite(keyBuf, keyLen);
+    LeafNavigationResult navResult = getLeafWithPath(rootRef, keyBuf, keyLen);
+    HOTLeafPage leaf = navResult.leaf();
     
     // Merge entry
     boolean success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
     
-    if (!success && leaf.needsSplit()) {
-      // Handle split using HOTTrieWriter
-      byte[] splitKey = trieWriter.handleLeafSplit(pageTrx, pageTrx.getLog(), leaf, currentRef, currentRef);
-      
-      // Now determine which page should receive the new entry
-      // Compare key with splitKey to route to correct page
-      byte[] keySlice = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
-      int cmp = compareKeys(keySlice, splitKey);
-      
-      if (cmp < 0) {
-        // Key goes to left page (the original, now smaller)
-        success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
-      } else {
-        // Key goes to right page - need to get it from the log
-        PageContainer rightContainer = findRightPageAfterSplit(currentRef);
-        if (rightContainer != null && rightContainer.getModified() instanceof HOTLeafPage rightLeaf) {
-          success = rightLeaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
-        } else {
-          throw new SirixIOException("Failed to find right page after split");
-        }
-      }
+    // If merge failed, we need to split or compact
+    if (!success) {
+      success = handleInsertFailure(rootRef, navResult, keyBuf, keyLen, valueBuf, valueLen);
       
       if (!success) {
-        throw new SirixIOException("Failed to insert after split - this should not happen. " +
-            "Index: " + indexType + ", entries: " + leaf.getEntryCount());
+        // Last resort: check if this is a case of a single huge value
+        int entryCount = navResult.leaf().getEntryCount();
+        long remainingSpace = navResult.leaf().getRemainingSpace();
+        int requiredSpace = 2 + keyLen + 2 + valueLen;
+        
+        throw new SirixIOException(
+            "Failed to insert entry after split/compact attempts. " +
+            "This may indicate a single value that exceeds page capacity. " +
+            "Index: " + indexType + ", entries: " + entryCount + 
+            ", remaining space: " + remainingSpace + ", required: " + requiredSpace +
+            ". Consider limiting the number of identical keys or using overflow pages.");
       }
     }
 
     return value;
+  }
+  
+  /**
+   * Handle insert failure by attempting split and/or compact operations.
+   *
+   * @param rootRef the root reference
+   * @param navResult the navigation result with leaf and path
+   * @param keyBuf the key buffer
+   * @param keyLen the key length
+   * @param valueBuf the value buffer
+   * @param valueLen the value length
+   * @return true if insert eventually succeeded
+   */
+  private boolean handleInsertFailure(
+      PageReference rootRef,
+      LeafNavigationResult navResult,
+      byte[] keyBuf, int keyLen,
+      byte[] valueBuf, int valueLen) {
+    
+    HOTLeafPage leaf = navResult.leaf();
+    
+    for (int attempt = 0; attempt < MAX_INSERT_RETRIES; attempt++) {
+      // Check if the page can be split
+      if (leaf.canSplit()) {
+        // Handle split using HOTTrieWriter with proper path information
+        byte[] splitKey = trieWriter.handleLeafSplitWithPath(
+            pageTrx, 
+            pageTrx.getLog(), 
+            leaf, 
+            navResult.leafRef(),
+            rootRef,
+            navResult.pathNodes(),
+            navResult.pathRefs(),
+            navResult.pathChildIndices(),
+            navResult.pathDepth()
+        );
+        
+        // CRITICAL: Mark index page dirty so updated root reference gets persisted
+        markIndexPageDirty();
+        
+        if (splitKey != null) {
+          // Split succeeded - re-navigate and retry insert
+          navResult = getLeafWithPath(rootRef, keyBuf, keyLen);
+          leaf = navResult.leaf();
+          
+          if (leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
+            return true;
+          }
+        }
+        // Split returned null (couldn't split) - fall through to compact
+      }
+      
+      // Try compacting the page to reclaim fragmented space
+      int reclaimedSpace = leaf.compact();
+      if (reclaimedSpace > 0) {
+        // Update the page in the log after compaction
+        pageTrx.getLog().put(navResult.leafRef(), 
+            PageContainer.getInstance(leaf, leaf));
+        
+        // Try inserting again after compaction
+        if (leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
+          return true;
+        }
+      }
+      
+      // If neither split nor compact helped on this attempt,
+      // re-navigate to get fresh state for next attempt
+      if (attempt < MAX_INSERT_RETRIES - 1) {
+        navResult = getLeafWithPath(rootRef, keyBuf, keyLen);
+        leaf = navResult.leaf();
+      }
+    }
+    
+    return false;
   }
 
   /**
@@ -368,34 +484,88 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
   // ===== Private methods =====
 
   /**
-   * Get the HOT leaf page for writing.
+   * Get the HOT leaf page for writing, tracking the navigation path.
    *
-   * <p>Retrieves or creates the HOT leaf page from the transaction log or storage.
-   * Uses the storage engine's versioning-aware page loading for committed data.</p>
+   * <p>The path is needed for proper split handling - when a leaf splits,
+   * we need to update its parent in the tree.</p>
    *
    * @param keyBuf the key buffer
    * @param keyLen the key length
-   * @return the HOT leaf page for writing
+   * @return navigation result with leaf and path information
    */
-  private HOTLeafPage getLeafForWrite(byte[] keyBuf, int keyLen) {
-    // Get fresh reference from the index page to ensure consistency
-    PageReference currentRef = getRootReference();
-    if (currentRef == null) {
+  /**
+   * Navigate to the correct leaf page for a key, tracking the path from root.
+   *
+   * @param rootRef the root reference (must be obtained ONCE and reused)
+   * @param keyBuf the key buffer
+   * @param keyLen the key length
+   * @return navigation result with leaf and path
+   */
+  private LeafNavigationResult getLeafWithPath(PageReference rootRef, byte[] keyBuf, int keyLen) {
+    if (rootRef == null) {
       throw new IllegalStateException("HOT index not initialized");
     }
+    
+    // Use dynamic arrays for deep trees
+    java.util.ArrayList<HOTIndirectPage> pathNodesList = new java.util.ArrayList<>();
+    java.util.ArrayList<PageReference> pathRefsList = new java.util.ArrayList<>();
+    java.util.ArrayList<Integer> pathChildIndicesList = new java.util.ArrayList<>();
+    
+    PageReference currentRef = rootRef;
+    byte[] keySlice = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
     
     // Check transaction log first (uncommitted modifications)
     PageContainer container = pageTrx.getLog().get(currentRef);
     if (container != null) {
       Page page = container.getModified();
-      if (page instanceof HOTLeafPage hotLeaf) {
-        return hotLeaf;
-      } else if (page instanceof HOTIndirectPage) {
-        // Navigate through the indirect page tree to find the right leaf
-        HOTLeafPage navigatedLeaf = navigateToLeaf(keyBuf, keyLen);
-        if (navigatedLeaf != null) {
-          return navigatedLeaf;
+      
+      // Navigate through indirect pages, tracking the path
+      // No depth limit - let tree grow as deep as necessary
+      while (page instanceof HOTIndirectPage indirectPage) {
+        pathNodesList.add(indirectPage);
+        pathRefsList.add(currentRef);
+        
+        int childIndex = indirectPage.findChildIndex(keySlice);
+        if (childIndex < 0) {
+          childIndex = 0; // Default to first child
         }
+        pathChildIndicesList.add(childIndex);
+        
+        PageReference childRef = indirectPage.getChildReference(childIndex);
+        if (childRef == null) {
+          throw new IllegalStateException("Null child reference in indirect page");
+        }
+        currentRef = childRef;
+        
+        // Get child page from log or storage
+        PageContainer childContainer = pageTrx.getLog().get(childRef);
+        if (childContainer != null) {
+          page = childContainer.getModified();
+        } else {
+          // Child not in log - check if the child reference has a page swizzled on it
+          if (childRef.getPage() != null) {
+            page = childRef.getPage();
+          } else {
+            // Load from storage and prepare for modification
+            page = pageTrx.loadHOTPage(childRef);
+            if (page instanceof HOTLeafPage loadedLeaf) {
+              // Create COW copy for modifications and put in log
+              HOTLeafPage modifiedLeaf = loadedLeaf.copy();
+              childContainer = PageContainer.getInstance(loadedLeaf, modifiedLeaf);
+              pageTrx.getLog().put(childRef, childContainer);
+              page = modifiedLeaf;
+            }
+          }
+        }
+      }
+      
+      if (page instanceof HOTLeafPage hotLeaf) {
+        // Convert lists to arrays for return
+        int pathDepth = pathNodesList.size();
+        HOTIndirectPage[] pathNodes = pathNodesList.toArray(new HOTIndirectPage[pathDepth]);
+        PageReference[] pathRefs = pathRefsList.toArray(new PageReference[pathDepth]);
+        int[] pathChildIndices = pathChildIndicesList.stream().mapToInt(Integer::intValue).toArray();
+        return new LeafNavigationResult(hotLeaf, currentRef, pathNodes, pathRefs, pathChildIndices, pathDepth);
       }
     }
     
@@ -405,19 +575,28 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
       // Create COW copy for modifications
       HOTLeafPage modifiedLeaf = existingLeaf.copy();
       container = PageContainer.getInstance(existingLeaf, modifiedLeaf);
-      pageTrx.getLog().put(currentRef, container);
-      return modifiedLeaf;
+      pageTrx.getLog().put(rootRef, container);
+      return new LeafNavigationResult(modifiedLeaf, rootRef, new HOTIndirectPage[0], new PageReference[0], new int[0], 0);
     }
     
     // Create new leaf page if none exists
-    HOTLeafPage newLeaf = new HOTLeafPage(
-        currentRef.getKey() >= 0 ? currentRef.getKey() : 0,
-        pageTrx.getRevisionNumber(),
-        indexType
-    );
+    long pageKey = rootRef.getKey() >= 0 ? rootRef.getKey() : 0;
+    HOTLeafPage newLeaf = new HOTLeafPage(pageKey, pageTrx.getRevisionNumber(), indexType);
     container = PageContainer.getInstance(newLeaf, newLeaf);
-    pageTrx.getLog().put(currentRef, container);
-    return newLeaf;
+    pageTrx.getLog().put(rootRef, container);
+    return new LeafNavigationResult(newLeaf, rootRef, new HOTIndirectPage[0], new PageReference[0], new int[0], 0);
+  }
+  
+  /**
+   * Get the HOT leaf page for writing (simple version without path tracking).
+   *
+   * @param keyBuf the key buffer
+   * @param keyLen the key length
+   * @return the HOT leaf page for writing
+   */
+  private HOTLeafPage getLeafForWrite(byte[] keyBuf, int keyLen) {
+    PageReference rootRef = getRootReference();
+    return getLeafWithPath(rootRef, keyBuf, keyLen).leaf();
   }
 
   /**
@@ -473,21 +652,33 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
   }
   
   /**
-   * Compare two byte array keys lexicographically.
-   *
-   * @param key1 first key
-   * @param key2 second key
-   * @return negative if key1 < key2, 0 if equal, positive if key1 > key2
+   * Mark the index page (CASPage/PathPage/NamePage) as dirty so it gets persisted.
+   * This must be called after splits that update the root reference.
    */
-  private static int compareKeys(byte[] key1, byte[] key2) {
-    int minLen = Math.min(key1.length, key2.length);
-    for (int i = 0; i < minLen; i++) {
-      int cmp = (key1[i] & 0xFF) - (key2[i] & 0xFF);
-      if (cmp != 0) {
-        return cmp;
+  private void markIndexPageDirty() {
+    final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
+    final TransactionIntentLog log = pageTrx.getLog();
+    
+    switch (indexType) {
+      case CAS -> {
+        final CASPage casPage = pageTrx.getCASPage(revisionRootPage);
+        // Get the reference to the CASPage from the revision root
+        final PageReference casPageRef = revisionRootPage.getCASPageReference();
+        // Put the updated CASPage into the log
+        log.put(casPageRef, PageContainer.getInstance(casPage, casPage));
       }
+      case PATH -> {
+        final PathPage pathPage = pageTrx.getPathPage(revisionRootPage);
+        final PageReference pathPageRef = revisionRootPage.getPathPageReference();
+        log.put(pathPageRef, PageContainer.getInstance(pathPage, pathPage));
+      }
+      case NAME -> {
+        final NamePage namePage = pageTrx.getNamePage(revisionRootPage);
+        final PageReference namePageRef = revisionRootPage.getNamePageReference();
+        log.put(namePageRef, PageContainer.getInstance(namePage, namePage));
+      }
+      default -> {}
     }
-    return key1.length - key2.length;
   }
   
   /**
@@ -590,4 +781,5 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> {
     return null;
   }
 }
+
 

@@ -360,11 +360,101 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   
   /**
    * Check if the page needs to be split.
+   * This returns true if either:
+   * - Entry count has reached the maximum, or
+   * - Slot memory is nearly full (less than MIN_ENTRY_SPACE remaining)
    *
-   * @return true if page is full
+   * @return true if page is full and needs splitting
    */
   public boolean needsSplit() {
-    return entryCount >= MAX_ENTRIES;
+    // Minimum space needed for a typical entry (key + value)
+    // This should be conservative enough to trigger splits before insertAt fails
+    final int MIN_ENTRY_SPACE = 128; // 2 + 32 (key) + 2 + 92 (value) typical
+    
+    if (entryCount >= MAX_ENTRIES) {
+      return true;
+    }
+    
+    // Also need to split if slot memory is nearly full
+    long remainingSpace = slotMemory.byteSize() - usedSlotMemorySize;
+    return remainingSpace < MIN_ENTRY_SPACE;
+  }
+  
+  /**
+   * Check if this page can be split (has at least 2 entries).
+   *
+   * <p>A page with only 1 entry cannot be split using the normal splitting
+   * algorithm. This typically happens when many identical keys are merged
+   * into a single entry with a very large value.</p>
+   *
+   * @return true if the page can be split (has >= 2 entries)
+   */
+  public boolean canSplit() {
+    return entryCount >= 2;
+  }
+  
+  /**
+   * Check if an entry with the given key and value would fit in this page.
+   *
+   * @param key the key bytes
+   * @param value the value bytes
+   * @return true if the entry would fit
+   */
+  public boolean canFit(byte[] key, byte[] value) {
+    if (entryCount >= MAX_ENTRIES) {
+      return false;
+    }
+    
+    // Calculate entry size: [u16 keyLen][key][u16 valueLen][value]
+    int entrySize = 2 + key.length + 2 + value.length;
+    return usedSlotMemorySize + entrySize <= slotMemory.byteSize();
+  }
+  
+  /**
+   * Get the remaining space in this page's slot memory.
+   *
+   * @return remaining space in bytes
+   */
+  public long getRemainingSpace() {
+    return slotMemory.byteSize() - usedSlotMemorySize;
+  }
+  
+  /**
+   * Compact the page by removing fragmentation.
+   *
+   * <p>When values are updated in place with smaller values, or entries are
+   * deleted, the page can become fragmented. This method rebuilds the page
+   * with all entries packed contiguously, freeing up space.</p>
+   *
+   * @return the amount of space reclaimed
+   */
+  public int compact() {
+    if (entryCount == 0) {
+      int reclaimed = usedSlotMemorySize;
+      usedSlotMemorySize = 0;
+      return reclaimed;
+    }
+    
+    // Allocate temporary storage
+    byte[][] keys = new byte[entryCount][];
+    byte[][] values = new byte[entryCount][];
+    
+    // Extract all entries
+    for (int i = 0; i < entryCount; i++) {
+      keys[i] = getKey(i);
+      values[i] = getValue(i);
+    }
+    
+    // Clear and reinsert
+    int oldUsed = usedSlotMemorySize;
+    usedSlotMemorySize = 0;
+    entryCount = 0;
+    
+    for (int i = 0; i < keys.length; i++) {
+      insertAt(i, keys[i], values[i]);
+    }
+    
+    return oldUsed - usedSlotMemorySize;
   }
   
   /**
@@ -517,14 +607,24 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    *   <li>Target page gets entries [splitPoint, entryCount)</li>
    * </ul>
    *
+   * <p><b>Edge Case Handling:</b> When the page has only 1 entry (common with
+   * many identical keys that get merged), this method returns {@code null} instead
+   * of throwing an exception. The caller should handle this by using overflow
+   * pages or other strategies.</p>
+   *
    * @param target the page to receive the right half of entries
-   * @return the first key in the target page (split key for parent navigation)
+   * @return the first key in the target page (split key for parent navigation),
+   *         or {@code null} if the page cannot be split (e.g., only 1 entry)
    */
-  public byte[] splitTo(@NonNull HOTLeafPage target) {
+  public @Nullable byte[] splitTo(@NonNull HOTLeafPage target) {
     Objects.requireNonNull(target);
     
     if (entryCount < 2) {
-      throw new IllegalStateException("Cannot split page with less than 2 entries");
+      // Cannot split a page with less than 2 entries.
+      // This happens when many identical keys are merged into a single large value.
+      // Return null to signal that the caller needs to handle this differently
+      // (e.g., using overflow pages for large values).
+      return null;
     }
     
     // Split at midpoint
@@ -537,19 +637,60 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       
       boolean inserted = target.insertAt(target.entryCount, key, value);
       if (!inserted) {
-        throw new IllegalStateException("Failed to insert entry into split target - target page full");
+        // Target page full - this shouldn't happen with a fresh page
+        // but handle gracefully by stopping early
+        if (target.entryCount == 0) {
+          // Couldn't even insert one entry - value is too large for a page
+          return null;
+        }
+        // Adjust split point to what we could actually transfer
+        splitPoint = i;
+        break;
       }
+    }
+    
+    // Ensure target has at least one entry
+    if (target.entryCount == 0) {
+      return null;
     }
     
     // Get the split key (first key in target)
     byte[] splitKey = target.getKey(0);
     
     // Truncate this page to keep only left half
-    // Note: We don't reclaim memory, just reduce entry count
-    // The old entries become "garbage" that will be reclaimed on next COW
     entryCount = splitPoint;
     
+    // Recalculate used slot memory size for remaining entries
+    // This is important to allow new inserts after the split
+    recalculateUsedMemory();
+    
     return splitKey;
+  }
+  
+  /**
+   * Recalculate the used slot memory size based on actual entries.
+   * Called after split to allow new inserts on the truncated page.
+   */
+  private void recalculateUsedMemory() {
+    if (entryCount == 0) {
+      usedSlotMemorySize = 0;
+      return;
+    }
+    
+    // Find the maximum offset + entry size to determine actual used memory
+    int maxEndOffset = 0;
+    for (int i = 0; i < entryCount; i++) {
+      int offset = slotOffsets[i];
+      // Read key and value lengths to calculate entry size
+      short keyLen = slotMemory.get(JAVA_SHORT_UNALIGNED, offset);
+      short valueLen = slotMemory.get(JAVA_SHORT_UNALIGNED, offset + 2 + keyLen);
+      int entrySize = 2 + keyLen + 2 + valueLen;
+      int endOffset = offset + entrySize;
+      if (endOffset > maxEndOffset) {
+        maxEndOffset = endOffset;
+      }
+    }
+    usedSlotMemorySize = maxEndOffset;
   }
   
   /**

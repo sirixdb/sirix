@@ -70,8 +70,8 @@ import java.util.Objects;
  */
 public final class HOTTrieReader implements AutoCloseable {
 
-  /** Maximum tree height. */
-  private static final int MAX_TREE_HEIGHT = 8;
+  /** Maximum tree height - increased to handle unbalanced trees during inserts. */
+  private static final int MAX_TREE_HEIGHT = 64;
   
   /** The storage engine reader. */
   private final StorageEngineReader pageRtx;
@@ -284,7 +284,11 @@ public final class HOTTrieReader implements AutoCloseable {
         
         PageReference nextChildRef = parent.getChildReference(nextChildIdx);
         if (nextChildRef != null) {
-          return descendToLeftmostLeaf(nextChildRef);
+          HOTLeafPage result = descendToLeftmostLeaf(nextChildRef);
+          if (result != null) {
+            return result;
+          }
+          // If descend failed, continue to next sibling or pop up
         }
       }
       
@@ -354,7 +358,7 @@ public final class HOTTrieReader implements AutoCloseable {
   /**
    * Get the current traversal path depth.
    */
-  int getPathDepth() {
+  public int getPathDepth() {
     return pathDepth;
   }
   

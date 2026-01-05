@@ -985,14 +985,24 @@ public enum PageKind {
       final PageReference[] children = new PageReference[numChildren];
       for (int i = 0; i < numChildren; i++) {
         PageReference ref = new PageReference();
-        ref.setKey(source.readLong());
+        long childKey = source.readLong();
+        ref.setKey(childKey);
         children[i] = ref;
       }
       
       // Create appropriate node type
       return switch (nodeType) {
-        case BI_NODE -> HOTIndirectPage.createBiNode(pageKey, revision, 
-            initialBytePos * 8 + Long.numberOfTrailingZeros(bitMask), children[0], children[1]);
+        case BI_NODE -> {
+          // Reconstruct discriminativeBitPos from serialized form
+          // The mapping during creation was: bitInWord = 7 - (discriminativeBitPos % 8)
+          // and bitMask = 1L << bitInWord, with byteWithinWindow = 0
+          // So to reverse: bitWithinByte = 7 - Long.numberOfTrailingZeros(bitMask)
+          // and discriminativeBitPos = initialBytePos * 8 + bitWithinByte
+          int bitInWord = Long.numberOfTrailingZeros(bitMask);
+          int bitWithinByte = 7 - bitInWord;
+          int discriminativeBitPos = (initialBytePos & 0xFF) * 8 + bitWithinByte;
+          yield HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBitPos, children[0], children[1]);
+        }
         case SPAN_NODE -> HOTIndirectPage.createSpanNode(pageKey, revision, 
             initialBytePos, bitMask, partialKeys, children);
         case MULTI_NODE -> {
@@ -1018,19 +1028,30 @@ public enum PageKind {
       sink.writeByte((byte) hotIndirect.getLayoutType().ordinal());
       sink.writeInt(hotIndirect.getNumChildren());
       
-      // TODO: Write discriminative bits properly based on layout type
-      // For now, write placeholder values
-      sink.writeByte((byte) 0); // initialBytePos
-      sink.writeLong(0L); // bitMask
+      // Write discriminative bits properly based on layout type
+      sink.writeByte((byte) hotIndirect.getInitialBytePos());
+      sink.writeLong(hotIndirect.getBitMask());
       
-      // Write partial keys (placeholder)
-      byte[] partialKeysData = new byte[hotIndirect.getNumChildren()];
+      // Write partial keys
+      byte[] partialKeysData = hotIndirect.getPartialKeys();
       sink.write(partialKeysData);
       
-      // Write child references (simple key-only format for now)
+      // Write child references
       for (int i = 0; i < hotIndirect.getNumChildren(); i++) {
         PageReference ref = hotIndirect.getChildReference(i);
-        sink.writeLong(ref != null ? ref.getKey() : Constants.NULL_ID_LONG);
+        long key = ref != null ? ref.getKey() : Constants.NULL_ID_LONG;
+        sink.writeLong(key);
+      }
+      
+      // For MultiNode, write the 256-byte child index array
+      if (hotIndirect.getNodeType() == HOTIndirectPage.NodeType.MULTI_NODE) {
+        byte[] childIdx = hotIndirect.getChildIndex();
+        if (childIdx != null) {
+          sink.write(childIdx);
+        } else {
+          // Write zeroes as fallback
+          sink.write(new byte[256]);
+        }
       }
     }
   },

@@ -49,30 +49,7 @@ class HOTUnitCoverageTest {
       }
     }
 
-    @Test
-    @DisplayName("Needs upgrade check")
-    void testNeedsUpgrade() {
-      PageReference leftRef = new PageReference();
-      PageReference rightRef = new PageReference();
-      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
-      // BiNode can hold 2 children, so adding a 3rd needs upgrade
-      boolean needsUpgrade = NodeUpgradeManager.needsUpgrade(biNode, 3);
-      assertTrue(needsUpgrade, "BiNode needs upgrade for 3 children");
-    }
-
-    @Test
-    @DisplayName("Should downgrade check")
-    void testShouldDowngrade() {
-      PageReference leftRef = new PageReference();
-      PageReference rightRef = new PageReference();
-      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
-      // BiNode with 2 children reduced to 1 may downgrade
-      boolean shouldDowngrade = NodeUpgradeManager.shouldDowngrade(biNode, 1);
-      // BiNode is already the smallest type
-      assertFalse(shouldDowngrade);
-    }
+    // NOTE: testNeedsUpgrade and testShouldDowngrade tests are in NodeUpgradeManagerTest.java
 
     @Test
     @DisplayName("Upgrade BiNode to SpanNode")

@@ -359,6 +359,10 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
 
   /**
    * Range iterator over HOT entries, handling tree navigation.
+   * 
+   * <p>For range queries, we start from the leftmost leaf and skip entries
+   * that are before {@code fromBytes}. This is simpler and more correct than
+   * trying to navigate directly to a key that may not exist.</p>
    */
   private class RangeIterator implements Iterator<Map.Entry<K, NodeReferences>> {
     private final byte[] fromBytes;
@@ -368,29 +372,23 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
     private Map.@Nullable Entry<K, NodeReferences> nextEntry;
     private final @Nullable HOTTrieReader trieReader;
 
-    RangeIterator(byte[] fromBytes, byte[] toBytes) {
+    RangeIterator(byte[] fromBytes, byte @Nullable [] toBytes) {
       this.fromBytes = fromBytes;
       this.toBytes = toBytes;
       
       PageReference rootRef = getRootReference();
       if (rootRef != null) {
         this.trieReader = new HOTTrieReader(pageReadTrx);
-        // Navigate to the leaf containing fromBytes
-        this.currentLeaf = trieReader.navigateToLeaf(rootRef, fromBytes);
+        // Start from the leftmost leaf and skip entries < fromBytes
+        // This is more reliable than navigateToLeaf which requires exact key matches
+        this.currentLeaf = trieReader.navigateToLeftmostLeaf(rootRef);
       } else {
         this.trieReader = null;
         // Fallback to simple case
-      this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+        this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
       }
       
-      // Find the starting position within the leaf
-      if (currentLeaf != null) {
-        int startIndex = currentLeaf.findEntry(fromBytes);
-        this.currentIndex = startIndex >= 0 ? startIndex : -(startIndex + 1);
-      } else {
       this.currentIndex = 0;
-      }
-      
       advance();
     }
 
@@ -445,7 +443,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> {
           if (trieReader != null) {
             currentLeaf = trieReader.advanceToNextLeaf();
           } else {
-          currentLeaf = null;
+            currentLeaf = null;
           }
         }
       }

@@ -138,36 +138,7 @@ class HOTAdditionalCoverageTest {
       assertEquals(HOTIndirectPage.NodeType.MULTI_NODE, NodeUpgradeManager.determineNodeTypeByBits(8));
     }
 
-    @Test
-    @DisplayName("Upgrade detection for BiNode")
-    void testNeedsUpgrade() {
-      PageReference leftRef = new PageReference();
-      leftRef.setKey(1);
-      PageReference rightRef = new PageReference();
-      rightRef.setKey(2);
-
-      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
-      assertFalse(NodeUpgradeManager.needsUpgrade(biNode, 2));
-      assertTrue(NodeUpgradeManager.needsUpgrade(biNode, 3));
-    }
-
-    @Test
-    @DisplayName("Downgrade detection for SpanNode")
-    void testShouldDowngrade() {
-      PageReference[] children = new PageReference[4];
-      byte[] partialKeys = new byte[4];
-      for (int i = 0; i < 4; i++) {
-        children[i] = new PageReference();
-        children[i].setKey(i);
-        partialKeys[i] = (byte) i;
-      }
-
-      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b1111L, partialKeys, children);
-
-      assertFalse(NodeUpgradeManager.shouldDowngrade(spanNode, 3));
-      assertTrue(NodeUpgradeManager.shouldDowngrade(spanNode, 2));
-    }
+    // NOTE: testNeedsUpgrade and testShouldDowngrade tests are in NodeUpgradeManagerTest.java
   }
 
   @Nested

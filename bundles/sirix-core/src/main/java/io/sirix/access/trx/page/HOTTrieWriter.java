@@ -38,7 +38,7 @@ import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.HeightOptimalSplitter;
-import io.sirix.index.hot.PartialKeyMapping;
+import io.sirix.index.hot.NodeUpgradeManager;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
@@ -78,8 +78,8 @@ import java.util.Objects;
  */
 public final class HOTTrieWriter {
 
-  /** Maximum tree height (HOT typically has height 2-3). */
-  private static final int MAX_TREE_HEIGHT = 8;
+  /** Maximum tree height - increased to handle unbalanced trees during inserts. */
+  private static final int MAX_TREE_HEIGHT = 64;
   
   /** Memory segment allocator. */
   @SuppressWarnings("unused")
@@ -404,12 +404,66 @@ public final class HOTTrieWriter {
       @NonNull HOTLeafPage fullPage,
       @NonNull PageReference pageRef,
       @NonNull PageReference rootReference) {
+    // Delegate to the path-aware version with empty path (root level split)
+    return handleLeafSplitWithPath(pageRtx, log, fullPage, pageRef, rootReference,
+        new HOTIndirectPage[MAX_TREE_HEIGHT], new PageReference[MAX_TREE_HEIGHT], new int[MAX_TREE_HEIGHT], 0);
+  }
+  
+  /**
+   * Handle leaf page split with explicit path information.
+   *
+   * <p>This method properly handles splits at any level of the tree by accepting
+   * the navigation path from root to the splitting leaf.</p>
+   *
+   * <p><b>Edge Case:</b> When the page has only 1 entry (common with many identical
+   * keys that get merged), splitting won't help. In this case, the method attempts
+   * to compact the page to free fragmented space. If that still doesn't help,
+   * the method returns {@code null} to signal that the caller needs to handle
+   * this differently (e.g., using overflow pages for large values).</p>
+   *
+   * @param pageRtx       the storage engine writer
+   * @param log           the transaction intent log
+   * @param fullPage      the full page that needs splitting
+   * @param leafRef       the reference to the leaf being split
+   * @param rootReference the root reference for the index
+   * @param pathNodes     the indirect page nodes on the path from root to leaf
+   * @param pathRefs      the page references on the path from root to leaf
+   * @param pathChildIndices the child indices taken at each level
+   * @param pathDepth     the depth of the path (0 means leaf is at root)
+   * @return the split key that separates the two pages, or {@code null} if
+   *         the page cannot be split (e.g., only 1 entry with large merged value)
+   */
+  public @Nullable byte[] handleLeafSplitWithPath(
+      @NonNull StorageEngineWriter pageRtx,
+      @NonNull TransactionIntentLog log,
+      @NonNull HOTLeafPage fullPage,
+      @NonNull PageReference leafRef,
+      @NonNull PageReference rootReference,
+      HOTIndirectPage[] pathNodes,
+      PageReference[] pathRefs,
+      int[] pathChildIndices,
+      int pathDepth) {
     
     Objects.requireNonNull(pageRtx);
     Objects.requireNonNull(log);
     Objects.requireNonNull(fullPage);
-    Objects.requireNonNull(pageRef);
+    Objects.requireNonNull(leafRef);
     Objects.requireNonNull(rootReference);
+    
+    // Check if page can be split
+    if (!fullPage.canSplit()) {
+      // Try compacting the page first to free fragmented space
+      int reclaimedSpace = fullPage.compact();
+      if (reclaimedSpace > 0) {
+        // Update the page in the log after compaction
+        log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
+        // Caller should retry the insert after compaction
+        return null;
+      }
+      // Page has only 1 entry with a very large merged value
+      // Splitting won't help - caller needs to use overflow pages
+      return null;
+    }
     
     // Allocate new page key for right sibling
     long newPageKey = nextPageKey++;
@@ -426,6 +480,16 @@ public final class HOTTrieWriter {
     HeightOptimalSplitter.SplitResult splitResult = HeightOptimalSplitter.splitLeafPage(
         fullPage, rightPage, newRootPageKey, pageRtx.getRevisionNumber());
     
+    // Handle case where split failed (e.g., single large entry)
+    if (splitResult == null) {
+      // Close the unused right page to release memory
+      rightPage.close();
+      // Compact the original page and let caller retry
+      fullPage.compact();
+      log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
+      return null;
+    }
+    
     // Get the split key from boundary (first key in right page after split)
     byte[] splitKey = rightPage.getFirstKey();
     
@@ -434,20 +498,35 @@ public final class HOTTrieWriter {
     rightRef.setKey(newPageKey);
     log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
     
-    // Update the original page reference in the log
-    PageReference leftRef = splitResult.leftChild();
-    leftRef.setKey(pageRef.getKey());
-    log.put(pageRef, PageContainer.getInstance(fullPage, fullPage));
+    // Update the original leaf page reference in the log
+    log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
     
     // Now we need to update the parent structure
-    if (cowPathDepth > 0) {
+    if (pathDepth > 0) {
       // Has a parent - update the parent to include the new child
-      int parentIdx = cowPathDepth - 1;
-      updateParentForSplit(pageRtx, log, cowPathRefs[parentIdx], cowPathNodes[parentIdx],
-                           cowPathChildIndices[parentIdx], pageRef, rightRef, splitKey, rootReference);
+      int parentIdx = pathDepth - 1;
+      updateParentForSplitWithPath(pageRtx, log, pathRefs[parentIdx], pathNodes[parentIdx],
+          pathChildIndices[parentIdx], leafRef, rightRef, splitKey, rootReference,
+          pathNodes, pathRefs, pathChildIndices, parentIdx);
     } else {
-      // Root split - use the new root from the splitter
+      // Root split - create new BiNode as root
+      // CRITICAL: When pathDepth=0, leafRef may be the same object as rootReference.
+      // We need to create a SEPARATE reference for the left child to avoid circular references.
+      PageReference leftChildRef;
+      if (leafRef == rootReference) {
+        // Create a new reference for the left child that points to the leaf's log entry
+        leftChildRef = new PageReference();
+        leftChildRef.setLogKey(leafRef.getLogKey());
+        leftChildRef.setKey(fullPage.getPageKey());
+        leftChildRef.setPage(fullPage);
+      } else {
+        leftChildRef = leafRef;
+      }
+      
       HOTIndirectPage newRoot = splitResult.newRoot();
+      newRoot.setChildReference(0, leftChildRef);
+      newRoot.setChildReference(1, rightRef);
+      
       rootReference.setKey(newRootPageKey);
       rootReference.setPage(newRoot);
       log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
@@ -457,10 +536,17 @@ public final class HOTTrieWriter {
   }
   
   /**
-   * Update parent node after a leaf split.
-   * If the parent is full, recursively split it.
+     * Integrate a BiNode (from a split) into the tree structure.
+   * 
+   * <p>Reference: HOTSingleThreaded.hpp integrateBiNodeIntoTree() lines 493-547.
+   * This implements the height-optimal integration strategy:</p>
+   * <ol>
+   *   <li>If parent.height > splitEntries.height: create intermediate node</li>
+   *   <li>If parent NOT full (< 32 entries): expand parent by adding entry</li>
+   *   <li>If parent IS full: split parent and recurse up</li>
+   * </ol>
    */
-  private void updateParentForSplit(
+  private void updateParentForSplitWithPath(
       @NonNull StorageEngineWriter pageRtx,
       @NonNull TransactionIntentLog log,
       @NonNull PageReference parentRef,
@@ -469,181 +555,493 @@ public final class HOTTrieWriter {
       @NonNull PageReference leftChild,
       @NonNull PageReference rightChild,
       byte[] splitKey,
-      @NonNull PageReference rootReference) {
+      @NonNull PageReference rootReference,
+      HOTIndirectPage[] pathNodes,
+      PageReference[] pathRefs,
+      int[] pathChildIndices,
+      int currentPathIdx) {
     
-    // Create a new parent with both children
-    // For simplicity, we create a new BiNode pointing to the two children
-    // A more sophisticated implementation would add the new child to the existing parent
+    // Compute discriminative bit between the two split children
+    byte[] leftMax = getLastKeyFromChild(leftChild);
+    byte[] rightMin = getFirstKeyFromChild(rightChild);
+    int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
     
-    if (parent.getNumChildren() >= 16) {
-      // Parent is a SpanNode at max capacity - need to split parent too
-      // For now, create a new BiNode parent above this one
-      long newParentKey = nextPageKey++;
+    // Compute the height of the split entries (BiNode containing the split children)
+    int leftHeight = getHeightFromChild(leftChild);
+    int rightHeight = getHeightFromChild(rightChild);
+    int splitEntriesHeight = Math.max(leftHeight, rightHeight) + 1;
+    
+    // Reference line 502: if parent.height > splitEntries.height, create intermediate node
+    if (parent.getHeight() > splitEntriesHeight) {
+      // Create intermediate BiNode at current position and update parent's child
+      long newBiNodePageKey = nextPageKey++;
+      HOTIndirectPage newBiNode = HOTIndirectPage.createBiNode(
+          newBiNodePageKey, pageRtx.getRevisionNumber(), discriminativeBit,
+          leftChild, rightChild, splitEntriesHeight);
       
-      HOTIndirectPage newParent = HOTIndirectPage.createBiNode(
-          newParentKey,
-          pageRtx.getRevisionNumber(),
-          computeDiscriminativeBit(splitKey),
-          leftChild,
-          rightChild
-      );
+      PageReference newBiNodeRef = new PageReference();
+      newBiNodeRef.setKey(newBiNodePageKey);
+      newBiNodeRef.setPage(newBiNode);
+      log.put(newBiNodeRef, PageContainer.getInstance(newBiNode, newBiNode));
       
-      PageReference newParentRef = new PageReference();
-      newParentRef.setKey(newParentKey);
-      log.put(newParentRef, PageContainer.getInstance(newParent, newParent));
-      
-      // Update the grandparent to point to the new parent
-      if (cowPathDepth > 1) {
-        int grandparentIdx = cowPathDepth - 2;
-        HOTIndirectPage grandparent = cowPathNodes[grandparentIdx];
-        HOTIndirectPage newGrandparent = grandparent.copyWithUpdatedChild(
-            cowPathChildIndices[grandparentIdx], newParentRef);
-        log.put(cowPathRefs[grandparentIdx], PageContainer.getInstance(newGrandparent, newGrandparent));
-      } else {
-        // Parent was the root - update root reference
-        rootReference.setKey(newParentKey);
-        rootReference.setPage(newParent);
-      }
+      HOTIndirectPage updatedParent = parent.withUpdatedChild(originalChildIndex, newBiNodeRef, pageRtx.getRevisionNumber());
+      log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
     } else {
-      // Parent has room - create expanded parent with both children
-      // For BiNode, we need to upgrade to SpanNode
-      // For SpanNode, we add another child
-      // For simplicity, recreate as BiNode with the two children
-      long newParentKey = nextPageKey++;
+      // parent.height == splitEntries.height: integrate into parent
+      // Reference lines 504-546
       
-      HOTIndirectPage newParent = HOTIndirectPage.createBiNode(
-          newParentKey,
-          pageRtx.getRevisionNumber(),
-          computeDiscriminativeBit(splitKey),
-          leftChild,
-          rightChild
-      );
+      int currentNumChildren = parent.getNumChildren();
       
-      PageReference newParentRef = new PageReference();
-      newParentRef.setKey(newParentKey);
-      log.put(newParentRef, PageContainer.getInstance(newParent, newParent));
-      
-      // Update the original parent reference
-      parentRef.setKey(newParentKey);
-      parentRef.setPage(newParent);
-    log.put(parentRef, PageContainer.getInstance(newParent, newParent));
+      // Reference line 516: if parent NOT full, add entry
+      // Maximum is 32 entries per node (reference: MAXIMUM_NUMBER_NODE_ENTRIES = 32)
+      if (currentNumChildren < NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+        // Parent has space - expand by adding the new entry
+        // This replaces one child with two children
+        HOTIndirectPage expandedParent = expandParentNode(
+            parent, originalChildIndex, leftChild, rightChild,
+            discriminativeBit, pageRtx.getRevisionNumber());
+        log.put(parentRef, PageContainer.getInstance(expandedParent, expandedParent));
+      } else {
+        // Reference lines 520-536: parent is FULL - split and recurse
+        splitParentAndRecurse(pageRtx, log, parentRef, parent, originalChildIndex,
+            leftChild, rightChild, discriminativeBit, rootReference,
+            pathNodes, pathRefs, pathChildIndices, currentPathIdx);
+      }
     }
   }
   
   /**
-   * Create a new root node when the root splits.
-   * 
-   * <p>Reference: integrateBiNodeIntoTree() in HOTSingleThreaded.hpp lines 493-547.</p>
+   * Get height from a child reference.
    */
-  private void createNewRootForSplit(
+  private int getHeightFromChild(PageReference childRef) {
+    Page page = childRef.getPage();
+    if (page instanceof HOTLeafPage) {
+      return 0;
+    } else if (page instanceof HOTIndirectPage indirect) {
+      return indirect.getHeight();
+    }
+    return 0;
+  }
+  
+  /**
+   * Expand a parent node by replacing one child with two children (from a split).
+   * Reference: parentNode.addEntry() in HOTSingleThreaded.hpp
+   */
+  private HOTIndirectPage expandParentNode(
+      HOTIndirectPage parent, int splitChildIndex,
+      PageReference leftChild, PageReference rightChild,
+      int discriminativeBit, int revision) {
+    
+    int numChildren = parent.getNumChildren();
+    int newNumChildren = numChildren + 1;
+    PageReference[] newChildren = new PageReference[newNumChildren];
+    
+    // Copy children, replacing split child with left+right
+    int j = 0;
+    for (int i = 0; i < numChildren; i++) {
+      if (i == splitChildIndex) {
+        newChildren[j++] = leftChild;
+        newChildren[j++] = rightChild;
+      } else {
+        newChildren[j++] = parent.getChildReference(i);
+      }
+    }
+    
+    // Compute discriminative bits and partial keys for navigation
+    byte initialBytePos = computeInitialBytePos(newChildren);
+    long bitMask = computeBitMaskForChildren(newChildren, initialBytePos);
+    byte[] partialKeys = computePartialKeysForChildren(newChildren, initialBytePos, bitMask);
+    
+    // Create appropriate node type based on child count
+    if (newNumChildren <= 2) {
+      return HOTIndirectPage.createBiNode(parent.getPageKey(), revision, discriminativeBit,
+          newChildren[0], newChildren[1], parent.getHeight());
+    } else if (newNumChildren <= 16) {
+      return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
+          initialBytePos, bitMask, partialKeys, newChildren, parent.getHeight());
+    } else {
+      return HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
+          initialBytePos, bitMask, partialKeys, newChildren, parent.getHeight());
+    }
+  }
+  
+  /**
+   * Compute initial byte position from children keys.
+   */
+  private byte computeInitialBytePos(PageReference[] children) {
+    if (children.length < 2) return 0;
+    
+    // Find the first discriminative byte position
+    byte[] first = getFirstKeyFromChild(children[0]);
+    byte[] second = getFirstKeyFromChild(children[1]);
+    int bit = DiscriminativeBitComputer.computeDifferingBit(first, second);
+    return (byte) (bit / 8);
+  }
+  
+  /**
+   * Compute bit mask that covers all discriminative bits for the children.
+   */
+  private long computeBitMaskForChildren(PageReference[] children, byte initialBytePos) {
+    long mask = 0;
+    for (int i = 0; i < children.length - 1; i++) {
+      byte[] key1 = getLastKeyFromChild(children[i]);
+      byte[] key2 = getFirstKeyFromChild(children[i + 1]);
+      if (key1.length == 0 || key2.length == 0) continue;
+      
+      int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
+      int byteOffset = bit / 8 - (initialBytePos & 0xFF);
+      if (byteOffset >= 0 && byteOffset < 8) {
+        int bitInByte = 7 - (bit % 8);
+        mask |= 1L << (byteOffset * 8 + bitInByte);
+      }
+    }
+    return mask != 0 ? mask : 1L;
+  }
+  
+  /**
+   * Compute partial keys for all children based on the bit mask.
+   */
+  private byte[] computePartialKeysForChildren(PageReference[] children, byte initialBytePos, long bitMask) {
+    byte[] partialKeys = new byte[children.length];
+    for (int i = 0; i < children.length; i++) {
+      byte[] key = getFirstKeyFromChild(children[i]);
+      partialKeys[i] = computePartialKey(key, initialBytePos, bitMask);
+    }
+    return partialKeys;
+  }
+  
+  /**
+   * Split a full parent node and recurse up the tree.
+   * 
+   * <p>Reference: HOTSingleThreadedNode.hpp lines 549-565 (split function).
+   * Uses the MOST SIGNIFICANT discriminative bit to split entries into two groups:
+   * - "Smaller" entries: those with MSB=0
+   * - "Larger" entries: those with MSB=1</p>
+   */
+  private void splitParentAndRecurse(
       @NonNull StorageEngineWriter pageRtx,
       @NonNull TransactionIntentLog log,
+      @NonNull PageReference parentRef,
+      @NonNull HOTIndirectPage parent,
+      int originalChildIndex,
       @NonNull PageReference leftChild,
       @NonNull PageReference rightChild,
-      byte[] splitKey,
-      @NonNull PageReference rootReference) {
+      int discriminativeBit,
+      @NonNull PageReference rootReference,
+      HOTIndirectPage[] pathNodes,
+      PageReference[] pathRefs,
+      int[] pathChildIndices,
+      int currentPathIdx) {
     
-    long newRootKey = nextPageKey++;
+    int numChildren = parent.getNumChildren();
     
-    // Get the actual pages to compute proper discriminative bit
-    HOTLeafPage leftPage = null;
-    HOTLeafPage rightPage = null;
+    // Reference: getMaskForLargerEntries() finds entries with MSB set
+    // The MSB (most significant bit) determines the split boundary
+    // Find the split point based on the most significant discriminative bit
+    int msbPosition = findMostSignificantDiscriminativeBitPosition(parent);
     
-    PageContainer leftContainer = log.get(leftChild);
-    if (leftContainer != null && leftContainer.getModified() instanceof HOTLeafPage lp) {
-      leftPage = lp;
-    }
+    // Build arrays of children with MSB=0 ("smaller") and MSB=1 ("larger")
+    java.util.List<PageReference> smallerChildren = new java.util.ArrayList<>();
+    java.util.List<PageReference> largerChildren = new java.util.ArrayList<>();
     
-    PageContainer rightContainer = log.get(rightChild);
-    if (rightContainer != null && rightContainer.getModified() instanceof HOTLeafPage rp) {
-      rightPage = rp;
-    }
-    
-    // Compute discriminative bit using proper algorithm
-    int discriminativeBit;
-    if (leftPage != null && rightPage != null) {
-      discriminativeBit = computeDiscriminativeBit(leftPage, rightPage);
-    } else {
-      // Fallback to legacy method
-      discriminativeBit = computeDiscriminativeBit(splitKey);
-    }
-    
-    // Determine child order based on bit value
-    // Reference: BiNode.hpp line 15-17 - bit value determines left/right placement
-    PageReference actualLeft = leftChild;
-    PageReference actualRight = rightChild;
-    
-    if (rightPage != null) {
-      byte[] rightMin = rightPage.getFirstKey();
-      if (rightMin != null && !io.sirix.index.hot.DiscriminativeBitComputer.isBitSet(rightMin, discriminativeBit)) {
-        // Right's min key has bit=0, so it should go left
-        actualLeft = rightChild;
-        actualRight = leftChild;
+    for (int i = 0; i < numChildren; i++) {
+      if (i == originalChildIndex) {
+        // Replace the original child with the split children
+        // Determine which half each goes to based on their keys
+        byte[] leftKey = getFirstKeyFromChild(leftChild);
+        byte[] rightKey = getFirstKeyFromChild(rightChild);
+        boolean leftHasMsbSet = hasBitSet(leftKey, msbPosition);
+        boolean rightHasMsbSet = hasBitSet(rightKey, msbPosition);
+        
+        if (!leftHasMsbSet) {
+          smallerChildren.add(leftChild);
+        } else {
+          largerChildren.add(leftChild);
+        }
+        if (!rightHasMsbSet) {
+          smallerChildren.add(rightChild);
+        } else {
+          largerChildren.add(rightChild);
+        }
+      } else {
+        PageReference child = parent.getChildReference(i);
+        byte[] childKey = getFirstKeyFromChild(child);
+        if (!hasBitSet(childKey, msbPosition)) {
+          smallerChildren.add(child);
+        } else {
+          largerChildren.add(child);
+        }
       }
     }
     
-    // Create a BiNode pointing to the two children
-    HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(
-        newRootKey,
-        pageRtx.getRevisionNumber(),
-        discriminativeBit,
-        actualLeft,
-        actualRight
-    );
+    // Ensure we have entries in both halves (fallback to half split if needed)
+    if (smallerChildren.isEmpty() || largerChildren.isEmpty()) {
+      // Fall back to simple half split
+      splitParentHalfAndRecurse(pageRtx, log, parentRef, parent, originalChildIndex,
+          leftChild, rightChild, rootReference, pathNodes, pathRefs, pathChildIndices, currentPathIdx);
+      return;
+    }
     
-    // Update the root reference to point to the new root
-    rootReference.setKey(newRootKey);
-    rootReference.setPage(newRoot);
+    PageReference[] leftChildren = smallerChildren.toArray(PageReference[]::new);
+    PageReference[] rightChildren = largerChildren.toArray(PageReference[]::new);
     
-    PageReference newRootRef = new PageReference();
-    newRootRef.setKey(newRootKey);
-    log.put(newRootRef, PageContainer.getInstance(newRoot, newRoot));
+    // Create left node (entries with MSB=0)
+    HOTIndirectPage leftNode = createNodeFromChildren(leftChildren, parent.getPageKey(),
+        pageRtx.getRevisionNumber(), parent.getHeight());
+    PageReference leftNodeRef = new PageReference();
+    leftNodeRef.setKey(parent.getPageKey());
+    leftNodeRef.setPage(leftNode);
+    log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
     
-    // Also update the original root reference in the log
-    log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
+    // Create right node (entries with MSB=1) - new page key
+    long rightPageKey = nextPageKey++;
+    HOTIndirectPage rightNode = createNodeFromChildren(rightChildren, rightPageKey,
+        pageRtx.getRevisionNumber(), parent.getHeight());
+    PageReference rightNodeRef = new PageReference();
+    rightNodeRef.setKey(rightPageKey);
+    rightNodeRef.setPage(rightNode);
+    log.put(rightNodeRef, PageContainer.getInstance(rightNode, rightNode));
+    
+    // The split bit becomes the new root's discriminative bit
+    // Reference: uses mMostSignificantDiscriminativeBitIndex for new BiNode
+    int newRootDiscrimBit = msbPosition;
+    
+    // Recurse up to integrate [leftNode, rightNode] into grandparent
+    if (currentPathIdx > 0) {
+      int grandparentIdx = currentPathIdx - 1;
+      updateParentForSplitWithPath(pageRtx, log, pathRefs[grandparentIdx], pathNodes[grandparentIdx],
+          pathChildIndices[grandparentIdx], leftNodeRef, rightNodeRef,
+          getFirstKeyFromChild(rightNodeRef), rootReference,
+          pathNodes, pathRefs, pathChildIndices, grandparentIdx);
+    } else {
+      // At root - create new root BiNode
+      long newRootKey = nextPageKey++;
+      HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(
+          newRootKey, pageRtx.getRevisionNumber(), newRootDiscrimBit,
+          leftNodeRef, rightNodeRef, parent.getHeight() + 1);
+      
+      rootReference.setKey(newRootKey);
+      rootReference.setPage(newRoot);
+      log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
+    }
   }
   
   /**
-   * Compute the discriminative bit position between left and right page.
-   * 
-   * <p>Uses the correct algorithm from Binna's thesis: XOR the bytes,
-   * find the first non-zero result, then use count-leading-zeros.</p>
-   * 
-   * <p>Reference: DiscriminativeBit.hpp line 52-55:
-   * {@code return __builtin_clz(existingByte ^ newKeyByte) - 24;}</p>
-   *
-   * @param leftPage the left page (has the smaller keys)
-   * @param rightPage the right page (has the larger keys)
-   * @return the bit position (0-indexed from MSB)
+   * Find the most significant discriminative bit position for the parent node.
+   * Reference: getMaskForHighestBit() in DiscriminativeBitsRepresentation
    */
-  private int computeDiscriminativeBit(HOTLeafPage leftPage, HOTLeafPage rightPage) {
-    byte[] leftMax = leftPage.getLastKey();
-    byte[] rightMin = rightPage.getFirstKey();
-    
-    if (leftMax == null || rightMin == null) {
+  private int findMostSignificantDiscriminativeBitPosition(HOTIndirectPage parent) {
+    // For BiNode, it's the single discriminative bit
+    // For SpanNode/MultiNode, find the MSB from the bitMask
+    long bitMask = parent.getBitMask();
+    if (bitMask == 0) {
       return 0;
     }
-    
-    // Use the correct algorithm from DiscriminativeBitComputer
-    return io.sirix.index.hot.DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
+    // Find the highest set bit (most significant)
+    int bytePos = parent.getInitialBytePos() & 0xFF;
+    int highestBit = 63 - Long.numberOfLeadingZeros(bitMask);
+    return bytePos * 8 + (7 - (highestBit % 8));
   }
-
+  
   /**
-   * Legacy method for backward compatibility - uses split key only.
-   * @deprecated Use {@link #computeDiscriminativeBit(HOTLeafPage, HOTLeafPage)} instead.
+   * Check if a key has a specific bit set.
    */
-  @Deprecated
-  private int computeDiscriminativeBit(byte[] splitKey) {
-    if (splitKey == null || splitKey.length == 0) {
+  private boolean hasBitSet(byte[] key, int bitPosition) {
+    int byteIndex = bitPosition / 8;
+    int bitIndex = 7 - (bitPosition % 8);  // MSB-first within byte
+    if (byteIndex >= key.length) {
+      return false;
+    }
+    return ((key[byteIndex] >> bitIndex) & 1) == 1;
+  }
+  
+  /**
+   * Fallback: split in half if MSB-based split fails.
+   */
+  private void splitParentHalfAndRecurse(
+      @NonNull StorageEngineWriter pageRtx,
+      @NonNull TransactionIntentLog log,
+      @NonNull PageReference parentRef,
+      @NonNull HOTIndirectPage parent,
+      int originalChildIndex,
+      @NonNull PageReference leftChild,
+      @NonNull PageReference rightChild,
+      @NonNull PageReference rootReference,
+      HOTIndirectPage[] pathNodes,
+      PageReference[] pathRefs,
+      int[] pathChildIndices,
+      int currentPathIdx) {
+    
+    int numChildren = parent.getNumChildren();
+    int splitPoint = numChildren / 2;
+    boolean splitInLeftHalf = originalChildIndex < splitPoint;
+    
+    int leftCount = splitPoint + (splitInLeftHalf ? 1 : 0);
+    PageReference[] leftChildren = new PageReference[leftCount];
+    int li = 0;
+    for (int i = 0; i < splitPoint; i++) {
+      if (i == originalChildIndex) {
+        leftChildren[li++] = leftChild;
+        leftChildren[li++] = rightChild;
+      } else {
+        leftChildren[li++] = parent.getChildReference(i);
+      }
+    }
+    
+    int rightCount = numChildren - splitPoint + (splitInLeftHalf ? 0 : 1);
+    PageReference[] rightChildren = new PageReference[rightCount];
+    int ri = 0;
+    for (int i = splitPoint; i < numChildren; i++) {
+      if (i == originalChildIndex) {
+        rightChildren[ri++] = leftChild;
+        rightChildren[ri++] = rightChild;
+      } else {
+        rightChildren[ri++] = parent.getChildReference(i);
+      }
+    }
+    
+    HOTIndirectPage leftNode = createNodeFromChildren(leftChildren, parent.getPageKey(),
+        pageRtx.getRevisionNumber(), parent.getHeight());
+    PageReference leftNodeRef = new PageReference();
+    leftNodeRef.setKey(parent.getPageKey());
+    leftNodeRef.setPage(leftNode);
+    log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
+    
+    long rightPageKey = nextPageKey++;
+    HOTIndirectPage rightNode = createNodeFromChildren(rightChildren, rightPageKey,
+        pageRtx.getRevisionNumber(), parent.getHeight());
+    PageReference rightNodeRef = new PageReference();
+    rightNodeRef.setKey(rightPageKey);
+    rightNodeRef.setPage(rightNode);
+    log.put(rightNodeRef, PageContainer.getInstance(rightNode, rightNode));
+    
+    if (currentPathIdx > 0) {
+      int grandparentIdx = currentPathIdx - 1;
+      updateParentForSplitWithPath(pageRtx, log, pathRefs[grandparentIdx], pathNodes[grandparentIdx],
+          pathChildIndices[grandparentIdx], leftNodeRef, rightNodeRef,
+          getFirstKeyFromChild(rightNodeRef), rootReference,
+          pathNodes, pathRefs, pathChildIndices, grandparentIdx);
+    } else {
+      byte[] lMax = getLastKeyFromChild(leftNodeRef);
+      byte[] rMin = getFirstKeyFromChild(rightNodeRef);
+      int rootDiscrimBit = DiscriminativeBitComputer.computeDifferingBit(lMax, rMin);
+      
+      long newRootKey = nextPageKey++;
+      HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(
+          newRootKey, pageRtx.getRevisionNumber(), rootDiscrimBit,
+          leftNodeRef, rightNodeRef, parent.getHeight() + 1);
+      
+      rootReference.setKey(newRootKey);
+      rootReference.setPage(newRoot);
+      log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
+    }
+  }
+  
+  /**
+   * Create appropriate node type for given children array.
+   */
+  private HOTIndirectPage createNodeFromChildren(PageReference[] children, long pageKey, int revision, int height) {
+    if (children.length <= 2) {
+      byte[] leftMax = getLastKeyFromChild(children[0]);
+      byte[] rightMin = children.length > 1 ? getFirstKeyFromChild(children[1]) : leftMax;
+      int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
+      return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit,
+          children[0], children.length > 1 ? children[1] : children[0], height);
+    } else {
+      byte initialBytePos = computeInitialBytePos(children);
+      long bitMask = computeBitMaskForChildren(children, initialBytePos);
+      byte[] partialKeys = computePartialKeysForChildren(children, initialBytePos, bitMask);
+      
+      if (children.length <= 16) {
+        return HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask,
+            partialKeys, children, height);
+      } else {
+        return HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, bitMask,
+            partialKeys, children, height);
+      }
+    }
+  }
+  
+  /**
+   * Compute partial key by extracting discriminative bits from a key.
+   */
+  private byte computePartialKey(byte[] key, byte initialBytePos, long bitMask) {
+    if (key == null || key.length == 0) {
       return 0;
     }
-    // This is a fallback - proper implementation uses left/right page keys
-    int firstByte = splitKey[0] & 0xFF;
-    if (firstByte == 0) {
-      return 0;
+    
+    // Extract 8 bytes from key starting at initialBytePos
+    long keyWord = 0;
+    for (int i = 0; i < 8 && (initialBytePos + i) < key.length; i++) {
+      keyWord |= ((long) (key[initialBytePos + i] & 0xFF)) << (i * 8);
     }
-    // Reference formula: clz - 24 for byte in lower 8 bits of int
-    return Integer.numberOfLeadingZeros(firstByte) - 24;
+    
+    // Apply PEXT-style extraction: compress bits selected by mask
+    return (byte) Long.compress(keyWord, bitMask);
+  }
+  
+  /**
+   * Get the last key from a child reference (leaf or indirect page).
+   */
+  private byte[] getLastKeyFromChild(PageReference childRef) {
+    Page page = childRef.getPage();
+    if (page instanceof HOTLeafPage leaf) {
+      return leaf.getLastKey();
+    } else if (page instanceof HOTIndirectPage indirect) {
+      // Descend to rightmost leaf
+      return getLastKeyFromIndirectPage(indirect);
+    }
+    return new byte[0];
+  }
+  
+  /**
+   * Descend through indirect pages to find the last key.
+   */
+  private byte[] getLastKeyFromIndirectPage(HOTIndirectPage indirect) {
+    int numChildren = indirect.getNumChildren();
+    if (numChildren == 0) {
+      return new byte[0];
+    }
+    PageReference lastChild = indirect.getChildReference(numChildren - 1);
+    Page page = lastChild.getPage();
+    if (page instanceof HOTLeafPage leaf) {
+      return leaf.getLastKey();
+    } else if (page instanceof HOTIndirectPage child) {
+      return getLastKeyFromIndirectPage(child);
+    }
+    return new byte[0];
+  }
+  
+  /**
+   * Get the first key from a child reference (leaf or indirect page).
+   */
+  private byte[] getFirstKeyFromChild(PageReference childRef) {
+    Page page = childRef.getPage();
+    if (page instanceof HOTLeafPage leaf) {
+      return leaf.getFirstKey();
+    } else if (page instanceof HOTIndirectPage indirect) {
+      // Descend to leftmost leaf
+      return getFirstKeyFromIndirectPage(indirect);
+    }
+    return new byte[0];
+  }
+  
+  /**
+   * Descend through indirect pages to find the first key.
+   */
+  private byte[] getFirstKeyFromIndirectPage(HOTIndirectPage indirect) {
+    int numChildren = indirect.getNumChildren();
+    if (numChildren == 0) {
+      return new byte[0];
+    }
+    PageReference firstChild = indirect.getChildReference(0);
+    Page page = firstChild.getPage();
+    if (page instanceof HOTLeafPage leaf) {
+      return leaf.getFirstKey();
+    } else if (page instanceof HOTIndirectPage child) {
+      return getFirstKeyFromIndirectPage(child);
+    }
+    return new byte[0];
   }
 }
 

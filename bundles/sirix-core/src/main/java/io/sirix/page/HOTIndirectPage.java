@@ -174,6 +174,37 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
+   * Create a new BiNode with explicit height.
+   *
+   * @param pageKey the page key
+   * @param revision the revision
+   * @param discriminativeBitPos the absolute bit position that discriminates left/right
+   * @param leftChild reference to left child (bit=0)
+   * @param rightChild reference to right child (bit=1)
+   * @param height the height of this node in the tree
+   * @return new BiNode
+   */
+  public static HOTIndirectPage createBiNode(long pageKey, int revision,
+                                             int discriminativeBitPos,
+                                             @NonNull PageReference leftChild,
+                                             @NonNull PageReference rightChild,
+                                             int height) {
+    HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.BI_NODE, 2);
+    page.layoutType = LayoutType.SINGLE_MASK;
+    page.initialBytePos = (byte) (discriminativeBitPos / 8);
+    
+    int byteWithinWindow = (discriminativeBitPos / 8) - page.initialBytePos;
+    int bitWithinByte = discriminativeBitPos % 8;
+    int bitInWord = byteWithinWindow * 8 + (7 - bitWithinByte);
+    page.bitMask = 1L << bitInWord;
+    
+    page.partialKeys = new byte[] { 0, 1 };
+    page.childReferences[0] = leftChild;
+    page.childReferences[1] = rightChild;
+    return page;
+  }
+
+  /**
    * Create a new SpanNode with 2-16 children.
    *
    * <p><b>Reference:</b> SpanNode uses SparsePartialKeys for SIMD-accelerated
@@ -386,6 +417,15 @@ public final class HOTIndirectPage implements Page {
    * MultiNode lookup: Direct byte indexing.
    */
   private int findChildMultiNode(byte[] key) {
+    // If sparsePartialKeys is available, use SIMD-accelerated search (same as SpanNode)
+    if (sparsePartialKeys != null) {
+      return findChildSpanNode(key);
+    }
+    
+    // Otherwise use direct byte indexing via childIndex array
+    if (childIndex == null) {
+      return 0; // Fallback
+    }
     int bytePos = initialBytePos & 0xFF;
     if (bytePos >= key.length) {
       return childIndex[0] & 0xFF; // Default to first entry
@@ -516,6 +556,30 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
+   * Get the partial keys array for serialization.
+   *
+   * @return a copy of the partial keys array, or empty array if null
+   */
+  public byte[] getPartialKeys() {
+    if (partialKeys == null) {
+      return new byte[numChildren];
+    }
+    return partialKeys.clone();
+  }
+
+  /**
+   * Get the child index array for MultiNode serialization.
+   *
+   * @return a copy of the child index array, or null if not a MultiNode
+   */
+  public byte @Nullable [] getChildIndex() {
+    if (childIndex == null) {
+      return null;
+    }
+    return childIndex.clone();
+  }
+
+  /**
    * Create a copy with a new page key.
    *
    * @param newPageKey the new page key
@@ -549,6 +613,31 @@ public final class HOTIndirectPage implements Page {
         copy.childReferences[i] = new PageReference(this.childReferences[i]);
       }
     }
+    
+    return copy;
+  }
+
+  /**
+   * Create a copy of this node with one child reference updated.
+   * 
+   * <p>This is used when a child splits and the parent needs to point to the
+   * new subtree (BiNode) containing the split children.</p>
+   * 
+   * @param childIndex the index of the child to update
+   * @param newChildRef the new child reference
+   * @param newRevision the new revision number
+   * @return a new HOTIndirectPage with the updated child
+   */
+  public HOTIndirectPage withUpdatedChild(int childIndex, PageReference newChildRef, int newRevision) {
+    if (childIndex < 0 || childIndex >= numChildren) {
+      throw new IllegalArgumentException("Invalid child index: " + childIndex + ", numChildren: " + numChildren);
+    }
+    
+    // Create a copy with same page key but new revision
+    HOTIndirectPage copy = copyWithNewPageKey(this.pageKey, newRevision);
+    
+    // Update the specified child reference
+    copy.childReferences[childIndex] = newChildRef;
     
     return copy;
   }
@@ -607,6 +696,13 @@ public final class HOTIndirectPage implements Page {
     page.initialBytePos = (byte) initialBytePos;
     page.bitMask = bitMask;
     page.partialKeys = partialKeys.clone();
+    
+    // Set up sparsePartialKeys for SIMD-accelerated navigation (same as SpanNode)
+    page.sparsePartialKeys = SparsePartialKeys.forBytes(children.length);
+    for (int i = 0; i < children.length; i++) {
+      page.sparsePartialKeys.setEntry(i, partialKeys[i]);
+    }
+    
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
     return page;
   }
@@ -644,6 +740,17 @@ public final class HOTIndirectPage implements Page {
     return false;
   }
 
+  @Override
+  public void commit(io.sirix.api.StorageEngineWriter pageWriteTrx) {
+    // Commit all child pages before this page is written
+    for (int i = 0; i < numChildren; i++) {
+      PageReference ref = childReferences[i];
+      if (ref != null && ref.getLogKey() != io.sirix.settings.Constants.NULL_ID_INT) {
+        pageWriteTrx.commit(ref);
+      }
+    }
+  }
+  
   @Override
   public String toString() {
     return "HOTIndirectPage{" +
