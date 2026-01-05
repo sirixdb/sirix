@@ -32,13 +32,12 @@ import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.PageReference;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.NoSuchElementException;
-
-import static java.util.Objects.requireNonNull;
 
 /**
  * Primitive-specialized HOT index reader for long keys (PATH index).
@@ -52,12 +51,14 @@ import static java.util.Objects.requireNonNull;
  *   <li>Thread-local byte buffers for serialization</li>
  *   <li>No Optional - uses @Nullable returns</li>
  *   <li>Lock-free reads with guard management</li>
+ *   <li>Proper tree traversal via {@link AbstractHOTIndexReader}</li>
  * </ul>
  *
  * @author Johannes Lichtenberger
  * @see HOTIndexReader
+ * @see AbstractHOTIndexReader
  */
-public final class HOTLongIndexReader {
+public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
 
   /**
    * Thread-local buffer for key serialization (8 bytes for long).
@@ -65,10 +66,7 @@ public final class HOTLongIndexReader {
   private static final ThreadLocal<byte[]> KEY_BUFFER =
       ThreadLocal.withInitial(() -> new byte[8]);
 
-  private final StorageEngineReader pageReadTrx;
   private final HOTLongKeySerializer keySerializer;
-  private final IndexType indexType;
-  private final int indexNumber;
 
   /**
    * Private constructor.
@@ -80,10 +78,8 @@ public final class HOTLongIndexReader {
    */
   private HOTLongIndexReader(StorageEngineReader pageReadTrx, HOTLongKeySerializer keySerializer,
                              IndexType indexType, int indexNumber) {
-    this.pageReadTrx = requireNonNull(pageReadTrx);
-    this.keySerializer = requireNonNull(keySerializer);
-    this.indexType = requireNonNull(indexType);
-    this.indexNumber = indexNumber;
+    super(pageReadTrx, indexType, indexNumber);
+    this.keySerializer = keySerializer;
   }
 
   /**
@@ -113,12 +109,37 @@ public final class HOTLongIndexReader {
     byte[] keyBuf = KEY_BUFFER.get();
     keySerializer.serialize(key, keyBuf, 0);
 
-    // Get HOT leaf page using the storage engine's proper page loading
-    HOTLeafPage leaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+    // Get root reference
+    PageReference rootRef = getRootReference();
+    if (rootRef == null) {
+      // Fallback to simple case for backwards compatibility
+      return getFromSimpleLeaf(keyBuf);
+    }
+
+    // Navigate to the correct leaf using tree traversal
+    HOTLeafPage leaf = navigateToLeaf(rootRef, keyBuf);
     if (leaf == null) {
       return null;
     }
 
+    return getFromLeaf(leaf, keyBuf);
+  }
+
+  /**
+   * Fallback method for simple (single leaf) case.
+   */
+  private @Nullable NodeReferences getFromSimpleLeaf(byte[] keyBuf) {
+    HOTLeafPage leaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+    if (leaf == null) {
+      return null;
+    }
+    return getFromLeaf(leaf, keyBuf);
+  }
+
+  /**
+   * Get value from a leaf page with guard management.
+   */
+  private @Nullable NodeReferences getFromLeaf(HOTLeafPage leaf, byte[] keyBuf) {
     try {
       leaf.acquireGuard();
 
@@ -148,76 +169,59 @@ public final class HOTLongIndexReader {
   public boolean containsKey(long key) {
     return get(key, SearchMode.EQUAL) != null;
   }
-  
+
   /**
-   * Create an iterator over all entries in the HOT index.
+   * Create a range iterator starting from a specific key.
    *
-   * @return iterator over all key-value pairs
+   * @param fromKey the start key (inclusive)
+   * @return iterator over entries starting from the key
    */
-  public Iterator<Map.Entry<Long, NodeReferences>> iterator() {
-    return new HOTLeafIterator();
+  public Iterator<Map.Entry<Long, NodeReferences>> iteratorFrom(long fromKey) {
+    byte[] keyBuf = KEY_BUFFER.get();
+    keySerializer.serialize(fromKey, keyBuf, 0);
+    byte[] fromBytes = Arrays.copyOf(keyBuf, 8);
+    return new RangeIterator(fromBytes, null);
   }
 
   /**
-   * Get the storage engine reader.
+   * Create a range iterator over a key range.
    *
-   * @return the storage engine reader
+   * @param fromKey the start key (inclusive)
+   * @param toKey   the end key (exclusive)
+   * @return iterator over entries in the range
    */
-  public StorageEngineReader getPageReadTrx() {
-    return pageReadTrx;
+  public Iterator<Map.Entry<Long, NodeReferences>> range(long fromKey, long toKey) {
+    byte[] keyBuf = KEY_BUFFER.get();
+    keySerializer.serialize(fromKey, keyBuf, 0);
+    byte[] fromBytes = Arrays.copyOf(keyBuf, 8);
+    keySerializer.serialize(toKey, keyBuf, 0);
+    byte[] toBytes = Arrays.copyOf(keyBuf, 8);
+    return new RangeIterator(fromBytes, toBytes);
   }
 
-  /**
-   * Iterator over all entries in a HOT leaf page.
-   */
-  private class HOTLeafIterator implements Iterator<Map.Entry<Long, NodeReferences>> {
-    private @Nullable HOTLeafPage currentLeaf;
-    private int currentIndex;
-    private Map.@Nullable Entry<Long, NodeReferences> nextEntry;
-    
-    HOTLeafIterator() {
-      // Get the leaf using proper storage engine page loading
-      this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
-      this.currentIndex = 0;
-      advance();
-    }
-    
-    @Override
-    public boolean hasNext() {
-      return nextEntry != null;
-    }
-    
-    @Override
-    public Map.Entry<Long, NodeReferences> next() {
-      if (nextEntry == null) {
-        throw new NoSuchElementException();
-      }
-      Map.Entry<Long, NodeReferences> result = nextEntry;
-      advance();
-      return result;
-    }
-    
-    private void advance() {
-      nextEntry = null;
-      while (currentLeaf != null) {
-        if (currentIndex < currentLeaf.getEntryCount()) {
-          byte[] keyBytes = currentLeaf.getKey(currentIndex);
-          byte[] valueBytes = currentLeaf.getValue(currentIndex);
-          currentIndex++;
-          
-          if (!NodeReferencesSerializer.isTombstone(valueBytes, 0, valueBytes.length)) {
-            long key = keySerializer.deserialize(keyBytes, 0, keyBytes.length);
-            NodeReferences refs = NodeReferencesSerializer.deserialize(valueBytes);
-            if (refs != null) {
-              nextEntry = Map.entry(key, refs);
-              return;
-            }
-          }
-        } else {
-          // No more entries in current leaf - for single-level HOT, we're done
-          currentLeaf = null;
-        }
-      }
-    }
+  @Override
+  protected int serializeKey(Long key, byte[] buffer, int offset) {
+    return keySerializer.serialize(key, buffer, offset);
+  }
+
+  @Override
+  protected @Nullable Long deserializeKey(byte[] buffer, int offset, int length) {
+    return keySerializer.deserialize(buffer, offset, length);
+  }
+
+  @Override
+  protected int compareKeys(byte[] key1, int offset1, int length1,
+                            byte[] key2, int offset2, int length2) {
+    return keySerializer.compare(key1, offset1, length1, key2, offset2, length2);
+  }
+
+  @Override
+  protected byte[] getKeyBuffer() {
+    return KEY_BUFFER.get();
+  }
+
+  @Override
+  protected void setKeyBuffer(byte[] newBuffer) {
+    KEY_BUFFER.set(newBuffer);
   }
 }

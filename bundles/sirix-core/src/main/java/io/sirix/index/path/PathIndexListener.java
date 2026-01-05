@@ -57,9 +57,13 @@ public final class PathIndexListener {
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey) {
     pathSummaryReader.moveTo(pathNodeKey);
     try {
+      // If paths is empty, index ALL paths (same logic as PathIndexBuilder)
+      final boolean shouldProcess = paths.isEmpty() 
+          || pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey);
+      
       switch (type) {
         case INSERT -> {
-          if (pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
+          if (shouldProcess) {
             if (useHOT) {
               handleInsertHOT(node, pathNodeKey);
             } else {
@@ -68,7 +72,7 @@ public final class PathIndexListener {
           }
         }
         case DELETE -> {
-          if (pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
+          if (shouldProcess) {
             if (useHOT) {
               assert hotWriter != null;
               hotWriter.remove(pathNodeKey, node.getNodeKey());

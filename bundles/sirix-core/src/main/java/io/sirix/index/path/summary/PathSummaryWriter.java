@@ -144,21 +144,26 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       level = pathSummaryReader.getLevel();
     }
 
-    final long nodeKey = pathSummaryReader.getNodeKey();
-    final Axis axis = new FilterAxis<>(new ChildAxis(pathSummaryReader),
-                                       new PathNameFilter(pathSummaryReader,
-                                                          pathKind == NodeKind.NAMESPACE
-                                                              ? name.getPrefix()
-                                                              : Utils.buildName(name)),
-                                       new PathKindFilter(pathSummaryReader, pathKind));
+    final long parentNodeKey = pathSummaryReader.getNodeKey();
+    
+    // Use O(1) cache lookup instead of O(n) ChildAxis iteration
+    // The child name for lookup - handle namespace prefix case
+    final QNm lookupName = pathKind == NodeKind.NAMESPACE 
+        ? new QNm(name.getPrefix()) 
+        : name;
+    
+    final long childNodeKey = pathSummaryReader.findChild(parentNodeKey, lookupName, pathKind);
+    
     long retVal;
-    if (axis.hasNext()) {
-      retVal = axis.nextLong();
+    if (childNodeKey >= 0) {
+      // Found existing child - increment reference count
+      retVal = childNodeKey;
       final PathNode pathNode = pageTrx.prepareRecordForModification(retVal, IndexType.PATH_SUMMARY, 0);
       pathNode.incrementReferenceCount();
       pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
     } else {
-      assert nodeKey == pathSummaryReader.getNodeKey();
+      // Child not found - insert new path node
+      assert parentNodeKey == pathSummaryReader.getNodeKey();
       insertPathAsFirstChild(name, pathKind, level + 1);
       retVal = pathSummaryReader.getNodeKey();
     }
@@ -205,6 +210,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     adaptForInsert(node);
     pathSummaryReader.moveTo(node.getNodeKey());
     pathSummaryReader.putQNameMapping(node, name);
+    
+    // Add to O(1) child lookup cache (primitives only)
+    pathSummaryReader.putChildLookup(parentKey, name, pathKind, node.getNodeKey());
 
     return this;
   }

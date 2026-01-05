@@ -34,6 +34,7 @@ import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongHash;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -97,6 +98,13 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    */
   private final Map<Path<QNm>, LongSet> pathCache;
 
+  /**
+   * Cache for O(1) child path node lookups using primitives only.
+   * Maps computeChildLookupKey(parentNodeKey, childName, childKind) -> childPathNodeKey.
+   * Uses fastutil's Long2LongOpenHashMap for zero boxing overhead.
+   */
+  private final Long2LongOpenHashMap childLookupCache;
+
   private boolean init = true;
 
   /**
@@ -138,6 +146,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       pathNodeMapping =
           new StructNode[maxNrOfNodes + 1];
       qnmMapping = new HashMap<>(maxNrOfNodesForMap);
+      childLookupCache = new Long2LongOpenHashMap(maxNrOfNodesForMap);
+      childLookupCache.defaultReturnValue(-1L); // Return -1 for missing keys
       boolean first = true;
       boolean hasMoved = moveToFirstChild();
       if (hasMoved) {
@@ -149,6 +159,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
           moveTo(pathNode.getNodeKey());
           assert this.getNodeKey() == pathNode.getNodeKey();
           qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
+          
+          // Populate parent-child lookup cache for O(1) lookups (primitives only)
+          final long parentKey = pathNode.getParentKey();
+          final long lookupKey = PathSummaryData.computeChildLookupKey(parentKey, this.getName(), pathNode.getPathKind());
+          childLookupCache.put(lookupKey, pathNode.getNodeKey());
+          
           nodesLoaded++;
          // assert Objects.equals(this.getName(), pathNode.getName());
         }
@@ -165,7 +181,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
             pageReadTrx.getDatabaseId(),
             pageReadTrx.getResourceId(),
             pageReadTrx.getRevisionNumber());
-        pathSummaryCache.put(putKey, new PathSummaryData(currentNode, pathNodeMapping, qnmMapping));
+        pathSummaryCache.put(putKey, new PathSummaryData(currentNode, pathNodeMapping, qnmMapping, childLookupCache));
       }
     } else {
       if (DEBUG_PATH_SUMMARY) {
@@ -175,9 +191,40 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       currentNode = pathSummaryData.currentNode();
       pathNodeMapping = pathSummaryData.pathNodeMapping();
       qnmMapping = pathSummaryData.qnmMapping();
+      childLookupCache = pathSummaryData.childLookupCache();
     }
 
     init = false;
+  }
+
+  /**
+   * Find child path node by parent key, name, and kind in O(1) time.
+   * This is much faster than iterating through all children with ChildAxis.
+   * Uses primitive long operations only - no boxing.
+   *
+   * @param parentNodeKey the parent path node key
+   * @param childName     the child name to find
+   * @param childKind     the child node kind
+   * @return the child path node key, or -1 if not found
+   */
+  public long findChild(final long parentNodeKey, final QNm childName, final NodeKind childKind) {
+    assertNotClosed();
+    final long lookupKey = PathSummaryData.computeChildLookupKey(parentNodeKey, childName, childKind);
+    return childLookupCache.get(lookupKey); // Returns -1L if not found (default value)
+  }
+  
+  /**
+   * Add a child to the lookup cache. Called when a new path node is inserted.
+   * Uses primitive long operations only - no boxing.
+   *
+   * @param parentNodeKey the parent path node key
+   * @param childName     the child name
+   * @param childKind     the child node kind
+   * @param childNodeKey  the child path node key
+   */
+  void putChildLookup(final long parentNodeKey, final QNm childName, final NodeKind childKind, final long childNodeKey) {
+    final long lookupKey = PathSummaryData.computeChildLookupKey(parentNodeKey, childName, childKind);
+    childLookupCache.put(lookupKey, childNodeKey);
   }
 
   @Override
@@ -569,11 +616,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   /**
    * Make sure that the path summary is not yet closed when calling this method.
+   * Uses assert for zero overhead in production (assertions disabled by default).
+   * Enable with -ea JVM flag during development/testing.
    */
   private void assertNotClosed() {
-    if (isClosed) {
-      throw new IllegalStateException("Path summary is already closed.");
-    }
+    assert !isClosed : "Path summary is already closed.";
   }
 
   @Override
