@@ -928,12 +928,18 @@ graph LR
     end
 ```
 
-| Strategy | Read Cost | Write Cost | Storage | Use Case |
-|----------|-----------|------------|---------|----------|
-| **FULL** | O(1) | High | Highest | Read-heavy, infrequent updates |
-| **INCREMENTAL** | O(k) | Low | Lowest | Frequent small updates |
-| **DIFFERENTIAL** | O(1) | Medium | Medium | Balanced read/write |
-| **SLIDING_SNAPSHOT** | O(1)-O(k) | Medium | Medium | Bounded reconstruction cost |
+| Strategy | Fragments | Read Cost | Write Cost | Storage | Use Case |
+|----------|-----------|-----------|------------|---------|----------|
+| **FULL** | 1 | O(1) | High | Highest | Read-heavy, infrequent updates |
+| **INCREMENTAL** | 1-k | O(k) small Δs | Low | Lowest | Write-heavy, rare reads |
+| **DIFFERENTIAL** | 2 | O(1) large Δ | Medium-High | Medium | Read-heavy after initial load |
+| **SLIDING_SNAPSHOT** | 1-w | O(w) small Δs | Low-Medium | Medium | Best overall trade-off |
+
+> **Cost Clarification:**
+> - `k` = chain length until full snapshot, `w` = window size (typically 8)
+> - INCREMENTAL/SLIDING_SNAPSHOT: many small fragments (few records each)
+> - DIFFERENTIAL: 2 fragments but delta contains ALL changes since base (can be large)
+> - Reconstruction time depends on both fragment count AND fragment size
 
 ### How Versioning Algorithms Work
 
@@ -1045,47 +1051,188 @@ Each delta references the last full snapshot (not the previous revision).
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### SLIDING_SNAPSHOT Versioning
+#### SLIDING_SNAPSHOT Versioning (Main Innovation)
 
-Like INCREMENTAL, but with a bounded fragment chain (window). When a page fragment
-falls OUT of the window, records that haven't been overwritten by newer fragments
-are preserved by writing them to the new revision's page. This ensures bounded
-reconstruction cost (max `revisionsToRestore` fragments).
+**SLIDING_SNAPSHOT is the default and recommended versioning strategy** because it provides
+the best trade-off between read performance, write performance, and storage overhead.
+
+> **Key Innovation**: Unlike INCREMENTAL (unbounded chain) or DIFFERENTIAL (growing deltas),
+> SLIDING_SNAPSHOT maintains a **bounded window** of small fragments while automatically
+> preserving data that would otherwise be lost when fragments fall out of the window.
+
+**Why SLIDING_SNAPSHOT wins:**
+
+| Aspect | INCREMENTAL | DIFFERENTIAL | SLIDING_SNAPSHOT |
+|--------|-------------|--------------|------------------|
+| Read chain length | Unbounded O(n) | Fixed O(2) | Bounded O(w) |
+| Fragment size | Small | Grows over time | Small |
+| Write amplification | Low | Growing | Low + preservation |
+| Storage efficiency | Best | Medium | Medium |
+| **Overall** | ❌ Reads degrade | ❌ Writes degrade | ✅ Balanced |
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      SLIDING_SNAPSHOT Versioning                            │
-│                      (window size = 4 revisions)                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   Algorithm (from VersioningType.SLIDING_SNAPSHOT):                         │
-│   ─────────────────────────────────────────────────                         │
-│   1. Load up to (revToRestore - 1) fragment references                      │
-│   2. If there's an out-of-window page:                                      │
-│      - Find records NOT overwritten by in-window fragments                  │
-│      - Mark those records for preservation in new page                      │
-│   3. Write new delta + preserved out-of-window records                      │
-│                                                                             │
-│   Example (window = 4):                                                     │
-│                                                                             │
-│   Rev 1: [FULL: slots 0,1,2,3]                                              │
-│   Rev 2: [Δ: slot 1 modified]                                               │
-│   Rev 3: [Δ: slot 2 modified]                                               │
-│   Rev 4: [Δ: slot 0 modified]                                               │
-│   Rev 5: Writing...                                                         │
-│          - Window: Rev 2,3,4 (3 fragments)                                  │
-│          - Out-of-window: Rev 1                                             │
-│          - Slot 3 from Rev 1 NOT in window → preserve in Rev 5              │
-│          - Rev 5 contains: [Δ: slot 3 preserved + any new changes]          │
-│                                                                             │
-│   Fragment chain always bounded:                                            │
-│   • Max fragments to combine = revToRestore                                 │
-│   • Oldest fragments dropped from reference list (not physically deleted)  │
-│   • Storage NOT reclaimed (append-only)                                     │
-│                                                                             │
-│   Use Case: Bounded read cost, better write locality than INCREMENTAL       │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│                 SLIDING_SNAPSHOT: The Algorithm                           │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  Configuration: revisionsToRestore = 4 (window size)                      │
+│                                                                           │
+│  PHASE 1: Prepare for Modification                                        │
+│  ══════════════════════════════════                                       │
+│                                                                           │
+│  combineRecordPagesForModification(pages, revToRestore, ...):             │
+│                                                                           │
+│  1. Build fragment reference chain (max revToRestore - 1 entries):        │
+│     previousPageFragmentKeys = [currentFragment]                          │
+│     for each oldFragment in reference.pageFragments:                      │
+│         if chain.size < revToRestore - 1:                                 │
+│             chain.add(oldFragment)    // Keep in window                   │
+│         else:                                                             │
+│             break                     // Beyond window                    │
+│                                                                           │
+│  2. Create two page views:                                                │
+│     completePage  = reconstructed page (for reading)                      │
+│     modifyingPage = new delta page (for writing changes)                  │
+│                                                                           │
+│  PHASE 2: Process In-Window Fragments                                     │
+│  ════════════════════════════════════                                     │
+│                                                                           │
+│  Use bitmap (128 bytes) to track which slots exist in window:             │
+│                                                                           │
+│  inWindowBitmap = new long[16]   // 1024 bits for 1024 slots              │
+│                                                                           │
+│  for each fragment in window (newest → oldest):                           │
+│      for each populated slot in fragment:                                 │
+│          inWindowBitmap[slot/64] |= (1L << (slot % 64))                   │
+│          if slot not in completePage:                                     │
+│              completePage.setSlot(slot, record)                           │
+│                                                                           │
+│  PHASE 3: Handle Out-of-Window Fragment (The Key Innovation!)             │
+│  ═════════════════════════════════════════════════════════════            │
+│                                                                           │
+│  if pages.size == revToRestore:   // There IS an out-of-window fragment   │
+│      outOfWindowPage = pages.getLast()                                    │
+│                                                                           │
+│      for each populated slot in outOfWindowPage:                          │
+│          // Add to complete page if not already filled                    │
+│          if slot not in completePage:                                     │
+│              completePage.setSlot(slot, record)                           │
+│                                                                           │
+│          // CRITICAL: Preserve if not in any in-window fragment!          │
+│          if slot NOT in inWindowBitmap:                                   │
+│              modifyingPage.markSlotForPreservation(slot)                  │
+│                                                                           │
+│  Result: modifyingPage contains:                                          │
+│    • New modifications made in this transaction                           │
+│    • Preserved records from out-of-window fragment                        │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                 SLIDING_SNAPSHOT: Visual Timeline                         │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  Window Size = 4, Page has slots [0,1,2,3,4,5]                            │
+│                                                                           │
+│  Rev 1: FULL PAGE                                                         │
+│         ┌───┬───┬───┬───┬───┬───┐                                         │
+│         │ A │ B │ C │ D │ E │ F │  ← All slots filled                     │
+│         └───┴───┴───┴───┴───┴───┘                                         │
+│         slots: 0   1   2   3   4   5                                      │
+│                                                                           │
+│  Rev 2: DELTA (slot 1 modified)                                           │
+│         ┌───┬───┬───┬───┬───┬───┐                                         │
+│         │   │ B'│   │   │   │   │  ← Only changed slot                    │
+│         └───┴───┴───┴───┴───┴───┘                                         │
+│         Chain: [Rev2] → [Rev1]                                            │
+│                                                                           │
+│  Rev 3: DELTA (slot 2 modified)                                           │
+│         ┌───┬───┬───┬───┬───┬───┐                                         │
+│         │   │   │ C'│   │   │   │                                         │
+│         └───┴───┴───┴───┴───┴───┘                                         │
+│         Chain: [Rev3] → [Rev2] → [Rev1]                                   │
+│                                                                           │
+│  Rev 4: DELTA (slot 0 modified)                                           │
+│         ┌───┬───┬───┬───┬───┬───┐                                         │
+│         │ A'│   │   │   │   │   │                                         │
+│         └───┴───┴───┴───┴───┴───┘                                         │
+│         Chain: [Rev4] → [Rev3] → [Rev2] → [Rev1]  (window full!)          │
+│                                                                           │
+│  Rev 5: DELTA + PRESERVATION                                              │
+│         ════════════════════════                                          │
+│         Rev 1 is now OUT OF WINDOW!                                       │
+│                                                                           │
+│         In-window bitmap check:                                           │
+│         • Slot 0: in Rev4 ✓                                               │
+│         • Slot 1: in Rev2 ✓                                               │
+│         • Slot 2: in Rev3 ✓                                               │
+│         • Slot 3: NOT in any window fragment! ← PRESERVE                  │
+│         • Slot 4: NOT in any window fragment! ← PRESERVE                  │
+│         • Slot 5: NOT in any window fragment! ← PRESERVE                  │
+│                                                                           │
+│         Rev 5 written:                                                    │
+│         ┌───┬───┬───┬───┬───┬───┐                                         │
+│         │   │   │   │ D │ E │ F │  ← Preserved from Rev 1                 │
+│         └───┴───┴───┴───┴───┴───┘                                         │
+│         Chain: [Rev5] → [Rev4] → [Rev3] → [Rev2]  (Rev1 dropped!)         │
+│                                                                           │
+│  Reading Rev 5:                                                           │
+│         Combine: Rev5 + Rev4 + Rev3 + Rev2 = [A',B',C',D,E,F]             │
+│         Only 4 fragments needed! (not 5)                                  │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                 SLIDING_SNAPSHOT: Implementation Details                  │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  Key Code Paths (VersioningType.java):                                    │
+│  ─────────────────────────────────────                                    │
+│                                                                           │
+│  combineRecordPages():                                                    │
+│    • Called during READ to reconstruct page from fragments                │
+│    • Iterates fragments newest→oldest                                     │
+│    • Uses slot bitmap for O(populated) instead of O(1024)                 │
+│    • Early exit when all 1024 slots filled                                │
+│                                                                           │
+│  combineRecordPagesForModification():                                     │
+│    • Called during WRITE to prepare page for modification                 │
+│    • Creates completePage (for reads) + modifyingPage (for writes)        │
+│    • Tracks inWindowBitmap to identify preservation candidates            │
+│    • Uses lazy copy: markSlotForPreservation() instead of copying         │
+│                                                                           │
+│  Lazy Copy Optimization:                                                  │
+│  ───────────────────────                                                  │
+│    Instead of copying preserved records immediately:                      │
+│    1. Mark slot indices in preservationBitmap                             │
+│    2. Store reference to completePage                                     │
+│    3. At commit time, copy only marked slots                              │
+│    4. Avoids unnecessary copies if slot is later modified                 │
+│                                                                           │
+│  Memory Optimization:                                                     │
+│  ────────────────────                                                     │
+│    • inWindowBitmap: 128 bytes (vs 64KB for full page copy)               │
+│    • Slot iteration uses populatedSlots() not full scan                   │
+│    • Only 2 pages allocated (complete + modifying)                        │
+│                                                                           │
+│  Configuration:                                                           │
+│  ──────────────                                                           │
+│    ResourceConfiguration.newBuilder("resource")                           │
+│        .versioningApproach(VersioningType.SLIDING_SNAPSHOT)               │
+│        .revisionsToRestore(8)  // Window size (default)                   │
+│        .build();                                                          │
+│                                                                           │
+│  Trade-off Tuning:                                                        │
+│  ─────────────────                                                        │
+│    • Smaller window (4): Less read cost, more preservation writes         │
+│    • Larger window (16): Less preservation, more fragments to combine     │
+│    • Default (8): Good balance for most workloads                         │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Page Fragment Storage
