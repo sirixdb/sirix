@@ -30,7 +30,9 @@ import io.sirix.page.SerializationType;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
+import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -69,17 +71,37 @@ public final class FileStorage implements IOStorage {
    * The revision file cache.
    */
   private final AsyncCache<Integer, RevisionFileData> cache;
+  
+  /**
+   * Revision index holder for fast timestamp lookups.
+   */
+  private final RevisionIndexHolder revisionIndexHolder;
 
   /**
    * Constructor.
    *
    * @param resourceConfig the resource configuration
+   * @param cache the revision file data cache
+   * @param revisionIndexHolder the revision index holder
    */
-  public FileStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache) {
+  public FileStorage(final ResourceConfiguration resourceConfig, 
+      final AsyncCache<Integer, RevisionFileData> cache,
+      final RevisionIndexHolder revisionIndexHolder) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     file = resourceConfig.resourcePath;
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
+    this.revisionIndexHolder = revisionIndexHolder;
+  }
+  
+  /**
+   * Constructor (backward compatibility).
+   *
+   * @param resourceConfig the resource configuration
+   * @param cache the revision file data cache
+   */
+  public FileStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache) {
+    this(resourceConfig, cache, new RevisionIndexHolder());
   }
 
   @Override
@@ -141,6 +163,7 @@ public final class FileStorage implements IOStorage {
                             serializationType,
                             pagePersister,
                             cache,
+                            revisionIndexHolder,
                             reader);
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
@@ -183,5 +206,10 @@ public final class FileStorage implements IOStorage {
   @Override
   public ByteHandler getByteHandler() {
     return byteHandlerPipeline;
+  }
+  
+  @Override
+  public @NonNull RevisionIndexHolder getRevisionIndexHolder() {
+    return revisionIndexHolder;
   }
 }

@@ -27,6 +27,8 @@ import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
+import io.sirix.io.RevisionIndex;
+import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.UberPage;
@@ -61,6 +63,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     implements ResourceSession<R, W>, InternalResourceSession<R, W> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractResourceSession.class);
+  
+  /**
+   * Feature flag for optimized revision search using SIMD/Eytzinger layout.
+   * Set to false to use legacy binary search (for rollback if needed).
+   */
+  private static final boolean USE_OPTIMIZED_REVISION_SEARCH = 
+      Boolean.parseBoolean(System.getProperty("sirix.optimizedRevisionSearch", "true"));
 
   /**
    * Write lock to assure only one exclusive write transaction exists.
@@ -863,6 +872,33 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   private int binarySearch(final long timestamp) {
+    if (USE_OPTIMIZED_REVISION_SEARCH) {
+      return binarySearchOptimized(timestamp);
+    }
+    return binarySearchLegacy(timestamp);
+  }
+  
+  /**
+   * Optimized revision search using SIMD/Eytzinger layout.
+   * Uses cache-friendly data structures for better performance.
+   * 
+   * @param timestamp the timestamp to search for (epoch millis)
+   * @return revision index if exact match, or -(insertionPoint + 1) if not found
+   */
+  private int binarySearchOptimized(final long timestamp) {
+    final RevisionIndexHolder holder = storage.getRevisionIndexHolder();
+    final RevisionIndex index = holder.get();
+    return index.findRevision(timestamp);
+  }
+  
+  /**
+   * Legacy binary search implementation.
+   * Kept for rollback purposes if optimized search has issues.
+   * 
+   * @param timestamp the timestamp to search for (epoch millis)
+   * @return revision index if exact match, or -(insertionPoint + 1) if not found
+   */
+  private int binarySearchLegacy(final long timestamp) {
     int low = 0;
     int high = getMostRecentRevisionNumber();
 

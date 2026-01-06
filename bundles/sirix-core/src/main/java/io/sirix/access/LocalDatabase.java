@@ -15,6 +15,7 @@ import io.sirix.cache.BufferManagerImpl;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.Encryptor;
 import io.sirix.utils.SirixFiles;
@@ -287,10 +288,18 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
       this.writeLocks.removeWriteLock(resourceFile);
 
-      final var cache = StorageType.CACHE_REPOSITORY.remove(resourceFile);
+      // Construct the path used as key in the cache repositories
+      // This matches StorageType.getIntegerRevisionFileDataAsyncCache and getRevisionIndexHolder
+      final var cacheKey = resourceFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                                       .resolve(IOStorage.FILENAME);
+      
+      final var cache = StorageType.CACHE_REPOSITORY.remove(cacheKey);
       if (cache != null) {
         cache.synchronous().invalidateAll();
       }
+      
+      // Clear the optimized revision index for this resource
+      StorageType.REVISION_INDEX_REPOSITORY.remove(cacheKey);
     }
 
     return this;

@@ -76,6 +76,8 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   private final PagePersister pagePersister;
 
   private final AsyncCache<Integer, RevisionFileData> cache;
+  
+  private final RevisionIndexHolder revisionIndexHolder;
 
   private final Path dataFilePath;
 
@@ -93,11 +95,13 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
    * @param serializationType   the serialization type (for the transaction log or the data file)
    * @param pagePersister       transforms in-memory pages into byte-arrays and back
    * @param cache               the revision file data cache
+   * @param revisionIndexHolder the holder for the optimized revision index
    * @param reader              the reader delegate
    */
   public IOUringWriter(final AsyncFile dataFile, final AsyncFile revisionsOffsetFile, final Path dataFilePath,
       final Path revisionsOffsetFilePath, final SerializationType serializationType, final PagePersister pagePersister,
-      final AsyncCache<Integer, RevisionFileData> cache, final IOUringReader reader) {
+      final AsyncCache<Integer, RevisionFileData> cache, final RevisionIndexHolder revisionIndexHolder,
+      final IOUringReader reader) {
     this.dataFile = dataFile;
     this.revisionsFile = revisionsOffsetFile;
     this.dataFilePath = dataFilePath;
@@ -105,7 +109,18 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     this.serializationType = requireNonNull(serializationType);
     this.pagePersister = requireNonNull(pagePersister);
     this.cache = requireNonNull(cache);
+    this.revisionIndexHolder = requireNonNull(revisionIndexHolder);
     this.reader = requireNonNull(reader);
+  }
+  
+  /**
+   * Constructor (backward compatibility).
+   */
+  public IOUringWriter(final AsyncFile dataFile, final AsyncFile revisionsOffsetFile, final Path dataFilePath,
+      final Path revisionsOffsetFilePath, final SerializationType serializationType, final PagePersister pagePersister,
+      final AsyncCache<Integer, RevisionFileData> cache, final IOUringReader reader) {
+    this(dataFile, revisionsOffsetFile, dataFilePath, revisionsOffsetFilePath, serializationType, 
+         pagePersister, cache, new RevisionIndexHolder(), reader);
   }
 
   @Override
@@ -270,9 +285,12 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
           }
           revisionsFile.write(buffer, revisionsFileOffset).join();
           final long currOffset = offset;
+          final long currTimestamp = revisionRootPage.getRevisionTimestamp();
           cache.put(revisionRootPage.getRevision(),
                     CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
-                                                                             Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
+                                                                             Instant.ofEpochMilli(currTimestamp))));
+          // Update the optimized revision index
+          revisionIndexHolder.addRevision(currOffset, currTimestamp);
         } else if (page instanceof UberPage && isFirstUberPage) {
           final ByteBuffer firstUberPageBuffer =
               ByteBuffer.allocateDirect(Writer.UBER_PAGE_BYTE_ALIGN).order(ByteOrder.nativeOrder());

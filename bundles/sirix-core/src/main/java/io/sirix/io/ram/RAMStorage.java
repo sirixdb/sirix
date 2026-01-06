@@ -11,7 +11,9 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
+import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.page.interfaces.Page;
 
 import java.nio.ByteBuffer;
@@ -75,6 +77,11 @@ public final class RAMStorage implements IOStorage {
    * The resource configuration.
    */
   private final ResourceConfiguration mResourceConfiguration;
+  
+  /**
+   * Revision index holder for fast timestamp lookups.
+   */
+  private final RevisionIndexHolder revisionIndexHolder;
 
   /**
    * Constructor
@@ -89,6 +96,7 @@ public final class RAMStorage implements IOStorage {
     mAccess = new RAMAccess();
     mUberPageKey = new ConcurrentHashMap<>();
     mUberPageKey.put(-1, 0L);
+    revisionIndexHolder = new RevisionIndexHolder();
   }
 
   @Override
@@ -121,6 +129,11 @@ public final class RAMStorage implements IOStorage {
   @Override
   public ByteHandlerPipeline getByteHandler() {
     return mHandler;
+  }
+  
+  @Override
+  public @NonNull RevisionIndexHolder getRevisionIndexHolder() {
+    return revisionIndexHolder;
   }
 
   @Override

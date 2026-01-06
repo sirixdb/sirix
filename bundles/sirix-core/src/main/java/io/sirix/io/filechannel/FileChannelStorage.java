@@ -8,9 +8,11 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
+import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -50,18 +52,38 @@ public final class FileChannelStorage implements IOStorage {
    * Revision file data cache.
    */
   private final AsyncCache<Integer, RevisionFileData> cache;
+  
+  /**
+   * Revision index holder for fast timestamp lookups.
+   */
+  private final RevisionIndexHolder revisionIndexHolder;
 
   /**
    * Constructor.
    *
    * @param resourceConfig the resource configuration
+   * @param cache the revision file data cache
+   * @param revisionIndexHolder the revision index holder
    */
   public FileChannelStorage(final ResourceConfiguration resourceConfig,
-      final AsyncCache<Integer, RevisionFileData> cache) {
+      final AsyncCache<Integer, RevisionFileData> cache,
+      final RevisionIndexHolder revisionIndexHolder) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     file = resourceConfig.resourcePath;
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
+    this.revisionIndexHolder = revisionIndexHolder;
+  }
+  
+  /**
+   * Constructor (backward compatibility).
+   *
+   * @param resourceConfig the resource configuration
+   * @param cache the revision file data cache
+   */
+  public FileChannelStorage(final ResourceConfiguration resourceConfig,
+      final AsyncCache<Integer, RevisionFileData> cache) {
+    this(resourceConfig, cache, new RevisionIndexHolder());
   }
 
   @Override
@@ -129,6 +151,7 @@ public final class FileChannelStorage implements IOStorage {
                                    serializationType,
                                    pagePersister,
                                    cache,
+                                   revisionIndexHolder,
                                    reader);
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -177,5 +200,10 @@ public final class FileChannelStorage implements IOStorage {
   @Override
   public ByteHandler getByteHandler() {
     return byteHandlerPipeline;
+  }
+  
+  @Override
+  public @NonNull RevisionIndexHolder getRevisionIndexHolder() {
+    return revisionIndexHolder;
   }
 }

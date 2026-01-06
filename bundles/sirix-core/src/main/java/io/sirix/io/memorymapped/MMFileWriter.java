@@ -28,6 +28,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.io.AbstractForwardingReader;
 import io.sirix.io.IOStorage;
 import io.sirix.io.RevisionFileData;
+import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -102,6 +103,9 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     /** The revision file data cache */
     private final AsyncCache<Integer, RevisionFileData> cache;
     
+    /** The revision index holder */
+    private final RevisionIndexHolder revisionIndexHolder;
+    
     /** Whether this is the first uber page */
     private boolean isFirstUberPage;
     
@@ -128,6 +132,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
      * @param serializationType     the serialization type
      * @param pagePersister         the page persister
      * @param cache                 the revision file data cache
+     * @param revisionIndexHolder   the holder for the optimized revision index
      * @param reader                the reader delegate
      */
     public MMFileWriter(final FileChannel dataFileChannel,
@@ -135,13 +140,28 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
                         final SerializationType serializationType,
                         final PagePersister pagePersister,
                         final AsyncCache<Integer, RevisionFileData> cache,
+                        final RevisionIndexHolder revisionIndexHolder,
                         final MMFileReader reader) {
         this.dataFileChannel = requireNonNull(dataFileChannel);
         this.revisionsFileChannel = requireNonNull(revisionsFileChannel);
         this.serializationType = requireNonNull(serializationType);
         this.pagePersister = requireNonNull(pagePersister);
         this.cache = requireNonNull(cache);
+        this.revisionIndexHolder = requireNonNull(revisionIndexHolder);
         this.reader = requireNonNull(reader);
+    }
+    
+    /**
+     * Constructor (backward compatibility).
+     */
+    public MMFileWriter(final FileChannel dataFileChannel,
+                        final FileChannel revisionsFileChannel,
+                        final SerializationType serializationType,
+                        final PagePersister pagePersister,
+                        final AsyncCache<Integer, RevisionFileData> cache,
+                        final MMFileReader reader) {
+        this(dataFileChannel, revisionsFileChannel, serializationType, pagePersister, 
+             cache, new RevisionIndexHolder(), reader);
     }
     
     /**
@@ -338,9 +358,12 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
                     }
                     revisionsFileChannel.write(buffer, revisionsFileOffset);
                     final long currOffset = offset;
+                    final long currTimestamp = revisionRootPage.getRevisionTimestamp();
                     cache.put(revisionRootPage.getRevision(),
                               CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
-                                                                                       Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
+                                                                                       Instant.ofEpochMilli(currTimestamp))));
+                    // Update the optimized revision index
+                    revisionIndexHolder.addRevision(currOffset, currTimestamp);
                 } else if (page instanceof UberPage && isFirstUberPage) {
                     ByteBuffer buffer = ByteBuffer.allocateDirect(Writer.UBER_PAGE_BYTE_ALIGN).order(ByteOrder.nativeOrder());
                     buffer.put(serializedPage);
