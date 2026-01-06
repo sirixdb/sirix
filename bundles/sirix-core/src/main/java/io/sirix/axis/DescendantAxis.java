@@ -24,6 +24,7 @@ package io.sirix.axis;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.api.NodeCursor;
+import io.sirix.settings.Fixed;
 
 /**
  * <p>
@@ -38,6 +39,13 @@ public final class DescendantAxis extends AbstractAxis {
 
   /** Determines if it's the first call to hasNext(). */
   private boolean first;
+  
+  /** 
+   * The right sibling key of the start node.
+   * Used to detect when traversal should stop (when we would move to start's right sibling).
+   * This avoids the costly moveTo+check+moveBack pattern in hasNextNode.
+   */
+  private long startNodeRightSiblingKey;
 
   /**
    * Constructor initializing internal state.
@@ -63,6 +71,12 @@ public final class DescendantAxis extends AbstractAxis {
     super.reset(nodeKey);
     first = true;
     rightSiblingKeyStack = new LongArrayList();
+    // Cache the right sibling key of the start node to avoid moveTo in hasNextNode
+    final NodeCursor cursor = getCursor();
+    final long currentKey = cursor.getNodeKey();
+    cursor.moveTo(nodeKey);
+    startNodeRightSiblingKey = cursor.getRightSiblingKey();
+    cursor.moveTo(currentKey);
   }
 
   @Override
@@ -85,26 +99,27 @@ public final class DescendantAxis extends AbstractAxis {
     }
 
     // Always follow first child if there is one.
-    if (cursor.hasFirstChild()) {
-      key = cursor.getFirstChildKey();
-      if (cursor.hasRightSibling()) {
-        rightSiblingKeyStack.add(cursor.getRightSiblingKey());
+    // PERF: Avoid calling hasFirstChild() + getFirstChildKey() (reads the same flyweight field twice).
+    final long firstChildKey = cursor.getFirstChildKey();
+    if (firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      final long rightSiblingKey = cursor.getRightSiblingKey();
+      if (rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        rightSiblingKeyStack.add(rightSiblingKey);
       }
-      return key;
+      return firstChildKey;
     }
 
     // Then follow right sibling if there is one.
-    if (cursor.hasRightSibling()) {
-      final long currKey = cursor.getNodeKey();
-      key = cursor.getRightSiblingKey();
-      return hasNextNode(key, currKey);
+    // PERF: Avoid calling hasRightSibling() + getRightSiblingKey() (reads the same flyweight field twice).
+    final long rightSiblingKey = cursor.getRightSiblingKey();
+    if (rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      return hasNextNode(rightSiblingKey);
     }
 
     // Then follow right sibling on stack.
     if (!rightSiblingKeyStack.isEmpty()) {
-      final long currKey = cursor.getNodeKey();
       key = rightSiblingKeyStack.popLong();
-      return hasNextNode(key, currKey);
+      return hasNextNode(key);
     }
 
     return done();
@@ -112,19 +127,25 @@ public final class DescendantAxis extends AbstractAxis {
 
   /**
    * Determines if the subtree-traversal is finished.
+   * 
+   * OPTIMIZATION: Instead of moving to the candidate node to check if its left sibling
+   * is the start node (then moving back), we simply check if the candidate key equals
+   * the cached right sibling key of the start node. This is equivalent logic:
+   * - Old: candidate.leftSiblingKey == startKey
+   * - New: candidateKey == startNode.rightSiblingKey
+   * 
+   * This eliminates 2 moveTo() calls per check, which is significant during traversal.
    *
-   * @param key next key
-   * @param currKey current node key
-   * @return {@code false} if finished, {@code true} if not
+   * @param key next key (candidate to visit)
+   * @param currKey current node key (unused after optimization, kept for API compatibility)
+   * @return the key if traversal should continue, or done() if finished
    */
-  private long hasNextNode(@NonNegative final long key, final @NonNegative long currKey) {
-    final NodeCursor cursor = getCursor();
-    cursor.moveTo(key);
-    if (cursor.getLeftSiblingKey() == getStartKey()) {
+  private long hasNextNode(@NonNegative final long key) {
+    // Check if the candidate is the right sibling of the start node
+    // If so, we've finished traversing all descendants of the start subtree
+    if (key == startNodeRightSiblingKey) {
       return done();
-    } else {
-      cursor.moveTo(currKey);
-      return key;
     }
+    return key;
   }
 }

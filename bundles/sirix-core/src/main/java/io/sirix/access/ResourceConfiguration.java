@@ -31,20 +31,21 @@ package io.sirix.access;
 import com.google.common.base.MoreObjects;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
-import io.sirix.access.trx.node.HashType;
-import io.sirix.node.NodeSerializerImpl;
-import io.sirix.node.interfaces.RecordSerializer;
-import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.BinaryEncodingVersion;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerKind;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.bytepipe.LZ4Compressor;
+import io.sirix.node.NodeSerializerImpl;
+import io.sirix.node.interfaces.RecordSerializer;
+import io.sirix.settings.StringCompressionType;
 import io.sirix.settings.VersioningType;
-import io.sirix.utils.OS;
+import net.openhft.hashing.LongHashFunction;
+import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -169,8 +170,8 @@ public final class ResourceConfiguration {
   /**
    * Standard storage.
    */
-  private static final StorageType STORAGE =
-      OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
+  private static final StorageType STORAGE = StorageType.FILE_CHANNEL;
+      //OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
 
   /**
    * Standard versioning approach.
@@ -295,6 +296,19 @@ public final class ResourceConfiguration {
    */
   private final BinaryEncodingVersion binaryVersion;
 
+  /**
+   * String compression type for string-containing nodes.
+   */
+  public final StringCompressionType stringCompressionType;
+
+  /**
+   * Backend type for secondary indexes (PATH, CAS, NAME).
+   * 
+   * <p>Determines whether indexes use the traditional Red-Black Tree implementation
+   * or the newer Height-Optimized Trie (HOT) implementation.</p>
+   */
+  public final IndexBackendType indexBackendType;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -330,6 +344,8 @@ public final class ResourceConfiguration {
     customCommitTimestamps = builder.customCommitTimestamps;
     storeNodeHistory = builder.storeNodeHistory;
     binaryVersion = builder.binaryEncodingVersion;
+    stringCompressionType = builder.stringCompressionType;
+    indexBackendType = builder.indexBackendType;
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -376,6 +392,15 @@ public final class ResourceConfiguration {
    */
   public long getID() {
     return id;
+  }
+
+  /**
+   * Get the database ID from the parent database configuration.
+   *
+   * @return the database ID, or 0 if database configuration not set
+   */
+  public long getDatabaseId() {
+    return databaseConfig != null ? databaseConfig.getDatabaseId() : 0;
   }
 
   @Override
@@ -448,7 +473,8 @@ public final class ResourceConfiguration {
   private static final String[] JSONNAMES =
       { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
           "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
-          "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount" };
+          "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount",
+          "stringCompressionType", "indexBackendType" };
 
   /**
    * Serialize the configuration.
@@ -500,6 +526,10 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[15]).value(config.storeNodeHistory);
       // Child count.
       jsonWriter.name(JSONNAMES[16]).value(config.storeChildCount);
+      // String compression type.
+      jsonWriter.name(JSONNAMES[17]).value(config.stringCompressionType.name());
+      // Index backend type.
+      jsonWriter.name(JSONNAMES[18]).value(config.indexBackendType.name());
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -597,6 +627,24 @@ public final class ResourceConfiguration {
       assert name.equals(JSONNAMES[16]);
       final boolean storeChildCount = jsonReader.nextBoolean();
 
+      // String compression type (optional for backward compatibility with older configs)
+      StringCompressionType stringCompressionType = StringCompressionType.NONE;
+      if (jsonReader.hasNext()) {
+        name = jsonReader.nextName();
+        if (name.equals(JSONNAMES[17])) {
+          stringCompressionType = StringCompressionType.valueOf(jsonReader.nextString());
+        }
+      }
+
+      // Index backend type (optional for backward compatibility with older configs)
+      IndexBackendType indexBackendType = IndexBackendType.RBTREE;
+      if (jsonReader.hasNext()) {
+        name = jsonReader.nextName();
+        if (name.equals(JSONNAMES[18])) {
+          indexBackendType = IndexBackendType.valueOf(jsonReader.nextString());
+        }
+      }
+
       jsonReader.endObject();
       jsonReader.close();
       fileReader.close();
@@ -619,7 +667,9 @@ public final class ResourceConfiguration {
              .storeDiffs(storeDiffs)
              .storeChildCount(storeChildCount)
              .customCommitTimestamps(customCommitTimestamps)
-             .storeNodeHistory(storeNodeHistory);
+             .storeNodeHistory(storeNodeHistory)
+             .stringCompressionType(stringCompressionType)
+             .indexBackendType(indexBackendType);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -709,9 +759,25 @@ public final class ResourceConfiguration {
     /**
      * Determines if node history should be stored or not.
      */
-    private boolean storeNodeHistory;
+    private boolean storeNodeHistory = true;
 
     private BinaryEncodingVersion binaryEncodingVersion = BINARY_ENCODING_VERSION;
+
+    /**
+     * If true, require native LZ4 support; otherwise builder will fall back to the stream LZ4 compressor.
+     */
+    private boolean requireNativeLz4 = false;
+
+    /**
+     * String compression type for string-containing nodes.
+     */
+    private StringCompressionType stringCompressionType = StringCompressionType.NONE;
+
+    /**
+     * Backend type for secondary indexes (PATH, CAS, NAME).
+     * Defaults to HOT_TRIE for best performance.
+     */
+    private IndexBackendType indexBackendType = IndexBackendType.HOT_TRIE;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -723,7 +789,7 @@ public final class ResourceConfiguration {
       this.resource = requireNonNull(resource);
       pathSummary = true;
       storeChildCount = true;
-      byteHandler = new ByteHandlerPipeline(new LZ4Compressor()); // new Encryptor(path));
+      byteHandler = selectDefaultByteHandler();
     }
 
     /**
@@ -735,6 +801,27 @@ public final class ResourceConfiguration {
     public Builder storageType(final StorageType type) {
       this.type = requireNonNull(type);
       return this;
+    }
+
+    /**
+     * Require native LZ4 support; if native is unavailable, builder throws.
+     *
+     * @param requireNative flag to enforce native LZ4
+     * @return builder
+     */
+    public Builder requireNativeLz4(boolean requireNative) {
+      this.requireNativeLz4 = requireNative;
+      return this;
+    }
+
+    private ByteHandlerPipeline selectDefaultByteHandler() {
+      if (FFILz4Compressor.isNativeAvailable()) {
+        return new ByteHandlerPipeline(new FFILz4Compressor());
+      }
+      if (requireNativeLz4) {
+        throw new IllegalStateException("Native LZ4 required but not available");
+      }
+      return new ByteHandlerPipeline(new LZ4Compressor());
     }
 
     /**
@@ -880,6 +967,75 @@ public final class ResourceConfiguration {
       return this;
     }
 
+    /**
+     * Set the string compression type for string-containing nodes.
+     * 
+     * <p>This controls whether and how strings in JSON/XML nodes are compressed:
+     * <ul>
+     *   <li>{@link StringCompressionType#NONE} - No per-string compression (default)</li>
+     *   <li>{@link StringCompressionType#FSST} - Fast Static Symbol Table compression</li>
+     * </ul>
+     *
+     * @param stringCompressionType the compression type to use
+     * @return reference to the builder object
+     */
+    public Builder stringCompressionType(StringCompressionType stringCompressionType) {
+      this.stringCompressionType = requireNonNull(stringCompressionType);
+      return this;
+    }
+
+    /**
+     * Set the backend type for secondary indexes (PATH, CAS, NAME).
+     * 
+     * <p>This controls which data structure is used for storing index data:
+     * <ul>
+     *   <li>{@link IndexBackendType#RBTREE} - Red-Black Tree (default, stable)</li>
+     *   <li>{@link IndexBackendType#HOT_TRIE} - Height-Optimized Trie (high performance)</li>
+     * </ul>
+     *
+     * @param indexBackendType the index backend type to use
+     * @return reference to the builder object
+     */
+    public Builder indexBackendType(IndexBackendType indexBackendType) {
+      this.indexBackendType = requireNonNull(indexBackendType);
+      return this;
+    }
+
+    /**
+     * Enable HOT (Height-Optimized Trie) indexes for this resource.
+     * 
+     * <p>This is the default, so calling this method is optional unless
+     * explicitly overriding a previous setting.</p>
+     * 
+     * <p>This is a convenience method equivalent to calling
+     * {@code indexBackendType(IndexBackendType.HOT_TRIE)}.</p>
+     * 
+     * <p>HOT indexes provide better performance for large datasets due to
+     * improved cache utilization and reduced memory accesses.</p>
+     *
+     * @return reference to the builder object
+     */
+    public Builder useHOTIndexes() {
+      this.indexBackendType = IndexBackendType.HOT_TRIE;
+      return this;
+    }
+
+    /**
+     * Use RBTree (Red-Black Tree) indexes for this resource.
+     * 
+     * <p>This is a convenience method equivalent to calling
+     * {@code indexBackendType(IndexBackendType.RBTREE)}.</p>
+     * 
+     * <p>RBTree is the traditional index implementation. Use this if you
+     * prefer the more established implementation over the newer HOT backend.</p>
+     *
+     * @return reference to the builder object
+     */
+    public Builder useRBTreeIndexes() {
+      this.indexBackendType = IndexBackendType.RBTREE;
+      return this;
+    }
+
     @Override
     public String toString() {
       return MoreObjects.toStringHelper(this)
@@ -897,6 +1053,7 @@ public final class ResourceConfiguration {
                         .add("Max number of revisions to restore", maxNumberOfRevisionsToRestore)
                         .add("Use deweyIDs", useDeweyIDs)
                         .add("Byte handler pipeline", byteHandler)
+                        .add("Index backend type", indexBackendType)
                         .toString();
     }
 

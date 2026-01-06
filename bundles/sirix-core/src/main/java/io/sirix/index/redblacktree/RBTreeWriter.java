@@ -31,7 +31,7 @@ package io.sirix.index.redblacktree;
 import io.sirix.access.DatabaseType;
 import io.sirix.access.trx.node.AbstractForwardingNodeCursor;
 import io.sirix.api.NodeCursor;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageContainer;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -73,18 +73,18 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
   private final RBTreeReader<K, V> rbTreeReader;
 
   /**
-   * {@link PageTrx} instance.
+   * {@link StorageEngineWriter} instance.
    */
-  private final PageTrx pageTrx;
+  private final StorageEngineWriter pageTrx;
 
   /**
    * Private constructor.
    *
    * @param databaseType The type of database.
-   * @param pageTrx      {@link PageTrx} for persistent storage
+   * @param pageTrx      {@link StorageEngineWriter} for persistent storage
    * @param type         type of index
    */
-  private RBTreeWriter(final DatabaseType databaseType, final PageTrx pageTrx, final IndexType type,
+  private RBTreeWriter(final DatabaseType databaseType, final StorageEngineWriter pageTrx, final IndexType type,
       final @NonNegative int index) {
     try {
       final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
@@ -122,7 +122,7 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
     this.pageTrx = pageTrx;
   }
 
-  public PageTrx getPageTrx() {
+  public StorageEngineWriter getPageTrx() {
     return pageTrx;
   }
 
@@ -130,13 +130,13 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * Get a new instance.
    *
    * @param databaseType The type of database.
-   * @param pageWriteTrx {@link PageTrx} for persistent storage
+   * @param pageWriteTrx {@link StorageEngineWriter} for persistent storage
    * @param type         type of index
    * @param index        the index number
    * @return new tree instance
    */
   public static <K extends Comparable<? super K>, V extends References> RBTreeWriter<K, V> getInstance(
-      final DatabaseType databaseType, final PageTrx pageWriteTrx, final IndexType type, final int index) {
+      final DatabaseType databaseType, final StorageEngineWriter pageWriteTrx, final IndexType type, final int index) {
     return new RBTreeWriter<>(databaseType, pageWriteTrx, type, index);
   }
 

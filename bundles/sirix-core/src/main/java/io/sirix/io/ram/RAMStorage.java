@@ -1,12 +1,12 @@
 package io.sirix.io.ram;
 
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
@@ -157,7 +157,7 @@ public final class RAMStorage implements IOStorage {
 
     @Override
     public Writer write(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
-        final Page page, final Bytes<ByteBuffer> bufferedBytes) {
+        final Page page, final BytesOut<?> bufferedBytes) {
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey++, page);
       mExists = true;
@@ -166,7 +166,7 @@ public final class RAMStorage implements IOStorage {
 
     @Override
     public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
-        final PageReference pageReference, final Page page, final Bytes<ByteBuffer> bufferedBytes) {
+        final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes) {
       pageReference.setKey(mPageKey);
       mResourceFileStorage.put(mPageKey, page);
       mUberPageKey.put(-1, mPageKey++);
@@ -191,9 +191,14 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public Writer truncateTo(PageReadOnlyTrx pageReadOnlyTrx, int revision) {
+    public Writer truncateTo(StorageEngineReader pageReadOnlyTrx, int revision) {
       // TODO
       return this;
+    }
+
+    @Override
+    public void forceAll() {
+      // RAM storage has no persistence, nothing to force
     }
 
     @Override

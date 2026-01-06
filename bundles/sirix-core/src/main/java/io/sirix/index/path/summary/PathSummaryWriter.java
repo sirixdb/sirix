@@ -76,9 +76,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
-   * Sirix {@link PageTrx}.
+   * Sirix {@link StorageEngineWriter}.
    */
-  private final PageTrx pageTrx;
+  private final StorageEngineWriter pageTrx;
 
   /**
    * Sirix {@link PathSummaryReader}.
@@ -103,12 +103,12 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Constructor.
    *
-   * @param pageTrx     Sirix {@link PageTrx}
+   * @param pageTrx     Sirix {@link StorageEngineWriter}
    * @param resMgr      The resource manager
    * @param nodeFactory The node factory to create path nodes
    * @param rtx         the read-only trx
    */
-  public PathSummaryWriter(final PageTrx pageTrx, final ResourceSession<R, ? extends NodeTrx> resMgr,
+  public PathSummaryWriter(final StorageEngineWriter pageTrx, final ResourceSession<R, ? extends NodeTrx> resMgr,
       final NodeFactory nodeFactory, final R rtx) {
     this.pageTrx = requireNonNull(pageTrx);
     pathSummaryReader = PathSummaryReader.getInstance(pageTrx, resMgr);
@@ -144,21 +144,26 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       level = pathSummaryReader.getLevel();
     }
 
-    final long nodeKey = pathSummaryReader.getNodeKey();
-    final Axis axis = new FilterAxis<>(new ChildAxis(pathSummaryReader),
-                                       new PathNameFilter(pathSummaryReader,
-                                                          pathKind == NodeKind.NAMESPACE
-                                                              ? name.getPrefix()
-                                                              : Utils.buildName(name)),
-                                       new PathKindFilter(pathSummaryReader, pathKind));
+    final long parentNodeKey = pathSummaryReader.getNodeKey();
+    
+    // Use O(1) cache lookup instead of O(n) ChildAxis iteration
+    // The child name for lookup - handle namespace prefix case
+    final QNm lookupName = pathKind == NodeKind.NAMESPACE 
+        ? new QNm(name.getPrefix()) 
+        : name;
+    
+    final long childNodeKey = pathSummaryReader.findChild(parentNodeKey, lookupName, pathKind);
+    
     long retVal;
-    if (axis.hasNext()) {
-      retVal = axis.nextLong();
+    if (childNodeKey >= 0) {
+      // Found existing child - increment reference count
+      retVal = childNodeKey;
       final PathNode pathNode = pageTrx.prepareRecordForModification(retVal, IndexType.PATH_SUMMARY, 0);
       pathNode.incrementReferenceCount();
       pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
     } else {
-      assert nodeKey == pathSummaryReader.getNodeKey();
+      // Child not found - insert new path node
+      assert parentNodeKey == pathSummaryReader.getNodeKey();
       insertPathAsFirstChild(name, pathKind, level + 1);
       retVal = pathSummaryReader.getNodeKey();
     }
@@ -205,6 +210,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     adaptForInsert(node);
     pathSummaryReader.moveTo(node.getNodeKey());
     pathSummaryReader.putQNameMapping(node, name);
+    
+    // Add to O(1) child lookup cache (primitives only)
+    pathSummaryReader.putChildLookup(parentKey, name, pathKind, node.getNodeKey());
 
     return this;
   }
@@ -639,8 +647,16 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (remove == RemoveSubtreePath.YES) {
       for (final Axis axis = new PostOrderAxis(pathSummaryReader); axis.hasNext(); ) {
         axis.nextLong();
+        final PathNode pathNode = pathSummaryReader.getPathNode();
+        if (pathNode != null) {
+          // Remove from child lookup cache using parent key
+          pathSummaryReader.removeChildLookup(
+              pathNode.getParentKey(), 
+              pathSummaryReader.getName(), 
+              pathNode.getPathKind());
+        }
         pathSummaryReader.removeMapping(pathSummaryReader.getNodeKey());
-        pathSummaryReader.removeQNameMapping(pathSummaryReader.getPathNode(), pathSummaryReader.getName());
+        pathSummaryReader.removeQNameMapping(pathNode, pathSummaryReader.getName());
         pageTrx.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
       }
     }
@@ -672,9 +688,18 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     }
     pathSummaryReader.putMapping(parent.getNodeKey(), parent);
 
+    // Remove current node from child lookup cache
+    final PathNode currentPathNode = pathSummaryReader.getPathNode();
+    if (currentPathNode != null) {
+      pathSummaryReader.removeChildLookup(
+          currentPathNode.getParentKey(), 
+          pathSummaryReader.getName(), 
+          currentPathNode.getPathKind());
+    }
+    
     // Remove node.
     pathSummaryReader.removeMapping(pathSummaryReader.getNodeKey());
-    pathSummaryReader.removeQNameMapping(pathSummaryReader.getPathNode(), pathSummaryReader.getName());
+    pathSummaryReader.removeQNameMapping(currentPathNode, pathSummaryReader.getName());
     pageTrx.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
 
     //    pathSummaryReader.moveToDocumentRoot();

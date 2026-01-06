@@ -6,6 +6,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.index.AtomicUtil;
 import io.sirix.index.SearchMode;
+import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.RBTreeWriter;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
@@ -23,28 +24,51 @@ import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 import io.sirix.index.path.summary.PathSummaryReader;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 import java.util.Set;
 
+/**
+ * Builder for CAS indexes.
+ * 
+ * <p>Supports both traditional RBTree and high-performance HOT index backends.</p>
+ */
 public final class CASIndexBuilder {
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(CASIndexBuilder.class));
 
-  private final RBTreeWriter<CASValue, NodeReferences> indexWriter;
-
+  private final @Nullable RBTreeWriter<CASValue, NodeReferences> rbTreeWriter;
+  private final @Nullable HOTIndexWriter<CASValue> hotWriter;
   private final PathSummaryReader pathSummaryReader;
-
   private final Set<Path<QNm>> paths;
-
   private final Type type;
+  private final boolean useHOT;
 
+  /**
+   * Constructor with RBTree writer (legacy path).
+   */
   public CASIndexBuilder(final RBTreeWriter<CASValue, NodeReferences> indexWriter,
       final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths, final Type type) {
     this.pathSummaryReader = pathSummaryReader;
     this.paths = paths;
-    this.indexWriter = indexWriter;
+    this.rbTreeWriter = indexWriter;
+    this.hotWriter = null;
     this.type = type;
+    this.useHOT = false;
+  }
+
+  /**
+   * Constructor with HOT writer (high-performance path).
+   */
+  public CASIndexBuilder(final HOTIndexWriter<CASValue> hotWriter,
+      final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths, final Type type) {
+    this.pathSummaryReader = pathSummaryReader;
+    this.paths = paths;
+    this.rbTreeWriter = null;
+    this.hotWriter = hotWriter;
+    this.type = type;
+    this.useHOT = true;
   }
 
   public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
@@ -71,11 +95,10 @@ public final class CASIndexBuilder {
 
         if (isOfType) {
           final CASValue value = new CASValue(strValue, type, pathNodeKey);
-          final Optional<NodeReferences> textReferences = indexWriter.get(value, SearchMode.EQUAL);
-          if (textReferences.isPresent()) {
-            setNodeReferences(node, textReferences.get(), value);
+          if (useHOT) {
+            processHOT(node, value);
           } else {
-            setNodeReferences(node, new NodeReferences(), value);
+            processRBTree(node, value);
           }
         }
       }
@@ -85,8 +108,35 @@ public final class CASIndexBuilder {
     return VisitResultType.CONTINUE;
   }
 
-  private void setNodeReferences(final ImmutableNode node, final NodeReferences references, final CASValue value)
+  private void processRBTree(final ImmutableNode node, final CASValue value) throws SirixIOException {
+    assert rbTreeWriter != null;
+    final Optional<NodeReferences> textReferences = rbTreeWriter.get(value, SearchMode.EQUAL);
+    if (textReferences.isPresent()) {
+      setNodeReferencesRBTree(node, textReferences.get(), value);
+    } else {
+      setNodeReferencesRBTree(node, new NodeReferences(), value);
+    }
+  }
+
+  private void processHOT(final ImmutableNode node, final CASValue value) throws SirixIOException {
+    assert hotWriter != null;
+    NodeReferences existingRefs = hotWriter.get(value, SearchMode.EQUAL);
+    if (existingRefs != null) {
+      setNodeReferencesHOT(node, existingRefs, value);
+    } else {
+      setNodeReferencesHOT(node, new NodeReferences(), value);
+    }
+  }
+
+  private void setNodeReferencesRBTree(final ImmutableNode node, final NodeReferences references, final CASValue value)
       throws SirixIOException {
-    indexWriter.index(value, references.addNodeKey(node.getNodeKey()), RBTreeReader.MoveCursor.NO_MOVE);
+    assert rbTreeWriter != null;
+    rbTreeWriter.index(value, references.addNodeKey(node.getNodeKey()), RBTreeReader.MoveCursor.NO_MOVE);
+  }
+
+  private void setNodeReferencesHOT(final ImmutableNode node, final NodeReferences references, final CASValue value)
+      throws SirixIOException {
+    assert hotWriter != null;
+    hotWriter.index(value, references.addNodeKey(node.getNodeKey()), RBTreeReader.MoveCursor.NO_MOVE);
   }
 }

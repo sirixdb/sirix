@@ -1,6 +1,6 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- *
+ * <p>
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- *
+ * <p>
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -22,6 +22,7 @@
 package io.sirix;
 
 import static org.junit.Assert.fail;
+
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
@@ -49,27 +50,32 @@ import org.junit.Test;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.DatabaseType;
 import io.sirix.access.Databases;
+import io.sirix.access.IndexBackendType;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 
 /**
- *
  * Helper class for offering convenient usage of {@link XmlResourceSessionImpl}s for test cases.
- *
+ * <p>
  * This includes instantiation of databases plus resources.
  *
  * @author Sebastian Graf, University of Konstanz
- *
  */
 public final class XmlTestHelper {
 
-  /** Temporary directory path. */
+  /**
+   * Temporary directory path.
+   */
   private static final String TMPDIR = System.getProperty("java.io.tmpdir");
 
-  /** Common resource name. */
+  /**
+   * Common resource name.
+   */
   public static final String RESOURCE = "shredded";
 
-  /** Paths where the data is stored to. */
+  /**
+   * Paths where the data is stored to.
+   */
   public enum PATHS {
     // PATH1 (Sirix)
     PATH1(Paths.get(TMPDIR, "sirix", "path1")),
@@ -99,10 +105,14 @@ public final class XmlTestHelper {
 
   }
 
-  /** Common random instance for generating common tag names. */
+  /**
+   * Common random instance for generating common tag names.
+   */
   public final static Random random = new Random();
 
-  /** Path <=> Database instances. */
+  /**
+   * Path <=> Database instances.
+   */
   private final static Map<Path, Database<XmlResourceSession>> INSTANCES = new Hashtable<>();
 
   @Test
@@ -122,19 +132,14 @@ public final class XmlTestHelper {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
-      try {
-        final DatabaseConfiguration config = new DatabaseConfiguration(file);
-        if (!Files.exists(file)) {
-          Databases.createXmlDatabase(config);
-        }
-        final var database = Databases.openXmlDatabase(file);
-        database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
-        INSTANCES.put(file, database);
-        return database;
-      } catch (final SirixRuntimeException e) {
-        fail(e.toString());
-        return null;
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createXmlDatabase(config);
       }
+      final var database = Databases.openXmlDatabase(file);
+      database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+      INSTANCES.put(file, database);
+      return database;
     }
   }
 
@@ -150,19 +155,14 @@ public final class XmlTestHelper {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
-      try {
-        final DatabaseConfiguration config = new DatabaseConfiguration(file);
-        if (!Files.exists(file)) {
-          Databases.createXmlDatabase(config);
-        }
-        final var database = Databases.openXmlDatabase(file, user);
-        database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
-        INSTANCES.put(file, database);
-        return database;
-      } catch (final SirixRuntimeException e) {
-        fail(e.toString());
-        return null;
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createXmlDatabase(config);
       }
+      final var database = Databases.openXmlDatabase(file, user);
+      database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+      INSTANCES.put(file, database);
+      return database;
     }
   }
 
@@ -178,19 +178,14 @@ public final class XmlTestHelper {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
-      try {
-        final DatabaseConfiguration config = new DatabaseConfiguration(file);
-        if (!Files.exists(file)) {
-          Databases.createXmlDatabase(config);
-        }
-        final var database = Databases.openXmlDatabase(file);
-        database.createResource(new ResourceConfiguration.Builder(RESOURCE).hashKind(HashType.ROLLING).build());
-        INSTANCES.put(file, database);
-        return database;
-      } catch (final SirixRuntimeException e) {
-        fail(e.toString());
-        return null;
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createXmlDatabase(config);
       }
+      final var database = Databases.openXmlDatabase(file);
+      database.createResource(new ResourceConfiguration.Builder(RESOURCE).hashKind(HashType.ROLLING).build());
+      INSTANCES.put(file, database);
+      return database;
     }
   }
 
@@ -206,19 +201,38 @@ public final class XmlTestHelper {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
-      try {
-        final DatabaseConfiguration config = new DatabaseConfiguration(file);
-        if (!Files.exists(file)) {
-          Databases.createXmlDatabase(config);
-        }
-        final var database = Databases.openXmlDatabase(file);
-        database.createResource(new ResourceConfiguration.Builder(RESOURCE).useDeweyIDs(true).build());
-        INSTANCES.put(file, database);
-        return database;
-      } catch (final SirixRuntimeException e) {
-        fail(e.toString());
-        return null;
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createXmlDatabase(config);
       }
+      final var database = Databases.openXmlDatabase(file);
+      database.createResource(new ResourceConfiguration.Builder(RESOURCE).useDeweyIDs(true).build());
+      INSTANCES.put(file, database);
+      return database;
+    }
+  }
+
+  /**
+   * Getting a database with Red-Black tree indexes enabled for testing RBTree integration.
+   *
+   * @param file to be created
+   * @return a database-obj with RBTREE index backend
+   */
+  @Ignore
+  public static Database<XmlResourceSession> getDatabaseWithRedBlackTreeIndexes(final Path file) {
+    if (INSTANCES.containsKey(file)) {
+      return INSTANCES.get(file);
+    } else {
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createXmlDatabase(config);
+      }
+      final var database = Databases.openXmlDatabase(file);
+      database.createResource(new ResourceConfiguration.Builder(RESOURCE)
+          .indexBackendType(IndexBackendType.RBTREE)
+          .build());
+      INSTANCES.put(file, database);
+      return database;
     }
   }
 
@@ -254,7 +268,7 @@ public final class XmlTestHelper {
   /**
    * Read a file into a StringBuilder.
    *
-   * @param file the file to read
+   * @param file        the file to read
    * @param whitespaces retrieve file and don't remove any whitespaces
    * @return StringBuilder instance, which has the string representation of the document
    * @throws IOException if an I/O operation fails

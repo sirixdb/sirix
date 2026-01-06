@@ -23,7 +23,8 @@ package io.sirix.node.xml;
 
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.access.trx.node.HashType;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixException;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
@@ -33,7 +34,8 @@ import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.delegates.ValueNodeDelegate;
 import io.sirix.settings.Constants;
 import io.sirix.utils.NamePageHash;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Assert;
@@ -56,16 +58,16 @@ public class PINodeTest {
   private Holder mHolder;
 
   /**
-   * Sirix {@link PageReadOnlyTrx} instance.
+   * Sirix {@link StorageEngineReader} instance.
    */
-  private PageReadOnlyTrx pageReadTrx;
+  private StorageEngineReader pageReadTrx;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    mHolder = Holder.generateDeweyIDResourceSession();
+    pageReadTrx = mHolder.getResourceSession().beginPageReadOnlyTrx();
   }
 
   @After
@@ -77,24 +79,40 @@ public class PINodeTest {
   @Test
   public void testProcessInstructionNode() {
     final byte[] value = { (byte) 17, (byte) 18 };
-
-    final NodeDelegate del =
-        new NodeDelegate(99, 13, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final StructNodeDelegate structDel = new StructNodeDelegate(del, 17, 16, 22, 1, 1);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
-
-    final PINode node = new PINode(structDel, nameDel, valDel);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    final var config = pageReadTrx.getResourceSession().getResourceConfig();
+    
+    // Create PINode with primitive fields
+    final PINode node = new PINode(
+        99L,                                           // nodeKey
+        13L,                                           // parentKey
+        Constants.NULL_REVISION_NUMBER,                // previousRevision
+        0,                                             // lastModifiedRevision
+        16L,                                           // rightSiblingKey
+        22L,                                           // leftSiblingKey
+        17L,                                           // firstChildKey
+        17L,                                           // lastChildKey
+        config.storeChildCount() ? 1L : 0L,            // childCount
+        config.hashType != HashType.NONE ? 1L : 0L, // descendantCount
+        0L,                                            // hash
+        1L,                                            // pathNodeKey
+        14,                                            // prefixKey
+        15,                                            // localNameKey
+        13,                                            // uriKey
+        value,                                         // value
+        false,                                         // isCompressed
+        LongHashFunction.xx3(),                        // hashFunction
+        SirixDeweyID.newRootID(),                      // deweyID
+        new io.brackit.query.atomic.QNm(""));
+    var hashBytes = Bytes.elasticOffHeapByteBuffer();
+    node.setHash(node.computeHash(hashBytes));
 
     // Create empty node.
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(data,
+    final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
+    node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
+    final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(data2.asBytesIn(),
                                                                               node.getNodeKey(),
                                                                               node.getDeweyID().toBytes(),
                                                                               pageReadTrx.getResourceSession()

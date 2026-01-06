@@ -1,19 +1,24 @@
 package io.sirix.diff.algorithm;
 
-import org.custommonkey.xmlunit.DetailedDiff;
-import org.custommonkey.xmlunit.Diff;
-import org.custommonkey.xmlunit.Difference;
-import org.custommonkey.xmlunit.XMLUnit;
-import org.junit.*;
 import io.sirix.XmlTestHelper;
 import io.sirix.XmlTestHelper.PATHS;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.diff.service.FMSEImport;
+import io.sirix.service.InsertPosition;
 import io.sirix.service.xml.serialize.XmlSerializer;
 import io.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
-import io.sirix.service.InsertPosition;
 import io.sirix.service.xml.shredder.XmlShredder;
+import org.custommonkey.xmlunit.DetailedDiff;
+import org.custommonkey.xmlunit.Diff;
+import org.custommonkey.xmlunit.Difference;
+import org.custommonkey.xmlunit.XMLUnit;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
@@ -25,14 +30,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.function.Predicate;
 
-import static java.util.stream.Collectors.toList;
-
 /**
  * Test the FMSE implementation.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class FMSETest {
+  private static final Logger LOGGER = LoggerFactory.getLogger(FMSETest.class);
+  
   private static final Path RESOURCES = Paths.get("src", "test", "resources");
 
   private static final Path XMLINSERTFIRST = RESOURCES.resolve("revXMLsInsert");
@@ -222,7 +227,7 @@ public final class FMSETest {
       assert database != null;
       XmlResourceSession resource = database.beginResourceSession(XmlTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
-      final List<Path> list = Files.list(folder).filter(fileNameFilter).sorted(comparator()).collect(toList());
+      final List<Path> list = Files.list(folder).filter(fileNameFilter).sorted(comparator()).toList();
 
       // Sort files list according to file names.
 
@@ -257,10 +262,12 @@ public final class FMSETest {
           final DetailedDiff detDiff = new DetailedDiff(diff);
           @SuppressWarnings("unchecked")
           final List<Difference> differences = detDiff.getAllDifferences();
-          for (final Difference difference : differences) {
-            System.err.println("***********************");
-            System.err.println(difference);
-            System.err.println("***********************");
+          if (!differences.isEmpty()) {
+            LOGGER.error("***********************");
+            for (final Difference difference : differences) {
+              LOGGER.error("XML Difference: {}", difference);
+            }
+            LOGGER.error("***********************");
           }
 
           Assert.assertTrue("pieces of XML are similar " + diff, diff.similar());

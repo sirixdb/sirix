@@ -76,4 +76,14 @@ public interface Node extends ImmutableNode {
    * @param revision the last modified revision
    */
   void setLastModifiedRevision(int revision);
+
+  /**
+   * Set the node key (record ID).
+   * 
+   * <p>This method enables singleton node reuse for zero-allocation cursor traversal.
+   * When a cursor moves to a new node, the singleton's nodeKey is updated via this method.</p>
+   *
+   * @param nodeKey the new node key
+   */
+  void setNodeKey(long nodeKey);
 }

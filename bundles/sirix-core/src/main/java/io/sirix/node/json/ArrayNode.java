@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, SirixDB
+ * Copyright (c) 2023, Sirix Contributors
  *
  * All rights reserved.
  *
@@ -25,65 +25,128 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 package io.sirix.node.json;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
+import io.sirix.node.DeltaVarIntCodec;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
+import io.sirix.node.SirixDeweyID;
+
+import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
+import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Fixed;
-import net.openhft.chronicle.bytes.Bytes;
-
-import io.sirix.node.xml.AbstractStructForwardingNode;
+import net.openhft.hashing.LongHashFunction;
+import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
-
-import java.nio.ByteBuffer;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
- * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
+ * JSON Array node.
+ *
+ * <p>Uses primitive fields for efficient storage with delta+varint encoding.
+ * This eliminates MemorySegment/VarHandle overhead and enables compact serialization.</p>
+ * 
+ * @author Johannes Lichtenberger
  */
-public final class ArrayNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
+public final class ArrayNode implements StructNode, ImmutableJsonNode {
 
-  /**
-   * {@link StructNodeDelegate} reference.
-   */
-  private final StructNodeDelegate structNodeDelegate;
-
-  /**
-   * The path node key.
-   */
-  private final long pathNodeKey;
-
+  // Node identity (mutable for singleton reuse)
+  private long nodeKey;
+  
+  // Mutable structural fields (updated during tree modifications)
+  private long parentKey;
+  private long pathNodeKey;
+  private long rightSiblingKey;
+  private long leftSiblingKey;
+  private long firstChildKey;
+  private long lastChildKey;
+  
+  // Mutable revision tracking
+  private int previousRevision;
+  private int lastModifiedRevision;
+  
+  // Mutable counters
+  private long childCount;
+  private long descendantCount;
+  
+  // Mutable hash
   private long hash;
+  
+  // Hash function for computing node hashes (mutable for singleton reuse)
+  private LongHashFunction hashFunction;
+  
+  // DeweyID support (lazily parsed)
+  private SirixDeweyID sirixDeweyID;
+  private byte[] deweyIDBytes;
+
+  // Lazy parsing state
+  private Object lazySource;
+  private long lazyOffset;
+  private boolean lazyFieldsParsed;
+  private boolean hasHash;
+  private boolean storeChildCount;
 
   /**
-   * Constructor
-   *
-   * @param structNodeDelegate   {@link StructNodeDelegate} to be set
-   * @param pathNodeKey the path node key
+   * Primary constructor with all primitive fields.
+   * Used by deserialization (NodeKind.ARRAY.deserialize).
    */
-  public ArrayNode(final StructNodeDelegate structNodeDelegate, final long pathNodeKey) {
-    assert structNodeDelegate != null;
-    this.structNodeDelegate = structNodeDelegate;
+  public ArrayNode(long nodeKey, long parentKey, long pathNodeKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long firstChildKey,
+      long lastChildKey, long childCount, long descendantCount, long hash,
+      LongHashFunction hashFunction, byte[] deweyID) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
     this.pathNodeKey = pathNodeKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.firstChildKey = firstChildKey;
+    this.lastChildKey = lastChildKey;
+    this.childCount = childCount;
+    this.descendantCount = descendantCount;
+    this.hash = hash;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyID;
+    this.lazyFieldsParsed = true;
   }
 
   /**
-   * Constructor
-   *
-   * @param structNodeDelegate   {@link StructNodeDelegate} to be set
-   * @param pathNodeKey the path node key
+   * Constructor with SirixDeweyID instead of byte array.
+   * Used by factory methods when creating new nodes.
    */
-  public ArrayNode(final long hashCode, final StructNodeDelegate structNodeDelegate, final long pathNodeKey) {
-    hash = hashCode;
-    assert structNodeDelegate != null;
-    this.structNodeDelegate = structNodeDelegate;
+  public ArrayNode(long nodeKey, long parentKey, long pathNodeKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long firstChildKey,
+      long lastChildKey, long childCount, long descendantCount, long hash,
+      LongHashFunction hashFunction, SirixDeweyID deweyID) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
     this.pathNodeKey = pathNodeKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.firstChildKey = firstChildKey;
+    this.lastChildKey = lastChildKey;
+    this.childCount = childCount;
+    this.descendantCount = descendantCount;
+    this.hash = hash;
+    this.hashFunction = hashFunction;
+    this.sirixDeweyID = deweyID;
+    this.lazyFieldsParsed = true;
   }
 
   @Override
@@ -92,29 +155,56 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
   }
 
   @Override
-  public long computeHash(final Bytes<ByteBuffer> bytes) {
-    final var nodeDelegate = structNodeDelegate.getNodeDelegate();
+  public long getNodeKey() {
+    return nodeKey;
+  }
 
-    bytes.clear();
+  @Override
+  public long getParentKey() {
+    return parentKey;
+  }
+  
+  public void setParentKey(final long parentKey) {
+    this.parentKey = parentKey;
+  }
 
-    bytes.writeLong(nodeDelegate.getNodeKey())
-         .writeLong(nodeDelegate.getParentKey())
-         .writeByte(nodeDelegate.getKind().getId());
+  @Override
+  public boolean hasParent() {
+    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
-    bytes.writeLong(structNodeDelegate.getChildCount())
-         .writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
+  @Override
+  public boolean isSameItem(@Nullable Node other) {
+    return other != null && other.getNodeKey() == nodeKey;
+  }
 
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
+  @Override
+  public void setTypeKey(final int typeKey) {
+    // Not supported for JSON nodes
+  }
+
+  @Override
+  public void setDeweyID(final SirixDeweyID id) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = null;
+  }
+
+  @Override
+  public void setPreviousRevision(final int revision) {
+    this.previousRevision = revision;
+  }
+
+  @Override
+  public void setLastModifiedRevision(final int revision) {
+    this.lastModifiedRevision = revision;
+  }
+
+  @Override
+  public long getHash() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
     }
-
-    final var buffer = bytes.underlyingObject().rewind();
-    buffer.limit((int) bytes.readLimit());
-
-    return nodeDelegate.getHashFunction().hashBytes(buffer);
+    return hash;
   }
 
   @Override
@@ -123,36 +213,253 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
   }
 
   @Override
-  public long getHash() {
-    return hash;
+  public long computeHash(final BytesOut<?> bytes) {
+    bytes.clear();
+    bytes.writeLong(getNodeKey())
+         .writeLong(getParentKey())
+         .writeByte(getKind().getId());
+
+    bytes.writeLong(getChildCount())
+         .writeLong(getDescendantCount())
+         .writeLong(getLeftSiblingKey())
+         .writeLong(getRightSiblingKey())
+         .writeLong(getFirstChildKey());
+
+    if (getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+      bytes.writeLong(getLastChildKey());
+    }
+
+    bytes.writeLong(getPathNodeKey());
+
+    return hashFunction.hashBytes(bytes.toByteArray());
   }
 
   @Override
-  protected @NonNull NodeDelegate delegate() {
-    return structNodeDelegate.getNodeDelegate();
+  public long getRightSiblingKey() {
+    return rightSiblingKey;
+  }
+  
+  public void setRightSiblingKey(final long rightSibling) {
+    this.rightSiblingKey = rightSibling;
   }
 
   @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDelegate;
+  public long getLeftSiblingKey() {
+    return leftSiblingKey;
+  }
+  
+  public void setLeftSiblingKey(final long leftSibling) {
+    this.leftSiblingKey = leftSibling;
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this).add("structDelegate", structNodeDelegate).toString();
+  public long getFirstChildKey() {
+    return firstChildKey;
+  }
+  
+  public void setFirstChildKey(final long firstChild) {
+    this.firstChildKey = firstChild;
   }
 
   @Override
-  public int hashCode() {
-    return delegate().hashCode();
+  public long getLastChildKey() {
+    return lastChildKey;
+  }
+  
+  public void setLastChildKey(final long lastChild) {
+    this.lastChildKey = lastChild;
   }
 
   @Override
-  public boolean equals(final Object obj) {
-    if (!(obj instanceof ObjectKeyNode other))
-      return false;
+  public long getChildCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
+    return childCount;
+  }
+  
+  public void setChildCount(final long childCount) {
+    this.childCount = childCount;
+  }
 
-    return Objects.equal(delegate(), other.delegate());
+  @Override
+  public long getDescendantCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
+    return descendantCount;
+  }
+  
+  public void setDescendantCount(final long descendantCount) {
+    this.descendantCount = descendantCount;
+  }
+
+  public long getPathNodeKey() {
+    return pathNodeKey;
+  }
+
+  public ArrayNode setPathNodeKey(final @NonNegative long pathNodeKey) {
+    this.pathNodeKey = pathNodeKey;
+    return this;
+  }
+
+  @Override
+  public boolean hasFirstChild() {
+    return firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public boolean hasLastChild() {
+    return lastChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public void incrementChildCount() {
+    childCount++;
+  }
+
+  @Override
+  public void decrementChildCount() {
+    childCount--;
+  }
+
+  @Override
+  public void incrementDescendantCount() {
+    descendantCount++;
+  }
+
+  @Override
+  public void decrementDescendantCount() {
+    descendantCount--;
+  }
+
+  @Override
+  public boolean hasLeftSibling() {
+    return leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public boolean hasRightSibling() {
+    return rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
+    return previousRevision;
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
+    return lastModifiedRevision;
+  }
+
+  public LongHashFunction getHashFunction() {
+    return hashFunction;
+  }
+
+  @Override
+  public void setNodeKey(final long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
+
+  /**
+   * Populate this node from a BytesIn source for singleton reuse.
+   * LAZY OPTIMIZATION: Only parses structural fields immediately (NEW ORDER).
+   */
+  public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
+                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
+    
+    // STRUCTURAL FIELDS - parse immediately (NEW ORDER)
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.lastChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    
+    // Store for lazy parsing
+    this.lazySource = source.getSource();
+    this.lazyOffset = source.position();
+    this.lazyFieldsParsed = false;
+    this.hasHash = config.hashType != HashType.NONE;
+    this.storeChildCount = config.storeChildCount();
+    
+    this.previousRevision = 0;
+    this.lastModifiedRevision = 0;
+    this.childCount = 0;
+    this.hash = 0;
+    this.descendantCount = 0;
+  }
+  
+  private void parseLazyFields() {
+    if (lazyFieldsParsed) {
+      return;
+    }
+    
+    if (lazySource == null) {
+      lazyFieldsParsed = true;
+      return;
+    }
+    
+    BytesIn<?> bytesIn;
+    if (lazySource instanceof MemorySegment segment) {
+      bytesIn = new MemorySegmentBytesIn(segment);
+      bytesIn.position(lazyOffset);
+    } else if (lazySource instanceof byte[] bytes) {
+      bytesIn = new ByteArrayBytesIn(bytes);
+      bytesIn.position(lazyOffset);
+    } else {
+      throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
+    }
+    
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
+    this.childCount = storeChildCount ? DeltaVarIntCodec.decodeSigned(bytesIn) : 0;
+    if (hasHash) {
+      this.hash = bytesIn.readLong();
+      this.descendantCount = DeltaVarIntCodec.decodeSigned(bytesIn);
+    }
+    this.lazyFieldsParsed = true;
+  }
+
+  /**
+   * Create a deep copy snapshot of this node.
+   * Forces parsing of all lazy fields since snapshot must be independent.
+   */
+  public ArrayNode toSnapshot() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
+    return new ArrayNode(nodeKey, parentKey, pathNodeKey, previousRevision, lastModifiedRevision,
+        rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey, childCount,
+        descendantCount, hash, hashFunction,
+        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    if (deweyIDBytes != null && sirixDeweyID == null) {
+      sirixDeweyID = new SirixDeweyID(deweyIDBytes);
+    }
+    return sirixDeweyID;
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    if (deweyIDBytes == null && sirixDeweyID != null) {
+      deweyIDBytes = sirixDeweyID.toBytes();
+    }
+    return deweyIDBytes;
   }
 
   @Override
@@ -160,7 +467,35 @@ public final class ArrayNode extends AbstractStructForwardingNode implements Imm
     return visitor.visit(ImmutableArrayNode.of(this));
   }
 
-  public long getPathNodeKey() {
-    return pathNodeKey;
+  @Override
+  public @NonNull String toString() {
+    return MoreObjects.toStringHelper(this)
+                      .add("nodeKey", nodeKey)
+                      .add("pathNodeKey", pathNodeKey)
+                      .add("parentKey", parentKey)
+                      .add("previousRevision", previousRevision)
+                      .add("lastModifiedRevision", lastModifiedRevision)
+                      .add("rightSibling", rightSiblingKey)
+                      .add("leftSibling", leftSiblingKey)
+                      .add("firstChild", firstChildKey)
+                      .add("lastChild", lastChildKey)
+                      .add("childCount", childCount)
+                      .add("hash", hash)
+                      .add("descendantCount", descendantCount)
+                      .toString();
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(nodeKey, parentKey);
+  }
+
+  @Override
+  public boolean equals(final Object obj) {
+    if (!(obj instanceof final ArrayNode other))
+      return false;
+
+    return nodeKey == other.nodeKey
+        && parentKey == other.parentKey;
   }
 }

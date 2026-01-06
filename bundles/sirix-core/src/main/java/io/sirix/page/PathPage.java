@@ -36,7 +36,7 @@ import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.page.delegates.ReferencesPage4;
@@ -112,11 +112,11 @@ public final class PathPage extends AbstractForwardingPage {
    * Initialize path index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx  {@link PageReadOnlyTrx} instance
+   * @param pageReadTrx  {@link StorageEngineReader} instance
    * @param index        the index number
    * @param log          the transaction intent log
    */
-  public void createPathIndexTree(final DatabaseType databaseType, final PageReadOnlyTrx pageReadTrx, final int index,
+  public void createPathIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx, final int index,
       final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
@@ -126,6 +126,34 @@ public final class PathPage extends AbstractForwardingPage {
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createTree(databaseType, reference, IndexType.PATH, pageReadTrx, log);
+      if (maxNodeKeys.get(index) == 0L) {
+        maxNodeKeys.put(index, 0L);
+      } else {
+        maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
+      }
+      currentMaxLevelsOfIndirectPages.put(index, 0);
+    }
+  }
+
+  /**
+   * Initialize HOT (Height Optimized Trie) path index tree.
+   *
+   * <p>Creates a cache-friendly HOT index instead of the traditional RBTree-based index.</p>
+   *
+   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param index       the index number
+   * @param log         the transaction intent log
+   */
+  public void createHOTPathIndexTree(final StorageEngineReader pageReadTrx, final int index,
+      final TransactionIntentLog log) {
+    PageReference reference = getOrCreateReference(index);
+    if (reference == null) {
+      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
+      reference = delegate.getOrCreateReference(index);
+    }
+    if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
+        && reference.getLogKey() == Constants.NULL_ID_INT) {
+      PageUtils.createHOTTree(reference, IndexType.PATH, pageReadTrx, log);
       if (maxNodeKeys.get(index) == 0L) {
         maxNodeKeys.put(index, 0L);
       } else {

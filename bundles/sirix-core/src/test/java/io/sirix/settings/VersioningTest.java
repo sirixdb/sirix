@@ -21,9 +21,8 @@
 
 package io.sirix.settings;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
+import io.brackit.query.atomic.QNm;
+import io.sirix.XmlTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -33,12 +32,12 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixException;
-import io.brackit.query.atomic.QNm;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import io.sirix.XmlTestHelper;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Test revisioning.
@@ -50,16 +49,36 @@ public class VersioningTest {
    */
   private Database<XmlResourceSession> database;
 
-  @Before
+  @BeforeEach
   public void setUp() {
+    // Clear global caches FIRST to ensure clean state from previous test
+    try {
+      //Databases.getGlobalBufferManager().clearAllCaches();
+    } catch (Exception e) {
+      // Ignore - buffer manager might not exist yet on first test
+    }
+    
     XmlTestHelper.deleteEverything();
-    Databases.createXmlDatabase(new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile()));
+    // Use higher memory budget for versioning stress tests
+    var config = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile())
+        .setMaxSegmentAllocationSize(16L * (1L << 30)); // 16GB instead of default 8GB
+    Databases.createXmlDatabase(config);
     database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile());
   }
 
-  @After
+  @AfterEach
   public void tearDown() {
+    // Close database first to ensure all transactions are properly closed
+    // and pages are unpinned
     database.close();
+    
+    // Then clear global buffer manager caches to release memory segments
+    // This is essential with global BufferManager to prevent memory pool exhaustion
+    try {
+      Databases.getGlobalBufferManager().clearAllCaches();
+    } catch (Exception e) {
+      // Ignore - might happen if buffer manager not initialized yet
+    }
   }
 
   @Test
@@ -237,34 +256,34 @@ public class VersioningTest {
           wtx.insertElementAsFirstChild(new QNm("foo"));
         }
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), Constants.NDP_NODE_COUNT - 1);
+        assertEquals(Constants.NDP_NODE_COUNT - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT << 1) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT << 1) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 3) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT * 3) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT << 2) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT << 2) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 5) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT * 5) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 6) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT * 6) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 7) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT * 7) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT << 3) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT << 3) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 9) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT * 9) - 1, wtx.getNodeKey());
         fillNodePage(wtx);
         wtx.commit();
-        Assert.assertEquals(wtx.getNodeKey(), (Constants.NDP_NODE_COUNT * 10) - 1);
+        assertEquals((Constants.NDP_NODE_COUNT * 10) - 1, wtx.getNodeKey());
         try (final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
           for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
             assertTrue(rtx.moveToFirstChild());
@@ -295,7 +314,7 @@ public class VersioningTest {
         wtx.insertElementAsFirstChild(new QNm("foo"));
       }
       wtx.commit();
-      Assert.assertEquals(wtx.getNodeKey(), Constants.NDP_NODE_COUNT - 1);
+      assertEquals(Constants.NDP_NODE_COUNT - 1, wtx.getNodeKey());
       wtx.close();
       wtx = manager.beginNodeTrx();
       setBaaaz(wtx);

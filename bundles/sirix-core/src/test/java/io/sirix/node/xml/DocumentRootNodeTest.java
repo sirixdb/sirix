@@ -23,14 +23,15 @@ package io.sirix.node.xml;
 
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixException;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
@@ -52,16 +53,16 @@ public class DocumentRootNodeTest {
   private Holder mHolder;
 
   /**
-   * Sirix {@link PageReadOnlyTrx} instance.
+   * Sirix {@link StorageEngineReader} instance.
    */
-  private PageReadOnlyTrx pageReadTrx;
+  private StorageEngineReader pageReadTrx;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
-    mHolder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = mHolder.getResourceManager().beginPageReadOnlyTrx();
+    mHolder = Holder.generateDeweyIDResourceSession();
+    pageReadTrx = mHolder.getResourceSession().beginPageReadOnlyTrx();
   }
 
   @After
@@ -74,25 +75,20 @@ public class DocumentRootNodeTest {
   public void testDocumentRootNode() {
 
     // Create empty node.
-    final NodeDelegate nodeDel = new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                                  Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                  LongHashFunction.xx3(),
-                                                  Constants.NULL_REVISION_NUMBER,
-                                                  0,
-                                                  SirixDeweyID.newRootID());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                                               0,
-                                                               0);
-    final XmlDocumentRootNode node = new XmlDocumentRootNode(nodeDel, strucDel);
+    final XmlDocumentRootNode node = new XmlDocumentRootNode(
+        Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(),
+        0,
+        0,
+        LongHashFunction.xx3(),
+        SirixDeweyID.newRootID());
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
+    final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final XmlDocumentRootNode node2 = (XmlDocumentRootNode) NodeKind.XML_DOCUMENT.deserialize(data,
+    final XmlDocumentRootNode node2 = (XmlDocumentRootNode) NodeKind.XML_DOCUMENT.deserialize(data.asBytesIn(),
                                                                                               node.getNodeKey(),
                                                                                               node.getDeweyID()
                                                                                                   .toBytes(),

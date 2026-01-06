@@ -23,6 +23,7 @@ package io.sirix.cache;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
@@ -108,10 +109,42 @@ public final class PageContainer {
     return modified;
   }
 
+  /**
+   * Get the complete page as a KeyValuePage (interface).
+   * Works with both KeyValueLeafPage and HOTLeafPage.
+   *
+   * @return the complete page as KeyValuePage
+   */
+  @SuppressWarnings("unchecked")
+  public KeyValuePage<DataRecord> getCompleteAsKeyValuePage() {
+    return (KeyValuePage<DataRecord>) complete;
+  }
+
+  /**
+   * Get the modified page as a KeyValuePage (interface).
+   * Works with both KeyValueLeafPage and HOTLeafPage.
+   *
+   * @return the modified page as KeyValuePage
+   */
+  @SuppressWarnings("unchecked")
+  public KeyValuePage<DataRecord> getModifiedAsKeyValuePage() {
+    return (KeyValuePage<DataRecord>) modified;
+  }
+
+  /**
+   * Get the complete page as KeyValueLeafPage (concrete class).
+   * @deprecated Use {@link #getCompleteAsKeyValuePage()} for HOT compatibility
+   */
+  @Deprecated
   public KeyValueLeafPage getCompleteAsUnorderedKeyValuePage() {
     return (KeyValueLeafPage) complete;
   }
 
+  /**
+   * Get the modified page as KeyValueLeafPage (concrete class).
+   * @deprecated Use {@link #getModifiedAsKeyValuePage()} for HOT compatibility
+   */
+  @Deprecated
   public KeyValueLeafPage getModifiedAsUnorderedKeyValuePage() {
     return (KeyValueLeafPage) modified;
   }

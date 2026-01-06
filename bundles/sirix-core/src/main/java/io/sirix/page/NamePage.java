@@ -37,8 +37,8 @@ import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.Cache;
 import io.sirix.cache.NamesCacheKey;
 import io.sirix.cache.TransactionIntentLog;
@@ -160,7 +160,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return raw name of name key
    */
-  public byte[] getRawName(final int key, final NodeKind nodeKind, final PageReadOnlyTrx pageRtx) {
+  public byte[] getRawName(final int key, final NodeKind nodeKind, final StorageEngineReader pageRtx) {
     final byte[] rawName;
     // $CASES-OMITTED$
     switch (nodeKind) {
@@ -199,24 +199,19 @@ public final class NamePage extends AbstractForwardingPage {
     return rawName;
   }
 
-  private Names getNames(PageReadOnlyTrx pageRtx, int offset) {
+  private Names getNames(StorageEngineReader pageRtx, int offset) {
     final var maxNodeKey = maxNodeKeys.getOrDefault(offset, 0L);
     if (pageRtx.hasTrxIntentLog()) {
       return Names.fromStorage(pageRtx, offset, maxNodeKey);
     }
 
     final Cache<NamesCacheKey, Names> namesCache = pageRtx.getBufferManager().getNamesCache();
-    final NamesCacheKey namesCacheKey = new NamesCacheKey(pageRtx.getRevisionNumber(), offset);
-    Names names = namesCache.get(namesCacheKey);
-
-    if (names == null) {
-      names = Names.fromStorage(pageRtx, offset, maxNodeKey);
-      namesCache.put(namesCacheKey, names);
-    } else {
-      names = Names.copy(names);
-    }
-
-    return names;
+    final NamesCacheKey namesCacheKey = new NamesCacheKey(
+        pageRtx.getDatabaseId(),
+        pageRtx.getResourceId(),
+        pageRtx.getRevisionNumber(),
+        offset);
+    return namesCache.get(namesCacheKey, (_, _) -> Names.copy(Names.fromStorage(pageRtx, offset, maxNodeKey)));
   }
 
   /**
@@ -225,7 +220,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return raw name of name key, or {@code null} if not present
    */
-  public String getName(final int key, @NonNull final NodeKind nodeKind, final PageReadOnlyTrx pageRtx) {
+  public String getName(final int key, @NonNull final NodeKind nodeKind, final StorageEngineReader pageRtx) {
     return switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
@@ -269,7 +264,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return number of nodes with the given name key
    */
-  public int getCount(final int key, @NonNull final NodeKind nodeKind, final PageReadOnlyTrx pageRtx) {
+  public int getCount(final int key, @NonNull final NodeKind nodeKind, final StorageEngineReader pageRtx) {
     return switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
@@ -313,7 +308,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param nodeKind kind of node
    * @return the created key
    */
-  public int setName(final String name, final NodeKind nodeKind, final PageTrx pageRtx) {
+  public int setName(final String name, final NodeKind nodeKind, final StorageEngineWriter pageRtx) {
     // $CASES-OMITTED$
     switch (nodeKind) {
       case ELEMENT -> {
@@ -381,7 +376,7 @@ public final class NamePage extends AbstractForwardingPage {
    *
    * @param key the key to remove
    */
-  public void removeName(final int key, final NodeKind nodeKind, final PageTrx pageRtx) {
+  public void removeName(final int key, final NodeKind nodeKind, final StorageEngineWriter pageRtx) {
     // $CASES-OMITTED$
     switch (nodeKind) {
       case ELEMENT -> {
@@ -422,11 +417,11 @@ public final class NamePage extends AbstractForwardingPage {
    * Initialize name index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx  {@link PageReadOnlyTrx} instance
+   * @param pageReadTrx  {@link StorageEngineReader} instance
    * @param index        the index number
    * @param log          the transaction intent log
    */
-  public void createNameIndexTree(final DatabaseType databaseType, final PageReadOnlyTrx pageReadTrx, final int index,
+  public void createNameIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx, final int index,
       final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
@@ -436,6 +431,34 @@ public final class NamePage extends AbstractForwardingPage {
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createTree(databaseType, reference, IndexType.NAME, pageReadTrx, log);
+      if (maxNodeKeys.get(index) == 0L) {
+        maxNodeKeys.put(index, 0L);
+      } else {
+        maxNodeKeys.put(index, maxNodeKeys.get(index) + 1);
+      }
+      currentMaxLevelsOfIndirectPages.put(index, 0);
+    }
+  }
+
+  /**
+   * Initialize HOT (Height Optimized Trie) name index tree.
+   *
+   * <p>Creates a cache-friendly HOT index instead of the traditional RBTree-based index.</p>
+   *
+   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param index       the index number
+   * @param log         the transaction intent log
+   */
+  public void createHOTNameIndexTree(final StorageEngineReader pageReadTrx, final int index,
+      final TransactionIntentLog log) {
+    PageReference reference = getOrCreateReference(index);
+    if (reference == null) {
+      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
+      reference = delegate.getOrCreateReference(index);
+    }
+    if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
+        && reference.getLogKey() == Constants.NULL_ID_INT) {
+      PageUtils.createHOTTree(reference, IndexType.NAME, pageReadTrx, log);
       if (maxNodeKeys.get(index) == 0L) {
         maxNodeKeys.put(index, 0L);
       } else {

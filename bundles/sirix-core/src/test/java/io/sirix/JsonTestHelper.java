@@ -23,13 +23,13 @@ package io.sirix;
 
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
+import io.sirix.access.IndexBackendType;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
-import io.sirix.exception.SirixRuntimeException;
 import io.sirix.utils.JsonDocumentCreator;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -40,8 +40,6 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
-
-import static org.junit.Assert.fail;
 
 /**
  * Helper class for offering convenient usage of the {@link JsonResourceSession} for test cases.
@@ -117,7 +115,9 @@ public final class JsonTestHelper {
         Databases.createJsonDatabase(config);
       }
       final var database = Databases.openJsonDatabase(file);
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      if (!database.existsResource(RESOURCE)) {
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
+      }
       INSTANCES.put(file, database);
       return database;
     }
@@ -127,6 +127,32 @@ public final class JsonTestHelper {
     final DatabaseConfiguration config = new DatabaseConfiguration(file);
     if (!Files.exists(file)) {
       Databases.createJsonDatabase(config);
+    }
+  }
+
+  /**
+   * Getting a database and create one if not existing, using a custom ResourceConfiguration.
+   *
+   * @param file           to be created
+   * @param resourceConfig the custom resource configuration to use
+   * @return a database-obj
+   */
+  @Ignore
+  public static Database<JsonResourceSession> getDatabaseWithResourceConfig(final Path file,
+      final ResourceConfiguration resourceConfig) {
+    if (INSTANCES.containsKey(file)) {
+      return INSTANCES.get(file);
+    } else {
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createJsonDatabase(config);
+      }
+      final var database = Databases.openJsonDatabase(file);
+      if (!database.existsResource(RESOURCE)) {
+        database.createResource(resourceConfig);
+      }
+      INSTANCES.put(file, database);
+      return database;
     }
   }
 
@@ -142,19 +168,16 @@ public final class JsonTestHelper {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
-      try {
-        final DatabaseConfiguration config = new DatabaseConfiguration(file);
-        if (!Files.exists(file)) {
-          Databases.createJsonDatabase(config);
-        }
-        final var database = Databases.openJsonDatabase(file);
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).build());
-        INSTANCES.put(file, database);
-        return database;
-      } catch (final SirixRuntimeException e) {
-        fail(e.toString());
-        return null;
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createJsonDatabase(config);
       }
+      final var database = Databases.openJsonDatabase(file);
+      if (!database.existsResource(RESOURCE)) {
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).useDeweyIDs(true).build());
+      }
+      INSTANCES.put(file, database);
+      return database;
     }
   }
 
@@ -170,19 +193,42 @@ public final class JsonTestHelper {
     if (INSTANCES.containsKey(file)) {
       return INSTANCES.get(file);
     } else {
-      try {
-        final DatabaseConfiguration config = new DatabaseConfiguration(file);
-        if (!Files.exists(file)) {
-          Databases.createJsonDatabase(config);
-        }
-        final var database = Databases.openJsonDatabase(file);
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).hashKind(HashType.ROLLING).build());
-        INSTANCES.put(file, database);
-        return database;
-      } catch (final SirixRuntimeException e) {
-        fail(e.toString());
-        return null;
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createJsonDatabase(config);
       }
+      final var database = Databases.openJsonDatabase(file);
+      if (!database.existsResource(RESOURCE)) {
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE).hashKind(HashType.ROLLING).build());
+      }
+      INSTANCES.put(file, database);
+      return database;
+    }
+  }
+
+  /**
+   * Getting a database with Red-Black tree indexes enabled for testing RBTree integration.
+   *
+   * @param file to be created
+   * @return a database-obj with RBTREE index backend
+   */
+  @Ignore
+  public static Database<JsonResourceSession> getDatabaseWithRedBlackTreeIndexes(final Path file) {
+    if (INSTANCES.containsKey(file)) {
+      return INSTANCES.get(file);
+    } else {
+      final DatabaseConfiguration config = new DatabaseConfiguration(file);
+      if (!Files.exists(file)) {
+        Databases.createJsonDatabase(config);
+      }
+      final var database = Databases.openJsonDatabase(file);
+      if (!database.existsResource(RESOURCE)) {
+        database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+            .indexBackendType(IndexBackendType.RBTREE)
+            .build());
+      }
+      INSTANCES.put(file, database);
+      return database;
     }
   }
 
