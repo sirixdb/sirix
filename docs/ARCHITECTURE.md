@@ -5,13 +5,17 @@
 1. [Overview](#overview)
 2. [Core Design Principles](#core-design-principles)
 3. [System Architecture](#system-architecture)
-4. [Storage Engine](#storage-engine)
-5. [Page Structure](#page-structure)
-6. [MVCC & Versioning](#mvcc--versioning)
-7. [Transaction Model](#transaction-model)
-8. [Index Architecture](#index-architecture)
-9. [Query Processing](#query-processing)
-10. [Memory Management](#memory-management)
+4. [Query Processing](#query-processing) ← User-facing layer
+5. [Document Model & Navigation](#document-model--navigation) ← Nodes & Axes
+6. [Index Architecture](#index-architecture)
+7. [Storage Engine](#storage-engine)
+8. [Page Structure](#page-structure)
+9. [MVCC & Versioning](#mvcc--versioning)
+10. [Transaction Model](#transaction-model)
+11. [Memory Management](#memory-management)
+12. [Data Integrity](#data-integrity)
+13. [Performance Characteristics](#performance-characteristics)
+14. [Configuration Reference](#configuration-reference)
 
 ---
 
@@ -140,6 +144,400 @@ sirix/bundles/
 ├── sirix-kotlin-api/    # Kotlin extensions
 ├── sirix-distributed/   # Distributed features (experimental)
 └── sirix-examples/      # Usage examples
+```
+
+---
+
+## Query Processing
+
+SirixDB provides powerful query capabilities through the **Brackit** query processor.
+
+### XQuery/JSONiq Engine
+
+Supports:
+- **XQuery 3.1** for XML documents
+- **JSONiq** for JSON documents  
+- **Temporal extensions** for time-travel queries
+
+```xquery
+(: Time-travel query example :)
+let $doc := jn:open('mydb', 'myresource', xs:dateTime('2024-01-01T00:00:00'))
+for $user in $doc.users[]
+where $user.age > 25
+return {
+  "name": $user.name,
+  "revision": sdb:revision($user),
+  "previousValue": jn:previous($user).name
+}
+```
+
+### Query Execution Model
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                       Query Execution Pipeline                            │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│   JSONiq/XQuery ──► Parser ──► AST ──► Optimizer ──► Axis Iterators      │
+│                                                                           │
+│   Example: $doc.users[].name                                              │
+│                                                                           │
+│   1. Parse: ObjectDeref("users") → ArrayDeref → ObjectDeref("name")       │
+│   2. Optimize: Push predicates, select index                              │
+│   3. Execute: ChildAxis → ArrayAxis → ChildAxis + NameFilter              │
+│                                                                           │
+│   Each axis is a lazy iterator producing nodes on-demand.                 │
+│   Temporal functions (jn:previous, sdb:revision) open new transactions.   │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+### Temporal Query Functions
+
+| Function | Description |
+|----------|-------------|
+| `jn:open(db, resource, revision)` | Open specific revision by number |
+| `jn:open(db, resource, timestamp)` | Open revision at point-in-time |
+| `jn:previous($node)` | Get node from previous revision |
+| `jn:next($node)` | Get node from next revision |
+| `jn:all-times($node)` | Iterate all versions of node |
+| `sdb:revision($node)` | Get revision number |
+| `sdb:timestamp($node)` | Get commit timestamp |
+
+---
+
+## Document Model & Navigation
+
+This section describes how documents are structured as nodes and how queries navigate between them.
+
+### Node Structure
+
+Every document is stored as a tree of **nodes**, where each node has:
+- A unique `nodeKey` (64-bit integer, stable across all revisions)
+- Structural pointers (parent, children, siblings)
+- Type-specific data (values, names)
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                         Node Structure Overview                           │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  Every node has a unique nodeKey (64-bit) stable across all revisions     │
+│                                                                           │
+│  Base Node Fields (all nodes):                                            │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │ nodeKey           (64-bit)  Unique identifier, stable across time   │  │
+│  │ parentKey         (64-bit)  Parent node's key                       │  │
+│  │ previousRevision  (32-bit)  When node was created                   │  │
+│  │ lastModRevision   (32-bit)  When node was last modified             │  │
+│  │ hash              (64-bit)  Optional: rolling/postorder hash        │  │
+│  └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                           │
+│  Structural Node Fields (tree nodes):                                     │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │ firstChildKey     (64-bit)  First child's key                       │  │
+│  │ lastChildKey      (64-bit)  Last child's key                        │  │
+│  │ leftSiblingKey    (64-bit)  Left sibling's key                      │  │
+│  │ rightSiblingKey   (64-bit)  Right sibling's key                     │  │
+│  │ childCount        (64-bit)  Optional: number of children            │  │
+│  │ descendantCount   (64-bit)  Optional: number of descendants         │  │
+│  └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                           │
+│  Named Node Fields (elements, attributes, object keys):                   │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │ pathNodeKey       (64-bit)  Reference to PathSummary node (PCR)     │  │
+│  │ localNameKey      (32-bit)  Index into NamePage string table        │  │
+│  │ prefixKey         (32-bit)  XML namespace prefix (NamePage index)   │  │
+│  │ uriKey            (32-bit)  XML namespace URI (NamePage index)      │  │
+│  └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+### Node Types
+
+**JSON Node Types:**
+
+| NodeKind | ID | Description |
+|----------|-----|-------------|
+| JSON_DOCUMENT | 31 | JSON document root |
+| OBJECT | 24 | JSON object `{ }` |
+| ARRAY | 25 | JSON array `[ ]` |
+| OBJECT_KEY | 26 | Object key (field name) |
+| STRING_VALUE | 26 | String value `"text"` |
+| NUMBER_VALUE | 28 | Number value `123.45` |
+| BOOLEAN_VALUE | 27 | Boolean value `true`/`false` |
+| NULL_VALUE | 29 | Null value `null` |
+
+**XML Node Types:**
+
+| NodeKind | ID | Description |
+|----------|-----|-------------|
+| ELEMENT | 1 | XML element with optional attributes/namespaces |
+| ATTRIBUTE | 2 | Attribute node |
+| NAMESPACE | 4 | Namespace declaration |
+| TEXT | 6 | Text content node |
+| PROCESSING_INSTRUCTION | 7 | Processing instruction |
+| COMMENT | 8 | Comment node |
+| XML_DOCUMENT | 9 | Document root |
+
+### Example: JSON Document Structure
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                   JSON Document with All Node Types                       │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  Document: {"name":"Alice","age":30,"active":true,"address":null,         │
+│             "tags":["dev","lead"]}                                        │
+│                                                                           │
+│  Tree Structure:                                                          │
+│                                                                           │
+│  JSON_DOCUMENT (key=0)                                                    │
+│       │                                                                   │
+│       └── OBJECT (key=1)                                                  │
+│            ├── OBJECT_KEY "name" (key=2) ──► STRING_VALUE "Alice" (key=3) │
+│            ├── OBJECT_KEY "age" (key=4)  ──► NUMBER_VALUE 30 (key=5)      │
+│            ├── OBJECT_KEY "active" (key=6) ► BOOLEAN_VALUE true (key=7)   │
+│            ├── OBJECT_KEY "address" (key=8) ► NULL_VALUE (key=9)          │
+│            └── OBJECT_KEY "tags" (key=10)                                 │
+│                     └── ARRAY (key=11)                                    │
+│                          ├── STRING_VALUE "dev" (key=12)                  │
+│                          └── STRING_VALUE "lead" (key=13)                 │
+│                                                                           │
+│  Navigation: nodeKey 2 has parentKey=1, rightSiblingKey=4                 │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+### Navigation Axes
+
+Axes are iterators that traverse from a context node to related nodes. SirixDB provides both **spatial axes** (within a revision) and **temporal axes** (across revisions).
+
+#### Spatial Axes
+
+| Axis | Direction | Description |
+|------|-----------|-------------|
+| `ChildAxis` | Down | Direct children only |
+| `DescendantAxis` | Down | All descendants (depth-first) |
+| `ParentAxis` | Up | Direct parent |
+| `AncestorAxis` | Up | All ancestors to root |
+| `FollowingSiblingAxis` | Right | Siblings after this node |
+| `PrecedingSiblingAxis` | Left | Siblings before this node |
+| `SelfAxis` | None | The node itself |
+
+```java
+// Example: iterate all children
+try (var rtx = resource.beginNodeReadOnlyTrx()) {
+    rtx.moveTo(parentNodeKey);
+    for (var axis = new ChildAxis(rtx); axis.hasNext(); ) {
+        axis.nextLong();
+        System.out.println(rtx.getName() + ": " + rtx.getValue());
+    }
+}
+```
+
+#### Temporal Axes
+
+Navigate the same node across different revisions:
+
+| Axis | Description |
+|------|-------------|
+| `AllTimeAxis` | All revisions where node exists |
+| `PastAxis` | Previous revisions (oldest first or newest first) |
+| `FutureAxis` | Later revisions |
+| `FirstAxis` | First revision where node existed |
+| `LastAxis` | Most recent revision |
+| `PreviousAxis` | Immediately preceding revision |
+| `NextAxis` | Immediately following revision |
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                         Temporal Navigation                               │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  Timeline:  Rev 1 ──► Rev 2 ──► Rev 3 ──► Rev 4 ──► Rev 5                 │
+│                                    ▲                                      │
+│                               Current Node                                │
+│                                                                           │
+│  PastAxis:        Rev 1, Rev 2 (iterations before Rev 3)                  │
+│  FutureAxis:      Rev 4, Rev 5 (iterations after Rev 3)                   │
+│  AllTimeAxis:     Rev 1, Rev 2, Rev 3, Rev 4, Rev 5                       │
+│  PreviousAxis:    Rev 2 (one step back)                                   │
+│  NextAxis:        Rev 4 (one step forward)                                │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Combining Spatial and Temporal
+
+```java
+// Get all versions of all children
+try (var rtx = resource.beginNodeReadOnlyTrx()) {
+    rtx.moveTo(parentKey);
+    var childAxis = new ChildAxis(rtx);
+    while (childAxis.hasNext()) {
+        childAxis.nextLong();
+        var allTimeAxis = new AllTimeAxis(resource, rtx);
+        while (allTimeAxis.hasNext()) {
+            var historicalRtx = allTimeAxis.next();
+            // historicalRtx points to this child in a different revision
+        }
+    }
+}
+```
+
+### Physical Storage: No Pointer Chasing
+
+Node keys are **logical identifiers**, not memory pointers. Nodes are stored contiguously in `KeyValueLeafPages` for cache locality:
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                    Logical Keys → Physical Storage                        │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  nodeKey = 5000                                                           │
+│      │                                                                    │
+│      ├──► pageKey = 5000 >> 10 = 4  (which KeyValueLeafPage)              │
+│      └──► slotIndex = 5000 & 1023 = 904  (which slot in page)             │
+│                                                                           │
+│  KeyValueLeafPage #4:                                                     │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │ MemorySegment (off-heap, up to 1024 nodes)                          │  │
+│  │ ┌──────┬──────┬──────┬─────────────────────────┬──────┬──────────┐  │  │
+│  │ │ [0]  │ [1]  │ [2]  │ ... contiguous nodes ...│ [904]│   ...    │  │  │
+│  │ │ Node │ Node │ Node │                         │ Node │          │  │  │
+│  │ └──────┴──────┴──────┴─────────────────────────┴──────┴──────────┘  │  │
+│  └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                           │
+│  Benefits:                                                                │
+│  • Cache-friendly: nodes in same page are nearby in memory                │
+│  • O(1) lookup: trie navigation + slot index                              │
+│  • No pointer chasing: direct offset calculation                          │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Index Architecture
+
+### Index Types
+
+```mermaid
+graph TB
+    subgraph "Primary Indexes"
+        DOC[Document Index<br/>Node tree structure]
+        PATH_SUM[Path Summary<br/>Unique path classes]
+    end
+
+    subgraph "Secondary Indexes"
+        PATH[Path Index<br/>PCR → NodeKeys]
+        NAME[Name Index<br/>NameHash → NodeKeys]
+        CAS[CAS Index<br/>Value+Path → NodeKeys]
+    end
+
+    subgraph "Index Backends"
+        RBTREE[RBTree<br/>Nodes in KeyValueLeafPages]
+        HOT[HOT Trie<br/>HOTIndirectPage → HOTLeafPage]
+    end
+
+    PATH --> RBTREE
+    PATH --> HOT
+    NAME --> RBTREE
+    NAME --> HOT
+    CAS --> RBTREE
+```
+
+**Important**: The two index backends use different storage structures:
+
+| Backend | Page Structure | Leaf Page Type |
+|---------|----------------|----------------|
+| **RBTree** | `IndexPage` → `IndirectPages` → `KeyValueLeafPage` | RBTree nodes stored as records |
+| **HOT** | `IndexPage` → `HOTIndirectPage` → `HOTLeafPage` | Sorted key-value entries |
+
+- RBTree: Uses the standard trie (IndirectPages) with RB-tree nodes in KeyValueLeafPages
+- HOT: Uses its own trie structure (HOTIndirectPage) with specialized HOTLeafPages
+
+### Path Summary
+
+The **Path Summary** is a compressed representation of all unique paths in the document:
+
+```
+Document:                          Path Summary:
+─────────                          ─────────────
+{                                  /             (PCR=0)
+  "users": [                       ├─ users      (PCR=1)
+    {                              │  └─ []      (PCR=2)
+      "name": "Alice",             │     ├─ name (PCR=3)
+      "age": 30                    │     └─ age  (PCR=4)
+    },                             
+    {                              PCR = Path Class Reference
+      "name": "Bob",               Each unique path gets one PCR
+      "age": 25                    Nodes reference their PCR
+    }                              
+  ]                                
+}                                  
+```
+
+### HOT (Height-Optimized Trie) Index
+
+The HOT index is a cache-friendly alternative to B-trees:
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                    HOT Index Structure                                    │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  Traditional B-Tree:           HOT Trie:                                  │
+│  ─────────────────            ─────────                                   │
+│                                                                           │
+│       [Root]                       [Compound Node]                        │
+│      /      \                     /    |    |    \                        │
+│    [A]      [B]              [C1] [C2] [C3] [C4]                          │
+│   / | \    / | \                                                          │
+│  ...      ...                 Multiple levels collapsed                   │
+│                               into single cache-friendly node             │
+│                                                                           │
+│  Node Types:                                                              │
+│  ┌──────────┬──────────────────────────────────────────────────────────┐  │
+│  │ BiNode   │ 2 children, 1 discriminative bit                         │  │
+│  ├──────────┼──────────────────────────────────────────────────────────┤  │
+│  │ SpanNode │ 2-16 children, SIMD-optimized partial key search         │  │
+│  ├──────────┼──────────────────────────────────────────────────────────┤  │
+│  │ MultiNode│ 17-256 children, direct byte indexing                    │  │
+│  └──────────┴──────────────────────────────────────────────────────────┘  │
+│                                                                           │
+│  HOTLeafPage:                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │ [key₁|value₁][key₂|value₂][key₃|value₃]...                          │  │
+│  │ Sorted entries, binary search, off-heap MemorySegment               │  │
+│  └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+### Index Configuration
+
+```java
+// Create a path index for specific paths
+IndexDef pathIdx = IndexDefs.createPathIdxDef(
+    Set.of(parse("/users/[]/name")), 
+    0, 
+    IndexDef.DbType.JSON
+);
+
+// Create a name index for all field names
+IndexDef nameIdx = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+
+// Create a CAS index for value queries
+IndexDef casIdx = IndexDefs.createCASIdxDef(
+    false,                    // not unique
+    Type.STR,                 // string values
+    Set.of(parse("/users/[]/name")),
+    0,
+    IndexDef.DbType.JSON
+);
 ```
 
 ---
@@ -518,18 +916,24 @@ graph LR
         D1 --> D4[Rev 4<br/>Full]
     end
 
-    subgraph "SLIDING_SNAPSHOT"
-        S1[Window N] --> S2[Window N+1]
-        S2 --> S3[Window N+2]
+    subgraph "SLIDING_SNAPSHOT (window=3)"
+        direction TB
+        S1[Rev 1<br/>🟢 Full]
+        S2[Rev 2<br/>Δ]
+        S3[Rev 3<br/>Δ]
+        S4[Rev 4<br/>Δ + preserve]
+        S1 --> S2 --> S3
+        S3 --> S4
+        S1 -.->|"slot 3 preserved"| S4
     end
 ```
 
 | Strategy | Read Cost | Write Cost | Storage | Use Case |
 |----------|-----------|------------|---------|----------|
 | **FULL** | O(1) | High | Highest | Read-heavy, infrequent updates |
-| **INCREMENTAL** | O(k) | Low | Low | Frequent small updates |
+| **INCREMENTAL** | O(k) | Low | Lowest | Frequent small updates |
 | **DIFFERENTIAL** | O(1) | Medium | Medium | Balanced read/write |
-| **SLIDING_SNAPSHOT** | O(1)-O(k) | Low | Lowest | Time-windowed queries |
+| **SLIDING_SNAPSHOT** | O(1)-O(k) | Medium | Medium | Bounded reconstruction cost |
 
 ### How Versioning Algorithms Work
 
@@ -643,7 +1047,10 @@ Each delta references the last full snapshot (not the previous revision).
 
 #### SLIDING_SNAPSHOT Versioning
 
-Combines INCREMENTAL with garbage collection of old revisions.
+Like INCREMENTAL, but with a bounded fragment chain (window). When a page fragment
+falls OUT of the window, records that haven't been overwritten by newer fragments
+are preserved by writing them to the new revision's page. This ensures bounded
+reconstruction cost (max `revisionsToRestore` fragments).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -651,29 +1058,32 @@ Combines INCREMENTAL with garbage collection of old revisions.
 │                      (window size = 4 revisions)                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│   Time ──────────────────────────────────────────────────────────────►      │
+│   Algorithm (from VersioningType.SLIDING_SNAPSHOT):                         │
+│   ─────────────────────────────────────────────────                         │
+│   1. Load up to (revToRestore - 1) fragment references                      │
+│   2. If there's an out-of-window page:                                      │
+│      - Find records NOT overwritten by in-window fragments                  │
+│      - Mark those records for preservation in new page                      │
+│   3. Write new delta + preserved out-of-window records                      │
 │                                                                             │
-│   Window at T=4:  [Rev 1][Rev 2][Rev 3][Rev 4]                              │
-│                    ↑                      ↑                                 │
-│                   FULL                  Current                             │
+│   Example (window = 4):                                                     │
 │                                                                             │
-│   Window at T=5:       [Rev 2][Rev 3][Rev 4][Rev 5]                         │
-│                         ↑                      ↑                            │
-│                        FULL                  Current                        │
-│                   (Rev 1 garbage collected)                                 │
+│   Rev 1: [FULL: slots 0,1,2,3]                                              │
+│   Rev 2: [Δ: slot 1 modified]                                               │
+│   Rev 3: [Δ: slot 2 modified]                                               │
+│   Rev 4: [Δ: slot 0 modified]                                               │
+│   Rev 5: Writing...                                                         │
+│          - Window: Rev 2,3,4 (3 fragments)                                  │
+│          - Out-of-window: Rev 1                                             │
+│          - Slot 3 from Rev 1 NOT in window → preserve in Rev 5              │
+│          - Rev 5 contains: [Δ: slot 3 preserved + any new changes]          │
 │                                                                             │
-│   Window at T=8:                 [Rev 5][Rev 6][Rev 7][Rev 8]               │
-│                                   ↑                      ↑                  │
-│                                  FULL                  Current              │
-│                             (Rev 2,3,4 garbage collected)                   │
+│   Fragment chain always bounded:                                            │
+│   • Max fragments to combine = revToRestore                                 │
+│   • Oldest fragments dropped from reference list (not physically deleted)  │
+│   • Storage NOT reclaimed (append-only)                                     │
 │                                                                             │
-│   Storage Behavior:                                                         │
-│   ─────────────────                                                         │
-│   • Full snapshot at start of each window                                   │
-│   • Deltas within window (like INCREMENTAL)                                 │
-│   • Old revisions outside window can be reclaimed                           │
-│                                                                             │
-│   Use Case: Audit logs, recent history queries, storage-constrained         │
+│   Use Case: Bounded read cost, better write locality than INCREMENTAL       │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -697,6 +1107,120 @@ During commit, the storage engine:
 3. Writes to append-only data file
 4. Creates `PageFragmentKey` pointing to new fragment
 5. Links to previous fragments in `PageReference.pageFragments`
+
+### Fragment Fetching & Recombination
+
+When reading a page, fragments must be **fetched** from storage and **recombined** into a complete page:
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                   Fragment Fetching Pipeline                              │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  PageReference                                                            │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │ key: 12345                    (current fragment offset)             │  │
+│  │ pageFragments: [              (chain of older fragments)            │  │
+│  │   {rev=5, key=10200},                                               │  │
+│  │   {rev=3, key=8100},                                                │  │
+│  │   {rev=1, key=5000}                                                 │  │
+│  │ ]                                                                   │  │
+│  └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                           │
+│  Fetching (NodeStorageEngineReader.getRecordPage):                        │
+│  ─────────────────────────────────────────────────                        │
+│  1. Read current fragment from offset 12345                               │
+│  2. Decompress (LZ4/Zstd)                                                 │
+│  3. Deserialize into KeyValueLeafPage                                     │
+│  4. If delta page, fetch previous fragments from pageFragments chain      │
+│  5. Repeat until full page found or chain exhausted                       │
+│                                                                           │
+│  Fragment Chain (newest → oldest):                                        │
+│                                                                           │
+│  [Rev 7 Δ] → [Rev 5 Δ] → [Rev 3 Δ] → [Rev 1 FULL]                         │
+│     ↑           ↑           ↑            ↑                                │
+│   current    fragment[0]  fragment[1]  fragment[2]                        │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                   Fragment Recombination Algorithm                        │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  combineRecordPages(List<Page> fragments):                                │
+│  ─────────────────────────────────────────                                │
+│                                                                           │
+│  Input: [Rev7, Rev5, Rev3, Rev1] (newest first)                           │
+│                                                                           │
+│  Algorithm:                                                               │
+│  1. Create empty result page                                              │
+│  2. Use bitmap to track which slots are filled (1024 bits)                │
+│  3. For each fragment (newest → oldest):                                  │
+│     a. Get populated slots from fragment                                  │
+│     b. For each slot NOT already in result:                               │
+│        - Copy record to result                                            │
+│        - Mark slot as filled in bitmap                                    │
+│     c. If all 1024 slots filled → stop early                              │
+│  4. Return reconstructed page                                             │
+│                                                                           │
+│  Visual Example (slots 0-5 only):                                         │
+│  ────────────────────────────────                                         │
+│                                                                           │
+│  Rev 7 (Δ):  [_][_][C][_][_][_]  → Result: [_][_][C][_][_][_]             │
+│  Rev 5 (Δ):  [_][B][_][_][E][_]  → Result: [_][B][C][_][E][_]             │
+│  Rev 3 (Δ):  [_][_][_][D][_][_]  → Result: [_][B][C][D][E][_]             │
+│  Rev 1 (F):  [A][X][X][X][X][F]  → Result: [A][B][C][D][E][F]             │
+│                                                                           │
+│  Key: Newer values "win" - slot 1 has B (Rev5), not X (Rev1)              │
+│                                                                           │
+│  Complexity: O(k × m) where k=fragments, m=avg populated slots            │
+│  Optimization: Bitmap iteration instead of O(1024) scan                   │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│              Strategy-Specific Recombination Behavior                     │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  FULL:                                                                    │
+│  ─────                                                                    │
+│  • Only 1 fragment (the current full page)                                │
+│  • No recombination needed                                                │
+│  • Read cost: O(1)                                                        │
+│                                                                           │
+│  INCREMENTAL:                                                             │
+│  ────────────                                                             │
+│  • Chain of deltas until a full page                                      │
+│  • Must combine all fragments                                             │
+│  • Chain length limited by `revisionsToRestore`                           │
+│  • Read cost: O(k) where k = chain length                                 │
+│                                                                           │
+│  DIFFERENTIAL:                                                            │
+│  ─────────────                                                            │
+│  • Each delta references a base full page directly                        │
+│  • Only 2 fragments needed: current delta + base full                     │
+│  • Read cost: O(1) (always 2 fragments max)                               │
+│                                                                           │
+│  SLIDING_SNAPSHOT:                                                        │
+│  ─────────────────                                                        │
+│  • Like INCREMENTAL but chain bounded by window size                      │
+│  • Out-of-window records preserved in newer fragments                     │
+│  • Read cost: O(window_size) worst case                                   │
+│  • No unbounded chain growth                                              │
+│                                                                           │
+│  Cache Behavior:                                                          │
+│  ───────────────                                                          │
+│  • Reconstructed pages cached in BufferManager                            │
+│  • Subsequent reads hit cache (no reconstruction)                         │
+│  • Cache key: (pageKey, revision)                                         │
+│  • Invalidation: only on new revision commit                              │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
 
 ### PageContainer: Complete vs Modified
 
@@ -833,619 +1357,6 @@ The TIL holds uncommitted modifications during a write transaction:
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Node Encoding
-
-SirixDB stores document nodes with structural pointers enabling efficient navigation:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         Node Structure Overview                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   Every node has a unique nodeKey (64-bit) stable across all revisions      │
-│                                                                             │
-│   Base Node Fields (all nodes):                                             │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │ nodeKey           (64-bit)  Unique identifier, stable across time   │   │
-│   │ parentKey         (64-bit)  Parent node's key                       │   │
-│   │ previousRevision  (32-bit)  When node was created                   │   │
-│   │ lastModRevision   (32-bit)  When node was last modified             │   │
-│   │ hash              (64-bit)  Optional: rolling/postorder hash        │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│   Structural Node Fields (tree nodes):                                      │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │ firstChildKey     (64-bit)  First child's key                       │   │
-│   │ lastChildKey      (64-bit)  Last child's key                        │   │
-│   │ leftSiblingKey    (64-bit)  Left sibling's key                      │   │
-│   │ rightSiblingKey   (64-bit)  Right sibling's key                     │   │
-│   │ childCount        (64-bit)  Optional: number of children            │   │
-│   │ descendantCount   (64-bit)  Optional: number of descendants         │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│   Named Node Fields (elements, attributes, object keys):                    │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │ pathNodeKey       (64-bit)  Reference to PathSummary node (PCR)     │   │
-│   │ localNameKey      (32-bit)  Index into NamePage string table        │   │
-│   │ prefixKey         (32-bit)  XML namespace prefix (NamePage index)   │   │
-│   │ uriKey            (32-bit)  XML namespace URI (NamePage index)      │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### Node Types
-
-**XML Node Types:**
-
-| NodeKind | ID | Description |
-|----------|-----|-------------|
-| ELEMENT | 1 | XML element with optional attributes/namespaces |
-| ATTRIBUTE | 2 | Attribute node |
-| NAMESPACE | 4 | Namespace declaration |
-| TEXT | 6 | Text content node |
-| PROCESSING_INSTRUCTION | 7 | Processing instruction |
-| COMMENT | 8 | Comment node |
-| XML_DOCUMENT | 9 | Document root |
-
-**JSON Node Types:**
-
-| NodeKind | ID | Description |
-|----------|-----|-------------|
-| JSON_DOCUMENT | 31 | JSON document root |
-| OBJECT | 24 | JSON object `{ }` |
-| ARRAY | 25 | JSON array `[ ]` |
-| OBJECT_KEY | 26 | Object key (field name) |
-| STRING_VALUE | 26 | String value `"text"` |
-| NUMBER_VALUE | 28 | Number value `123.45` |
-| BOOLEAN_VALUE | 27 | Boolean value `true`/`false` |
-| NULL_VALUE | 29 | Null value `null` |
-
-#### Serialization Format
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    Node Serialization Layout                            │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  On-Disk Format (per node in KeyValueLeafPage):                         │
-│  ┌─────┬─────────────────────────────────────────────────────────────┐  │
-│  │ 1B  │ NodeKind ID                                                 │  │
-│  ├─────┼─────────────────────────────────────────────────────────────┤  │
-│  │ var │ Structural fields (delta-encoded for JSON, fixed for XML)   │  │
-│  ├─────┼─────────────────────────────────────────────────────────────┤  │
-│  │ var │ Type-specific fields (name keys, value bytes, etc.)         │  │
-│  └─────┴─────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-│  Optimizations:                                                         │
-│  • Delta encoding: sibling/parent keys stored as offset from nodeKey    │
-│  • VarInt encoding: small values use fewer bytes                        │
-│  • String compression: FSST (Fast Static Symbol Table) for text         │
-│  • DeweyID compression: delta-encoded hierarchical IDs                  │
-│                                                                         │
-│  Example JSON StringNode serialization:                                 │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │ [1B kind][varInt parentDelta][varInt leftSib][varInt rightSib]    │  │
-│  │ [varInt prevRev][varInt lastModRev][8B hash][1B compressed]       │  │
-│  │ [varInt valueLen][valueLen bytes]                                 │  │
-│  └───────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-#### Example: JSON Document Node Structure
-
-```
-┌───────────────────────────────────────────────────────────────────────────┐
-│              JSON Document Example with All Node Types                    │
-├───────────────────────────────────────────────────────────────────────────┤
-│                                                                           │
-│  JSON Document:                                                           │
-│  {                                                                        │
-│    "name": "Alice",                                                       │
-│    "age": 30,                                                             │
-│    "active": true,                                                        │
-│    "address": null,                                                       │
-│    "tags": ["dev", "lead"]                                                │
-│  }                                                                        │
-│                                                                           │
-│  Node Tree:                                                               │
-│  ══════════                                                               │
-│                                                                           │
-│  ┌────────────────────────────────────────────────────────────────────┐   │
-│  │ JSON_DOCUMENT (nodeKey=0)                                          │   │
-│  │ Type: Document root                                                │   │
-│  └───────────────────────────────┬────────────────────────────────────┘   │
-│                                  │ firstChild                             │
-│                                  ▼                                        │
-│  ┌────────────────────────────────────────────────────────────────────┐   │
-│  │ OBJECT (nodeKey=1)                                                 │   │
-│  │ Type: JSON object { }                                              │   │
-│  │ childCount: 5                                                      │   │
-│  └───────────────────────────────┬────────────────────────────────────┘   │
-│                                  │ firstChild                             │
-│      ┌───────────────────────────┼───────────────────────────┐            │
-│      ▼                           │                           │            │
-│  ┌────────────────┐  rightSib    ▼          rightSib         ▼            │
-│  │ OBJECT_KEY     │─────────►┌────────────┐─────────►┌────────────┐       │
-│  │ (nodeKey=2)    │          │ OBJECT_KEY │          │ OBJECT_KEY │       │
-│  │ name: "name"   │          │ (nodeKey=4)│          │ (nodeKey=6)│       │
-│  │ localNameKey→  │          │ name:"age" │          │name:"active│       │
-│  │   NamePage[0]  │          └─────┬──────┘          └─────┬──────┘       │
-│  └───────┬────────┘                │                       │              │
-│          │ firstChild              │ firstChild            │ firstChild   │
-│          ▼                         ▼                       ▼              │
-│  ┌────────────────┐        ┌────────────────┐      ┌────────────────┐     │
-│  │ STRING_VALUE   │        │ NUMBER_VALUE   │      │ BOOLEAN_VALUE  │     │
-│  │ (nodeKey=3)    │        │ (nodeKey=5)    │      │ (nodeKey=7)    │     │
-│  │ value: "Alice" │        │ value: 30      │      │ value: true    │     │
-│  │ (FSST compress)│        │ (8-byte double)│      │ (1-bit flag)   │     │
-│  └────────────────┘        └────────────────┘      └────────────────┘     │
-│                                                                           │
-│  ... continuing siblings:                                                 │
-│                                                                           │
-│  ┌────────────────┐  rightSib ┌────────────────┐                          │
-│  │ OBJECT_KEY     │──────────►│ OBJECT_KEY     │                          │
-│  │ (nodeKey=8)    │           │ (nodeKey=10)   │                          │
-│  │ name:"address" │           │ name: "tags"   │                          │
-│  └───────┬────────┘           └───────┬────────┘                          │
-│          │ firstChild                 │ firstChild                        │
-│          ▼                            ▼                                   │
-│  ┌────────────────┐           ┌────────────────┐                          │
-│  │ NULL_VALUE     │           │ ARRAY          │                          │
-│  │ (nodeKey=9)    │           │ (nodeKey=11)   │                          │
-│  │ (no payload)   │           │ childCount: 2  │                          │
-│  └────────────────┘           └───────┬────────┘                          │
-│                                       │ firstChild                        │
-│                          ┌────────────┴────────────┐                      │
-│                          ▼                         ▼                      │
-│                  ┌────────────────┐ rightSib ┌────────────────┐           │
-│                  │ STRING_VALUE   │─────────►│ STRING_VALUE   │           │
-│                  │ (nodeKey=12)   │          │ (nodeKey=13)   │           │
-│                  │ value: "dev"   │          │ value: "lead"  │           │
-│                  └────────────────┘          └────────────────┘           │
-│                                                                           │
-│  Node Key Mapping:                                                        │
-│  ─────────────────                                                        │
-│  nodeKey 0  → JSON_DOCUMENT  (root)                                       │
-│  nodeKey 1  → OBJECT         (main object)                                │
-│  nodeKey 2  → OBJECT_KEY     ("name")                                     │
-│  nodeKey 3  → STRING_VALUE   ("Alice")                                    │
-│  nodeKey 4  → OBJECT_KEY     ("age")                                      │
-│  nodeKey 5  → NUMBER_VALUE   (30)                                         │
-│  nodeKey 6  → OBJECT_KEY     ("active")                                   │
-│  nodeKey 7  → BOOLEAN_VALUE  (true)                                       │
-│  nodeKey 8  → OBJECT_KEY     ("address")                                  │
-│  nodeKey 9  → NULL_VALUE     (null)                                       │
-│  nodeKey 10 → OBJECT_KEY     ("tags")                                     │
-│  nodeKey 11 → ARRAY          (array container)                            │
-│  nodeKey 12 → STRING_VALUE   ("dev")                                      │
-│  nodeKey 13 → STRING_VALUE   ("lead")                                     │
-│                                                                           │
-└───────────────────────────────────────────────────────────────────────────┘
-```
-
-#### Node Relationships
-
-```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                        Node Pointer Structure                             │
-├───────────────────────────────────────────────────────────────────────────┤
-│                                                                           │
-│                            ┌─────────────┐                                │
-│                            │   Parent    │                                │
-│                            └──────┬──────┘                                │
-│                                   │ parentKey                             │
-│                                   ▼                                       │
-│  ┌─────────────┐ rightSibling ┌─────────────┐ rightSibling ┌───────────┐  │
-│  │ Left Sibling│◄─────────────│   Current   │─────────────►│  Right    │  │
-│  └─────────────┘ leftSibling  │    Node     │ leftSibling  │  Sibling  │  │
-│                               └──────┬──────┘              └───────────┘  │
-│                       firstChild │   │ lastChild                          │
-│                                  ▼   ▼                                    │
-│                            ┌───────────────┐                              │
-│                            │   Children    │                              │
-│                            │ (linked list) │                              │
-│                            └───────────────┘                              │
-│                                                                           │
-│  Navigation Complexity:                                                   │
-│  • parent()          O(1)  - direct lookup                                │
-│  • firstChild()      O(1)  - direct lookup                                │
-│  • lastChild()       O(1)  - direct lookup                                │
-│  • leftSibling()     O(1)  - direct lookup                                │
-│  • rightSibling()    O(1)  - direct lookup                                │
-│  • childAt(index)    O(n)  - must traverse sibling chain                  │
-│  • descendant(key)   O(log n) - trie lookup by nodeKey                    │
-│                                                                           │
-└───────────────────────────────────────────────────────────────────────────┘
-```
-
-#### Physical Storage: No Pointer Chasing
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                 Node Storage in KeyValueLeafPage                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   IMPORTANT: Node keys are NOT memory pointers!                             │
-│   ════════════════════════════════════════════════                          │
-│                                                                             │
-│   The "parentKey", "firstChildKey", etc. are LOGICAL identifiers that       │
-│   require a trie lookup to resolve. However, nodes are stored together      │
-│   in KeyValueLeafPages to maximize cache locality.                          │
-│                                                                             │
-│   KeyValueLeafPage (Off-Heap MemorySegment):                                │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │                                                                     │   │
-│   │   Up to 1024 nodes stored in CONTIGUOUS memory region               │   │
-│   │                                                                     │   │
-│   │   ┌──────────┬──────────┬──────────┬──────────┬─────────────────┐   │   │
-│   │   │ Node 0   │ Node 1   │ Node 2   │ Node 3   │ ... Node 1023   │   │   │
-│   │   │ (parent) │ (child1) │ (child2) │ (child3) │                 │   │   │
-│   │   └──────────┴──────────┴──────────┴──────────┴─────────────────┘   │   │
-│   │                                                                     │   │
-│   │   MemorySegment: native off-heap memory, cache-friendly layout      │   │
-│   │                                                                     │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│   Node Key Assignment:                                                      │
-│   ─────────────────────                                                     │
-│   • Nodes are assigned sequential keys during insertion                     │
-│   • Related nodes (parent + children) often land in same page               │
-│   • Page key = nodeKey / 1024 (determines which page)                       │
-│   • Slot index = nodeKey % 1024 (offset within page)                        │
-│                                                                             │
-│   Example:                                                                  │
-│   nodeKey 1000 → Page 0, Slot 1000                                          │
-│   nodeKey 1024 → Page 1, Slot 0                                             │
-│   nodeKey 2050 → Page 2, Slot 2                                             │
-│                                                                             │
-│   Cache Locality Benefits:                                                  │
-│   ─────────────────────────                                                 │
-│   • Sequential inserts keep related nodes in same page                      │
-│   • Descendants often share page with ancestors                             │
-│   • Single page load brings 1024 related nodes into cache                   │
-│   • Off-heap storage avoids GC pressure                                     │
-│                                                                             │
-│   Trie Lookup (nodeKey → Node):                                             │
-│   ──────────────────────────────                                            │
-│   1. Compute page key: nodeKey >> 10  (divide by 1024)                      │
-│   2. Navigate IndirectPage trie with 10-bit chunks                          │
-│   3. Load KeyValueLeafPage (likely already cached)                          │
-│   4. Direct slot access: slots[nodeKey & 1023]                              │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Navigation Axes
-
-SirixDB provides two categories of axes for document traversal:
-
-#### Spatial Axes (Within a Single Revision)
-
-Navigate the document tree structure within a single revision snapshot:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Spatial Axes                                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   Document Tree:                                                            │
-│                           ┌───────────┐                                     │
-│                           │   root    │                                     │
-│                           └─────┬─────┘                                     │
-│                    ┌────────────┼────────────┐                              │
-│                    │            │            │                              │
-│              ┌─────┴─────┐┌─────┴─────┐┌─────┴─────┐                        │
-│              │  child1   ││  child2   ││  child3   │                        │
-│              └─────┬─────┘└─────┬─────┘└───────────┘                        │
-│                    │            │                                           │
-│              ┌─────┴─────┐┌─────┴─────┐                                     │
-│              │grandchild1││grandchild2│                                     │
-│              └───────────┘└───────────┘                                     │
-│                                                                             │
-│   Axis             Description                    Example Nodes             │
-│   ─────────────────────────────────────────────────────────────────────     │
-│   ChildAxis        Direct children                child1, child2, child3    │
-│   ParentAxis       Direct parent                  root (from child1)        │
-│   DescendantAxis   All descendants                child1, grandchild1, ...  │
-│   AncestorAxis     All ancestors                  child1, root (from gc1)   │
-│   SelfAxis         Current node only              child1 (from child1)      │
-│   FollowingAxis    All nodes after in doc order   child2, child3, gc2       │
-│   PrecedingAxis    All nodes before in doc order  child1, gc1 (from child2) │
-│   FollowingSiblingAxis  Siblings after            child2, child3            │
-│   PrecedingSiblingAxis  Siblings before           child1 (from child2)      │
-│   LevelOrderAxis   Breadth-first traversal        root, c1, c2, c3, gc1...  │
-│   PostOrderAxis    Post-order traversal           gc1, c1, gc2, c2, c3, root│
-│                                                                             │
-│   Additional XML-specific axes:                                             │
-│   AttributeAxis    Attribute nodes of element                               │
-│   NamespaceAxis    Namespace nodes of element                               │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### Temporal Axes (Across Revisions)
-
-Navigate the same node across different revisions (time-travel):
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         Temporal Axes                                   │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  Revision Timeline:                                                     │
-│                                                                         │
-│  Rev 1      Rev 2      Rev 3      Rev 4      Rev 5      Rev 6           │
-│  ──┬──────────┬──────────┬──────────┬──────────┬──────────┬──           │
-│    │          │          │          │          │          │             │
-│  Node X    Node X    Node X    [deleted]  [deleted]  [deleted]          │
-│  v1        v2        v3                                                 │
-│    │          │          │                                              │
-│    │          │          └── Current transaction at Rev 3               │
-│    │          │                                                         │
-│  ◄─┴──────────┴─ PastAxis ───────────────────────────────────►          │
-│  ◄──────────────────────────────────── FutureAxis ───────────►          │
-│  ◄──────────────────────────────────── AllTimeAxis ──────────►          │
-│                                                                         │
-│  Axis             Description                                           │
-│  ─────────────────────────────────────────────────────────────────      │
-│  FirstAxis        Node in first revision where it exists (Rev 1)        │
-│  LastAxis         Node in most recent revision where it exists          │
-│  PreviousAxis     Node in previous revision (Rev 2 from Rev 3)          │
-│  NextAxis         Node in next revision (Rev 4 from Rev 3)              │
-│  PastAxis         Node in all earlier revisions (Rev 1, Rev 2)          │
-│  FutureAxis       Node in all later revisions (Rev 4+, if exists)       │
-│  AllTimeAxis      Node in ALL revisions (Rev 1, 2, 3)                   │
-│                                                                         │
-│  Usage Example:                                                         │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │ // Get node's history across all revisions                        │  │
-│  │ var allTimeAxis = new AllTimeAxis<>(session, rtx);                │  │
-│  │ while (allTimeAxis.hasNext()) {                                   │  │
-│  │     var historicalRtx = allTimeAxis.next();                       │  │
-│  │     System.out.println("Rev " + historicalRtx.getRevisionNumber() │  │
-│  │         + ": " + historicalRtx.getValue());                       │  │
-│  │     historicalRtx.close();  // Each iteration returns new rtx     │  │
-│  │ }                                                                 │  │
-│  └───────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-│  Key Points:                                                            │
-│  • Temporal axes open NEW read-only transactions for each revision      │
-│  • Each returned transaction must be closed by the caller               │
-│  • Node is tracked by its nodeKey (stable identifier)                   │
-│  • If node doesn't exist in a revision, that revision is skipped        │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-#### Combining Spatial and Temporal Axes
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                   Combining Spatial + Temporal Axes                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   Example: "Show me all children of this node in all past revisions"        │
-│                                                                             │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │ // Temporal navigation: past revisions                              │   │
-│   │ var pastAxis = new PastAxis<>(session, rtx, IncludeSelf.YES);       │   │
-│   │ while (pastAxis.hasNext()) {                                        │   │
-│   │     var histRtx = pastAxis.next();                                  │   │
-│   │                                                                     │   │
-│   │     // Spatial navigation: children in that revision                │   │
-│   │     var childAxis = new ChildAxis(histRtx);                         │   │
-│   │     while (childAxis.hasNext()) {                                   │   │
-│   │         childAxis.nextLong();  // primitive for performance         │   │
-│   │         System.out.println(histRtx.getName());                      │   │
-│   │     }                                                               │   │
-│   │     histRtx.close();                                                │   │
-│   │ }                                                                   │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### Filter and Concurrent Axes
-
-| Axis | Description |
-|------|-------------|
-| **FilterAxis** | Wraps another axis with predicate filters |
-| **PredicateFilterAxis** | XPath-style predicate evaluation |
-| **NestedAxis** | Combines multiple axes in sequence |
-| **ConcurrentAxis** | Parallel axis evaluation |
-| **ConcurrentUnionAxis** | Parallel union of multiple axes |
-| **ConcurrentIntersectAxis** | Parallel intersection |
-| **ConcurrentExceptAxis** | Parallel set difference |
-
----
-
-## Index Architecture
-
-### Index Types
-
-```mermaid
-graph TB
-    subgraph "Primary Indexes"
-        DOC[Document Index<br/>Node tree structure]
-        PATH_SUM[Path Summary<br/>Unique path classes]
-    end
-
-    subgraph "Secondary Indexes"
-        PATH[Path Index<br/>PCR → NodeKeys]
-        NAME[Name Index<br/>NameHash → NodeKeys]
-        CAS[CAS Index<br/>Value+Path → NodeKeys]
-    end
-
-    subgraph "Index Backends"
-        RBTREE[RBTree<br/>Nodes in KeyValueLeafPages]
-        HOT[HOT Trie<br/>HOTIndirectPage → HOTLeafPage]
-    end
-
-    PATH --> RBTREE
-    PATH --> HOT
-    NAME --> RBTREE
-    NAME --> HOT
-    CAS --> RBTREE
-```
-
-**Important**: The two index backends use different storage structures:
-
-| Backend | Page Structure | Leaf Page Type |
-|---------|----------------|----------------|
-| **RBTree** | `IndexPage` → `IndirectPages` → `KeyValueLeafPage` | RBTree nodes stored as records |
-| **HOT** | `IndexPage` → `HOTIndirectPage` → `HOTLeafPage` | Sorted key-value entries |
-
-- RBTree: Uses the standard trie (IndirectPages) with RB-tree nodes in KeyValueLeafPages
-- HOT: Uses its own trie structure (HOTIndirectPage) with specialized HOTLeafPages
-
-### Path Summary
-
-The **Path Summary** is a compressed representation of all unique paths in the document:
-
-```
-Document:                          Path Summary:
-─────────                          ─────────────
-{                                  /             (PCR=0)
-  "users": [                       ├─ users      (PCR=1)
-    {                              │  └─ []      (PCR=2)
-      "name": "Alice",             │     ├─ name (PCR=3)
-      "age": 30                    │     └─ age  (PCR=4)
-    },                             
-    {                              PCR = Path Class Reference
-      "name": "Bob",               Each unique path gets one PCR
-      "age": 25                    Nodes reference their PCR
-    }                              
-  ]                                
-}                                  
-```
-
-### HOT (Height-Optimized Trie) Index
-
-The HOT index is a cache-friendly alternative to B-trees:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    HOT Index Structure                                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   Traditional B-Tree:           HOT Trie:                                   │
-│   ─────────────────            ─────────                                    │
-│                                                                             │
-│        [Root]                       [Compound Node]                         │
-│       /      \                     /    |    |    \                         │
-│     [A]      [B]              [C1] [C2] [C3] [C4]                           │
-│    / | \    / | \                                                           │
-│   ...      ...                 Multiple levels collapsed                    │
-│                                into single cache-friendly node              │
-│                                                                             │
-│   Node Types:                                                               │
-│   ┌──────────┬──────────────────────────────────────────────────────────┐   │
-│   │ BiNode   │ 2 children, 1 discriminative bit                         │   │
-│   ├──────────┼──────────────────────────────────────────────────────────┤   │
-│   │ SpanNode │ 2-16 children, SIMD-optimized partial key search         │   │
-│   ├──────────┼──────────────────────────────────────────────────────────┤   │
-│   │ MultiNode│ 17-256 children, direct byte indexing                    │   │
-│   └──────────┴──────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│   HOTLeafPage:                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │ [key₁|value₁][key₂|value₂][key₃|value₃]...                          │   │
-│   │ Sorted entries, binary search, off-heap MemorySegment               │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Index Configuration
-
-```java
-// Create a path index for specific paths
-IndexDef pathIdx = IndexDefs.createPathIdxDef(
-    Set.of(parse("/users/[]/name")), 
-    0, 
-    IndexDef.DbType.JSON
-);
-
-// Create a name index for all field names
-IndexDef nameIdx = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
-
-// Create a CAS index for value queries
-IndexDef casIdx = IndexDefs.createCASIdxDef(
-    false,                    // not unique
-    Type.STR,                 // string values
-    Set.of(parse("/users/[]/name")),
-    0,
-    IndexDef.DbType.JSON
-);
-```
-
----
-
-## Query Processing
-
-### XQuery/JSONiq Engine
-
-SirixDB uses **Brackit** as its query processor, supporting:
-
-- **XQuery 3.1** for XML
-- **JSONiq** for JSON
-- **Temporal extensions** for time-travel queries
-
-```xquery
-(: Time-travel query example :)
-let $doc := jn:open('mydb', 'myresource', xs:dateTime('2024-01-01T00:00:00'))
-for $user in $doc.users[]
-where $user.age > 25
-return {
-  "name": $user.name,
-  "revision": sdb:revision($user),
-  "previousValue": jn:previous($user).name
-}
-```
-
-### Axis-Based Navigation
-
-```mermaid
-graph TB
-    subgraph "Navigation Axes"
-        CHILD[ChildAxis]
-        DESC[DescendantAxis]
-        PARENT[ParentAxis]
-        ANC[AncestorAxis]
-        SIB[SiblingAxis]
-    end
-
-    subgraph "Temporal Axes"
-        ALL_TIME[AllTimeAxis]
-        PAST[PastAxis]
-        FUTURE[FutureAxis]
-        FIRST[FirstAxis]
-        LAST[LastAxis]
-    end
-
-    subgraph "Filter Axes"
-        NAME_FILTER[NameFilter]
-        TYPE_FILTER[TypeFilter]
-        PATH_FILTER[PathFilter]
-    end
-
-    NODE[Current Node] --> CHILD
-    NODE --> DESC
-    NODE --> PARENT
-    NODE --> ANC
-    NODE --> SIB
-
-    NODE --> ALL_TIME
-    NODE --> PAST
-    NODE --> FUTURE
-
-    DESC --> NAME_FILTER
-    DESC --> TYPE_FILTER
-```
-
----
 
 ## Memory Management
 
