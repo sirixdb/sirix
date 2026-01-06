@@ -3,39 +3,308 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Core Design Principles](#core-design-principles)
-3. [System Architecture](#system-architecture)
-4. [Query Processing](#query-processing) ← User-facing layer
-5. [Document Model & Navigation](#document-model--navigation) ← Nodes & Axes
-6. [Index Architecture](#index-architecture)
-7. [Storage Engine](#storage-engine)
-8. [Page Structure](#page-structure)
-9. [MVCC & Versioning](#mvcc--versioning)
-10. [Transaction Model](#transaction-model)
-11. [Memory Management](#memory-management)
-12. [Data Integrity](#data-integrity)
-13. [Performance Characteristics](#performance-characteristics)
-14. [Configuration Reference](#configuration-reference)
+2. [The Hard Problems](#the-hard-problems) ← Why this is non-trivial
+3. [Core Design Principles](#core-design-principles)
+4. [System Architecture](#system-architecture)
+5. [Query Processing](#query-processing)
+6. [Document Model & Navigation](#document-model--navigation)
+7. [Index Architecture](#index-architecture)
+8. [Storage Engine](#storage-engine)
+9. [Page Structure](#page-structure)
+10. [MVCC & Versioning](#mvcc--versioning) ← Contains SLIDING_SNAPSHOT innovation
+11. [Transaction Model](#transaction-model)
+12. [Memory Management](#memory-management)
+13. [Data Integrity](#data-integrity)
+14. [Performance Characteristics](#performance-characteristics)
+15. [Configuration Reference](#configuration-reference)
 
 ---
 
 ## Overview
 
-SirixDB is an **embeddable, temporal, append-only database system** designed for storing and querying versioned semi-structured data (XML and JSON). Unlike traditional databases that overwrite data in place, SirixDB implements a **copy-on-write (CoW)** strategy that preserves complete revision history while minimizing storage overhead.
+**The core insight**: What if your database never forgot anything, and you could query any point in its history as fast as querying the present—without the storage exploding?
+
+SirixDB is a **temporal document store** that makes version control a first-class citizen of the storage engine itself. Every commit creates an immutable snapshot. Every revision is queryable. And unlike naive approaches that either copy everything (git-style) or maintain expensive logs (event sourcing), SirixDB achieves this through **structural sharing** and a novel **sliding snapshot** versioning algorithm.
+
+### What Makes This Hard
+
+Traditional approaches to temporal databases face an impossible trilemma:
+
+```
+                    ┌─────────────────────┐
+                    │   FAST READS        │
+                    │   (single lookup)   │
+                    └──────────┬──────────┘
+                               │
+              Pick two:        │
+                               │
+    ┌──────────────────────────┼──────────────────────────┐
+    │                          │                          │
+    ▼                          ▼                          ▼
+┌─────────────┐       ┌─────────────────┐       ┌─────────────┐
+│ FAST WRITES │       │ LOW STORAGE     │       │ BOUNDED     │
+│ (append Δ)  │       │ (share pages)   │       │ READ COST   │
+└─────────────┘       └─────────────────┘       └─────────────┘
+
+• Full snapshots:      Fast reads, but O(n) storage per revision
+• Delta chains:        Compact, but reads degrade to O(revisions)
+• Periodic snapshots:  Bounded reads, but write spikes during compaction
+```
+
+**SirixDB's answer**: The SLIDING_SNAPSHOT algorithm—formally verified—achieves all three without periodic compaction spikes. See [MVCC & Versioning](#mvcc--versioning).
 
 ### Key Characteristics
 
-| Feature | Description |
-|---------|-------------|
-| **Temporal** | Every revision is preserved and queryable via time-travel |
-| **Append-Only** | Never overwrites committed data (no WAL needed) |
-| **Embeddable** | Can be used as a library (like SQLite) or via REST API |
-| **MVCC** | Multi-Version Concurrency Control with snapshot isolation |
-| **Log-Structured** | Sequential writes optimized for SSDs/flash storage |
+| Feature | What it means | Why it matters |
+|---------|---------------|----------------|
+| **Temporal** | Every revision preserved | Git-like history for your data |
+| **Append-Only** | No in-place updates | No WAL needed, crash-safe by design |
+| **Copy-on-Write** | Modified pages copied, unchanged shared | O(Δ) storage per revision |
+| **Structural Sharing** | Unchanged subtrees reference existing pages | Billion-node docs with small revisions |
+| **Log-Structured** | Sequential writes only | SSD-friendly, no random write I/O |
+
+### Node Storage vs. Document Storage: Why It Matters
+
+> **SirixDB stores trees of nodes, not blobs of documents.** This isn't an implementation detail—it's a fundamental design choice with profound implications.
+
+Most document databases (MongoDB, CouchDB, etc.) treat a document as an opaque blob: store it, retrieve it, replace it. SirixDB takes a radically different approach—it understands the *structure* of your data.
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                   Document Store vs. Node Store                          │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│   Document Store (MongoDB, etc.)         Node Store (SirixDB)            │
+│   ──────────────────────────────         ─────────────────────           │
+│                                                                          │
+│   ┌─────────────────────────┐           ┌────┐                           │
+│   │ { "user": "alice",      │           │root│──────────────────┐        │
+│   │   "orders": [           │           └─┬──┘                  │        │
+│   │     { "id": 1, ... },   │    ┌───────┴───────┐              │        │
+│   │     { "id": 2, ... },   │   user           orders           │        │
+│   │     ...10000 orders...  │  "alice"    ┌────┴────┐           │        │
+│   │   ]                     │           [0]  [1] ... [9999]     │        │
+│   │ }                       │            │    │        │        │        │
+│   └─────────────────────────┘           {...}{...}   {...}      │        │
+│        ↓                                                        │        │
+│   Stored as ONE blob                    Each node stored        │        │
+│   Updated as ONE blob                   independently           │        │
+│   Limited by max doc size               No size limit!          │        │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Why this matters:**
+
+| Aspect | Document Store | SirixDB Node Store |
+|--------|----------------|-------------------|
+| **Size limits** | 16MB (MongoDB), 1MB (DynamoDB) | **Unlimited**—nodes stored independently |
+| **Update granularity** | Replace entire document | Write only changed nodes |
+| **Query efficiency** | Load doc, filter in app | Navigate directly to target nodes |
+| **Memory footprint** | Entire doc in memory | Stream nodes, never load full tree |
+| **Versioning granularity** | "Document changed" | "These specific nodes changed" |
+| **Diff precision** | "Something's different" | Exact path to every modified node |
+
+**Real-world implications:**
+
+1. **No artificial document splits**: A 100GB JSON dataset with millions of records? Store it as one logical resource. No need to shard by arbitrary boundaries.
+
+2. **Surgical updates**: Change one field in a deeply nested object? SirixDB writes just that node (and its path to the root). The document store rewrites everything.
+
+3. **Efficient streaming**: Process a billion-node tree without ever holding the full structure in memory. Navigate node-by-node.
+
+4. **Fine-grained history**: "Show me exactly which fields changed in the last 100 commits" is a fast index lookup, not a document-diff operation.
+
+5. **Partial materialization**: Need just one branch of a huge tree? Fetch and reconstruct only that subtree. The rest stays on disk.
+
+```xquery
+(: Navigate to a specific node in a 100GB resource - 
+   loads only the path, not the whole tree :)
+let $doc := jn:doc('huge', 'dataset')
+return $doc.customers[10000].orders[500].items[3].price
+```
+
+This query touches ~5 nodes, not 100GB.
+
+---
+
+## The Hard Problems: Why Bitemporal Storage Matters
+
+Before diving into the architecture, let's understand the *real-world problems* that shaped the design. These aren't academic exercises—they're scenarios where traditional databases force you into painful workarounds.
+
+---
+
+### Problem 1: "What did my data look like last Tuesday at 3pm?"
+
+**The Scenario**: Your e-commerce system processed 50,000 orders yesterday. A customer claims they were charged the wrong price. Your current database shows today's price. What was the price *at the moment of their order*?
+
+**Traditional Approach**: Hope you logged it. Build audit tables. Maintain change data capture pipelines. Query across multiple systems. Pray nothing was missed.
+
+**With SirixDB**:
+```xquery
+(: Query the exact state at the order timestamp :)
+let $catalog := jn:open('shop', 'products', xs:dateTime('2024-01-15T15:23:47Z'))
+return $catalog.products[.sku eq "SKU-12345"].price
+```
+
+One query. Exact answer. No audit infrastructure required—*the database remembers everything*.
+
+---
+
+### Problem 2: "Show me what changed between two points in time"
+
+**The Scenario**: Your configuration management system shows a production outage started at 2:00 AM. What configuration changes were made between the last known good state (midnight) and the incident?
+
+**Traditional Approach**: Diff log files. Compare backup snapshots. Write custom scripts to parse change logs. Miss the one change that mattered.
+
+**With SirixDB**:
+```xquery
+(: Get structured diffs between any two points in time :)
+let $midnight := jn:open('configs', 'production', xs:dateTime('2024-01-15T00:00:00Z'))
+let $incident := jn:open('configs', 'production', xs:dateTime('2024-01-15T02:00:00Z'))
+return jn:diff('configs', 'production', sdb:revision($midnight), sdb:revision($incident))
+```
+
+Returns a structured JSON diff showing exactly what was inserted, deleted, updated, and moved—with node-level precision.
+
+---
+
+### Problem 3: "Track how this specific record evolved over its entire lifetime"
+
+**The Scenario**: A patient's medical record shows an allergy. When was it added? Was it ever modified? By which revision?
+
+**Traditional Approach**: Build a separate history table. Maintain triggers. Hope the triggers don't miss edge cases. Query across temporal joins.
+
+**With SirixDB**:
+```xquery
+(: Every version of a specific node, across all time :)
+let $allergy := jn:doc('hospital', 'patient-123').allergies[.name eq "Penicillin"]
+for $version in jn:all-times($allergy)
+return {
+  "revision": sdb:revision($version),
+  "timestamp": sdb:timestamp($version),
+  "data": $version,
+  "changedFromPrevious": sdb:hash($version) ne sdb:hash(jn:previous($version))
+}
+```
+
+The node key is stable across all revisions. The built-in Merkle hash tree instantly detects if the subtree changed.
+
+---
+
+### Problem 4: "Find records that were added after a specific date and still exist"
+
+**The Scenario**: Regulatory audit requires identifying all customer accounts created after the new compliance rules took effect that are still active.
+
+**With SirixDB**:
+```xquery
+(: Find the revision number for the compliance cutoff date :)
+let $cutoffDoc := jn:open('bank', 'accounts', xs:dateTime('2024-06-01T00:00:00Z'))
+let $cutoffRev := sdb:revision($cutoffDoc)
+
+(: Query current state, filter by creation revision :)
+let $current := jn:doc('bank', 'accounts')
+for $account in $current.accounts[]
+where not(exists(jn:previous($account)))  (: First revision this account exists :)
+  and sdb:revision($account) > $cutoffRev
+return $account
+```
+
+`jn:previous()` navigates to the same node in the prior revision (if it existed). No separate "created_at" column needed—the revision history *is* the audit trail.
+
+---
+
+### Problem 5: "Undo the last 3 changes to this subtree"
+
+**The Scenario**: A bulk import corrupted part of your document. You need to restore just that subtree, not the entire database.
+
+**Traditional Approach**: Restore from backup (lose all other changes). Write complex update scripts. Hope you got the scope right.
+
+**With SirixDB**:
+```xquery
+(: Find the node 5 revisions ago and see its state :)
+let $currentDoc := jn:doc('mydb', 'myresource')
+let $currentRev := sdb:revision($currentDoc)
+let $nodeKey := 12345  (: Stable across all revisions :)
+
+(: Open the older revision and select the same node :)
+let $oldDoc := jn:doc('mydb', 'myresource', $currentRev - 5)
+let $oldVersion := sdb:select-item($oldDoc, $nodeKey)
+return $oldVersion  (: This is the exact state we want to restore :)
+```
+
+Node keys are stable. You can surgically access any subtree at any point in history.
+
+---
+
+### Problem 6: The History Table Performance Tax
+
+**The Scenario**: You implement temporal data the "standard" way—history tables with `valid_from` and `valid_to` timestamps on every row.
+
+**The Hidden Costs**:
+- **Index bloat**: Every index now includes timestamps. Your primary key index on `user_id` becomes `(user_id, valid_from, valid_to)`. 3x larger, less cache-friendly.
+- **Query overhead**: Every query needs `WHERE valid_from <= :timestamp AND valid_to > :timestamp`. The optimizer must scan timestamp ranges, not just key lookups.
+- **Write amplification**: Updating a row means INSERT new + UPDATE old row's `valid_to`. Two writes per logical change.
+- **Join complexity**: Joining two temporal tables? Now you're intersecting validity intervals. O(n²) potential matches.
+
+**With SirixDB**:
+- Indexes don't contain timestamps—they're *scoped to a revision*
+- Query revision 42? You get revision 42's index. No filtering required.
+- Each revision's index is O(1) to access via the revision root
+- Structural sharing means unchanged index pages aren't duplicated
+
+**"But don't you have to find the revision first?"**
+
+Yes! When querying by timestamp (e.g., `jn:open(..., xs:dateTime('2024-01-15T15:00:00Z'))`), SirixDB must find the corresponding revision:
+
+1. The `sirix.revisions` file stores: `[(rev, timestamp, offset), ...]`
+2. Binary search finds the revision for a timestamp: **O(log R)** where R = revisions
+3. After that, *all operations* in that revision are timestamp-free
+
+The key difference:
+```
+History table scanning 1000 products:
+  1000 × (index lookup + timestamp range filter)
+  = 1000 timestamp comparisons
+
+SirixDB scanning 1000 products:  
+  1 × O(log R) revision lookup + 1000 × (index lookup)
+  = 1 timestamp lookup total
+```
+
+And typically, you open a session on a revision and run many queries—so that one O(log R) cost is amortized across the entire session.
+
+---
+
+### Problem 7: Structural Sharing (Why Git Works)
+
+**The Insight**: Git doesn't copy your entire repo on each commit. It shares unchanged blobs and trees. SirixDB applies the same principle to database pages.
+
+**Traditional Temporal DBs**: Store full rows with validity periods. Even unchanged data has new timestamp metadata.
+
+**SirixDB**: Only *modified pages* are written. Unchanged subtrees reference existing pages across revisions. A 10GB document with 1000 revisions that change 0.1% each? ~20GB total, not 10TB.
+
+---
+
+### Problem 8: The Read Degradation Trap
+
+**The Problem**: Pure delta-based versioning (like INCREMENTAL) is compact, but reading revision 1000 means reconstructing from 1000 deltas. Reads degrade linearly with history depth.
+
+**SirixDB's Solution**: The **SLIDING_SNAPSHOT** algorithm bounds reconstruction to a constant window (typically 8 fragments), regardless of total revision count. Revision 1 and revision 10,000 have the same read performance.
+
+---
+
+### Problem 9: The Write Amplification Spike
+
+**The Problem**: To bound read cost, systems periodically write full snapshots. Every N revisions: write storm.
+
+**SirixDB's Solution**: SLIDING_SNAPSHOT *never* writes full snapshots after initialization. It selectively preserves only records falling out of the window—amortized O(1) extra writes per record. No spikes. Ever.
 
 ---
 
 ## Core Design Principles
+
+These aren't just nice-to-haves—they're load-bearing constraints that enable the solutions above:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -46,18 +315,19 @@ SirixDB is an **embeddable, temporal, append-only database system** designed for
 │  │   TEMPORAL   │    │   IMMUTABLE  │    │    SHARED    │               │
 │  │    FIRST     │    │     PAGES    │    │   STRUCTURE  │               │
 │  │              │    │              │    │              │               │
-│  │  Every rev   │    │   CoW with   │    │  Unchanged   │               │
-│  │  preserved   │    │  no in-place │    │  pages are   │               │
-│  │  & queryable │    │   updates    │    │   shared     │               │
+│  │  Not bolted  │    │   Once       │    │  Unchanged   │               │
+│  │  on—baked    │    │   written,   │    │  subtrees    │               │
+│  │  into core   │    │   never      │    │   reference  │               │
+│  │              │    │   modified   │    │   existing   │               │
 │  └──────────────┘    └──────────────┘    └──────────────┘               │
 │                                                                         │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐               │
-│  │  SSD/FLASH   │    │    CRASH     │    │   MINIMAL    │               │
-│  │   FRIENDLY   │    │     SAFE     │    │ WRITE AMPLIF │               │
+│  │  SSD/FLASH   │    │    CRASH     │    │   ZERO       │               │
+│  │   NATIVE     │    │    PROOF     │    │   WRITE AMP  │               │
 │  │              │    │              │    │              │               │
-│  │  Sequential  │    │  Atomic page │    │  Only delta  │               │
-│  │   batched    │    │  commits, no │    │   fragments  │               │
-│  │   writes     │    │  WAL needed  │    │   written    │               │
+│  │  Sequential  │    │  Commit =    │    │  No periodic │               │
+│  │  append-only │    │  fsync once  │    │  full page   │               │
+│  │  writes only │    │  No WAL/redo │    │  rewrites    │               │
 │  └──────────────┘    └──────────────┘    └──────────────┘               │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -150,26 +420,28 @@ sirix/bundles/
 
 ## Query Processing
 
-SirixDB provides powerful query capabilities through the **Brackit** query processor.
+> **Time-travel as a first-class operation**: Most databases let you query the present. Some let you restore backups. SirixDB lets you query *any point in history* with the same syntax and performance as querying now.
 
 ### XQuery/JSONiq Engine
 
-Supports:
-- **XQuery 3.1** for XML documents
-- **JSONiq** for JSON documents  
-- **Temporal extensions** for time-travel queries
+SirixDB uses **Brackit**, a high-performance query processor, extended with temporal primitives:
 
 ```xquery
-(: Time-travel query example :)
-let $doc := jn:open('mydb', 'myresource', xs:dateTime('2024-01-01T00:00:00'))
-for $user in $doc.users[]
-where $user.age > 25
+(: The killer feature: compare a node across time :)
+let $now := jn:doc('shop', 'products')  (: Most recent revision :)
+let $lastWeek := jn:open('shop', 'products', xs:dateTime('2024-12-30T00:00:00Z'))
+
+for $product in $now.products[]
+let $oldPrice := $lastWeek.products[.id eq $product.id].price
+where $product.price > $oldPrice * 1.1  (: Price increased >10% :)
 return {
-  "name": $user.name,
-  "revision": sdb:revision($user),
-  "previousValue": jn:previous($user).name
+  "name": $product.name,
+  "priceChange": $product.price - $oldPrice,
+  "changedInRevision": sdb:revision($product)
 }
 ```
+
+This query **joins data across time**—something that would require ETL pipelines, data warehouses, or manual snapshotting in traditional systems. Here, it's just a query.
 
 ### Query Execution Model
 
@@ -208,9 +480,11 @@ return {
 
 ## Document Model & Navigation
 
-This section describes how documents are structured as nodes and how queries navigate between them.
+> **The Abstraction**: To queries, documents look like trees you navigate with XPath-style axes. Under the hood, those "pointers" are actually node keys that resolve through the trie to contiguous memory regions. The abstraction is clean; the performance is physical.
 
 ### Node Structure
+
+**Stable identity across time**: Every node has a 64-bit `nodeKey` that never changes, even as the document evolves. Node 42 in revision 1 is the same logical entity as node 42 in revision 100 (if it still exists). This is what makes temporal queries like "show me how node 42 changed" possible.
 
 Every document is stored as a tree of **nodes**, where each node has:
 - A unique `nodeKey` (64-bit integer, stable across all revisions)
@@ -422,6 +696,10 @@ Node keys are **logical identifiers**, not memory pointers. Nodes are stored con
 
 ## Index Architecture
 
+> **The Challenge**: Most databases bolt on versioning to indexes as an afterthought. Result: your index at revision 42 might not match your data at revision 42. SirixDB indexes version *with* the data—same CoW infrastructure, same revision semantics.
+
+Secondary indexes answer the question: "Which nodes have property X?" Instead of scanning the entire document, look up X in an index and get back a bitmap of matching node keys.
+
 ### Index Types
 
 ```mermaid
@@ -543,6 +821,10 @@ IndexDef casIdx = IndexDefs.createCASIdxDef(
 ---
 
 ## Storage Engine
+
+> **Design Goal**: A single append-only file per resource. No WAL. No compaction. Just write pages sequentially and fsync once per commit.
+
+The storage engine is deceptively simple: pages go in, pages come out. The complexity lives in *which* pages to write and *how* to reconstruct them. That's where versioning strategies earn their keep.
 
 ### File Layout
 
@@ -699,6 +981,8 @@ IndexDef casIdx = IndexDefs.createCASIdxDef(
 
 ## Page Structure
 
+> **Key Insight**: Everything is a page. Documents, indexes, metadata—all stored in the same versioned page infrastructure. This uniformity is what makes temporal queries on indexes "just work."
+
 ### Core Page Types
 
 | Page Type | Purpose | Key Properties |
@@ -713,7 +997,9 @@ IndexDef casIdx = IndexDefs.createCASIdxDef(
 
 ### IndirectPage Trie Navigation
 
-SirixDB uses a **trie structure** (not a B+ tree) to navigate from node keys to their storage locations. The 64-bit node key is decomposed into 10-bit chunks, with each chunk indexing into an IndirectPage.
+> **Why a trie, not a B+ tree?** B+ trees are optimized for range scans and disk seeks. But SirixDB's append-only model means we never update nodes in place—we just need O(1) lookup from node key → page. A trie gives us that with minimal overhead and perfect structural sharing for versioning.
+
+SirixDB uses a **trie structure** to navigate from node keys to their storage locations. The 64-bit node key is decomposed into 10-bit chunks, with each chunk indexing into an IndirectPage.
 
 > **Reference**: The trie design with flexible height is described in:
 > Sebastian Graf, "Flexible Secure Cloud Storage", PhD Dissertation, University of Konstanz, 2014.
@@ -822,10 +1108,16 @@ class PageReference {
 
 ## MVCC & Versioning
 
-SirixDB implements a **Copy-on-Write (COW)** architecture where modifications never overwrite existing data. This enables:
-- **Time-travel queries**: Access any historical revision instantly
-- **MVCC (Multi-Version Concurrency Control)**: Readers never block writers
-- **Crash consistency**: Atomic commits via single pointer swap
+> **The fundamental invariant**: Once a page is written, it is never modified. Ever. This single constraint enables time-travel, crash safety, and lock-free reads—but it creates the storage/performance trade-off that SLIDING_SNAPSHOT elegantly solves.
+
+SirixDB implements a **Copy-on-Write (COW)** architecture where modifications never overwrite existing data:
+
+| Benefit | How CoW Enables It |
+|---------|-------------------|
+| **Time-travel** | Old pages still exist—just follow old revision's root |
+| **Lock-free reads** | Readers see a consistent snapshot, never torn writes |
+| **Crash safety** | Commit = atomic pointer swap; partial writes are orphaned |
+| **No WAL needed** | Append-only + atomic commit = always consistent |
 
 ### Copy-on-Write Mechanism
 
@@ -931,14 +1223,15 @@ graph LR
 | Strategy | Fragments | Read Cost | Write Cost | Storage | Use Case |
 |----------|-----------|-----------|------------|---------|----------|
 | **FULL** | 1 | O(1) | High | Highest | Read-heavy, infrequent updates |
-| **INCREMENTAL** | 1-k | O(k) small Δs | Low | Lowest | Write-heavy, rare reads |
-| **DIFFERENTIAL** | 2 | O(1) large Δ | Medium-High | Medium | Read-heavy after initial load |
-| **SLIDING_SNAPSHOT** | 1-w | O(w) small Δs | Low-Medium | Medium | Best overall trade-off |
+| **INCREMENTAL** | 1-w | O(w) small Δs | Low + periodic **full** | Lowest | Simple, periodic full writes OK |
+| **DIFFERENTIAL** | 2 | O(2) large Δ | Medium-High (growing) | Medium | Read-heavy after initial load |
+| **SLIDING_SNAPSHOT** | 1-w | O(w) small Δs | **Low** (no full writes) | Medium | Best overall trade-off |
 
 > **Cost Clarification:**
-> - `k` = chain length until full snapshot, `w` = window size (typically 8)
-> - INCREMENTAL/SLIDING_SNAPSHOT: many small fragments (few records each)
-> - DIFFERENTIAL: 2 fragments but delta contains ALL changes since base (can be large)
+> - `w` = window size / `revisionsToRestore` (typically 8)
+> - **INCREMENTAL**: Bounded via periodic full page snapshots (write spike every w revisions)
+> - **SLIDING_SNAPSHOT**: Bounded via preservation (never writes full pages, only small deltas)
+> - **DIFFERENTIAL**: 2 fragments but delta contains ALL changes since base (can be large)
 > - Reconstruction time depends on both fragment count AND fragment size
 
 ### How Versioning Algorithms Work
@@ -1051,24 +1344,33 @@ Each delta references the last full snapshot (not the previous revision).
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### SLIDING_SNAPSHOT Versioning (Main Innovation)
+#### SLIDING_SNAPSHOT Versioning (The Core Innovation)
 
-**SLIDING_SNAPSHOT is the default and recommended versioning strategy** because it provides
-the best trade-off between read performance, write performance, and storage overhead.
+> **"What if we could have bounded read cost without periodic write storms?"**
 
-> **Key Innovation**: Unlike INCREMENTAL (unbounded chain) or DIFFERENTIAL (growing deltas),
-> SLIDING_SNAPSHOT maintains a **bounded window** of small fragments while automatically
-> preserving data that would otherwise be lost when fragments fall out of the window.
+This is the question that led to SLIDING_SNAPSHOT—the default versioning strategy and the algorithmic heart of SirixDB's efficiency.
 
-**Why SLIDING_SNAPSHOT wins:**
+**The Insight**
+
+Traditional bounded versioning (INCREMENTAL with periodic snapshots) has a fatal flaw: every `w` revisions, you must rewrite the *entire* page to reset the delta chain. For a 1024-record page with small changes, you're rewriting 1024 records to save one record. That's 1000x write amplification.
+
+SLIDING_SNAPSHOT asks: *what if we only preserved records that would actually be lost?*
+
+Instead of rewriting everything, track which records exist in the in-window fragments (a 128-byte bitmap). When a fragment falls out of the window, only preserve records *not covered* by the bitmap. The amortized cost? Each record is preserved at most once per window—exactly when it would otherwise become unreachable.
+
+> **Formal Verification**: This algorithm has been formally verified for correctness in:
+> Sebastian Graf, "Flexible Secure Cloud Storage", PhD Dissertation, University of Konstanz, 2014.
+> [Available at KOPS](https://kops.uni-konstanz.de/server/api/core/bitstreams/7dc033e4-a4ef-47ce-b1d5-6f4580191070/content)
+
+**The Trade-off Comparison**
 
 | Aspect | INCREMENTAL | DIFFERENTIAL | SLIDING_SNAPSHOT |
 |--------|-------------|--------------|------------------|
-| Read chain length | Unbounded O(n) | Fixed O(2) | Bounded O(w) |
-| Fragment size | Small | Grows over time | Small |
-| Write amplification | Low | Growing | Low + preservation |
-| Storage efficiency | Best | Medium | Medium |
-| **Overall** | ❌ Reads degrade | ❌ Writes degrade | ✅ Balanced |
+| Read fragments | Bounded O(w) | Fixed O(2) | Bounded O(w) |
+| Fragment size | Small Δ | **Grows** over time | Small Δ |
+| Full page writes | Every w revisions | Every w revisions | **Never** |
+| Write pattern | Spiky (6,1,1,1,**6**,...) | Growing (1,2,3,4,...) | Smooth (1,1,1,4,1,1,...) |
+| **Write amplification** | ❌ Periodic 100% rewrite | ❌ Unbounded delta growth | ✅ Amortized ~12.5%/rev |
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
@@ -1181,6 +1483,56 @@ the best trade-off between read performance, write performance, and storage over
 │  Reading Rev 5:                                                           │
 │         Combine: Rev5 + Rev4 + Rev3 + Rev2 = [A',B',C',D,E,F]             │
 │         Only 4 fragments needed! (not 5)                                  │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│           SLIDING_SNAPSHOT vs INCREMENTAL: Write Amplification            │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  Both achieve bounded read chains, but HOW they do it differs:            │
+│                                                                           │
+│  INCREMENTAL (with revisionsToRestore = 4):                               │
+│  ──────────────────────────────────────────                               │
+│                                                                           │
+│  Rev 1: FULL PAGE  [A,B,C,D,E,F]     ← Write 6 records                    │
+│  Rev 2: Δ          [_,B',_,_,_,_]    ← Write 1 record                     │
+│  Rev 3: Δ          [_,_,C',_,_,_]    ← Write 1 record                     │
+│  Rev 4: Δ          [A',_,_,_,_,_]    ← Write 1 record                     │
+│  Rev 5: FULL PAGE  [A',B',C',D,E,F]  ← Write 6 records (SPIKE!)           │
+│  Rev 6: Δ          [_,_,_,D',_,_]    ← Write 1 record                     │
+│  ...                                                                      │
+│  Rev 9: FULL PAGE  [...]             ← Write 6 records (SPIKE!)           │
+│                                                                           │
+│  Write pattern: 6, 1, 1, 1, 6, 1, 1, 1, 6, ...                            │
+│  Average: 2.25 records/revision, periodic spikes of 6x                    │
+│                                                                           │
+│  SLIDING_SNAPSHOT (with revisionsToRestore = 4):                          │
+│  ───────────────────────────────────────────────                          │
+│                                                                           │
+│  Rev 1: FULL PAGE  [A,B,C,D,E,F]     ← Write 6 records (initial only)     │
+│  Rev 2: Δ          [_,B',_,_,_,_]    ← Write 1 record                     │
+│  Rev 3: Δ          [_,_,C',_,_,_]    ← Write 1 record                     │
+│  Rev 4: Δ          [A',_,_,_,_,_]    ← Write 1 record                     │
+│  Rev 5: Δ+preserve [_,_,_,D,E,F]     ← Write 1 change + 3 preserved = 4   │
+│  Rev 6: Δ+preserve [_,_,_,D',_,_]    ← Write 1 change + 0 preserved = 1   │
+│  Rev 7: Δ+preserve [_,_,_,_,E',_]    ← Write 1 change + 0 preserved = 1   │
+│  ...                                                                      │
+│                                                                           │
+│  Write pattern: 6, 1, 1, 1, 4, 1, 1, 1, ...                               │
+│  Preservation is amortized: each record preserved at most once per window │
+│  No periodic full page rewrites, ever!                                    │
+│                                                                           │
+│  Key Insight:                                                             │
+│  ────────────                                                             │
+│  • INCREMENTAL: Rewrites ENTIRE page every w revisions                    │
+│  • SLIDING_SNAPSHOT: Preserves only records NOT in window (selective)     │
+│                                                                           │
+│  For a page with 1024 records, mostly unchanged:                          │
+│  • INCREMENTAL: Writes 1024 records every w revisions (100% of page)      │
+│  • SLIDING_SNAPSHOT: Writes only ~1024/w records per revision (~12.5%)    │
 │                                                                           │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1405,6 +1757,8 @@ The `PageContainer` holds two views of a page during modification:
 ---
 
 ## Transaction Model
+
+> **No read locks. Ever.** Readers see a frozen snapshot at a specific revision. Writers append new pages to a transaction-local log. The two never interfere. This is MVCC in its purest form.
 
 ### Transaction Types
 
