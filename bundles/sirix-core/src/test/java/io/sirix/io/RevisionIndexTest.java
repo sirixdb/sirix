@@ -190,13 +190,15 @@ class RevisionIndexTest {
     }
     
     @Test
-    @DisplayName("E3: SIMD remainder handling - array size not multiple of SIMD lanes")
-    void testSimdRemainder() {
-      // Create arrays of various sizes to test SIMD remainder handling
-      int lanes = RevisionIndex.getSimdLanes();
+    @DisplayName("E3: Non-power-of-2 sizes - Eytzinger handles irregular tree shapes")
+    void testNonPowerOfTwoSizes() {
+      // Create arrays of various sizes to test irregular Eytzinger tree handling
+      int threshold = RevisionIndex.getEytzingerThreshold();
       
-      for (int extra = 1; extra < lanes; extra++) {
-        int size = lanes + extra;  // Not a multiple of lanes
+      // Test sizes around the threshold
+      int[] testSizes = {threshold - 1, threshold, threshold + 1, threshold + 7, threshold + 13};
+      
+      for (int size : testSizes) {
         long[] timestamps = new long[size];
         long[] offsets = new long[size];
         
@@ -207,11 +209,14 @@ class RevisionIndexTest {
         
         RevisionIndex index = RevisionIndex.create(timestamps, offsets);
         
-        // Test last element (in the remainder portion)
+        // Test last element
         assertEquals(size - 1, index.findRevision(size * 100L));
         
         // Test searching for value just before last
         assertEquals(-(size), index.findRevision(size * 100L - 50));
+        
+        // Test first element
+        assertEquals(0, index.findRevision(100L));
       }
     }
     

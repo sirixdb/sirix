@@ -1,0 +1,31 @@
+plugins {
+    id 'me.champeau.jmh' version '0.7.2'
+}
+
+dependencies {
+    // JMH dependencies
+    jmhImplementation project(':sirix-core')
+    jmhImplementation 'org.openjdk.jmh:jmh-core:1.37'
+    jmhAnnotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
+}
+
+description = 'JMH benchmarks for SirixDB performance testing'
+
+jmh {
+    warmupIterations = 2
+    iterations = 3
+    fork = 1
+    
+    jvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview'
+    ]
+    
+    resultFormat = 'TEXT'
+    
+    // Use ASM generator instead of reflection
+    // duplicateClassesStrategy = DuplicatesStrategy.WARN
+}

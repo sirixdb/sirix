@@ -230,10 +230,6 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
-  private static long timeDiff(final long lhs, final long rhs) {
-    return Math.abs(lhs - rhs);
-  }
-
   protected void initializeIndexController(final int revision, IndexController<?, ?> controller) {
     // Deserialize index definitions.
     // For write transactions, the revision number is the NEW revision being created,
@@ -839,36 +835,31 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return nodeTrxMap.values().stream().filter(NodeTrx.class::isInstance).map(rtx -> (W) rtx).findAny();
   }
 
+  /**
+   * Begin a read-only transaction at the revision that was valid at the given point in time.
+   * 
+   * <p>This uses <b>floor semantics</b>: returns the last revision that was committed
+   * at or before the given timestamp. This reflects the actual state of the database
+   * as it was at that moment in time.
+   * 
+   * <p>Special cases:
+   * <ul>
+   *   <li>If timestamp is before all revisions → returns revision 0</li>
+   *   <li>If timestamp is after all revisions → returns the most recent revision</li>
+   *   <li>If timestamp exactly matches a revision → returns that revision</li>
+   *   <li>If timestamp is between revisions → returns the earlier revision</li>
+   * </ul>
+   *
+   * @param pointInTime the point in time to query
+   * @return a read-only transaction at the revision valid at that time
+   */
   @Override
   public R beginNodeReadOnlyTrx(final @NonNull Instant pointInTime) {
     requireNonNull(pointInTime);
     assertNotClosed();
 
-    final long timestamp = pointInTime.toEpochMilli();
-
-    int revision = binarySearch(timestamp);
-
-    if (revision < 0) {
-      revision = -revision - 1;
-    }
-
-    if (revision == 0)
-      return beginNodeReadOnlyTrx(0);
-    else if (revision == getMostRecentRevisionNumber() + 1)
-      return beginNodeReadOnlyTrx();
-
-    final R rtxRevisionMinus1 = beginNodeReadOnlyTrx(revision - 1);
-    final R rtxRevision = beginNodeReadOnlyTrx(revision);
-
-    if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
-                                                                                                rtxRevision.getRevisionTimestamp()
-                                                                                                           .toEpochMilli())) {
-      rtxRevision.close();
-      return rtxRevisionMinus1;
-    } else {
-      rtxRevisionMinus1.close();
-      return rtxRevision;
-    }
+    final int revision = getRevisionNumber(pointInTime);
+    return beginNodeReadOnlyTrx(revision);
   }
 
   private int binarySearch(final long timestamp) {
@@ -921,37 +912,51 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return -(low + 1); // key not found
   }
 
+  /**
+   * Get the revision number that was valid at the given point in time.
+   * 
+   * <p>This uses <b>floor semantics</b>: returns the last revision that was committed
+   * at or before the given timestamp. This reflects the actual state of the database
+   * as it was at that moment in time.
+   * 
+   * <p>Special cases:
+   * <ul>
+   *   <li>If timestamp is before all revisions → returns 0</li>
+   *   <li>If timestamp is after all revisions → returns the most recent revision number</li>
+   *   <li>If timestamp exactly matches a revision → returns that revision number</li>
+   *   <li>If timestamp is between revisions → returns the earlier revision number</li>
+   * </ul>
+   *
+   * @param pointInTime the point in time to query
+   * @return the revision number valid at that time
+   */
   @Override
   public int getRevisionNumber(final @NonNull Instant pointInTime) {
     requireNonNull(pointInTime);
     assertNotClosed();
 
     final long timestamp = pointInTime.toEpochMilli();
+    final int mostRecentRevision = getMostRecentRevisionNumber();
 
     int revision = binarySearch(timestamp);
 
-    if (revision < 0) {
-      revision = -revision - 1;
+    if (revision >= 0) {
+      // Exact match found
+      return revision;
     }
 
-    if (revision == 0)
+    // revision < 0 means not found, convert to insertion point
+    final int insertionPoint = -revision - 1;
+
+    if (insertionPoint == 0) {
+      // Timestamp is before all revisions - return earliest (revision 0)
       return 0;
-    else if (revision == getMostRecentRevisionNumber() + 1)
-      return getMostRecentRevisionNumber();
-
-    try (final R rtxRevisionMinus1 = beginNodeReadOnlyTrx(revision - 1);
-         final R rtxRevision = beginNodeReadOnlyTrx(revision)) {
-      final int revisionNumber;
-
-      if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
-                                                                                                  rtxRevision.getRevisionTimestamp()
-                                                                                                             .toEpochMilli())) {
-        revisionNumber = rtxRevisionMinus1.getRevisionNumber();
-      } else {
-        revisionNumber = rtxRevision.getRevisionNumber();
-      }
-
-      return revisionNumber;
+    } else if (insertionPoint > mostRecentRevision) {
+      // Timestamp is after all revisions - return most recent
+      return mostRecentRevision;
+    } else {
+      // Timestamp is between revisions - return the floor (previous revision)
+      return insertionPoint - 1;
     }
   }
 

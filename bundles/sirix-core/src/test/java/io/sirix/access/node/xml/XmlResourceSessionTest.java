@@ -242,7 +242,7 @@ public class XmlResourceSessionTest {
   }
 
   @Test
-  public void testFetchingOfClosestRevisionToAGivenPointInTime() throws InterruptedException {
+  public void testFetchingRevisionValidAtPointInTime() throws InterruptedException {
     final Instant start = Instant.now();
     final Instant afterAllCommits;
     final Instant afterFirstCommit;

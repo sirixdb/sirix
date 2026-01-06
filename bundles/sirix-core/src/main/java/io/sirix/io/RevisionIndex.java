@@ -25,10 +25,6 @@
  */
 package io.sirix.io;
 
-import jdk.incubator.vector.LongVector;
-import jdk.incubator.vector.VectorMask;
-import jdk.incubator.vector.VectorOperators;
-import jdk.incubator.vector.VectorSpecies;
 
 import java.time.Instant;
 import java.util.Arrays;
@@ -38,8 +34,8 @@ import java.util.Arrays;
  * 
  * <p>Uses a hybrid search strategy:
  * <ul>
- *   <li>SIMD linear search for small revision counts (better cache utilization)</li>
- *   <li>Eytzinger layout binary search for large counts (O(log n) with cache prefetching)</li>
+ *   <li>{@link Arrays#binarySearch} for small revision counts (low overhead)</li>
+ *   <li>Eytzinger layout binary search for large counts (cache-optimal access pattern)</li>
  * </ul>
  * 
  * <p>This class is immutable and thread-safe. Multiple readers can search concurrently.
@@ -57,22 +53,12 @@ import java.util.Arrays;
 public final class RevisionIndex {
   
   /**
-   * SIMD vector species for long comparisons.
-   * Auto-selects best available: AVX-512 (8 lanes), AVX2 (4 lanes), or SSE (2 lanes).
+   * Threshold for choosing simple binary search vs Eytzinger search.
+   * For small arrays, Arrays.binarySearch is faster due to lower overhead.
+   * Eytzinger layout has higher setup cost but better cache behavior for large arrays.
+   * Determined via JMH benchmarking.
    */
-  private static final VectorSpecies<Long> SPECIES = LongVector.SPECIES_PREFERRED;
-  
-  /**
-   * Number of SIMD lanes available.
-   */
-  private static final int LANES = SPECIES.length();
-  
-  /**
-   * Threshold for choosing SIMD vs Eytzinger search.
-   * SIMD linear search is faster for small arrays due to sequential access.
-   * Tuned based on typical CPU cache characteristics.
-   */
-  private static final int SIMD_THRESHOLD = LANES >= 8 ? 128 : LANES >= 4 ? 64 : 32;
+  private static final int EYTZINGER_THRESHOLD = 64;
   
   /**
    * Empty index singleton for databases with no revisions.
@@ -219,14 +205,15 @@ public final class RevisionIndex {
     }
     
     // Choose search strategy based on size
-    int lb;
-    if (size <= SIMD_THRESHOLD) {
-      lb = searchSimdLowerBound(timestamp);
-    } else {
-      lb = eytzingerLowerBound(timestamp);
+    // For small arrays, Arrays.binarySearch is fastest (low overhead)
+    // For large arrays, Eytzinger layout is faster (cache-optimal access pattern)
+    if (size <= EYTZINGER_THRESHOLD) {
+      return Arrays.binarySearch(timestamps, timestamp);
     }
     
-    // Convert lower_bound to binarySearch contract
+    // Eytzinger search returns lower_bound, convert to binarySearch contract
+    int lb = eytzingerLowerBound(timestamp);
+    
     // This branch is highly predictable (exact matches are common use case)
     if (lb < size && timestamps[lb] == timestamp) {
       return lb;  // Exact match
@@ -234,40 +221,6 @@ public final class RevisionIndex {
     return -(lb + 1);  // Not found, insertion point = lb
   }
   
-  /**
-   * SIMD-accelerated lower_bound search.
-   * 
-   * <p>Finds the index of the first element >= target using vectorized comparison.
-   * Falls back to scalar loop for remainder elements not filling a full SIMD register.
-   * 
-   * @param target timestamp to search for
-   * @return index of first element >= target, or size if all elements < target
-   */
-  private int searchSimdLowerBound(long target) {
-    LongVector targetVec = LongVector.broadcast(SPECIES, target);
-    int i = 0;
-    
-    // Process full SIMD chunks
-    int limit = size - (size % LANES);
-    for (; i < limit; i += LANES) {
-      LongVector chunk = LongVector.fromArray(SPECIES, timestamps, i);
-      VectorMask<Long> ge = chunk.compare(VectorOperators.GE, targetVec);
-      
-      if (ge.anyTrue()) {
-        // Found! Return index of first matching lane
-        return i + Long.numberOfTrailingZeros(ge.toLong());
-      }
-    }
-    
-    // E3: Scalar fallback for remainder (0 to LANES-1 elements)
-    for (; i < size; i++) {
-      if (timestamps[i] >= target) {
-        return i;
-      }
-    }
-    
-    return size;  // Not found, insertion point = size
-  }
   
   /**
    * Eytzinger layout lower_bound search with explicit bound tracking.
@@ -405,23 +358,14 @@ public final class RevisionIndex {
   }
   
   /**
-   * Get the SIMD threshold used for search strategy selection.
-   * Exposed for testing and tuning.
+   * Get the threshold used for search strategy selection.
+   * Below this threshold, Arrays.binarySearch is used.
+   * Above this threshold, Eytzinger layout is used.
    * 
-   * @return threshold below which SIMD linear search is used
+   * @return threshold for Eytzinger search activation
    */
-  public static int getSimdThreshold() {
-    return SIMD_THRESHOLD;
-  }
-  
-  /**
-   * Get the number of SIMD lanes available on this platform.
-   * Exposed for testing and tuning.
-   * 
-   * @return number of long values processed per SIMD instruction
-   */
-  public static int getSimdLanes() {
-    return LANES;
+  public static int getEytzingerThreshold() {
+    return EYTZINGER_THRESHOLD;
   }
 }
 

@@ -163,13 +163,14 @@ public interface IOStorage {
         return;
       }
       
-      final int revisionCount = uberPage.getRevisionNumber();
-      if (revisionCount <= 0) {
+      final int lastRevisionNumber = uberPage.getRevisionNumber();
+      if (lastRevisionNumber < 0) {
         return;
       }
       
-      // Build arrays from revision 0 to revisionCount-1
-      // Note: revisions are 0-indexed, but getRevisionNumber returns the count
+      // Build arrays from revision 0 to lastRevisionNumber (inclusive)
+      // getRevisionNumber() returns the last revision index (0-indexed)
+      final int revisionCount = lastRevisionNumber + 1;
       final long[] timestamps = new long[revisionCount];
       final long[] offsets = new long[revisionCount];
       
