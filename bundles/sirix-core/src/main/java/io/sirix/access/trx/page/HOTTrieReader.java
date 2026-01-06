@@ -373,12 +373,16 @@ public final class HOTTrieReader implements AutoCloseable {
       return inMemory;
     }
     
-    if (ref.getKey() < 0) {
-      return null;
+    // CRITICAL: Check BOTH storage key AND log key before giving up.
+    // When a page is in the transaction log, key is set to NULL_ID_LONG (-1)
+    // but logKey is set to the index in the log. We must call loadHOTPage
+    // which checks the transaction log using the logKey.
+    if (ref.getKey() < 0 && ref.getLogKey() < 0) {
+      return null;  // Page not in storage AND not in transaction log
     }
     
     // Load from storage via the storage engine reader
-    // The storage engine will handle versioning/fragment combining
+    // The storage engine will handle versioning/fragment combining AND transaction log lookup
     return pageRtx.loadHOTPage(ref);
   }
   

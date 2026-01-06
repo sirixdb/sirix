@@ -226,6 +226,19 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final long lookupKey = PathSummaryData.computeChildLookupKey(parentNodeKey, childName, childKind);
     childLookupCache.put(lookupKey, childNodeKey);
   }
+  
+  /**
+   * Remove a child from the lookup cache. Called when a path node is deleted.
+   * Uses primitive long operations only - no boxing.
+   *
+   * @param parentNodeKey the parent path node key
+   * @param childName     the child name
+   * @param childKind     the child node kind
+   */
+  void removeChildLookup(final long parentNodeKey, final QNm childName, final NodeKind childKind) {
+    final long lookupKey = PathSummaryData.computeChildLookupKey(parentNodeKey, childName, childKind);
+    childLookupCache.remove(lookupKey);
+  }
 
   @Override
   public Optional<User> getUser() {
@@ -404,12 +417,19 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * Get the path node corresponding to the key.
    *
    * @param pathNodeKey path node key
-   * @return path node corresponding to the provided key
+   * @return path node corresponding to the provided key, or null if not found or deleted
    */
   public PathNode getPathNodeForPathNodeKey(final @NonNegative long pathNodeKey) {
     assertNotClosed();
 
-    return (PathNode) pathNodeMapping[(int) pathNodeKey];
+    // Safe bounds check
+    if (pathNodeKey < 0 || pathNodeKey >= pathNodeMapping.length) {
+      return null;
+    }
+    
+    final StructNode node = pathNodeMapping[(int) pathNodeKey];
+    // Return null if the node is not a PathNode (e.g., if it's a DeletedNode)
+    return node instanceof PathNode pathNode ? pathNode : null;
   }
 
   @Override
@@ -495,9 +515,19 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     assertNotClosed();
 
     if (!init && nodeKey != 0) {
-      final PathNode node = (PathNode) pathNodeMapping[(int) nodeKey];
+      // Safe bounds check to avoid ArrayIndexOutOfBoundsException
+      if (nodeKey < 0 || nodeKey >= pathNodeMapping.length) {
+        if (DEBUG_PATH_SUMMARY) {
+          LOGGER.debug("[PATH_SUMMARY-MOVETO] nodeKey out of bounds: nodeKey={}, arrayLength={}",
+                       nodeKey, pathNodeMapping.length);
+        }
+        return false;
+      }
+      
+      final StructNode mappedNode = pathNodeMapping[(int) nodeKey];
 
-      if (node != null) {
+      // Check if node exists AND is a PathNode (not a DeletedNode)
+      if (mappedNode instanceof PathNode node) {
         if (DEBUG_PATH_SUMMARY) {
           LOGGER.debug("[PATH_SUMMARY-MOVETO] Found in pathNodeMapping: nodeKey={}", nodeKey);
         }
@@ -505,8 +535,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         return true;
       } else {
         if (DEBUG_PATH_SUMMARY) {
-          LOGGER.debug("[PATH_SUMMARY-MOVETO] NOT in pathNodeMapping: nodeKey={}, arrayLength={}, init={}",
-                       nodeKey, pathNodeMapping.length, init);
+          LOGGER.debug("[PATH_SUMMARY-MOVETO] NOT in pathNodeMapping or deleted: nodeKey={}, arrayLength={}, init={}, nodeType={}",
+                       nodeKey, pathNodeMapping.length, init, mappedNode != null ? mappedNode.getClass().getSimpleName() : "null");
         }
         return false;
       }

@@ -647,8 +647,16 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (remove == RemoveSubtreePath.YES) {
       for (final Axis axis = new PostOrderAxis(pathSummaryReader); axis.hasNext(); ) {
         axis.nextLong();
+        final PathNode pathNode = pathSummaryReader.getPathNode();
+        if (pathNode != null) {
+          // Remove from child lookup cache using parent key
+          pathSummaryReader.removeChildLookup(
+              pathNode.getParentKey(), 
+              pathSummaryReader.getName(), 
+              pathNode.getPathKind());
+        }
         pathSummaryReader.removeMapping(pathSummaryReader.getNodeKey());
-        pathSummaryReader.removeQNameMapping(pathSummaryReader.getPathNode(), pathSummaryReader.getName());
+        pathSummaryReader.removeQNameMapping(pathNode, pathSummaryReader.getName());
         pageTrx.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
       }
     }
@@ -680,9 +688,18 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     }
     pathSummaryReader.putMapping(parent.getNodeKey(), parent);
 
+    // Remove current node from child lookup cache
+    final PathNode currentPathNode = pathSummaryReader.getPathNode();
+    if (currentPathNode != null) {
+      pathSummaryReader.removeChildLookup(
+          currentPathNode.getParentKey(), 
+          pathSummaryReader.getName(), 
+          currentPathNode.getPathKind());
+    }
+    
     // Remove node.
     pathSummaryReader.removeMapping(pathSummaryReader.getNodeKey());
-    pathSummaryReader.removeQNameMapping(pathSummaryReader.getPathNode(), pathSummaryReader.getName());
+    pathSummaryReader.removeQNameMapping(currentPathNode, pathSummaryReader.getName());
     pageTrx.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
 
     //    pathSummaryReader.moveToDocumentRoot();
