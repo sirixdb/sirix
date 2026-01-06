@@ -315,21 +315,43 @@ sirix/bundles/
 
 ### IndirectPage Trie Navigation
 
-SirixDB uses a **trie structure** (not a B+ tree) to navigate from node keys to their storage locations. The 64-bit node key is decomposed into 10-bit chunks, with each chunk indexing into an IndirectPage:
+SirixDB uses a **trie structure** (not a B+ tree) to navigate from node keys to their storage locations. The 64-bit node key is decomposed into 10-bit chunks, with each chunk indexing into an IndirectPage.
+
+> **Reference**: The trie design with flexible height is described in:
+> Sebastian Graf, "Flexible Secure Cloud Storage", PhD Dissertation, University of Konstanz, 2014.
+> [Available at KOPS](https://kops.uni-konstanz.de/server/api/core/bitstreams/7dc033e4-a4ef-47ce-b1d5-6f4580191070/content)
+
+**Dynamic Tree Height**: The trie grows dynamically based on the maximum node key. Initially, a small document needs only 1 level. As the document grows and node keys exceed the current capacity, a new level is added at the top. This design minimizes storage overhead for small documents while scaling to billions of nodes.
+
+**Copy-on-Write**: IndirectPages are fully copied when modified, ensuring immutability of previous revisions.
 
 ```
-Node Key (64-bit): 0x0000_0001_ABCD_EF01
-                   ├──────────────────────┘
-                   │
-Decomposed into 10-bit indices (2^10 = 1024 slots per IndirectPage):
+Navigation Algorithm (from NodeStorageEngineReader):
 
-   Level 0: bits 60-70  ─► IndirectPage[idx] ─►
-   Level 1: bits 50-60  ─► IndirectPage[idx] ─►
-   Level 2: bits 40-50  ─► IndirectPage[idx] ─►
-   Level 3: bits 30-40  ─► IndirectPage[idx] ─►
-   Level 4: bits 20-30  ─► IndirectPage[idx] ─►
-   Level 5: bits 10-20  ─► IndirectPage[idx] ─►
-   Level 6: bits 0-10   ─► KeyValueLeafPage
+  levelKey = pageKey
+  for level in (array.length - maxHeight) to (array.length - 1):
+      offset = levelKey >> exponent[level]     // extract index (0-1023)
+      levelKey -= offset << exponent[level]    // subtract for next level
+      page = page.getReference(offset)         // follow reference
+
+Exponent Array: {70, 60, 50, 40, 30, 20, 10, 0}
+                 L0  L1  L2  L3  L4  L5  L6  L7
+
+Tree height grows dynamically (maxHeight = 1 to 8):
+
+   Height 1: Only L7 (shift 0)  → bits 0-9   → up to 1K pages
+   Height 2: L6→L7              → bits 0-19  → up to 1M pages  
+   Height 3: L5→L6→L7           → bits 0-29  → up to 1B pages
+   Height 4: L4→L5→L6→L7        → bits 0-39  → up to 1T pages
+   ...
+   Height 8: L0→L1→...→L7       → bits 0-69  → theoretical max
+             (only bits 0-63 exist in 64-bit keys)
+
+Example: pageKey = 1_048_576 (0x100000), Height = 3
+
+   L5: offset = 1048576 >> 20 = 1    → IndirectPage[1]
+   L6: offset = 0 >> 10 = 0          → IndirectPage[0]  
+   L7: offset = 0 >> 0 = 0           → KeyValueLeafPage[0]
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          Trie Navigation Example                            │
@@ -354,28 +376,35 @@ Each IndirectPage level provides **O(1)** lookup for its portion of the key, mak
 ### KeyValueLeafPage Memory Layout
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                      KeyValueLeafPage (Off-Heap)                        │
-├─────────────────────────────────────────────────────────────────────────┤
-│ Header: pageKey (8B) | revision (4B) | entryCount (4B) | ...            │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  Slot Offsets Array (int[])       Records Array (DataRecord[])          │
-│  ┌─────┬─────┬─────┬─────┐        ┌────────────────────────────┐        │
-│  │  0  │ 128 │ 256 │ ... │        │ Record 0                   │        │
-│  └──┬──┴──┬──┴──┬──┴─────┘        ├────────────────────────────┤        │
-│     │     │     │                 │ Record 1                   │        │
-│     │     │     └────────────────►├────────────────────────────┤        │
-│     │     └──────────────────────►│ Record 2                   │        │
-│     └────────────────────────────►└────────────────────────────┘        │
-│                                                                         │
-│  MemorySegment (slots)            MemorySegment (deweyIds)              │
-│  ┌─────────────────────┐          ┌─────────────────────┐               │
-│  │ Serialized bytes    │          │ DeweyID bytes       │               │
-│  │ for each record     │          │ (if enabled)        │               │
-│  └─────────────────────┘          └─────────────────────┘               │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│                       KeyValueLeafPage (Off-Heap)                         │
+├───────────────────────────────────────────────────────────────────────────┤
+│ Header: pageKey (8B) | revision (4B) | entryCount (4B) | ...              │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  Slot Offsets Array (int[])          Records Array (DataRecord[])         │
+│                                                                           │
+│  ┌─────┬─────┬─────┬─────┐           ┌────────────────────────────┐       │
+│  │  0  │ 128 │ 256 │ ... │           │                            │       │
+│  └──┬──┴──┬──┴──┬──┴─────┘           │ Record 0  (offset 0)       │       │
+│     │     │     │        ┌──────────►│                            │       │
+│     │     │     │        │           ├────────────────────────────┤       │
+│     │     │     │        │           │                            │       │
+│     │     │     └────────┼──────────►│ Record 1  (offset 128)     │       │
+│     │     │              │           │                            │       │
+│     │     │              │           ├────────────────────────────┤       │
+│     │     │              │           │                            │       │
+│     │     └──────────────┼──────────►│ Record 2  (offset 256)     │       │
+│     │                    │           │                            │       │
+│     └────────────────────┘           └────────────────────────────┘       │
+│                                                                           │
+│  MemorySegment (slots)               MemorySegment (deweyIds)             │
+│  ┌─────────────────────┐             ┌─────────────────────┐              │
+│  │ Serialized bytes    │             │ DeweyID bytes       │              │
+│  │ for each record     │             │ (if enabled)        │              │
+│  └─────────────────────┘             └─────────────────────┘              │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Page Reference
