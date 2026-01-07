@@ -289,7 +289,7 @@ Node keys are stable. You can surgically access any subtree at any point in hist
 Yes! When querying by timestamp (e.g., `jn:open(..., xs:dateTime('2024-01-15T15:00:00Z'))`), SirixDB must find the corresponding revision:
 
 1. The `sirix.revisions` file stores: `[(rev, timestamp, offset), ...]`
-2. Binary search finds the revision for a timestamp: **O(log R)** where R = revisions
+2. A cache-line friendly binary search finds the revision for a timestamp: **O(log R)** where R = revisions
 3. After that, *all operations* in that revision are timestamp-free
 
 The key difference:
