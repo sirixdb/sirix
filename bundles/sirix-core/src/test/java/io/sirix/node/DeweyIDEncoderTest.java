@@ -11,6 +11,7 @@ import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -255,6 +256,81 @@ class DeweyIDEncoderTest {
         // Even values are used in internal DeweyID structure (like attribute roots)
         for (int i = 0; i <= 126; i += 2) {
             verifyEncodingMatch("1." + i);
+        }
+    }
+    
+    @Test
+    @DisplayName("SirixDeweyID.setDistanceToSibling() works correctly")
+    void testConfigurableSiblingDistance() {
+        int originalDistance = SirixDeweyID.getDistanceToSibling();
+        try {
+            // Test various gap configurations
+            int[] testDistances = {8, 16, 32, 64, 128, 256};
+            
+            for (int distance : testDistances) {
+                SirixDeweyID.setDistanceToSibling(distance);
+                assertEquals(distance, SirixDeweyID.getDistanceToSibling());
+                
+                // Create a new child ID and verify it uses the correct distance
+                SirixDeweyID parent = new SirixDeweyID("1.3");
+                SirixDeweyID child = parent.getNewChildID();
+                
+                // Child should be 1.3.(distance+1)
+                int[] childDivs = child.getDivisionValues();
+                assertEquals(3, childDivs.length);
+                assertEquals(1, childDivs[0]);
+                assertEquals(3, childDivs[1]);
+                assertEquals(distance + 1, childDivs[2]);
+                
+                // Verify encoding still works
+                byte[] encoded = child.toBytes();
+                SirixDeweyID decoded = new SirixDeweyID(encoded);
+                assertTrue(child.equals(decoded), "Round-trip failed for distance=" + distance);
+            }
+        } finally {
+            // Restore original distance
+            SirixDeweyID.setDistanceToSibling(originalDistance);
+        }
+    }
+    
+    @Test
+    @DisplayName("SirixDeweyID.setDistanceToSibling() validates input")
+    void testSiblingDistanceValidation() {
+        int originalDistance = SirixDeweyID.getDistanceToSibling();
+        try {
+            // Should reject negative values
+            assertThrows(IllegalArgumentException.class, () -> SirixDeweyID.setDistanceToSibling(-1));
+            
+            // Should reject zero
+            assertThrows(IllegalArgumentException.class, () -> SirixDeweyID.setDistanceToSibling(0));
+            
+            // Should reject odd values
+            assertThrows(IllegalArgumentException.class, () -> SirixDeweyID.setDistanceToSibling(15));
+            assertThrows(IllegalArgumentException.class, () -> SirixDeweyID.setDistanceToSibling(33));
+            
+            // Should accept valid even values
+            SirixDeweyID.setDistanceToSibling(2);
+            assertEquals(2, SirixDeweyID.getDistanceToSibling());
+            
+            SirixDeweyID.setDistanceToSibling(1024);
+            assertEquals(1024, SirixDeweyID.getDistanceToSibling());
+        } finally {
+            SirixDeweyID.setDistanceToSibling(originalDistance);
+        }
+    }
+    
+    @Test
+    @DisplayName("SirixDeweyID.resetDistanceToSibling() restores default")
+    void testResetSiblingDistance() {
+        int originalDistance = SirixDeweyID.getDistanceToSibling();
+        try {
+            SirixDeweyID.setDistanceToSibling(128);
+            assertEquals(128, SirixDeweyID.getDistanceToSibling());
+            
+            SirixDeweyID.resetDistanceToSibling();
+            assertEquals(SirixDeweyID.DEFAULT_SIBLING_DISTANCE, SirixDeweyID.getDistanceToSibling());
+        } finally {
+            SirixDeweyID.setDistanceToSibling(originalDistance);
         }
     }
     

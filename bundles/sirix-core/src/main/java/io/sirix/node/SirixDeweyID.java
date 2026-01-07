@@ -41,11 +41,57 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
 
   private final static int recordValueRootDivisionValue = 0;
 
-  // must be an even number! when a new DeweyID is calculated, and there is a
-  // choice, DISTANCE_TO_SIBLING/2 nodes fits between the existing node, and
-  // the new node. For example: id1=1.7, id2=NULL; new ID will be
-  // 1.7+DISTANCE_TO_SIBLING
-  private static final int distanceToSibling = 16;
+  /**
+   * Default distance between sibling DeweyIDs when generating new IDs.
+   * Must be an even number! When a new DeweyID is calculated, and there is a
+   * choice, DISTANCE_TO_SIBLING/2 nodes fits between the existing node, and
+   * the new node. For example: id1=1.7, id2=NULL; new ID will be 1.7+DISTANCE_TO_SIBLING
+   * 
+   * <p>This can be configured per resource via {@link io.sirix.access.ResourceConfiguration.Builder#deweyIdSiblingDistance(int)}</p>
+   */
+  public static final int DEFAULT_SIBLING_DISTANCE = 16;
+
+  /**
+   * Current distance to use for sibling ID generation.
+   * Can be overridden per-resource via {@link #setDistanceToSibling(int)}.
+   */
+  private static volatile int distanceToSibling = DEFAULT_SIBLING_DISTANCE;
+
+  /**
+   * Sets the distance to use for sibling DeweyID generation.
+   * 
+   * <p>This should be called by the resource/transaction when it is initialized,
+   * using the value from {@link io.sirix.access.ResourceConfiguration#deweyIdSiblingDistance}.</p>
+   * 
+   * @param distance the distance between siblings (must be positive and even)
+   * @throws IllegalArgumentException if distance is not positive or not even
+   */
+  public static void setDistanceToSibling(int distance) {
+    if (distance <= 0) {
+      throw new IllegalArgumentException("Distance must be positive: " + distance);
+    }
+    if (distance % 2 != 0) {
+      throw new IllegalArgumentException("Distance must be even: " + distance);
+    }
+    distanceToSibling = distance;
+  }
+
+  /**
+   * Gets the current distance used for sibling DeweyID generation.
+   * 
+   * @return the current sibling distance
+   */
+  public static int getDistanceToSibling() {
+    return distanceToSibling;
+  }
+
+  /**
+   * Resets the distance to the default value.
+   * Useful for testing.
+   */
+  public static void resetDistanceToSibling() {
+    distanceToSibling = DEFAULT_SIBLING_DISTANCE;
+  }
 
   private final static int namespaceRootDivisionValue = 0;
 
