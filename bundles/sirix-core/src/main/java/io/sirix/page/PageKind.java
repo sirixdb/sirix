@@ -36,7 +36,6 @@ import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
-import io.sirix.io.PageHasher;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 
