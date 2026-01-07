@@ -707,6 +707,7 @@ graph TB
     subgraph "Primary Indexes"
         DOC[Document Index<br/>Node tree structure]
         PATH_SUM[Path Summary<br/>Unique path classes]
+        DEWEY[DeweyID Index<br/>NodeKey → DeweyID]
     end
 
     subgraph "Secondary Indexes"
@@ -726,6 +727,98 @@ graph TB
     NAME --> HOT
     CAS --> RBTREE
 ```
+
+**DeweyIDs**: When enabled via `ResourceConfiguration.Builder.useDeweyIDs(true)`, each node is assigned a hierarchical identifier (e.g., `1.3.5.7`) that encodes its position in the document tree. DeweyIDs enable:
+- O(1) ancestor/descendant relationship checks (compare prefixes)
+- O(1) document order comparisons (lexicographic comparison)
+- Efficient sibling navigation without parent traversal
+
+DeweyIDs are stored inline within `KeyValueLeafPages` alongside node records (in a dedicated MemorySegment). The sibling distance (`deweyIdSiblingDistance`) is configurable to optimize for insert-heavy vs. read-heavy workloads.
+
+### Secondary Index Types
+
+SirixDB supports three types of user-defined secondary indexes that can be created on any resource:
+
+#### Path Index
+
+**Purpose**: Accelerates queries that filter by document structure (path expressions).
+
+**Key Mapping**: `PCR (Path Class Reference) → Set<NodeKey>`
+
+**Use Case**: "Find all nodes at path `/users/[]/email`"
+
+```
+Document:                          Path Index (for /users/[]/name):
+─────────                          ─────────────────────────────────
+{                                  PCR=3 → {5, 12}  (nodeKeys of "Alice", "Bob")
+  "users": [
+    {"name": "Alice", "age": 30},  ← nodeKey=5
+    {"name": "Bob", "age": 25}     ← nodeKey=12
+  ]
+}
+```
+
+**When to Use**:
+- Queries with specific path patterns (e.g., `//users/[]/address/city`)
+- XPath/JSONPath-style navigation
+- When you know which paths are frequently queried
+
+#### Name Index
+
+**Purpose**: Accelerates queries that search for elements/fields by name regardless of path.
+
+**Key Mapping**: `QNm (Qualified Name hash) → Set<NodeKey>`
+
+**Use Case**: "Find all nodes named 'email' anywhere in the document"
+
+```
+Document:                          Name Index (for "email"):
+─────────                          ──────────────────────────
+{                                  hash("email") → {8, 15, 22}
+  "user": {
+    "email": "a@test.com"          ← nodeKey=8
+  },
+  "admin": {
+    "contact": {
+      "email": "b@test.com"        ← nodeKey=15
+    }
+  },
+  "support": {
+    "email": "c@test.com"          ← nodeKey=22
+  }
+}
+```
+
+**When to Use**:
+- Wildcard path queries (`//*:email`, `..$email`)
+- Schema-agnostic searches across heterogeneous documents
+- When the same field name appears at different paths
+
+#### CAS Index (Content-And-Structure)
+
+**Purpose**: Accelerates queries that filter by both value AND path (content + structure).
+
+**Key Mapping**: `CASValue (Path + TypedValue) → Set<NodeKey>`
+
+**Use Case**: "Find all users where age > 30" or "Find products with price = 99.99"
+
+```
+Document:                          CAS Index (for /users/[]/age, Type=INT):
+─────────                          ─────────────────────────────────────────
+{                                  (PCR=4, 25) → {13}
+  "users": [                       (PCR=4, 30) → {7}
+    {"name": "Alice", "age": 30},  (PCR=4, 35) → {19}
+    {"name": "Bob", "age": 25},
+    {"name": "Carol", "age": 35}   Supports range queries: age > 28
+  ]                                → Returns {7, 19}
+}
+```
+
+**When to Use**:
+- Value-based filtering (`where price < 100`)
+- Range queries (`where date between ...`)
+- Equality checks on specific paths
+- Can be marked as `unique` for constraint enforcement
 
 **Important**: The two index backends use different storage structures:
 
