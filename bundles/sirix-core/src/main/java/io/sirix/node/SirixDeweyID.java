@@ -443,86 +443,6 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     return divisionValues[division];
   }
 
-  /**
-   * Calculates the number of bits, that are needed to store the chosen
-   * division-value.
-   * 
-   * Uses EXCLUSIVE upper bounds: value < maxDivisionValue[i] means tier i.
-   */
-  private int getDivisionBits(int division) {
-    // FIX: Changed from <= to < for exclusive upper bounds
-    if (divisionValues[division] < maxDivisionValue[0])
-      return completeDivisionLengthArray[0];
-    else if (divisionValues[division] < maxDivisionValue[1])
-      return completeDivisionLengthArray[1];
-    else if (divisionValues[division] < maxDivisionValue[2])
-      return completeDivisionLengthArray[2];
-    else if (divisionValues[division] < maxDivisionValue[3])
-      return completeDivisionLengthArray[3];
-    else
-      return completeDivisionLengthArray[4];
-  }
-
-  /** 
-   * Sets the bits in the byteArray for the given division, which has to write
-   * its bits at position bitIndex.
-   * Returns the bitIndex where the next Division can start.
-   * 
-   * ENCODING FIX: Uses EXCLUSIVE upper bounds (< instead of <=) and adjusted suffix formulas
-   * to prevent overflow at tier boundaries.
-   */
-  private int setDivisionBitArray(int[] divisionValues, byte[] byteArray, int division,
-      int bitIndex) {
-    int divisionSize = getDivisionBits(division);
-    int suffix;
-    boolean[] prefix;
-
-    // Default to last tier
-    prefix = bitStringAsBoolean[divisionLengthArray.length - 1];
-    // FIX: Changed from - 1 to no adjustment for last tier
-    suffix = divisionValues[division] - maxDivisionValue[divisionLengthArray.length - 2];
-
-    // Find the correct tier using EXCLUSIVE upper bounds
-    for (int i = 0; i < divisionLengthArray.length - 1; i++) {
-      // FIX: Changed from <= to < for exclusive bounds
-      if (divisionValues[division] < maxDivisionValue[i]) {
-        prefix = bitStringAsBoolean[i];
-        if (i != 0) {
-          // FIX: Changed from - 1 to no adjustment
-          // Tier i handles values [maxDivisionValue[i-1], maxDivisionValue[i])
-          // suffix = value - maxDivisionValue[i-1]
-          suffix = divisionValues[division] - maxDivisionValue[i - 1];
-        } else {
-          // Tier 0: values [0, maxDivisionValue[0])
-          // suffix = value + 1 to avoid all-zeros encoding
-          suffix = divisionValues[division] + 1;
-        }
-        break;
-      }
-    }
-
-    // set the prefix bits
-    for (boolean b : prefix) {
-      if (b) {
-        byteArray[bitIndex / 8] |= 1 << 7 - (bitIndex & 7);
-      }
-      bitIndex++;
-    }
-
-    // write the suffix bits (MSB first)
-    int rest = divisionSize - prefix.length;
-    for (int i = 1; i <= rest; i++) {
-      int k = 1 << (rest - i);
-      if (suffix >= k) {
-        suffix -= k;
-        byteArray[bitIndex / 8] |= 1 << 7 - (bitIndex & 7);
-      }
-      bitIndex++;
-    }
-
-    return bitIndex;
-  }
-
   public byte[] toBytes() {
     return toBytes(divisionValues);
   }
@@ -537,39 +457,10 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     if (bytes != null) {
       return bytes;
     }
-    // calculate needed bits for deweyID
-    int numberOfDivisionBits = 0;
-
-    // starting at second division, because the first "1" can be optimized
-    // FIX: Changed from <= to < for exclusive tier bounds
-    for (int i = 1; i < divisionValues.length; i++) {
-      if (divisionValues[i] < maxDivisionValue[0])
-        numberOfDivisionBits += completeDivisionLengthArray[0];
-      else if (divisionValues[i] < maxDivisionValue[1])
-        numberOfDivisionBits += completeDivisionLengthArray[1];
-      else if (divisionValues[i] < maxDivisionValue[2])
-        numberOfDivisionBits += completeDivisionLengthArray[2];
-      else if (divisionValues[i] < maxDivisionValue[3])
-        numberOfDivisionBits += completeDivisionLengthArray[3];
-      else
-        numberOfDivisionBits += completeDivisionLengthArray[4];
-    }
-
-    byte[] deweyIDbytes;
-    if (numberOfDivisionBits % 8 == 0) {
-      deweyIDbytes = new byte[(numberOfDivisionBits / 8)];
-    } else {
-      deweyIDbytes = new byte[(numberOfDivisionBits / 8) + 1];
-    }
-
-    int bitIndex = 0;
-    for (int i = 1; i < divisionValues.length; i++) {
-      bitIndex = setDivisionBitArray(divisionValues, deweyIDbytes, i, bitIndex);
-    }
-
-    bytes = deweyIDbytes;
-
-    return deweyIDbytes;
+    
+    // Use optimized encoder with lookup tables and direct byte writes
+    bytes = DeweyIDEncoder.encode(divisionValues);
+    return bytes;
   }
 
   @Override
