@@ -528,7 +528,7 @@ This query **joins data across time**—something that would require ETL pipelin
 
 Every document is stored as a tree of **nodes**, where each node has:
 - A unique `nodeKey` (64-bit integer, stable across all revisions)
-- Structural pointers (parent, children, siblings)
+- Structural pointers: `parentKey`, `firstChildKey`, `lastChildKey`, `leftSiblingKey`, `rightSiblingKey`
 - Type-specific data (values, names)
 
 ```
