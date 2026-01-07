@@ -193,7 +193,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
         pageReference.setHash(keyValueLeafPage.getHashCode());
       } else {
         // Use XXH3 for fast page checksums (non-KVLP pages hash compressed bytes)
-        pageReference.setHash(PageHasher.computeXXH3(serializedPage));
+        pageReference.setHash(PageHasher.compute(serializedPage));
       }
 
       if (type == SerializationType.DATA) {

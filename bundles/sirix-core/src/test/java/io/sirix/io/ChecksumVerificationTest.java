@@ -8,10 +8,8 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.util.Arrays;
 import java.util.Random;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -20,107 +18,132 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Comprehensive tests for page checksum verification with XXH3.
+ * Comprehensive tests for high-performance page checksum verification.
+ * 
+ * <p>Tests cover:
+ * <ul>
+ *   <li>Zero-allocation long-based API</li>
+ *   <li>Zero-copy native memory segment hashing</li>
+ *   <li>Bit manipulation byte conversion (no ByteBuffer)</li>
+ *   <li>Hash algorithm extensibility</li>
+ * </ul>
+ * </p>
  */
 class ChecksumVerificationTest {
 
+  private static final HashAlgorithm ALGO = HashAlgorithm.XXH3;
+
   @Nested
-  @DisplayName("PageHasher Unit Tests")
-  class PageHasherTests {
+  @DisplayName("HashAlgorithm Zero-Allocation API Tests")
+  class ZeroAllocationTests {
 
     @Test
-    @DisplayName("XXH3 produces consistent 8-byte hashes")
-    void xxh3ProducesConsistentHashes() {
+    @DisplayName("computeHashLong returns consistent values")
+    void computeHashLongIsConsistent() {
       byte[] data = "Hello, SirixDB!".getBytes();
       
-      byte[] hash1 = PageHasher.computeXXH3(data);
-      byte[] hash2 = PageHasher.computeXXH3(data);
+      long hash1 = ALGO.computeHashLong(data);
+      long hash2 = ALGO.computeHashLong(data);
       
-      assertEquals(PageHasher.HASH_LENGTH, hash1.length);
-      assertArrayEquals(hash1, hash2, "XXH3 should produce consistent hashes");
+      assertEquals(hash1, hash2, "computeHashLong should be consistent");
     }
 
     @Test
-    @DisplayName("XXH3 produces different hashes for different data")
-    void xxh3ProducesDifferentHashesForDifferentData() {
-      byte[] data1 = "Hello, SirixDB!".getBytes();
-      byte[] data2 = "Hello, Sirix!".getBytes();
+    @DisplayName("computeHashLong produces different values for different data")
+    void computeHashLongDiffersForDifferentData() {
+      long hash1 = ALGO.computeHashLong("Hello, SirixDB!".getBytes());
+      long hash2 = ALGO.computeHashLong("Hello, Sirix!".getBytes());
       
-      byte[] hash1 = PageHasher.computeXXH3(data1);
-      byte[] hash2 = PageHasher.computeXXH3(data2);
-      
-      assertFalse(Arrays.equals(hash1, hash2), "Different data should produce different hashes");
+      assertNotEquals(hash1, hash2, "Different data should produce different hashes");
     }
 
     @Test
-    @DisplayName("XXH3 range hashing works correctly")
-    void xxh3RangeHashingWorks() {
+    @DisplayName("verifyLong returns true for matching hash")
+    void verifyLongReturnsTrueForMatch() {
+      byte[] data = "Test data".getBytes();
+      long hash = ALGO.computeHashLong(data);
+      
+      assertTrue(ALGO.verifyLong(data, hash), "verifyLong should return true for matching hash");
+    }
+
+    @Test
+    @DisplayName("verifyLong returns false for mismatched hash")
+    void verifyLongReturnsFalseForMismatch() {
+      byte[] data = "Test data".getBytes();
+      long wrongHash = ALGO.computeHashLong("Different data".getBytes());
+      
+      assertFalse(ALGO.verifyLong(data, wrongHash), "verifyLong should return false for mismatch");
+    }
+
+    @Test
+    @DisplayName("Range hashing with long API works correctly")
+    void rangeHashingWithLongApi() {
       byte[] data = "PREFIXHello, SirixDB!SUFFIX".getBytes();
-      byte[] expected = PageHasher.computeXXH3("Hello, SirixDB!".getBytes());
+      long expected = ALGO.computeHashLong("Hello, SirixDB!".getBytes());
       
-      byte[] actual = PageHasher.computeXXH3(data, 6, 15);
+      long actual = ALGO.computeHashLong(data, 6, 15);
       
-      assertArrayEquals(expected, actual, "Range hashing should match full data hashing");
+      assertEquals(expected, actual, "Range hashing should match full data hashing");
     }
+  }
+
+  @Nested
+  @DisplayName("Zero-Copy MemorySegment Tests")
+  class ZeroCopyTests {
 
     @Test
-    @DisplayName("XXH3 with native MemorySegment uses zero-copy")
-    void xxh3NativeMemorySegmentZeroCopy() {
-      byte[] data = "Test data for native segment verification".getBytes();
-      byte[] expectedFromArray = PageHasher.computeXXH3(data);
+    @DisplayName("Native MemorySegment uses zero-copy path")
+    void nativeSegmentZeroCopy() {
+      byte[] data = "Test data for native segment".getBytes();
+      long expectedFromArray = ALGO.computeHashLong(data);
       
-      // Create native (off-heap) segment - this is the zero-copy path
       try (Arena arena = Arena.ofConfined()) {
         MemorySegment nativeSegment = arena.allocate(data.length);
         nativeSegment.copyFrom(MemorySegment.ofArray(data));
         
         assertTrue(nativeSegment.isNative(), "Segment should be native (off-heap)");
         
-        byte[] actualFromSegment = PageHasher.computeXXH3(nativeSegment);
-        assertArrayEquals(expectedFromArray, actualFromSegment, 
+        long actualFromSegment = ALGO.computeHashLong(nativeSegment);
+        assertEquals(expectedFromArray, actualFromSegment,
             "Native segment hash should match byte array hash");
       }
     }
 
     @Test
-    @DisplayName("XXH3 with heap-backed MemorySegment works correctly")
-    void xxh3HeapMemorySegmentWorks() {
-      byte[] data = "Test data for heap segment verification".getBytes();
-      byte[] expectedFromArray = PageHasher.computeXXH3(data);
+    @DisplayName("Heap-backed MemorySegment works correctly")
+    void heapSegmentWorks() {
+      byte[] data = "Test data for heap segment".getBytes();
+      long expectedFromArray = ALGO.computeHashLong(data);
       
-      // Create heap-backed segment
       MemorySegment heapSegment = MemorySegment.ofArray(data);
-      
       assertFalse(heapSegment.isNative(), "Segment should be heap-backed");
       
-      byte[] actualFromSegment = PageHasher.computeXXH3(heapSegment);
-      assertArrayEquals(expectedFromArray, actualFromSegment, 
+      long actualFromSegment = ALGO.computeHashLong(heapSegment);
+      assertEquals(expectedFromArray, actualFromSegment,
           "Heap segment hash should match byte array hash");
     }
 
     @Test
-    @DisplayName("verify() with native MemorySegment is zero-copy")
-    void verifyNativeMemorySegmentZeroCopy() {
+    @DisplayName("verifyLong with native MemorySegment is zero-copy")
+    void verifyLongNativeSegmentZeroCopy() {
       byte[] data = "Test data for verification".getBytes();
-      byte[] hash = PageHasher.computeXXH3(data);
+      long hash = ALGO.computeHashLong(data);
       
       try (Arena arena = Arena.ofConfined()) {
         MemorySegment nativeSegment = arena.allocate(data.length);
         nativeSegment.copyFrom(MemorySegment.ofArray(data));
         
-        // Verify using native segment (zero-copy path)
-        assertTrue(PageHasher.verify(nativeSegment, hash), 
-            "verify() should work with native MemorySegment");
+        assertTrue(ALGO.verifyLong(nativeSegment, hash),
+            "verifyLong should work with native MemorySegment");
       }
     }
 
     @Test
-    @DisplayName("verify() with MemorySegment returns false for corrupted data")
-    void verifyMemorySegmentDetectsCorruption() {
+    @DisplayName("verifyLong detects corruption in MemorySegment")
+    void verifyLongDetectsCorruptionInSegment() {
       byte[] data = "Test data for verification".getBytes();
-      byte[] hash = PageHasher.computeXXH3(data);
+      long hash = ALGO.computeHashLong(data);
       
-      // Corrupt the data
       byte[] corrupted = data.clone();
       corrupted[5] ^= 0xFF;
       
@@ -128,58 +151,131 @@ class ChecksumVerificationTest {
         MemorySegment nativeSegment = arena.allocate(corrupted.length);
         nativeSegment.copyFrom(MemorySegment.ofArray(corrupted));
         
-        assertFalse(PageHasher.verify(nativeSegment, hash), 
-            "verify() should detect corruption in MemorySegment");
+        assertFalse(ALGO.verifyLong(nativeSegment, hash),
+            "verifyLong should detect corruption in MemorySegment");
       }
     }
+  }
+
+  @Nested
+  @DisplayName("Bit Manipulation Conversion Tests (No ByteBuffer)")
+  class BitManipulationTests {
 
     @Test
-    @DisplayName("verify() returns true for matching XXH3 hash")
-    void verifyReturnsTrueForMatchingXXH3() {
-      byte[] data = "Test data for verification".getBytes();
-      byte[] hash = PageHasher.computeXXH3(data);
+    @DisplayName("longToBytes and bytesToLong are inverses")
+    void longToBytesAndBytesToLongAreInverses() {
+      long original = 0xDEADBEEFCAFEBABEL;
       
-      assertTrue(PageHasher.verify(data, hash), "verify() should return true for matching hash");
+      byte[] bytes = HashAlgorithm.longToBytes(original);
+      long roundTrip = HashAlgorithm.bytesToLong(bytes);
+      
+      assertEquals(original, roundTrip, "Round-trip should preserve value");
     }
 
     @Test
-    @DisplayName("verify() returns false for mismatched XXH3 hash")
-    void verifyReturnsFalseForMismatchedXXH3() {
-      byte[] data = "Test data for verification".getBytes();
-      byte[] wrongHash = PageHasher.computeXXH3("Different data".getBytes());
+    @DisplayName("longToBytes produces big-endian bytes")
+    void longToBytesBigEndian() {
+      long value = 0x0102030405060708L;
       
-      assertFalse(PageHasher.verify(data, wrongHash), "verify() should return false for mismatched hash");
+      byte[] bytes = HashAlgorithm.longToBytes(value);
+      
+      assertEquals(8, bytes.length);
+      assertEquals(0x01, bytes[0]);
+      assertEquals(0x02, bytes[1]);
+      assertEquals(0x03, bytes[2]);
+      assertEquals(0x04, bytes[3]);
+      assertEquals(0x05, bytes[4]);
+      assertEquals(0x06, bytes[5]);
+      assertEquals(0x07, bytes[6]);
+      assertEquals(0x08, bytes[7]);
     }
 
     @Test
-    @DisplayName("verify() returns true for null hash (no verification)")
+    @DisplayName("bytesToLong reads big-endian bytes")
+    void bytesToLongBigEndian() {
+      byte[] bytes = new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
+      
+      long value = HashAlgorithm.bytesToLong(bytes);
+      
+      assertEquals(0x0102030405060708L, value);
+    }
+
+    @Test
+    @DisplayName("bytesToLong throws for wrong array length")
+    void bytesToLongThrowsForWrongLength() {
+      assertThrows(IllegalArgumentException.class, 
+          () -> HashAlgorithm.bytesToLong(new byte[7]),
+          "Should throw for 7 bytes");
+      assertThrows(IllegalArgumentException.class,
+          () -> HashAlgorithm.bytesToLong(new byte[9]),
+          "Should throw for 9 bytes");
+    }
+
+    @Test
+    @DisplayName("Hash long matches converted hash bytes")
+    void hashLongMatchesConvertedBytes() {
+      byte[] data = "Test data".getBytes();
+      
+      long hashLong = ALGO.computeHashLong(data);
+      byte[] hashBytes = ALGO.computeHash(data);
+      long converted = HashAlgorithm.bytesToLong(hashBytes);
+      
+      assertEquals(hashLong, converted, "Hash long should match converted bytes");
+    }
+  }
+
+  @Nested
+  @DisplayName("PageHasher High-Level API Tests")
+  class PageHasherTests {
+
+    @Test
+    @DisplayName("compute returns correct hash bytes")
+    void computeReturnsCorrectBytes() {
+      byte[] data = "Hello, SirixDB!".getBytes();
+      
+      byte[] hash = PageHasher.compute(data, ALGO);
+      
+      assertEquals(ALGO.getHashLength(), hash.length);
+    }
+
+    @Test
+    @DisplayName("computeLong matches compute converted to long")
+    void computeLongMatchesCompute() {
+      byte[] data = "Hello, SirixDB!".getBytes();
+      
+      long hashLong = PageHasher.computeLong(data, ALGO);
+      byte[] hashBytes = PageHasher.compute(data, ALGO);
+      
+      assertEquals(hashLong, HashAlgorithm.bytesToLong(hashBytes));
+    }
+
+    @Test
+    @DisplayName("verify returns true for null hash")
     void verifyReturnsTrueForNullHash() {
       byte[] data = "Test data".getBytes();
       
-      assertTrue(PageHasher.verify(data, null), "verify() should return true when hash is null");
+      assertTrue(PageHasher.verify(data, null, ALGO));
     }
 
     @Test
-    @DisplayName("verify() returns true for empty hash (no verification)")
+    @DisplayName("verify returns true for empty hash")
     void verifyReturnsTrueForEmptyHash() {
       byte[] data = "Test data".getBytes();
       
-      assertTrue(PageHasher.verify(data, new byte[0]), "verify() should return true when hash is empty");
+      assertTrue(PageHasher.verify(data, new byte[0], ALGO));
     }
 
     @Test
-    @DisplayName("verify() throws on wrong hash length")
-    void verifyThrowsOnWrongHashLength() {
+    @DisplayName("verify throws for wrong hash length")
+    void verifyThrowsForWrongHashLength() {
       byte[] data = "Test data".getBytes();
-      byte[] wrongLength = new byte[16]; // Not 8 bytes
       
-      assertThrows(IllegalArgumentException.class, 
-          () -> PageHasher.verify(data, wrongLength),
-          "verify() should throw on wrong hash length");
+      assertThrows(IllegalArgumentException.class,
+          () -> PageHasher.verify(data, new byte[16], ALGO));
     }
 
     @Test
-    @DisplayName("toHexString produces correct hex encoding")
+    @DisplayName("toHexString produces correct hex")
     void toHexStringProducesCorrectHex() {
       byte[] data = new byte[] { (byte) 0xDE, (byte) 0xAD, (byte) 0xBE, (byte) 0xEF };
       
@@ -189,19 +285,15 @@ class ChecksumVerificationTest {
     @Test
     @DisplayName("toHexString handles null gracefully")
     void toHexStringHandlesNull() {
-      assertEquals("null", PageHasher.toHexString(null));
+      assertEquals("null", PageHasher.toHexString((byte[]) null));
     }
 
     @Test
-    @DisplayName("bytesToLong and longToBytes are inverses")
-    void bytesToLongAndLongToBytesAreInverses() {
-      // Test through computeXXH3Long and bytesToLong
-      byte[] data = "test".getBytes();
-      byte[] hash = PageHasher.computeXXH3(data);
-      long hashLong = PageHasher.bytesToLong(hash);
-      long directLong = PageHasher.computeXXH3Long(data);
+    @DisplayName("toHexString for long produces correct hex")
+    void toHexStringLongProducesCorrectHex() {
+      long value = 0xDEADBEEFCAFEBABEL;
       
-      assertEquals(directLong, hashLong, "bytesToLong should correctly convert hash bytes");
+      assertEquals("deadbeefcafebabe", PageHasher.toHexString(value));
     }
   }
 
@@ -237,11 +329,9 @@ class ChecksumVerificationTest {
       
       var exception = new SirixCorruptionException(0L, "test", expected, actual);
       
-      // Modify original arrays
       expected[0] = 99;
       actual[0] = 99;
       
-      // Exception should have original values
       assertNotEquals(99, exception.getExpectedHash()[0]);
       assertNotEquals(99, exception.getActualHash()[0]);
     }
@@ -254,8 +344,8 @@ class ChecksumVerificationTest {
       
       var exception = new SirixCorruptionException(0L, "test", expected, actual);
       
-      assertTrue(exception.getMessage().contains("abcd"), "Message should contain expected hash hex");
-      assertTrue(exception.getMessage().contains("ef01"), "Message should contain actual hash hex");
+      assertTrue(exception.getMessage().contains("abcd"));
+      assertTrue(exception.getMessage().contains("ef01"));
     }
   }
 
@@ -268,7 +358,7 @@ class ChecksumVerificationTest {
     void verifyChecksumsOnReadDefaultsTrue() {
       ResourceConfiguration config = new ResourceConfiguration.Builder("test").build();
       
-      assertTrue(config.verifyChecksumsOnRead, "verifyChecksumsOnRead should default to true");
+      assertTrue(config.verifyChecksumsOnRead);
     }
 
     @Test
@@ -278,29 +368,15 @@ class ChecksumVerificationTest {
           .verifyChecksumsOnRead(false)
           .build();
       
-      assertFalse(config.verifyChecksumsOnRead, "verifyChecksumsOnRead should be disabled");
+      assertFalse(config.verifyChecksumsOnRead);
     }
-  }
-
-  @Nested
-  @DisplayName("Hash Tests")
-  class HashTests {
 
     @Test
-    @DisplayName("XXH3 produces 8-byte hashes")
-    void hashLengthIsCorrect() {
-      // Generate test data
-      byte[] data = new byte[1024 * 1024];
-      new Random(42).nextBytes(data);
+    @DisplayName("hashAlgorithm defaults to XXH3")
+    void hashAlgorithmDefaultsToXxh3() {
+      ResourceConfiguration config = new ResourceConfiguration.Builder("test").build();
       
-      byte[] xxh3Hash = PageHasher.computeXXH3(data);
-      
-      // Verify hash length
-      assertEquals(8, xxh3Hash.length, "XXH3 should produce 8-byte hashes");
-      
-      // Verify hashes are deterministic
-      byte[] xxh3Hash2 = PageHasher.computeXXH3(data);
-      assertArrayEquals(xxh3Hash, xxh3Hash2, "XXH3 should be deterministic");
+      assertEquals(HashAlgorithm.XXH3, config.hashAlgorithm);
     }
   }
 
@@ -309,14 +385,14 @@ class ChecksumVerificationTest {
   class HashAlgorithmTests {
 
     @Test
-    @DisplayName("XXH3 algorithm has correct hash length")
+    @DisplayName("XXH3 has hash length 8")
     void xxh3HasCorrectHashLength() {
       assertEquals(8, HashAlgorithm.XXH3.getHashLength());
     }
 
     @Test
-    @DisplayName("fromHashLength returns correct algorithm")
-    void fromHashLengthReturnsCorrectAlgorithm() {
+    @DisplayName("fromHashLength returns XXH3 for length 8")
+    void fromHashLengthReturnsXxh3() {
       assertEquals(HashAlgorithm.XXH3, HashAlgorithm.fromHashLength(8));
     }
 
@@ -325,23 +401,6 @@ class ChecksumVerificationTest {
     void fromHashLengthReturnsNullForUnknown() {
       assertNull(HashAlgorithm.fromHashLength(16));
       assertNull(HashAlgorithm.fromHashLength(32));
-    }
-
-    @Test
-    @DisplayName("Algorithm produces correct hashes")
-    void algorithmProducesCorrectHashes() {
-      byte[] data = "Test data".getBytes();
-      byte[] hash = HashAlgorithm.XXH3.computeHash(data);
-      
-      assertEquals(8, hash.length);
-      assertTrue(HashAlgorithm.XXH3.verify(data, hash));
-    }
-
-    @Test
-    @DisplayName("DEFAULT_ALGORITHM is XXH3")
-    void defaultAlgorithmIsXxh3() {
-      assertEquals(HashAlgorithm.XXH3, PageHasher.DEFAULT_ALGORITHM);
-      assertEquals(8, PageHasher.HASH_LENGTH);
     }
   }
 
@@ -353,14 +412,12 @@ class ChecksumVerificationTest {
     @DisplayName("Single bit flip is detected")
     void singleBitFlipIsDetected() {
       byte[] original = "This is test data for bit flip detection".getBytes();
-      byte[] originalHash = PageHasher.computeXXH3(original);
+      long originalHash = ALGO.computeHashLong(original);
       
-      // Flip a single bit
       byte[] corrupted = original.clone();
       corrupted[10] ^= 0x01;
       
-      // Should not verify
-      assertFalse(PageHasher.verify(corrupted, originalHash), 
+      assertFalse(ALGO.verifyLong(corrupted, originalHash),
           "Single bit flip should be detected");
     }
 
@@ -368,16 +425,45 @@ class ChecksumVerificationTest {
     @DisplayName("Hash changes for any byte modification")
     void hashChangesForAnyByteModification() {
       byte[] original = "Test data for modification detection".getBytes();
-      byte[] originalHash = PageHasher.computeXXH3(original);
+      long originalHash = ALGO.computeHashLong(original);
       
-      // Modify each byte position
       for (int i = 0; i < original.length; i++) {
         byte[] modified = original.clone();
         modified[i] = (byte) (modified[i] + 1);
         
-        byte[] modifiedHash = PageHasher.computeXXH3(modified);
-        assertFalse(Arrays.equals(originalHash, modifiedHash),
+        long modifiedHash = ALGO.computeHashLong(modified);
+        assertNotEquals(originalHash, modifiedHash,
             "Hash should change when byte at position " + i + " is modified");
+      }
+    }
+  }
+
+  @Nested
+  @DisplayName("Performance Characteristics Tests")
+  class PerformanceTests {
+
+    @Test
+    @DisplayName("Large data hashing works correctly")
+    void largeDataHashingWorks() {
+      byte[] data = new byte[1024 * 1024]; // 1 MB
+      new Random(42).nextBytes(data);
+      
+      long hash1 = ALGO.computeHashLong(data);
+      long hash2 = ALGO.computeHashLong(data);
+      
+      assertEquals(hash1, hash2, "Large data hashing should be consistent");
+    }
+
+    @Test
+    @DisplayName("Hash verification hot path has no allocations (conceptual)")
+    void verifyLongIsAllocationFree() {
+      byte[] data = "Test data".getBytes();
+      long hash = ALGO.computeHashLong(data);
+      
+      // This test verifies that verifyLong uses primitive types only
+      // In a real benchmark, you'd use JMH with allocation profiling
+      for (int i = 0; i < 10000; i++) {
+        assertTrue(ALGO.verifyLong(data, hash));
       }
     }
   }

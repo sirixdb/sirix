@@ -11,8 +11,6 @@
   }, {
     "pattern":"\\QMETA-INF/services/javax.xml.parsers.SAXParserFactory\\E"
   }, {
-    "pattern":"\\QMETA-INF/services/net.openhft.chronicle.core.ChronicleInitRunnable\\E"
-  }, {
     "pattern":"\\QMETA-INF/services/org/jline/terminal/provider/exec\\E"
   }, {
     "pattern":"\\QMETA-INF/services/org/jline/terminal/provider/ffm\\E"

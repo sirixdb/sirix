@@ -4,8 +4,6 @@ import net.openhft.hashing.LongHashFunction;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 
 /**
  * Hash algorithms for page checksum verification.
@@ -13,11 +11,20 @@ import java.nio.ByteOrder;
  * <p>The algorithm is identified by its hash length, enabling automatic detection
  * when reading pages written with different algorithms.</p>
  * 
+ * <p>Performance notes (aligned with financial/HFT systems best practices):
+ * <ul>
+ *   <li>Hash computation returns {@code long} to avoid byte[] allocation in hot paths</li>
+ *   <li>Verification uses primitive comparison instead of Arrays.equals()</li>
+ *   <li>Bit manipulation used instead of ByteBuffer for zero-allocation conversion</li>
+ *   <li>Native memory segments use zero-copy hashing</li>
+ * </ul>
+ * </p>
+ * 
  * <p>To add a new algorithm:
  * <ol>
  *   <li>Add a new enum constant with a unique hash length</li>
- *   <li>Implement {@link #computeHash(byte[])} and {@link #computeHash(MemorySegment)}</li>
- *   <li>Register the hash length in {@link #fromHashLength(int)}</li>
+ *   <li>Implement the abstract methods</li>
+ *   <li>The hash length enables automatic detection via {@link #fromHashLength(int)}</li>
  * </ol>
  * </p>
  */
@@ -26,27 +33,20 @@ public enum HashAlgorithm {
   /**
    * XXH3 - Extremely fast non-cryptographic hash (~15 GB/s).
    * 
-   * <p>Default algorithm. Uses zero-copy hashing for native memory segments.</p>
+   * <p>Default algorithm. Uses zero-copy hashing for native memory segments.
+   * Single-threaded throughput: ~15 GB/s on modern hardware.</p>
    */
   XXH3(8) {
     private static final LongHashFunction HASHER = LongHashFunction.xx3();
     
     @Override
-    public byte[] computeHash(byte[] data) {
-      long hash = HASHER.hashBytes(data);
-      return longToBytes(hash);
+    public long computeHashLong(byte[] data) {
+      return HASHER.hashBytes(data);
     }
     
     @Override
-    public byte[] computeHash(byte[] data, int offset, int length) {
-      long hash = HASHER.hashBytes(data, offset, length);
-      return longToBytes(hash);
-    }
-    
-    @Override
-    public byte[] computeHash(MemorySegment segment) {
-      long hash = computeHashLong(segment);
-      return longToBytes(hash);
+    public long computeHashLong(byte[] data, int offset, int length) {
+      return HASHER.hashBytes(data, offset, length);
     }
     
     @Override
@@ -61,28 +61,18 @@ public enum HashAlgorithm {
     }
     
     @Override
-    public long computeHashLong(byte[] data) {
-      return HASHER.hashBytes(data);
+    public boolean verifyLong(byte[] data, long expectedHash) {
+      return HASHER.hashBytes(data) == expectedHash;
     }
     
     @Override
-    public boolean verify(byte[] data, byte[] expectedHash) {
-      long actualHash = HASHER.hashBytes(data);
-      long expectedHashLong = bytesToLong(expectedHash);
-      return actualHash == expectedHashLong;
-    }
-    
-    @Override
-    public boolean verify(MemorySegment segment, byte[] expectedHash) {
-      long actualHash = computeHashLong(segment);
-      long expectedHashLong = bytesToLong(expectedHash);
-      return actualHash == expectedHashLong;
+    public boolean verifyLong(MemorySegment segment, long expectedHash) {
+      return computeHashLong(segment) == expectedHash;
     }
   };
   
   // Future algorithms can be added here, e.g.:
-  // XXH128(16) { ... },
-  // HIGHWAY_HASH(32) { ... },
+  // XXH128(16) { ... },  // Would need computeHash128() methods
   
   private final int hashLength;
   
@@ -99,77 +89,109 @@ public enum HashAlgorithm {
     return hashLength;
   }
   
-  /**
-   * Compute hash of byte array.
-   * 
-   * @param data the data to hash
-   * @return hash bytes
-   */
-  public abstract byte[] computeHash(byte[] data);
+  // ==================== Primary API: Long-based (zero-allocation) ====================
   
   /**
-   * Compute hash of byte array range.
+   * Compute hash as long (primary API - zero allocation).
+   * 
+   * @param data the data to hash
+   * @return hash as long
+   */
+  public abstract long computeHashLong(byte[] data);
+  
+  /**
+   * Compute hash of range as long (zero allocation).
    * 
    * @param data   the data to hash
    * @param offset start offset
-   * @param length number of bytes to hash
-   * @return hash bytes
+   * @param length number of bytes
+   * @return hash as long
    */
-  public abstract byte[] computeHash(byte[] data, int offset, int length);
+  public abstract long computeHashLong(byte[] data, int offset, int length);
   
   /**
-   * Compute hash of a MemorySegment (zero-copy for native segments where supported).
-   * 
-   * @param segment the memory segment to hash
-   * @return hash bytes
-   */
-  public abstract byte[] computeHash(MemorySegment segment);
-  
-  /**
-   * Compute hash as long (for algorithms with 8-byte hashes).
+   * Compute hash of MemorySegment as long (zero-copy for native segments).
    * 
    * @param segment the memory segment to hash
    * @return hash as long
-   * @throws UnsupportedOperationException if hash length != 8
    */
-  public long computeHashLong(MemorySegment segment) {
-    if (hashLength != 8) {
-      throw new UnsupportedOperationException("computeHashLong only supported for 8-byte hashes");
-    }
-    return bytesToLong(computeHash(segment));
-  }
+  public abstract long computeHashLong(MemorySegment segment);
   
   /**
-   * Compute hash as long (for algorithms with 8-byte hashes).
-   * 
-   * @param data the data to hash
-   * @return hash as long
-   * @throws UnsupportedOperationException if hash length != 8
-   */
-  public long computeHashLong(byte[] data) {
-    if (hashLength != 8) {
-      throw new UnsupportedOperationException("computeHashLong only supported for 8-byte hashes");
-    }
-    return bytesToLong(computeHash(data));
-  }
-  
-  /**
-   * Verify data against expected hash.
+   * Verify data against expected hash (zero allocation).
    * 
    * @param data         the data to verify
-   * @param expectedHash the expected hash
-   * @return true if hash matches, false otherwise
+   * @param expectedHash the expected hash as long
+   * @return true if hash matches
    */
-  public abstract boolean verify(byte[] data, byte[] expectedHash);
+  public abstract boolean verifyLong(byte[] data, long expectedHash);
   
   /**
-   * Verify MemorySegment against expected hash (zero-copy where supported).
+   * Verify MemorySegment against expected hash (zero-copy for native segments).
    * 
    * @param segment      the memory segment to verify
-   * @param expectedHash the expected hash
-   * @return true if hash matches, false otherwise
+   * @param expectedHash the expected hash as long
+   * @return true if hash matches
    */
-  public abstract boolean verify(MemorySegment segment, byte[] expectedHash);
+  public abstract boolean verifyLong(MemorySegment segment, long expectedHash);
+  
+  // ==================== Convenience API: Byte array-based ====================
+  
+  /**
+   * Compute hash as byte array (allocates - use long version in hot paths).
+   * 
+   * @param data the data to hash
+   * @return hash bytes
+   */
+  public byte[] computeHash(byte[] data) {
+    return longToBytes(computeHashLong(data));
+  }
+  
+  /**
+   * Compute hash of range as byte array.
+   * 
+   * @param data   the data to hash
+   * @param offset start offset
+   * @param length number of bytes
+   * @return hash bytes
+   */
+  public byte[] computeHash(byte[] data, int offset, int length) {
+    return longToBytes(computeHashLong(data, offset, length));
+  }
+  
+  /**
+   * Compute hash of MemorySegment as byte array.
+   * 
+   * @param segment the memory segment to hash
+   * @return hash bytes
+   */
+  public byte[] computeHash(MemorySegment segment) {
+    return longToBytes(computeHashLong(segment));
+  }
+  
+  /**
+   * Verify data against expected hash bytes.
+   * 
+   * @param data         the data to verify
+   * @param expectedHash the expected hash bytes
+   * @return true if hash matches
+   */
+  public boolean verify(byte[] data, byte[] expectedHash) {
+    return verifyLong(data, bytesToLong(expectedHash));
+  }
+  
+  /**
+   * Verify MemorySegment against expected hash bytes.
+   * 
+   * @param segment      the memory segment to verify
+   * @param expectedHash the expected hash bytes
+   * @return true if hash matches
+   */
+  public boolean verify(MemorySegment segment, byte[] expectedHash) {
+    return verifyLong(segment, bytesToLong(expectedHash));
+  }
+  
+  // ==================== Algorithm detection ====================
   
   /**
    * Get the algorithm from a hash length.
@@ -180,6 +202,10 @@ public enum HashAlgorithm {
    * @return the algorithm, or null if unknown
    */
   public static HashAlgorithm fromHashLength(int hashLength) {
+    // Fast path for common case
+    if (hashLength == 8) return XXH3;
+    
+    // General lookup for future algorithms
     for (HashAlgorithm algo : values()) {
       if (algo.hashLength == hashLength) {
         return algo;
@@ -188,21 +214,42 @@ public enum HashAlgorithm {
     return null;
   }
   
+  // ==================== Conversion utilities (zero-allocation bit manipulation) ====================
+  
   /**
-   * Convert long to 8-byte array (big-endian).
+   * Convert long to 8-byte array (big-endian, no ByteBuffer allocation).
+   * 
+   * <p>Uses direct bit manipulation for maximum performance.</p>
    */
-  protected static byte[] longToBytes(long value) {
-    return ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN).putLong(value).array();
+  public static byte[] longToBytes(long value) {
+    return new byte[] {
+        (byte) (value >>> 56),
+        (byte) (value >>> 48),
+        (byte) (value >>> 40),
+        (byte) (value >>> 32),
+        (byte) (value >>> 24),
+        (byte) (value >>> 16),
+        (byte) (value >>> 8),
+        (byte) value
+    };
   }
   
   /**
-   * Convert 8-byte array to long (big-endian).
+   * Convert 8-byte array to long (big-endian, no ByteBuffer allocation).
+   * 
+   * <p>Uses direct bit manipulation for maximum performance.</p>
    */
-  protected static long bytesToLong(byte[] bytes) {
+  public static long bytesToLong(byte[] bytes) {
     if (bytes.length != 8) {
       throw new IllegalArgumentException("Expected 8 bytes, got " + bytes.length);
     }
-    return ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN).getLong();
+    return ((long) (bytes[0] & 0xFF) << 56)
+         | ((long) (bytes[1] & 0xFF) << 48)
+         | ((long) (bytes[2] & 0xFF) << 40)
+         | ((long) (bytes[3] & 0xFF) << 32)
+         | ((long) (bytes[4] & 0xFF) << 24)
+         | ((long) (bytes[5] & 0xFF) << 16)
+         | ((long) (bytes[6] & 0xFF) << 8)
+         | ((long) (bytes[7] & 0xFF));
   }
 }
-

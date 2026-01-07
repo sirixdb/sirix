@@ -341,7 +341,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
                 pageReference.setHash(keyValueLeafPage.getHashCode());
             } else {
                 // Use XXH3 for fast page checksums (non-KVLP pages hash compressed bytes)
-                pageReference.setHash(PageHasher.computeXXH3(serializedPage));
+                pageReference.setHash(PageHasher.compute(serializedPage));
             }
             
             // Handle revision tracking
@@ -452,7 +452,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
             
             pageReference.setKey(offset);
             // Use XXH3 for fast page checksums
-            pageReference.setHash(PageHasher.computeXXH3(serializedPage));
+            pageReference.setHash(PageHasher.compute(serializedPage));
             
             // Update revision file
             if (serializationType == SerializationType.DATA && isFirstUberPage) {

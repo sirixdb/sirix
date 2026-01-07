@@ -34,6 +34,7 @@ import com.google.gson.stream.JsonWriter;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.exception.SirixIOException;
+import io.sirix.io.HashAlgorithm;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerKind;
@@ -331,6 +332,15 @@ public final class ResourceConfiguration {
    */
   public final boolean verifyChecksumsOnRead;
 
+  /**
+   * The hash algorithm used for page checksums.
+   * 
+   * <p>Default is {@link HashAlgorithm#XXH3}, which provides ~15 GB/s throughput.
+   * The algorithm can be changed for future extensibility, though changing it
+   * requires re-writing all pages.</p>
+   */
+  public final HashAlgorithm hashAlgorithm;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -370,6 +380,7 @@ public final class ResourceConfiguration {
     stringCompressionType = builder.stringCompressionType;
     indexBackendType = builder.indexBackendType;
     verifyChecksumsOnRead = builder.verifyChecksumsOnRead;
+    hashAlgorithm = builder.hashAlgorithm;
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -498,7 +509,8 @@ public final class ResourceConfiguration {
       { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
           "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
           "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount",
-          "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance", "verifyChecksumsOnRead" };
+          "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance", "verifyChecksumsOnRead", 
+          "hashAlgorithm" };
 
   /**
    * Serialize the configuration.
@@ -558,6 +570,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[19]).value(config.deweyIdSiblingDistance);
       // Verify checksums on read.
       jsonWriter.name(JSONNAMES[20]).value(config.verifyChecksumsOnRead);
+      // Hash algorithm for checksums.
+      jsonWriter.name(JSONNAMES[21]).value(config.hashAlgorithm.name());
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -683,11 +697,20 @@ public final class ResourceConfiguration {
       }
 
       // Verify checksums on read (optional for backward compatibility with older configs)
-      boolean verifyChecksumsOnRead = false; // Default value
+      boolean verifyChecksumsOnRead = true; // Default value
       if (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[20])) {
           verifyChecksumsOnRead = jsonReader.nextBoolean();
+        }
+      }
+
+      // Hash algorithm (optional for backward compatibility with older configs)
+      HashAlgorithm hashAlgorithm = HashAlgorithm.XXH3; // Default value
+      if (jsonReader.hasNext()) {
+        name = jsonReader.nextName();
+        if (name.equals(JSONNAMES[21])) {
+          hashAlgorithm = HashAlgorithm.valueOf(jsonReader.nextString());
         }
       }
 
@@ -717,7 +740,8 @@ public final class ResourceConfiguration {
              .stringCompressionType(stringCompressionType)
              .indexBackendType(indexBackendType)
              .deweyIdSiblingDistance(deweyIdSiblingDistance)
-             .verifyChecksumsOnRead(verifyChecksumsOnRead);
+             .verifyChecksumsOnRead(verifyChecksumsOnRead)
+             .hashAlgorithm(hashAlgorithm);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -838,6 +862,12 @@ public final class ResourceConfiguration {
      * Default is true for data integrity.
      */
     private boolean verifyChecksumsOnRead = true;
+
+    /**
+     * Hash algorithm for page checksums.
+     * Default is XXH3 for maximum performance.
+     */
+    private HashAlgorithm hashAlgorithm = HashAlgorithm.XXH3;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -1131,6 +1161,20 @@ public final class ResourceConfiguration {
      */
     public Builder verifyChecksumsOnRead(boolean verify) {
       this.verifyChecksumsOnRead = verify;
+      return this;
+    }
+
+    /**
+     * Set the hash algorithm for page checksums.
+     * 
+     * <p>Default is {@link HashAlgorithm#XXH3}. Changing the algorithm after
+     * pages have been written requires re-writing all pages.</p>
+     *
+     * @param algorithm the hash algorithm to use
+     * @return reference to the builder object
+     */
+    public Builder hashAlgorithm(HashAlgorithm algorithm) {
+      this.hashAlgorithm = requireNonNull(algorithm);
       return this;
     }
 

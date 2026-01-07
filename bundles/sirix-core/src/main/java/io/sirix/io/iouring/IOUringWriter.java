@@ -268,7 +268,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
         pageReference.setHash(keyValueLeafPage.getHashCode());
       } else {
         // Use XXH3 for fast page checksums (non-KVLP pages hash compressed bytes)
-        pageReference.setHash(PageHasher.computeXXH3(serializedPage));
+        pageReference.setHash(PageHasher.compute(serializedPage));
       }
 
       if (serializationType == SerializationType.DATA) {

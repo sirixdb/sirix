@@ -77,8 +77,9 @@ public abstract class AbstractReader implements Reader {
     }
     
     // Verify hash on compressed data
-    if (!PageHasher.verify(compressedData, expectedHash)) {
-      byte[] actualHash = PageHasher.computeActualHash(compressedData);
+    HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
+    if (!PageHasher.verify(compressedData, expectedHash, hashAlgorithm)) {
+      byte[] actualHash = PageHasher.computeActualHash(compressedData, hashAlgorithm);
       throw new SirixCorruptionException(reference.getKey(), "compressed", expectedHash, actualHash);
     }
     
@@ -117,9 +118,10 @@ public abstract class AbstractReader implements Reader {
       }
     }
     
-    // Zero-copy verification for native segments with XXH3
-    if (!PageHasher.verify(compressedSegment, expectedHash)) {
-      byte[] actualHash = PageHasher.computeActualHash(compressedSegment);
+    // Zero-copy verification for native segments
+    HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
+    if (!PageHasher.verify(compressedSegment, expectedHash, hashAlgorithm)) {
+      byte[] actualHash = PageHasher.computeActualHash(compressedSegment, hashAlgorithm);
       throw new SirixCorruptionException(reference.getKey(), "compressed", expectedHash, actualHash);
     }
     
@@ -192,8 +194,9 @@ public abstract class AbstractReader implements Reader {
     
     // Only verify for KVLP pages (hash was computed on uncompressed bytes)
     if (uncompressedData.length > 0 && uncompressedData[0] == PageKind.KEYVALUELEAFPAGE.getID()) {
-      if (!PageHasher.verify(uncompressedData, expectedHash)) {
-        byte[] actualHash = PageHasher.computeActualHash(uncompressedData);
+      HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
+      if (!PageHasher.verify(uncompressedData, expectedHash, hashAlgorithm)) {
+        byte[] actualHash = PageHasher.computeActualHash(uncompressedData, hashAlgorithm);
         throw new SirixCorruptionException(reference.getKey(), "uncompressed-KVLP", expectedHash, actualHash);
       }
       
@@ -286,9 +289,10 @@ public abstract class AbstractReader implements Reader {
     if (uncompressedSegment.byteSize() > 0) {
       byte pageTypeId = uncompressedSegment.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
       if (pageTypeId == PageKind.KEYVALUELEAFPAGE.getID()) {
-        // Zero-copy verification for native segments with XXH3
-        if (!PageHasher.verify(uncompressedSegment, expectedHash)) {
-          byte[] actualHash = PageHasher.computeActualHash(uncompressedSegment);
+        // Zero-copy verification for native segments
+        HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
+        if (!PageHasher.verify(uncompressedSegment, expectedHash, hashAlgorithm)) {
+          byte[] actualHash = PageHasher.computeActualHash(uncompressedSegment, hashAlgorithm);
           throw new SirixCorruptionException(reference.getKey(), "uncompressed-KVLP", expectedHash, actualHash);
         }
         

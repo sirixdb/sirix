@@ -401,7 +401,7 @@ public enum PageKind {
       }
 
       // Use XXH3 for fast page checksums (KVLP pages hash uncompressed bytes)
-      keyValueLeafPage.setHashCode(PageHasher.computeXXH3(sink.bytesForRead().toByteArray()));
+      keyValueLeafPage.setHashCode(PageHasher.compute(sink.bytesForRead().toByteArray()));
 
       final BytesIn<?> uncompressedBytes = sink.bytesForRead();
       final byte[] uncompressedArray = uncompressedBytes.toByteArray();

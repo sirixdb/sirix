@@ -18,9 +18,6 @@
   "name":"[J"
 },
 {
-  "name":"[Lnet.openhft.chronicle.core.scoped.AbstractScopedResource;"
-},
-{
   "name":"[S"
 },
 {
@@ -400,21 +397,6 @@
 {
   "name":"net.jpountz.xxhash.XXHash64JNI",
   "fields":[{"name":"INSTANCE"}]
-},
-{
-  "name":"net.openhft.affinity.Affinity"
-},
-{
-  "name":"net.openhft.chronicle.core.io.VanillaReferenceCounted",
-  "fields":[{"name":"value"}]
-},
-{
-  "name":"net.openhft.posix.internal.jnr.JNRPosixInterface",
-  "queryAllPublicMethods":true
-},
-{
-  "name":"net.openhft.posix.internal.jnr.JNRPosixInterface$jnr$ffi$0",
-  "methods":[{"name":"<init>","parameterTypes":["jnr.ffi.Runtime","jnr.ffi.provider.jffi.NativeLibrary","java.lang.Object[]"] }]
 },
 {
   "name":"null$Platform"

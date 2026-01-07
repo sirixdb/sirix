@@ -27,6 +27,7 @@ import com.google.common.hash.Hashing;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixCorruptionException;
+import io.sirix.io.HashAlgorithm;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
 import io.sirix.io.PageHasher;
@@ -155,8 +156,9 @@ public final class FileReader implements Reader {
       return;
     }
 
-    if (!PageHasher.verify(compressedData, expectedHash)) {
-      byte[] actualHash = PageHasher.computeActualHash(compressedData);
+    HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
+    if (!PageHasher.verify(compressedData, expectedHash, hashAlgorithm)) {
+      byte[] actualHash = PageHasher.computeActualHash(compressedData, hashAlgorithm);
       throw new SirixCorruptionException(reference.getKey(), "compressed", expectedHash, actualHash);
     }
   }
@@ -177,8 +179,9 @@ public final class FileReader implements Reader {
 
     // Only verify for KVLP pages
     if (uncompressedData.length > 0 && uncompressedData[0] == PageKind.KEYVALUELEAFPAGE.getID()) {
-      if (!PageHasher.verify(uncompressedData, expectedHash)) {
-        byte[] actualHash = PageHasher.computeActualHash(uncompressedData);
+      HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
+      if (!PageHasher.verify(uncompressedData, expectedHash, hashAlgorithm)) {
+        byte[] actualHash = PageHasher.computeActualHash(uncompressedData, hashAlgorithm);
         throw new SirixCorruptionException(reference.getKey(), "uncompressed-KVLP", expectedHash, actualHash);
       }
     }
