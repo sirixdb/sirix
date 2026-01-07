@@ -633,7 +633,9 @@ Axes are iterators that traverse from a context node to related nodes. SirixDB p
 | Axis | Direction | Description |
 |------|-----------|-------------|
 | `ChildAxis` | Down | Direct children only |
-| `DescendantAxis` | Down | All descendants (depth-first) |
+| `DescendantAxis` | Down | All descendants (depth-first, pre-order) |
+| `PostOrderAxis` | Down | All descendants (depth-first, post-order) |
+| `LevelOrderAxis` | Down | All descendants (breadth-first) |
 | `ParentAxis` | Up | Direct parent |
 | `AncestorAxis` | Up | All ancestors to root |
 | `FollowingSiblingAxis` | Right | Siblings after this node |
@@ -641,9 +643,10 @@ Axes are iterators that traverse from a context node to related nodes. SirixDB p
 | `SelfAxis` | None | The node itself |
 
 ```java
-// Example: iterate all children
+// Example: iterate all children of the document root
 try (var rtx = resource.beginNodeReadOnlyTrx()) {
-    rtx.moveTo(parentNodeKey);
+    rtx.moveToDocumentRoot();
+    rtx.moveToFirstChild();  // Move to content root
     for (var axis = new ChildAxis(rtx); axis.hasNext(); ) {
         axis.nextLong();
         System.out.println(rtx.getName() + ": " + rtx.getValue());
@@ -686,9 +689,10 @@ Navigate the same node across different revisions:
 #### Combining Spatial and Temporal
 
 ```java
-// Get all versions of all children
+// Get all versions of all children of the document root
 try (var rtx = resource.beginNodeReadOnlyTrx()) {
-    rtx.moveTo(parentKey);
+    rtx.moveToDocumentRoot();
+    rtx.moveToFirstChild();  // Move to actual content root
     var childAxis = new ChildAxis(rtx);
     while (childAxis.hasNext()) {
         childAxis.nextLong();
