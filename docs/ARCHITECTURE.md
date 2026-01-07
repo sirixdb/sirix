@@ -307,13 +307,22 @@ And typically, you open a session on a revision and run many queries—so that o
 
 ---
 
-### Problem 7: Structural Sharing (Why Git Works)
+### Problem 7: Structural Sharing
 
-**The Insight**: Git doesn't copy your entire repo on each commit. It shares unchanged blobs and trees. SirixDB applies the same principle to database pages.
+**The Problem**: Naive copy-on-write creates a full copy of every modified structure, leading to O(n) storage per revision where n = data size.
 
-**Traditional Temporal DBs**: Store full rows with validity periods. Even unchanged data has new timestamp metadata.
+**Structural Sharing**: When a page is modified, only the path from that page to the root is copied. Unchanged sibling pages are referenced (not copied) in the new revision. This is the same principle used in persistent data structures (Okasaki) and version control systems.
 
-**SirixDB**: Only *modified pages* are written. Unchanged subtrees reference existing pages across revisions. A 10GB document with 1000 revisions that change 0.1% each? ~20GB total, not 10TB.
+```
+Revision N:                    Revision N+1:
+    Root ──► A ──► C              Root' ──► A ──► C     (A, C shared)
+         └─► B ──► D                   └─► B'──► D'    (B', D' new)
+```
+
+**Storage Complexity**: For a modification affecting k pages in a tree of depth d:
+- Pages written: O(k + d) — modified pages plus path to root
+- Storage growth: O(Δ) per revision where Δ = actual change size
+- Example: 10GB document, 1000 revisions, 0.1% change each → ~20GB total, not 10TB
 
 ---
 
