@@ -206,6 +206,59 @@ class DeweyIDEncoderTest {
     }
     
     @Test
+    @DisplayName("Encoder works with various gap configurations")
+    void testVariousGapConfigurations() {
+        // Common gap values that might be used for distanceToSibling
+        int[] gapValues = {2, 4, 8, 16, 32, 64, 128, 256, 512, 1024};
+        
+        for (int gap : gapValues) {
+            // Simulate a typical DeweyID sequence with this gap
+            // First child: 1.(gap+1), second child: 1.(2*gap+1), etc.
+            for (int childNum = 1; childNum <= 10; childNum++) {
+                int divisionValue = childNum * gap + 1;
+                String deweyIdStr = "1." + divisionValue;
+                verifyEncodingMatch(deweyIdStr);
+            }
+        }
+    }
+    
+    @Test
+    @DisplayName("Encoder handles newBetween-style DeweyIDs")
+    void testNewBetweenStyleIds() {
+        // When inserting between siblings, IDs can have various patterns
+        // Test patterns like 1.3, 1.5, 1.17, 1.33, 1.49, etc.
+        String[] patterns = {
+            "1.3", "1.5", "1.7", "1.9",           // Odd values
+            "1.17", "1.19", "1.21", "1.23",       // gap=16 typical values
+            "1.33", "1.49", "1.65", "1.81",       // gap=16 more values
+            "1.2.17", "1.2.33", "1.2.49",         // Nested with gap values
+            "1.17.17", "1.17.33",                  // Deeper nesting
+        };
+        
+        for (String pattern : patterns) {
+            verifyEncodingMatch(pattern);
+        }
+    }
+    
+    @Test
+    @DisplayName("Encoder handles odd division values correctly")
+    void testOddDivisionValues() {
+        // DeweyIDs typically use odd numbers for nodes (even for internal structure)
+        for (int i = 1; i <= 127; i += 2) {
+            verifyEncodingMatch("1." + i);
+        }
+    }
+    
+    @Test
+    @DisplayName("Encoder handles even division values correctly")
+    void testEvenDivisionValues() {
+        // Even values are used in internal DeweyID structure (like attribute roots)
+        for (int i = 0; i <= 126; i += 2) {
+            verifyEncodingMatch("1." + i);
+        }
+    }
+    
+    @Test
     @DisplayName("Unaligned encoding works correctly")
     void testUnalignedEncoding() {
         // DeweyID with multiple divisions where bits don't align to bytes
