@@ -1712,14 +1712,16 @@ Instead of rewriting everything, track which records exist in the in-window frag
 │  ──────────────                                                           │
 │    ResourceConfiguration.newBuilder("resource")                           │
 │        .versioningApproach(VersioningType.SLIDING_SNAPSHOT)               │
-│        .revisionsToRestore(8)  // Window size (default)                   │
+│        .revisionsToRestore(4)  // Window size (default)                   │
 │        .build();                                                          │
 │                                                                           │
 │  Trade-off Tuning:                                                        │
 │  ─────────────────                                                        │
 │    • Smaller window (4): Less read cost, more preservation writes         │
 │    • Larger window (16): Less preservation, more fragments to combine     │
-│    • Default (8): Good balance for most workloads                         │
+│    • Default (4): Current default, optimal value is workload-dependent    │
+│                                                                           │
+│  Future: Adaptive window sizing based on workload characteristics         │
 │                                                                           │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
