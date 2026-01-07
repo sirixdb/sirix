@@ -24,7 +24,7 @@
 
 **The core insight**: What if your database never forgot anything, and you could query any point in its history as fast as querying the present—without the storage exploding?
 
-SirixDB is a **temporal document store** that makes version control a first-class citizen of the storage engine itself. Every commit creates an immutable snapshot. Every revision is queryable. And unlike naive approaches that either copy everything (git-style) or maintain expensive logs (event sourcing), SirixDB achieves this through **structural sharing** and a novel **sliding snapshot** versioning algorithm.
+SirixDB is a **temporal node store** that makes version control a first-class citizen of the storage engine itself. Every commit creates an immutable snapshot. Every revision is queryable. And unlike naive approaches that either copy everything (git-style) or maintain expensive logs (event sourcing), SirixDB achieves this through **structural sharing** and a novel **sliding snapshot** versioning algorithm.
 
 ### What Makes This Hard
 
@@ -77,20 +77,32 @@ Most document databases (MongoDB, CouchDB, etc.) treat a document as an opaque b
 │   Document Store (MongoDB, etc.)         Node Store (SirixDB)            │
 │   ──────────────────────────────         ─────────────────────           │
 │                                                                          │
-│   ┌─────────────────────────┐           ┌────┐                           │
-│   │ { "user": "alice",      │           │root│──────────────────┐        │
-│   │   "orders": [           │           └─┬──┘                  │        │
-│   │     { "id": 1, ... },   │    ┌───────┴───────┐              │        │
-│   │     { "id": 2, ... },   │   user           orders           │        │
-│   │     ...10000 orders...  │  "alice"    ┌────┴────┐           │        │
-│   │   ]                     │           [0]  [1] ... [9999]     │        │
-│   │ }                       │            │    │        │        │        │
-│   └─────────────────────────┘           {...}{...}   {...}      │        │
-│        ↓                                                        │        │
-│   Stored as ONE blob                    Each node stored        │        │
-│   Updated as ONE blob                   independently           │        │
-│   Limited by max doc size               No size limit!          │        │
-│                                                                          │
+│   ┌─────────────────────────┐           Each node stores pointers:       │
+│   │ { "user": "alice",      │           ┌─────────────────────────────┐  │
+│   │   "orders": [           │           │ parentKey                   │  │
+│   │     { "id": 1, ... },   │           │ firstChildKey, lastChildKey │  │
+│   │     { "id": 2, ... },   │           │ leftSiblingKey, rightSibling│  │
+│   │     ...10000 orders...  │           │ childCount, descendantCount │  │
+│   │   ]                     │           └─────────────────────────────┘  │
+│   │ }                       │                                            │
+│   └─────────────────────────┘                    ┌───────┐               │
+│        ↓                                         │ root  │               │
+│   Stored as ONE blob                             └───┬───┘               │
+│   Updated as ONE blob                       ┌────────┴────────┐          │
+│   Limited by max doc size                   ▼                 ▼          │
+│                                          ┌──────┐         ┌────────┐     │
+│   SirixDB Node Encoding:                 │ user │ ◄─────► │ orders │     │
+│                                          │"alice"│         └────┬───┘     │
+│         parent                           └──────┘      ┌───────┼───────┐ │
+│           ▲                                            ▼       ▼       ▼ │
+│           │                                          ┌───┐   ┌───┐   ┌───┐
+│   left ◄──┼──► right                                 │[0]│◄─►│[1]│◄─►│...│
+│           │                                          └─┬─┘   └─┬─┘   └───┘
+│     ┌─────┴─────┐                                      ▼       ▼         │
+│     ▼           ▼                                    {...}   {...}       │
+│   first       last                                                       │
+│   child       child                              O(1) navigation in any  │
+│                                                  direction. No size limit│
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -116,6 +128,25 @@ Most document databases (MongoDB, CouchDB, etc.) treat a document as an opaque b
 4. **Fine-grained history**: "Show me exactly which fields changed in the last 100 commits" is a fast index lookup, not a document-diff operation.
 
 5. **Partial materialization**: Need just one branch of a huge tree? Fetch and reconstruct only that subtree. The rest stays on disk.
+
+**Note on child lookup complexity**: While navigation to parent, first/last child, and siblings is O(1), finding a *specific* child (e.g., the 5000th element in an array) requires O(n) sibling traversal. This is where secondary indexes shine:
+
+```xquery
+(: SLOW: O(n) sibling traversal to find order with id=5000 :)
+jn:doc('shop','orders').orders[][5000]
+
+(: FAST: O(log n) with a CAS index on order IDs :)
+(: First, create the index on the 'id' field: :)
+let $doc := jn:doc('shop','orders')
+let $idx := jn:create-cas-index($doc, 'xs:integer', '/orders/[]/id')
+return sdb:commit($doc)
+
+(: Then query the index directly - O(log n) lookup :)
+let $doc := jn:doc('shop','orders')
+let $idxNo := jn:find-cas-index($doc, 'xs:integer', '/orders/[]/id')
+for $node in jn:scan-cas-index($doc, $idxNo, 5000, '==', '/orders/[]/id')
+return $node
+```
 
 ```xquery
 (: Navigate to a specific node in a 100GB resource - 
