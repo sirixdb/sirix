@@ -262,6 +262,17 @@ public final class ResourceConfiguration {
   public final boolean areDeweyIDsStored;
 
   /**
+   * The distance between sibling DeweyIDs when generating new IDs.
+   * 
+   * <p>Larger values (e.g., 64, 128) are better for high-insert workloads as they
+   * reduce the chance of needing to overflow into deeper levels. Smaller values
+   * (e.g., 8, 16) result in more compact DeweyIDs for read-mostly workloads.</p>
+   * 
+   * <p>Default is 16, which provides a good balance for mixed workloads.</p>
+   */
+  public final int deweyIdSiblingDistance;
+
+  /**
    * The hash function used for hashing nodes.
    */
   public final LongHashFunction nodeHashFunction;
@@ -336,6 +347,7 @@ public final class ResourceConfiguration {
     useTextCompression = builder.useTextCompression;
     withPathSummary = builder.pathSummary;
     areDeweyIDsStored = builder.useDeweyIDs;
+    deweyIdSiblingDistance = builder.deweyIdSiblingDistance;
     recordPersister = builder.persistenter;
     resourceName = builder.resource;
     nodeHashFunction = builder.hashFunction;
@@ -474,7 +486,7 @@ public final class ResourceConfiguration {
       { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
           "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
           "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount",
-          "stringCompressionType", "indexBackendType" };
+          "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance" };
 
   /**
    * Serialize the configuration.
@@ -530,6 +542,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[17]).value(config.stringCompressionType.name());
       // Index backend type.
       jsonWriter.name(JSONNAMES[18]).value(config.indexBackendType.name());
+      // DeweyID sibling distance.
+      jsonWriter.name(JSONNAMES[19]).value(config.deweyIdSiblingDistance);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -645,6 +659,15 @@ public final class ResourceConfiguration {
         }
       }
 
+      // DeweyID sibling distance (optional for backward compatibility with older configs)
+      int deweyIdSiblingDistance = 16; // Default value
+      if (jsonReader.hasNext()) {
+        name = jsonReader.nextName();
+        if (name.equals(JSONNAMES[19])) {
+          deweyIdSiblingDistance = jsonReader.nextInt();
+        }
+      }
+
       jsonReader.endObject();
       jsonReader.close();
       fileReader.close();
@@ -669,7 +692,8 @@ public final class ResourceConfiguration {
              .customCommitTimestamps(customCommitTimestamps)
              .storeNodeHistory(storeNodeHistory)
              .stringCompressionType(stringCompressionType)
-             .indexBackendType(indexBackendType);
+             .indexBackendType(indexBackendType)
+             .deweyIdSiblingDistance(deweyIdSiblingDistance);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -740,6 +764,12 @@ public final class ResourceConfiguration {
      * Determines if DeweyIDs should be used or not.
      */
     private boolean useDeweyIDs = false;
+
+    /**
+     * The distance between sibling DeweyIDs when generating new IDs.
+     * Default is 16, which provides a good balance for mixed workloads.
+     */
+    private int deweyIdSiblingDistance = 16;
 
     /**
      * Determines if a path summary should be build or not.
@@ -899,6 +929,26 @@ public final class ResourceConfiguration {
      */
     public Builder useDeweyIDs(final boolean useDeweyIDs) {
       this.useDeweyIDs = useDeweyIDs;
+      return this;
+    }
+
+    /**
+     * Sets the distance between sibling DeweyIDs when generating new IDs.
+     * 
+     * <p>Larger values (e.g., 64, 128) are better for high-insert workloads as they
+     * reduce the chance of needing to overflow into deeper levels. Smaller values
+     * (e.g., 8, 16) result in more compact DeweyIDs for read-mostly workloads.</p>
+     * 
+     * <p>Must be a positive even number. Default is 16.</p>
+     *
+     * @param distance the distance between siblings (must be positive and even)
+     * @return reference to the builder object
+     * @throws IllegalArgumentException if distance is not positive or not even
+     */
+    public Builder deweyIdSiblingDistance(final int distance) {
+      checkArgument(distance > 0, "deweyIdSiblingDistance must be positive!");
+      checkArgument(distance % 2 == 0, "deweyIdSiblingDistance must be even!");
+      this.deweyIdSiblingDistance = distance;
       return this;
     }
 
