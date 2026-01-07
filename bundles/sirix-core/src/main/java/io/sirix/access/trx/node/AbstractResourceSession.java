@@ -1,20 +1,19 @@
 package io.sirix.access.trx.node;
 
 import cn.danielw.fop.*;
-import io.sirix.api.*;
 import io.brackit.query.jdm.DocumentException;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.ResourceStore;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.xml.XmlResourceSessionImpl;
-import io.sirix.access.trx.page.NodePageReadOnlyTrx;
-import io.sirix.access.trx.page.PageTrxFactory;
-import io.sirix.access.trx.page.PageTrxReadOnlyFactory;
+import io.sirix.access.trx.page.NodeStorageEngineReader;
+import io.sirix.access.trx.page.StorageEngineWriterFactory;
+import io.sirix.access.trx.page.StorageEngineReaderFactory;
 import io.sirix.access.trx.page.RevisionRootPageReader;
+import io.sirix.access.trx.RevisionEpochTracker;
+import io.sirix.api.*;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.cache.BufferManager;
@@ -28,10 +27,15 @@ import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
+import io.sirix.io.RevisionIndex;
+import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.UberPage;
 import io.sirix.settings.Fixed;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,7 +50,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -59,6 +63,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     implements ResourceSession<R, W>, InternalResourceSession<R, W> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractResourceSession.class);
+  
+  /**
+   * Feature flag for optimized revision search using SIMD/Eytzinger layout.
+   * Set to false to use legacy binary search (for rollback if needed).
+   */
+  private static final boolean USE_OPTIMIZED_REVISION_SEARCH = 
+      Boolean.parseBoolean(System.getProperty("sirix.optimizedRevisionSearch", "true"));
 
   /**
    * Write lock to assure only one exclusive write transaction exists.
@@ -73,17 +84,17 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Remember all running node transactions (both read and write).
    */
-  final ConcurrentMap<Long, R> nodeTrxMap;
+  final ConcurrentMap<Integer, R> nodeTrxMap;
 
   /**
    * Remember all running page transactions (both read and write).
    */
-  final ConcurrentMap<Long, PageReadOnlyTrx> pageTrxMap;
+  final ConcurrentMap<Integer, StorageEngineReader> pageTrxMap;
 
   /**
    * Remember the write seperately because of the concurrent writes.
    */
-  final ConcurrentMap<Long, PageTrx> nodePageTrxMap;
+  final ConcurrentMap<Integer, StorageEngineWriter> nodePageTrxMap;
 
   /**
    * Lock for blocking the commit.
@@ -103,14 +114,14 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Atomic counter for concurrent generation of node transaction id.
    */
-  private final AtomicLong nodeTrxIDCounter;
+  private final AtomicInteger nodeTrxIDCounter;
 
   /**
    * Atomic counter for concurrent generation of page transaction id.
    */
-  final AtomicLong pageTrxIDCounter;
+  final AtomicInteger pageTrxIDCounter;
 
-  private final AtomicReference<ObjectPool<PageReadOnlyTrx>> pool;
+  private final AtomicReference<ObjectPool<StorageEngineReader>> pool;
 
   /**
    * Determines if session was closed.
@@ -123,6 +134,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   final BufferManager bufferManager;
 
   /**
+   * Tracks the minimum active revision for MVCC-aware page eviction.
+   * NOTE: This is now the GLOBAL epoch tracker shared across all databases/resources.
+   * Each session registers its active revisions with the global tracker.
+   */
+  final RevisionEpochTracker revisionEpochTracker;
+
+  /**
    * The resource store with which this manager has been created.
    */
   final ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> resourceStore;
@@ -133,9 +151,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   final User user;
 
   /**
-   * A factory that creates new {@link PageTrx} instances.
+   * A factory that creates new {@link StorageEngineWriter} instances.
    */
-  private final PageTrxFactory pageTrxFactory;
+  private final StorageEngineWriterFactory pageTrxFactory;
 
   /**
    * ID Generation exception message for duplicate ID.
@@ -152,13 +170,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param uberPage       holds a reference to the revision root page tree
    * @param writeLock      allow for concurrent writes
    * @param user           the user tied to the resource manager
-   * @param pageTrxFactory A factory that creates new {@link PageTrx} instances.
+   * @param pageTrxFactory A factory that creates new {@link StorageEngineWriter} instances.
    * @throws SirixException if Sirix encounters an exception
    */
   protected AbstractResourceSession(final @NonNull ResourceStore<? extends ResourceSession<R, W>> resourceStore,
       final @NonNull ResourceConfiguration resourceConf, final @NonNull BufferManager bufferManager,
       final @NonNull IOStorage storage, final @NonNull UberPage uberPage, final @NonNull Semaphore writeLock,
-      final @Nullable User user, final PageTrxFactory pageTrxFactory) {
+      final @Nullable User user, final StorageEngineWriterFactory pageTrxFactory) {
     this.resourceStore = requireNonNull(resourceStore);
     resourceConfig = requireNonNull(resourceConf);
     this.bufferManager = requireNonNull(bufferManager);
@@ -169,8 +187,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     pageTrxMap = new ConcurrentHashMap<>();
     nodePageTrxMap = new ConcurrentHashMap<>();
 
-    nodeTrxIDCounter = new AtomicLong();
-    pageTrxIDCounter = new AtomicLong();
+    nodeTrxIDCounter = new AtomicInteger();
+    pageTrxIDCounter = new AtomicInteger();
     commitLock = new ReentrantLock(false);
 
     this.writeLock = requireNonNull(writeLock);
@@ -178,9 +196,24 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     lastCommittedUberPage = new AtomicReference<>(uberPage);
     this.user = user;
     pool = new AtomicReference<>();
+    
+    // Use GLOBAL epoch tracker (shared across all databases/resources)
+    // This follows PostgreSQL pattern where all sessions register with a global tracker
+    this.revisionEpochTracker = Databases.getGlobalEpochTracker();
+    
+    // Register this resource's current revision with the global tracker
+    // This allows MVCC-aware eviction across all resources
+    this.revisionEpochTracker.setLastCommittedRevision(uberPage.getRevisionNumber());
+
+    // NOTE: ClockSweepers are now GLOBAL (started with BufferManager, not per-session)
+    // This follows PostgreSQL bgwriter pattern - background threads run continuously
 
     isClosed = false;
   }
+
+  // REMOVED: ClockSweeper management moved to BufferManager (global lifecycle)
+  // This follows PostgreSQL bgwriter pattern - background threads run continuously,
+  // not tied to individual session lifecycle
 
   public void createPageTrxPool() {
     if (pool.get() == null) {
@@ -193,19 +226,26 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       config.setMaxWaitMilliseconds(5);
       config.setShutdownWaitMilliseconds(1);
 
-      pool.set(new ObjectPool<>(config, new PageTrxReadOnlyFactory(this)));
+      pool.set(new ObjectPool<>(config, new StorageEngineReaderFactory(this)));
     }
-  }
-
-  private static long timeDiff(final long lhs, final long rhs) {
-    return Math.abs(lhs - rhs);
   }
 
   protected void initializeIndexController(final int revision, IndexController<?, ?> controller) {
     // Deserialize index definitions.
-    final Path indexes = getResourceConfig().getResource()
-                                            .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                            .resolve(revision + ".xml");
+    // For write transactions, the revision number is the NEW revision being created,
+    // but index definitions are stored at the LAST COMMITTED revision.
+    // Try the requested revision first, then fallback to previous revisions.
+    final Path indexesDir = getResourceConfig().getResource()
+                                               .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath());
+    Path indexes = indexesDir.resolve(revision + ".xml");
+    
+    // Search backward through revisions to find the most recent index definitions
+    int searchRevision = revision;
+    while (!Files.exists(indexes) && searchRevision > 0) {
+      searchRevision--;
+      indexes = indexesDir.resolve(searchRevision + ".xml");
+    }
+    
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());
@@ -225,16 +265,16 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Create a new {@link PageTrx}.
+   * Create a new {@link StorageEngineWriter}.
    *
    * @param id                the transaction ID
    * @param representRevision the revision which is represented
    * @param storedRevision    the revision which is stored
    * @param abort             determines if a transaction must be aborted (rollback) or not
-   * @return a new {@link PageTrx} instance
+   * @return a new {@link StorageEngineWriter} instance
    */
   @Override
-  public PageTrx createPageTransaction(final @NonNegative long id, final @NonNegative int representRevision,
+  public StorageEngineWriter createPageTransaction(final @NonNegative int id, final @NonNegative int representRevision,
       final @NonNegative int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
@@ -262,7 +302,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(Writer writer, int lastCommittedRev,
-      PageTrx pageTrx) {
+      StorageEngineWriter pageTrx) {
     if (Files.exists(getCommitFile())) {
       writer.truncateTo(pageTrx, lastCommittedRev);
     }
@@ -348,7 +388,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public synchronized R beginNodeReadOnlyTrx(@NonNegative final int revision) {
     assertAccess(revision);
 
-    final PageReadOnlyTrx pageReadTrx = beginPageReadOnlyTrx(revision);
+    final StorageEngineReader pageReadTrx = beginPageReadOnlyTrx(revision);
 
     final Node documentNode = getDocumentNode(pageReadTrx);
 
@@ -363,12 +403,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return reader;
   }
 
-  public abstract R createNodeReadOnlyTrx(long nodeTrxId, PageReadOnlyTrx pageReadTrx, Node documentNode);
+  public abstract R createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader pageReadTrx, Node documentNode);
 
-  public abstract W createNodeReadWriteTrx(long nodeTrxId, PageTrx pageTrx, int maxNodeCount, Duration autoCommitDelay,
+  public abstract W createNodeReadWriteTrx(int nodeTrxId, StorageEngineWriter pageTrx, int maxNodeCount, Duration autoCommitDelay,
       Node documentNode, AfterCommitState afterCommitState);
 
-  static Node getDocumentNode(final PageReadOnlyTrx pageReadTrx) {
+  static Node getDocumentNode(final StorageEngineReader pageReadTrx) {
     final Node node = pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
     if (node == null) {
       pageReadTrx.close();
@@ -447,9 +487,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     LOGGER.trace("Lock: lock acquired (beginNodeTrx)");
 
     // Create new page write transaction (shares the same ID with the node write trx).
-    final long nodeTrxId = nodeTrxIDCounter.incrementAndGet();
+    final int nodeTrxId = nodeTrxIDCounter.incrementAndGet();
     final int lastRev = getMostRecentRevisionNumber();
-    final PageTrx pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
+    final StorageEngineWriter pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
 
     final Node documentNode = getDocumentNode(pageWtx);
 
@@ -470,6 +510,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public synchronized void close() {
     if (!isClosed) {
+      // NOTE: ClockSweepers are GLOBAL now - don't stop them per-session
+      // They continue running, managed by BufferManager lifecycle
+      
       // Close all open node transactions.
       for (NodeReadOnlyTrx rtx : nodeTrxMap.values()) {
         if (rtx instanceof XmlNodeTrx xmlNodeTrx) {
@@ -480,14 +523,18 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         rtx.close();
       }
       // Close all open node page transactions.
-      for (PageReadOnlyTrx rtx : nodePageTrxMap.values()) {
+      for (StorageEngineReader rtx : nodePageTrxMap.values()) {
         rtx.close();
       }
       // Close all open page transactions.
-      for (PageReadOnlyTrx rtx : pageTrxMap.values()) {
+      for (StorageEngineReader rtx : pageTrxMap.values()) {
         rtx.close();
       }
 
+      // NOTE: Don't clear BufferManager caches here - other sessions might be using same resource!
+      // Pages will be evicted by normal cache LRU policy or cleaned up at database close
+      // PostgreSQL-style: buffers released when ALL sessions release them, not when one closes
+      
       // Immediately release all ressources.
       nodeTrxMap.clear();
       pageTrxMap.clear();
@@ -552,7 +599,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param pageTrx       page write trx
    */
   @Override
-  public void setNodePageWriteTransaction(final @NonNegative long transactionID, @NonNull final PageTrx pageTrx) {
+  public void setNodePageWriteTransaction(final @NonNegative int transactionID, @NonNull final StorageEngineWriter pageTrx) {
     assertNotClosed();
     nodePageTrxMap.put(transactionID, pageTrx);
   }
@@ -564,9 +611,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @throws SirixIOException if an I/O error occurs
    */
   @Override
-  public void closeNodePageWriteTransaction(final @NonNegative long transactionID) {
+  public void closeNodePageWriteTransaction(final @NonNegative int transactionID) {
     assertNotClosed();
-    final PageReadOnlyTrx pageRtx = nodePageTrxMap.remove(transactionID);
+    final StorageEngineReader pageRtx = nodePageTrxMap.remove(transactionID);
     if (pageRtx != null) {
       pageRtx.close();
     }
@@ -578,7 +625,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID write transaction ID
    */
   @Override
-  public void closeWriteTransaction(final @NonNegative long transactionID) {
+  public void closeWriteTransaction(final @NonNegative int transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -595,7 +642,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID read transaction ID
    */
   @Override
-  public void closeReadTransaction(final @NonNegative long transactionID) {
+  public void closeReadTransaction(final @NonNegative int transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -608,7 +655,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID write transaction ID
    */
   @Override
-  public void closePageWriteTransaction(final @NonNegative Long transactionID) {
+  public void closePageWriteTransaction(final @NonNegative Integer transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -625,7 +672,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID read transaction ID
    */
   @Override
-  public void closePageReadTransaction(final @NonNegative Long transactionID) {
+  public void closePageReadTransaction(final @NonNegative Integer transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -637,7 +684,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    *
    * @param transactionID transaction ID to remove
    */
-  private void removeFromPageMapping(final @NonNegative Long transactionID) {
+  private void removeFromPageMapping(final @NonNegative Integer transactionID) {
     assertNotClosed();
 
     // Purge transaction from internal state.
@@ -671,6 +718,15 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return resourceConfig;
   }
 
+  /**
+   * Get the revision epoch tracker for this resource session.
+   *
+   * @return the revision epoch tracker
+   */
+  public RevisionEpochTracker getRevisionEpochTracker() {
+    return revisionEpochTracker;
+  }
+
   @Override
   public int getMostRecentRevisionNumber() {
     assertNotClosed();
@@ -682,12 +738,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public synchronized PathSummaryReader openPathSummary(final @NonNegative int revision) {
     assertAccess(revision);
 
-    PageReadOnlyTrx pageReadOnlyTrx;
+    StorageEngineReader pageReadOnlyTrx;
 
     var pool = this.pool.get();
 
     if (pool != null) {
-      Poolable<PageReadOnlyTrx> poolable = null;
+      Poolable<StorageEngineReader> poolable = null;
       boolean invalidObject = true;
       while (invalidObject) {
         try {
@@ -717,11 +773,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public PageReadOnlyTrx beginPageReadOnlyTrx(final @NonNegative int revision) {
+  public StorageEngineReader beginPageReadOnlyTrx(final @NonNegative int revision) {
     assertAccess(revision);
 
-    final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
-    final NodePageReadOnlyTrx pageReadTrx = new NodePageReadOnlyTrx(currentPageTrxID,
+    final int currentPageTrxID = pageTrxIDCounter.incrementAndGet();
+    final NodeStorageEngineReader pageReadTrx = new NodeStorageEngineReader(currentPageTrxID,
                                                                     this,
                                                                     lastCommittedUberPage.get(),
                                                                     revision,
@@ -738,7 +794,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized PageTrx beginPageTrx(final @NonNegative int revision) {
+  public synchronized StorageEngineWriter beginPageTrx(final @NonNegative int revision) {
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.
@@ -752,9 +808,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     LOGGER.debug("Lock: lock acquired (beginPageTrx)");
 
-    final long currentPageTrxID = pageTrxIDCounter.incrementAndGet();
+    final int currentPageTrxID = pageTrxIDCounter.incrementAndGet();
     final int lastRev = getMostRecentRevisionNumber();
-    final PageTrx pageTrx = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
+    final StorageEngineWriter pageTrx = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
 
     // Remember page transaction for debugging and safe close.
     if (pageTrxMap.put(currentPageTrxID, pageTrx) != null) {
@@ -765,7 +821,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public Optional<R> getNodeReadTrxByTrxId(final Long ID) {
+  public Optional<R> getNodeReadTrxByTrxId(final Integer ID) {
     assertNotClosed();
 
     return Optional.ofNullable(nodeTrxMap.get(ID));
@@ -779,39 +835,61 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return nodeTrxMap.values().stream().filter(NodeTrx.class::isInstance).map(rtx -> (W) rtx).findAny();
   }
 
+  /**
+   * Begin a read-only transaction at the revision that was valid at the given point in time.
+   * 
+   * <p>This uses <b>floor semantics</b>: returns the last revision that was committed
+   * at or before the given timestamp. This reflects the actual state of the database
+   * as it was at that moment in time.
+   * 
+   * <p>Special cases:
+   * <ul>
+   *   <li>If timestamp is before all revisions → returns revision 0</li>
+   *   <li>If timestamp is after all revisions → returns the most recent revision</li>
+   *   <li>If timestamp exactly matches a revision → returns that revision</li>
+   *   <li>If timestamp is between revisions → returns the earlier revision</li>
+   * </ul>
+   *
+   * @param pointInTime the point in time to query
+   * @return a read-only transaction at the revision valid at that time
+   */
   @Override
   public R beginNodeReadOnlyTrx(final @NonNull Instant pointInTime) {
     requireNonNull(pointInTime);
     assertNotClosed();
 
-    final long timestamp = pointInTime.toEpochMilli();
-
-    int revision = binarySearch(timestamp);
-
-    if (revision < 0) {
-      revision = -revision - 1;
-    }
-
-    if (revision == 0)
-      return beginNodeReadOnlyTrx(0);
-    else if (revision == getMostRecentRevisionNumber() + 1)
-      return beginNodeReadOnlyTrx();
-
-    final R rtxRevisionMinus1 = beginNodeReadOnlyTrx(revision - 1);
-    final R rtxRevision = beginNodeReadOnlyTrx(revision);
-
-    if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
-                                                                                                rtxRevision.getRevisionTimestamp()
-                                                                                                           .toEpochMilli())) {
-      rtxRevision.close();
-      return rtxRevisionMinus1;
-    } else {
-      rtxRevisionMinus1.close();
-      return rtxRevision;
-    }
+    final int revision = getRevisionNumber(pointInTime);
+    return beginNodeReadOnlyTrx(revision);
   }
 
   private int binarySearch(final long timestamp) {
+    if (USE_OPTIMIZED_REVISION_SEARCH) {
+      return binarySearchOptimized(timestamp);
+    }
+    return binarySearchLegacy(timestamp);
+  }
+  
+  /**
+   * Optimized revision search using SIMD/Eytzinger layout.
+   * Uses cache-friendly data structures for better performance.
+   * 
+   * @param timestamp the timestamp to search for (epoch millis)
+   * @return revision index if exact match, or -(insertionPoint + 1) if not found
+   */
+  private int binarySearchOptimized(final long timestamp) {
+    final RevisionIndexHolder holder = storage.getRevisionIndexHolder();
+    final RevisionIndex index = holder.get();
+    return index.findRevision(timestamp);
+  }
+  
+  /**
+   * Legacy binary search implementation.
+   * Kept for rollback purposes if optimized search has issues.
+   * 
+   * @param timestamp the timestamp to search for (epoch millis)
+   * @return revision index if exact match, or -(insertionPoint + 1) if not found
+   */
+  private int binarySearchLegacy(final long timestamp) {
     int low = 0;
     int high = getMostRecentRevisionNumber();
 
@@ -834,37 +912,51 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return -(low + 1); // key not found
   }
 
+  /**
+   * Get the revision number that was valid at the given point in time.
+   * 
+   * <p>This uses <b>floor semantics</b>: returns the last revision that was committed
+   * at or before the given timestamp. This reflects the actual state of the database
+   * as it was at that moment in time.
+   * 
+   * <p>Special cases:
+   * <ul>
+   *   <li>If timestamp is before all revisions → returns 0</li>
+   *   <li>If timestamp is after all revisions → returns the most recent revision number</li>
+   *   <li>If timestamp exactly matches a revision → returns that revision number</li>
+   *   <li>If timestamp is between revisions → returns the earlier revision number</li>
+   * </ul>
+   *
+   * @param pointInTime the point in time to query
+   * @return the revision number valid at that time
+   */
   @Override
   public int getRevisionNumber(final @NonNull Instant pointInTime) {
     requireNonNull(pointInTime);
     assertNotClosed();
 
     final long timestamp = pointInTime.toEpochMilli();
+    final int mostRecentRevision = getMostRecentRevisionNumber();
 
     int revision = binarySearch(timestamp);
 
-    if (revision < 0) {
-      revision = -revision - 1;
+    if (revision >= 0) {
+      // Exact match found
+      return revision;
     }
 
-    if (revision == 0)
+    // revision < 0 means not found, convert to insertion point
+    final int insertionPoint = -revision - 1;
+
+    if (insertionPoint == 0) {
+      // Timestamp is before all revisions - return earliest (revision 0)
       return 0;
-    else if (revision == getMostRecentRevisionNumber() + 1)
-      return getMostRecentRevisionNumber();
-
-    try (final R rtxRevisionMinus1 = beginNodeReadOnlyTrx(revision - 1);
-         final R rtxRevision = beginNodeReadOnlyTrx(revision)) {
-      final int revisionNumber;
-
-      if (timeDiff(timestamp, rtxRevisionMinus1.getRevisionTimestamp().toEpochMilli()) < timeDiff(timestamp,
-                                                                                                  rtxRevision.getRevisionTimestamp()
-                                                                                                             .toEpochMilli())) {
-        revisionNumber = rtxRevisionMinus1.getRevisionNumber();
-      } else {
-        revisionNumber = rtxRevision.getRevisionNumber();
-      }
-
-      return revisionNumber;
+    } else if (insertionPoint > mostRecentRevision) {
+      // Timestamp is after all revisions - return most recent
+      return mostRecentRevision;
+    } else {
+      // Timestamp is between revisions - return the floor (previous revision)
+      return insertionPoint - 1;
     }
   }
 

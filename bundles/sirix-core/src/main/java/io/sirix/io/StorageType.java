@@ -59,8 +59,10 @@ public enum StorageType {
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       final AsyncCache<Integer, RevisionFileData> cache =
           getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final var storage = new FileStorage(resourceConf, cache);
+      final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
+      final var storage = new FileStorage(resourceConf, cache, revisionIndexHolder);
       storage.loadRevisionFileDataIntoMemory(cache);
+      storage.loadRevisionIndex(revisionIndexHolder);
       return storage;
     }
   },
@@ -73,19 +75,10 @@ public enum StorageType {
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       final AsyncCache<Integer, RevisionFileData> cache =
           getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final var storage = new FileChannelStorage(resourceConf, cache);
+      final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
+      final var storage = new FileChannelStorage(resourceConf, cache, revisionIndexHolder);
       storage.loadRevisionFileDataIntoMemory(cache);
-      return storage;
-    }
-  },
-
-  DIRECT_IO {
-    @Override
-    public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final var storage = new io.sirix.io.directio.FileChannelStorage(resourceConf, cache);
-      storage.loadRevisionFileDataIntoMemory(cache);
+      storage.loadRevisionIndex(revisionIndexHolder);
       return storage;
     }
   },
@@ -98,8 +91,10 @@ public enum StorageType {
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       final AsyncCache<Integer, RevisionFileData> cache =
           getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final var storage = new MMStorage(resourceConf, cache);
+      final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
+      final var storage = new MMStorage(resourceConf, cache, revisionIndexHolder);
       storage.loadRevisionFileDataIntoMemory(cache);
+      storage.loadRevisionIndex(revisionIndexHolder);
       return storage;
     }
   },
@@ -109,13 +104,22 @@ public enum StorageType {
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
       final AsyncCache<Integer, RevisionFileData> cache =
           getIntegerRevisionFileDataAsyncCache(resourceConf);
-      final var storage = new IOUringStorage(resourceConf, cache);
+      final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
+      final var storage = new IOUringStorage(resourceConf, cache, revisionIndexHolder);
       storage.loadRevisionFileDataIntoMemory(cache);
+      storage.loadRevisionIndex(revisionIndexHolder);
       return storage;
     }
   };
 
   public static final ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> CACHE_REPOSITORY =
+      new ConcurrentHashMap<>();
+  
+  /**
+   * Repository for RevisionIndexHolder instances, keyed by resource path.
+   * Used for fast timestamp-based revision lookups.
+   */
+  public static final ConcurrentMap<Path, RevisionIndexHolder> REVISION_INDEX_REPOSITORY =
       new ConcurrentHashMap<>();
 
   public static StorageType fromString(String storageType) {
@@ -154,5 +158,18 @@ public enum StorageType {
     final var resourcePath = resourceConf.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
                                                       .resolve(IOStorage.FILENAME);
     return StorageType.CACHE_REPOSITORY.computeIfAbsent(resourcePath, path -> Caffeine.newBuilder().buildAsync());
+  }
+  
+  /**
+   * Get or create the RevisionIndexHolder for a resource.
+   * 
+   * @param resourceConf the resource configuration
+   * @return the RevisionIndexHolder for this resource
+   */
+  public static RevisionIndexHolder getRevisionIndexHolder(ResourceConfiguration resourceConf) {
+    final var resourcePath = resourceConf.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                                                      .resolve(IOStorage.FILENAME);
+    return StorageType.REVISION_INDEX_REPOSITORY.computeIfAbsent(resourcePath, 
+        path -> new RevisionIndexHolder());
   }
 }

@@ -1,7 +1,7 @@
 package io.sirix.access.trx.node.json;
 
 import io.sirix.access.trx.node.AbstractIndexController;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.visitor.JsonNodeVisitor;
@@ -63,6 +63,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     // Index builders for all index definitions.
     final var indexBuilders = new HashSet<JsonNodeVisitor>(indexDefs.size());
     for (final IndexDef indexDef : indexDefs) {
+      // Store the index definition so it can be serialized during commit
+      indexes.add(indexDef);
       switch (indexDef.getType()) {
         case PATH -> indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageWtx(),
                                                               nodeWriteTrx.getPathSummary(),
@@ -87,17 +89,17 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     return new PathFilter(paths, new JsonPCRCollector(rtx));
   }
 
-  private JsonNodeVisitor createPathIndexBuilder(final PageTrx pageWriteTrx, final PathSummaryReader pathSummaryReader,
+  private JsonNodeVisitor createPathIndexBuilder(final StorageEngineWriter pageWriteTrx, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
     return (JsonNodeVisitor) pathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private JsonNodeVisitor createCASIndexBuilder(final JsonNodeReadOnlyTrx nodeReadTrx, final PageTrx pageWriteTrx,
+  private JsonNodeVisitor createCASIndexBuilder(final JsonNodeReadOnlyTrx nodeReadTrx, final StorageEngineWriter pageWriteTrx,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return (JsonNodeVisitor) casIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private JsonNodeVisitor createNameIndexBuilder(final PageTrx pageWriteTrx, final IndexDef indexDef) {
+  private JsonNodeVisitor createNameIndexBuilder(final StorageEngineWriter pageWriteTrx, final IndexDef indexDef) {
     return (JsonNodeVisitor) nameIndex.createBuilder(pageWriteTrx, indexDef);
   }
 }

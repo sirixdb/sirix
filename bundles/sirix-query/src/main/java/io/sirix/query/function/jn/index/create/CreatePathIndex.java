@@ -72,7 +72,9 @@ public final class CreatePathIndex extends AbstractFunction {
       wtx.revertTo(rtx.getRevisionNumber());
     }
 
-    final JsonIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber() - 1);
+    // Use wtx.getRevisionNumber() to get the same index controller that the node transaction
+    // and storage engine use internally. This ensures indexes are correctly shared and serialized.
+    final JsonIndexController controller = wtx.getResourceSession().getWtxIndexController(wtx.getRevisionNumber());
 
     if (controller == null) {
       throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));

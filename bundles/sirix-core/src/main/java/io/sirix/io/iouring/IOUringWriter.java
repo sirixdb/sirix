@@ -23,13 +23,16 @@ package io.sirix.io.iouring;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.PageReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.*;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.Page;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
+import io.sirix.node.MemorySegmentBytesIn;
 import one.jasyncfio.AsyncFile;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
@@ -37,6 +40,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Path;
@@ -72,6 +76,8 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   private final PagePersister pagePersister;
 
   private final AsyncCache<Integer, RevisionFileData> cache;
+  
+  private final RevisionIndexHolder revisionIndexHolder;
 
   private final Path dataFilePath;
 
@@ -79,7 +85,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   private boolean isFirstUberPage;
 
-  private final Bytes<ByteBuffer> byteBufferBytes = Bytes.elasticHeapByteBuffer(1_000);
+  private final BytesOut<?> byteBufferBytes = Bytes.elasticOffHeapByteBuffer(1_000);
 
   /**
    * Constructor.
@@ -89,11 +95,13 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
    * @param serializationType   the serialization type (for the transaction log or the data file)
    * @param pagePersister       transforms in-memory pages into byte-arrays and back
    * @param cache               the revision file data cache
+   * @param revisionIndexHolder the holder for the optimized revision index
    * @param reader              the reader delegate
    */
   public IOUringWriter(final AsyncFile dataFile, final AsyncFile revisionsOffsetFile, final Path dataFilePath,
       final Path revisionsOffsetFilePath, final SerializationType serializationType, final PagePersister pagePersister,
-      final AsyncCache<Integer, RevisionFileData> cache, final IOUringReader reader) {
+      final AsyncCache<Integer, RevisionFileData> cache, final RevisionIndexHolder revisionIndexHolder,
+      final IOUringReader reader) {
     this.dataFile = dataFile;
     this.revisionsFile = revisionsOffsetFile;
     this.dataFilePath = dataFilePath;
@@ -101,11 +109,22 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     this.serializationType = requireNonNull(serializationType);
     this.pagePersister = requireNonNull(pagePersister);
     this.cache = requireNonNull(cache);
+    this.revisionIndexHolder = requireNonNull(revisionIndexHolder);
     this.reader = requireNonNull(reader);
+  }
+  
+  /**
+   * Constructor (backward compatibility).
+   */
+  public IOUringWriter(final AsyncFile dataFile, final AsyncFile revisionsOffsetFile, final Path dataFilePath,
+      final Path revisionsOffsetFilePath, final SerializationType serializationType, final PagePersister pagePersister,
+      final AsyncCache<Integer, RevisionFileData> cache, final IOUringReader reader) {
+    this(dataFile, revisionsOffsetFile, dataFilePath, revisionsOffsetFilePath, serializationType, 
+         pagePersister, cache, new RevisionIndexHolder(), reader);
   }
 
   @Override
-  public Writer truncateTo(final PageReadOnlyTrx pageReadOnlyTrx, final int revision) {
+  public Writer truncateTo(final StorageEngineReader pageReadOnlyTrx, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, (_) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();
@@ -130,7 +149,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   @Override
   public IOUringWriter write(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
-      final Page page, final Bytes<ByteBuffer> bufferedBytes) {
+      final Page page, final BytesOut<?> bufferedBytes) {
     try {
       final long offset = getOffset(bufferedBytes);
       return writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, offset);
@@ -139,7 +158,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     }
   }
 
-  private long getOffset(Bytes<ByteBuffer> bufferedBytes) throws IOException {
+  private long getOffset(BytesOut<?> bufferedBytes) throws IOException {
     final long fileSize = dataFile.size().join();
     long offset;
 
@@ -154,9 +173,38 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     return offset;
   }
 
+  private byte[] buildSerializedPage(final ResourceConfiguration resourceConfiguration, final Page page) throws IOException {
+    final BytesIn<?> uncompressedBytes = byteBufferBytes.bytesForRead();
+
+    if (page instanceof KeyValueLeafPage keyValueLeafPage && keyValueLeafPage.getBytes() != null) {
+      // Use cached compressed bytes when available
+      return keyValueLeafPage.getBytes().toByteArray();
+    }
+
+    final var pipeline = resourceConfiguration.byteHandlePipeline;
+
+    if (pipeline.supportsMemorySegments() && uncompressedBytes instanceof MemorySegmentBytesIn segmentIn) {
+      MemorySegment compressedSegment = pipeline.compress(segmentIn.getSource());
+      return segmentToByteArray(compressedSegment);
+    }
+
+    final byte[] byteArray = uncompressedBytes.toByteArray();
+
+    try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length);
+         final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
+      dataOutput.write(byteArray);
+      dataOutput.flush();
+      return output.toByteArray();
+    }
+  }
+
+  private static byte[] segmentToByteArray(MemorySegment segment) {
+    return segment.toArray(java.lang.foreign.ValueLayout.JAVA_BYTE);
+  }
+
   @NonNull
   private IOUringWriter writePageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, final Page page, Bytes<ByteBuffer> bufferedBytes, long offset) {
+      final PageReference pageReference, final Page page, BytesOut<?> bufferedBytes, long offset) {
     try {
       POOL.submit(() -> writePage(resourceConfiguration, pageReference, page, bufferedBytes, offset)).get();
       return this;
@@ -166,27 +214,13 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
   }
 
   @NonNull
-  private IOUringWriter writePage(ResourceConfiguration resourceConfiguration, PageReference pageReference,
-      Page page, Bytes<ByteBuffer> bufferedBytes, long offset) {
+  private IOUringWriter writePage(final ResourceConfiguration resourceConfiguration,
+      final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes, long offset) {
     // Perform byte operations.
     try {
       // Serialize page.
       pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
-      final var byteArray = byteBufferBytes.toByteArray();
-
-      final byte[] serializedPage;
-
-      if (page instanceof KeyValueLeafPage) {
-        serializedPage = byteArray;
-      } else {
-        try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length)) {
-          try (final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
-            dataOutput.write(byteArray);
-            dataOutput.flush();
-          }
-          serializedPage = output.toByteArray();
-        }
-      }
+      final byte[] serializedPage = buildSerializedPage(resourceConfiguration, page);
 
       byteBufferBytes.clear();
 
@@ -251,9 +285,12 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
           }
           revisionsFile.write(buffer, revisionsFileOffset).join();
           final long currOffset = offset;
+          final long currTimestamp = revisionRootPage.getRevisionTimestamp();
           cache.put(revisionRootPage.getRevision(),
                     CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
-                                                                             Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()))));
+                                                                             Instant.ofEpochMilli(currTimestamp))));
+          // Update the optimized revision index
+          revisionIndexHolder.addRevision(currOffset, currTimestamp);
         } else if (page instanceof UberPage && isFirstUberPage) {
           final ByteBuffer firstUberPageBuffer =
               ByteBuffer.allocateDirect(Writer.UBER_PAGE_BYTE_ALIGN).order(ByteOrder.nativeOrder());
@@ -290,7 +327,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
 
   @Override
   public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
-      final PageReference pageReference, final Page page, Bytes<ByteBuffer> bufferedBytes) {
+      final PageReference pageReference, final Page page, BytesOut<?> bufferedBytes) {
     isFirstUberPage = true;
     writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, 0);
     isFirstUberPage = false;
@@ -301,7 +338,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     return this;
   }
 
-  private void flushBuffer(final PageTrx pageTrx, final ByteBuffer buffer) throws IOException {
+  private void flushBuffer(final StorageEngineWriter pageTrx, final ByteBuffer buffer) throws IOException {
     final long fileSize = dataFile.size().join();
     long offset;
 
@@ -333,5 +370,15 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     }
 
     return this;
+  }
+
+  @Override
+  public void forceAll() {
+    if (dataFile != null) {
+      dataFile.dataSync().join();
+    }
+    if (revisionsFile != null) {
+      revisionsFile.dataSync().join();
+    }
   }
 }

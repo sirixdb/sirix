@@ -22,7 +22,7 @@
 package io.sirix.page.delegates;
 
 import com.google.common.base.MoreObjects;
-import net.openhft.chronicle.bytes.BytesIn;
+import io.sirix.node.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.magicwerk.brownies.collections.GapList;
 import io.sirix.page.DeserializedBitmapReferencesPageTuple;
@@ -53,6 +53,12 @@ public final class BitmapReferencesPage implements Page {
    * The bitmap to use, which indexes are null/not null in the references array.
    */
   private final BitSet bitmap;
+
+  /**
+   * Cached long[] representation of the bitmap for efficient popcount operations.
+   * Invalidated (set to null) whenever the bitmap is modified.
+   */
+  private long[] cachedWords;
 
   /**
    * Constructor to initialize instance.
@@ -131,6 +137,8 @@ public final class BitmapReferencesPage implements Page {
       pageReference.setKey(pageReferenceToClone.getKey());
       pageReference.setPage(pageReferenceToClone.getPage());
       pageReference.setLogKey(pageReferenceToClone.getLogKey());
+      pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
+      pageReference.setResourceId(pageReferenceToClone.getResourceId());
       pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
       references.add(offset, pageReference);
     }
@@ -166,10 +174,11 @@ public final class BitmapReferencesPage implements Page {
     final int index = index(offset);
     if (!bitmap.get(offset)) {
       references.add(index, pageReference);
+      bitmap.set(offset, true);  // Fixed: was incorrectly using 'index' instead of 'offset'
+      cachedWords = null;        // Invalidate cache after bitmap modification
     } else {
       references.set(index, pageReference);
     }
-    bitmap.set(index, true);
 
     return bitmap.cardinality() == THRESHOLD;
   }
@@ -179,6 +188,7 @@ public final class BitmapReferencesPage implements Page {
     final PageReference pageReference = new PageReference();
     references.add(index, pageReference);
     bitmap.set(offset, true);
+    cachedWords = null;  // Invalidate cache after bitmap modification
 
     if (bitmap.cardinality() == THRESHOLD) {
       return null;
@@ -187,17 +197,50 @@ public final class BitmapReferencesPage implements Page {
     return pageReference;
   }
 
+  /**
+   * Compute the dense index for a given sparse offset.
+   * 
+   * <p>This method counts how many bits are set in the bitmap from position 0 to offset-1,
+   * which gives the index into the dense references list.</p>
+   * 
+   * <p>Uses POPCNT-based counting for O(offset/64) complexity instead of O(offset).
+   * Each {@link Long#bitCount} call compiles to a single POPCNT instruction (~1 cycle).</p>
+   *
+   * @param offset the sparse offset (0-1023)
+   * @return the dense index into the references list
+   */
   private int index(final int offset) {
-    var offsetBitmap = new BitSet(bitmap.size());
-    offsetBitmap.clear();
-    offsetBitmap.set(offset);
+    final long[] words = getWords();
+    int count = 0;
+    final int wordIndex = offset >>> 6;      // offset / 64
+    final int bitInWord = offset & 63;       // offset % 64
+    
+    // Count all set bits in complete words before the target word
+    for (int i = 0; i < wordIndex && i < words.length; i++) {
+      count += Long.bitCount(words[i]);
+    }
+    
+    // Count set bits in the target word up to (not including) offset
+    if (wordIndex < words.length) {
+      // Mask: bits 0 to bitInWord-1 are 1, rest are 0
+      final long mask = (1L << bitInWord) - 1;
+      count += Long.bitCount(words[wordIndex] & mask);
+    }
+    
+    return count;
+  }
 
-    // Flip from 0 to offset.
-    offsetBitmap.flip(0, offset + 1);
-
-    offsetBitmap.and(bitmap);
-
-    return offsetBitmap.cardinality();
+  /**
+   * Get the cached long[] representation of the bitmap.
+   * Lazily creates the cache on first access.
+   *
+   * @return the long[] array backing the bitmap
+   */
+  private long[] getWords() {
+    if (cachedWords == null) {
+      cachedWords = bitmap.toLongArray();
+    }
+    return cachedWords;
   }
 
   @Override
@@ -221,9 +264,9 @@ public final class BitmapReferencesPage implements Page {
   }
 
   @Override
-  public Page clearPage() {
+  public void close() {
     references.clear();
     bitmap.clear();
-    return this;
+    cachedWords = null;
   }
 }

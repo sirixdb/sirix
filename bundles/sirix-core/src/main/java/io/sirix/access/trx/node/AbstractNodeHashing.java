@@ -3,18 +3,17 @@ package io.sirix.access.trx.node;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.xml.ElementNode;
-import net.openhft.chronicle.bytes.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
-
-import java.nio.ByteBuffer;
 
 public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends NodeCursor & NodeReadOnlyTrx> {
 
@@ -36,7 +35,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   /**
    * The page write trx.
    */
-  private final PageTrx pageTrx;
+  private final StorageEngineWriter pageTrx;
 
   /**
    * {@code true} if bulk inserting is enabled, {@code false} otherwise
@@ -45,7 +44,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
 
   private boolean autoCommit;
 
-  private final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
+  private final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer();
 
   /**
    * Constructor.
@@ -55,7 +54,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    * @param pageTrx         the page trx
    */
   protected AbstractNodeHashing(final ResourceConfiguration resourceConfig, final T nodeReadOnlyTrx,
-      final PageTrx pageTrx) {
+      final StorageEngineWriter pageTrx) {
     this.hashType = resourceConfig.hashType;
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
     this.pageTrx = pageTrx;
@@ -231,13 +230,13 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         // the parent node is just removed
         newHash = node.getHash() - hashToRemove * PRIME;
         hashToRemove = node.getHash();
-        setRemoveDescendants(startNode);
+        setRemoveDescendants(startNode, node);
       } else {
         // the ancestors are all touched regarding the modification
         newHash = node.getHash() - hashToRemove * PRIME;
         newHash = newHash + hashToAdd * PRIME;
         hashToRemove = node.getHash();
-        setRemoveDescendants(startNode);
+        setRemoveDescendants(startNode, node);
       }
       node.setHash(newHash);
       hashToAdd = newHash;
@@ -250,12 +249,12 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    * Set new descendant count of ancestor after a remove-operation.
    *
    * @param startNode the node which has been removed
+   * @param ancestorNode the ancestor node to update (from prepareRecordForModification)
    */
-  private void setRemoveDescendants(final ImmutableNode startNode) {
+  private void setRemoveDescendants(final ImmutableNode startNode, final Node ancestorNode) {
     assert startNode != null;
-    if (startNode instanceof StructNode startNodeAsStructNode) {
-      final StructNode node = getStructuralNode();
-      node.setDescendantCount(node.getDescendantCount() - startNodeAsStructNode.getDescendantCount() - 1);
+    if (startNode instanceof StructNode startNodeAsStructNode && ancestorNode instanceof StructNode structAncestor) {
+      structAncestor.setDescendantCount(structAncestor.getDescendantCount() - startNodeAsStructNode.getDescendantCount() - 1);
     }
   }
 
@@ -275,8 +274,11 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     long possibleOldHash = 0L;
 
     if (isValueNode(startNode)) {
-      nodeReadOnlyTrx.moveTo(startNode.getParentKey());
       hashToAdd = startNode.computeHash(bytes);
+      // Set hash on value node so it can be serialized with metadata
+      final Node valueNode = pageTrx.prepareRecordForModification(startNode.getNodeKey(), IndexType.DOCUMENT, -1);
+      valueNode.setHash(hashToAdd);
+      nodeReadOnlyTrx.moveTo(startNode.getParentKey());
     } else {
       if (startNode.getHash() == 0L) {
         hashToAdd = startNode.computeHash(bytes);
@@ -351,6 +353,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
 
   /**
    * Add a hash and the descendant count.
+   * Called during postorder traversal to compute hashes from leaves to root.
    */
   public void addHashAndDescendantCount() {
     switch (hashType) {
@@ -360,18 +363,23 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         final long oldDescendantCount = getStructuralNode().getDescendantCount();
         final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
 
-        // Set start node.
+        // Set start node's hash.
+        // If hash is already set (from child processing), use it as-is.
+        // The parent's computeHash() was already added when the first child was processed.
+        // If hash is 0 (leaf node), compute it now.
         long hashToAdd = startNode.getHash() == 0L
             ? startNode.computeHash(bytes)
-            : startNode.getHash() + startNode.computeHash(bytes);
+            : startNode.getHash();  // Already includes own data hash from child processing
         Node node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
         node.setHash(hashToAdd);
 
-        // Set parent node.
+        // Set parent node's hash.
         if (startNode.hasParent()) {
           nodeReadOnlyTrx.moveTo(startNode.getParentKey());
           node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
           final var currentNodeHash = node.getHash();
+          // If parent's hash is 0, initialize with its own data hash.
+          // Otherwise, use existing hash (which already includes parent's data hash).
           long hash = currentNodeHash == 0L ? node.computeHash(bytes) : currentNodeHash;
           node.setHash(hash + hashToAdd * PRIME);
 
@@ -406,4 +414,5 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   public boolean isBulkInsert() {
     return bulkInsert;
   }
+
 }

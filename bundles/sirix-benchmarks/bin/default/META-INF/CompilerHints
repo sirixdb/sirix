@@ -1,0 +1,15 @@
+dontinline,*.*_all_jmhStub
+dontinline,*.*_avgt_jmhStub
+dontinline,*.*_sample_jmhStub
+dontinline,*.*_ss_jmhStub
+dontinline,*.*_thrpt_jmhStub
+inline,io/sirix/benchmark/RevisionIndexBenchmark.baselineArraysBinarySearch
+inline,io/sirix/benchmark/RevisionIndexBenchmark.baselineLinearSearch
+inline,io/sirix/benchmark/RevisionIndexBenchmark.optimizedRevisionIndex
+inline,io/sirix/benchmark/RevisionIndexBenchmark.setupInvocation
+inline,io/sirix/benchmark/RevisionIndexBenchmark.setupTrial
+inline,io/sirix/benchmark/RevisionIndexThroughputBenchmark.baselineRandomAccess
+inline,io/sirix/benchmark/RevisionIndexThroughputBenchmark.baselineSequentialAccess
+inline,io/sirix/benchmark/RevisionIndexThroughputBenchmark.optimizedRandomAccess
+inline,io/sirix/benchmark/RevisionIndexThroughputBenchmark.optimizedSequentialAccess
+inline,io/sirix/benchmark/RevisionIndexThroughputBenchmark.setup

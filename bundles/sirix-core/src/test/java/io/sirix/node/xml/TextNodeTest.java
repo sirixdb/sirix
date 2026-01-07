@@ -24,14 +24,15 @@ package io.sirix.node.xml;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.utils.NamePageHash;
-import net.openhft.chronicle.bytes.Bytes;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixException;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
@@ -54,16 +55,16 @@ public class TextNodeTest {
   private Holder holder;
 
   /**
-   * Sirix {@link PageReadOnlyTrx} instance.
+   * Sirix {@link StorageEngineReader} instance.
    */
-  private PageReadOnlyTrx pageReadTrx;
+  private StorageEngineReader pageReadTrx;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
-    holder = Holder.generateDeweyIDResourceMgr();
-    pageReadTrx = holder.getResourceManager().beginPageReadOnlyTrx();
+    holder = Holder.generateDeweyIDResourceSession();
+    pageReadTrx = holder.getResourceSession().beginPageReadOnlyTrx();
   }
 
   @After
@@ -76,20 +77,28 @@ public class TextNodeTest {
   public void testTextRootNode() {
     // Create empty node.
     final byte[] value = { (byte) 17, (byte) 18 };
-    final NodeDelegate del =
-        new NodeDelegate(13, 14, LongHashFunction.xx3(), Constants.NULL_REVISION_NUMBER, 0, SirixDeweyID.newRootID());
-    final ValueNodeDelegate valDel = new ValueNodeDelegate(del, value, false);
-    final StructNodeDelegate strucDel =
-        new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(), 16L, 15L, 0L, 0L);
-    final TextNode node = new TextNode(valDel, strucDel);
-    var bytes = Bytes.elasticHeapByteBuffer();
-    node.setHash(node.computeHash(bytes));
+    
+    // Create TextNode with primitive fields
+    final TextNode node = new TextNode(
+        13L,                                         // nodeKey
+        14L,                                         // parentKey
+        Constants.NULL_REVISION_NUMBER,              // previousRevision
+        0,                                           // lastModifiedRevision
+        16L,                                         // rightSiblingKey
+        15L,                                         // leftSiblingKey
+        0,                                           // hash
+        value,                                       // value
+        false,                                       // isCompressed
+        LongHashFunction.xx3(),                      // hashFunction
+        SirixDeweyID.newRootID());
+    var hashBytes = Bytes.elasticOffHeapByteBuffer();
+    node.setHash(node.computeHash(hashBytes));
     check(node);
 
     // Serialize and deserialize node.
-    final Bytes<ByteBuffer> data = Bytes.elasticHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(data,
+    final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
+    node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
+    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(data2.asBytesIn(),
                                                                 node.getNodeKey(),
                                                                 node.getDeweyID().toBytes(),
                                                                 pageReadTrx.getResourceSession().getResourceConfig());

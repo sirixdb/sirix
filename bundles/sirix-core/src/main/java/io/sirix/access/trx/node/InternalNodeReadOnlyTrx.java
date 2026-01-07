@@ -2,7 +2,7 @@ package io.sirix.access.trx.node;
 
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 
@@ -15,5 +15,5 @@ public interface InternalNodeReadOnlyTrx<N extends ImmutableNode> extends NodeCu
 
   void assertNotClosed();
 
-  void setPageReadTransaction(PageReadOnlyTrx trx);
+  void setPageReadTransaction(StorageEngineReader trx);
 }

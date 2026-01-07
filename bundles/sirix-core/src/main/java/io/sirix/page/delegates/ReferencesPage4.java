@@ -28,7 +28,7 @@ import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
-import net.openhft.chronicle.bytes.BytesIn;
+import io.sirix.node.BytesIn;
 import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.util.ArrayList;
@@ -86,6 +86,8 @@ public final class ReferencesPage4 implements Page {
       final var pageReferenceToClone = pageToClone.getReferences().get(offset);
       pageReference.setKey(pageReferenceToClone.getKey());
       pageReference.setLogKey(pageReferenceToClone.getLogKey());
+      pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
+      pageReference.setResourceId(pageReferenceToClone.getResourceId());
       pageReference.setPage(pageReferenceToClone.getPage());
       pageReference.setPageFragments(pageReferenceToClone.getPageFragments());
       references.add(pageReference);
@@ -109,12 +111,14 @@ public final class ReferencesPage4 implements Page {
    */
   @Override
   public PageReference getOrCreateReference(final @NonNegative int offset) {
-    for (final var currOffset : offsets) {
-      if (currOffset == offset) {
-        return references.get(offset);
+    // Search for existing offset and return corresponding reference
+    for (int i = 0, count = offsets.size(); i < count; i++) {
+      if (offsets.getShort(i) == offset) {
+        return references.get(i);
       }
     }
 
+    // Not found - create new reference if space available
     if (offsets.size() < 4) {
       offsets.add((short) offset);
       final var newReference = new PageReference();
@@ -156,9 +160,8 @@ public final class ReferencesPage4 implements Page {
   }
 
   @Override
-  public Page clearPage() {
+  public void close() {
     offsets.clear();
     references.clear();
-    return this;
   }
 }

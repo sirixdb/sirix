@@ -1,0 +1,12 @@
+ Network sirix-test_auth-network Creating 
+ Network sirix-test_auth-network Created 
+ Container sirix-test-keycloak-1 Creating 
+ Container sirix-test-keycloak-1 Created 
+ Container sirix-test-keycloak-1 Starting 
+Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint sirix-test-keycloak-1 (6220ae336c09fa236f3d63b15c378039c2fa34e7ca7782dab362e35e58a1a86c): Bind for 0.0.0.0:8080 failed: port is already allocated
+ Container sirix-test-keycloak-1 Stopping 
+ Container sirix-test-keycloak-1 Stopped 
+ Container sirix-test-keycloak-1 Removing 
+ Container sirix-test-keycloak-1 Removed 
+ Network sirix-test_auth-network Removing 
+ Network sirix-test_auth-network Removed 

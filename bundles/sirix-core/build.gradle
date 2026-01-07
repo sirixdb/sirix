@@ -1,4 +1,5 @@
 dependencies {
+    api implLibraries.jacksonCore
     api implLibraries.brackit
     api implLibraries.jcommander
     api implLibraries.aspectjrt
@@ -22,7 +23,6 @@ dependencies {
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections
     implementation implLibraries.integercompression
-    implementation implLibraries.chronicleBytes
     implementation implLibraries.fastObjectPool
     implementation implLibraries.zeroAllocationHashing
 
@@ -30,6 +30,7 @@ dependencies {
 
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine
+    testImplementation testLibraries.junitJupiterParams
     testImplementation testLibraries.junitVintageEngine
     testImplementation testLibraries.junitPlatformLauncher
     testImplementation testLibraries.junitPlatformRunner
@@ -54,4 +55,52 @@ jar {
 
 test {
     useJUnitPlatform()
+    
+    // Add async-profiler if ASYNC_PROFILER env var is set
+    // Usage: ASYNC_PROFILER=/path/to/async-profiler PROFILE_EVENT=cpu|alloc PROFILE_OUTPUT=/tmp/profile.txt ./gradlew test
+    def profilerPath = System.getenv("ASYNC_PROFILER")
+    def profileEvent = System.getenv("PROFILE_EVENT") ?: "cpu"
+    def profileOutput = System.getenv("PROFILE_OUTPUT") ?: "/tmp/sirix-profile.html"
+    
+    // JFR profiling: set JFR_PROFILE=1 to enable
+    def jfrProfile = System.getenv("JFR_PROFILE")
+    def jfrOutput = System.getenv("JFR_OUTPUT") ?: "/tmp/sirix-flight.jfr"
+    
+    def baseArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '-XX:+UnlockDiagnosticVMOptions',
+        '-XX:+DebugNonSafepoints',
+    ]
+    
+    if (profilerPath) {
+        baseArgs.add("-agentpath:${profilerPath}/lib/libasyncProfiler.so=start,event=${profileEvent},file=${profileOutput}")
+        println "Async-profiler enabled: event=${profileEvent}, output=${profileOutput}"
+    }
+    
+    if (jfrProfile) {
+        baseArgs.add("-XX:StartFlightRecording=duration=120s,filename=${jfrOutput},settings=profile")
+        println "JFR profiling enabled: output=${jfrOutput}"
+    }
+    
+    jvmArgs = baseArgs
+    // Pass through diagnostic system properties
+    systemProperty "sirix.debug.path.summary", System.getProperty("sirix.debug.path.summary", "false")
+    systemProperty "sirix.debug.leak.diagnostics", System.getProperty("sirix.debug.leak.diagnostics", "false")
+    systemProperty "sirix.debug.memory.leaks", System.getProperty("sirix.debug.memory.leaks", "false")
+    systemProperty "sirix.debug.pin.counts", System.getProperty("sirix.debug.pin.counts", "false")
+    
+    // LZ4 decompression mode: safe mode is actually faster in LZ4 1.9.x
+    // Fast mode was deprecated and may be slower due to internal safety checks
+    // Enable fast mode (for testing only): ./gradlew test -Plz4.fast=true
+    def useFastLz4 = project.hasProperty('lz4.fast')
+    systemProperty "sirix.lz4.fast.decompress", useFastLz4.toString()
+    
+    // Show test output for diagnostics
+    testLogging {
+        showStandardStreams = true
+        exceptionFormat = 'full'
+    }
 }

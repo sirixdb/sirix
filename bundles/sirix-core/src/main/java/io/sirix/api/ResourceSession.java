@@ -97,42 +97,32 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   Optional<W> getNodeTrx();
 
   /**
-   * Begin a new {@link PageReadOnlyTrx}.
+   * Begin a new {@link StorageEngineReader}.
    *
-   * @return new {@link PageReadOnlyTrx} instance
+   * @return new {@link StorageEngineReader} instance
    */
-  default PageReadOnlyTrx beginPageReadOnlyTrx() {
+  default StorageEngineReader beginPageReadOnlyTrx() {
     return beginPageReadOnlyTrx(getMostRecentRevisionNumber());
   }
 
   /**
-   * Begin a new {@link PageReadOnlyTrx}.
+   * Begin a new {@link StorageEngineReader}.
    *
    * @param revision revision number
-   * @return new {@link PageReadOnlyTrx} instance
+   * @return new {@link StorageEngineReader} instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  PageReadOnlyTrx beginPageReadOnlyTrx(@NonNegative int revision);
+  StorageEngineReader beginPageReadOnlyTrx(@NonNegative int revision);
 
   /**
-   * Begin a new {@link PageTrx}.
+   * Begin a new {@link StorageEngineWriter}.
    *
-   * @return new {@link PageTrx} instance
+   * @return new {@link StorageEngineWriter} instance
    * @throws SirixException if Sirix fails to create a new instance
    */
-  default PageTrx beginPageTrx() {
+  default StorageEngineWriter beginPageTrx() {
     return beginPageTrx(getMostRecentRevisionNumber());
   }
-
-  /**
-   * Begin a new {@link PageTrx}.
-   *
-   * @param revision revision number
-   * @return new {@link PageTrx} instance
-   * @throws SirixException           if Sirix fails to create a new instance
-   * @throws IllegalArgumentException if {@code revision < 0}
-   */
-  PageTrx beginPageTrx(@NonNegative int revision);
 
   /**
    * Begin a read-only transaction on the latest committed revision.
@@ -143,6 +133,16 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   default R beginNodeReadOnlyTrx() {
     return beginNodeReadOnlyTrx(getMostRecentRevisionNumber());
   }
+
+  /**
+   * Begin a new {@link StorageEngineWriter}.
+   *
+   * @param revision revision number
+   * @return new {@link StorageEngineWriter} instance
+   * @throws SirixException           if Sirix fails to create a new instance
+   * @throws IllegalArgumentException if {@code revision < 0}
+   */
+  StorageEngineWriter beginPageTrx(@NonNegative int revision);
 
   /**
    * Begin a read-only transaction on the given revision number.
@@ -347,7 +347,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param ID The ID of the reader.
    * @return The node reader if available.
    */
-  Optional<R> getNodeReadTrxByTrxId(Long ID);
+  Optional<R> getNodeReadTrxByTrxId(Integer ID);
 
   /**
    * Determines if this resource manager has a running read-write transaction.

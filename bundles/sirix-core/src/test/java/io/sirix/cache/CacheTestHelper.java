@@ -22,10 +22,14 @@ package io.sirix.cache;
 
 import org.junit.Test;
 import io.sirix.Holder;
-import io.sirix.api.PageReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixException;
 import io.sirix.index.IndexType;
 import io.sirix.page.KeyValueLeafPage;
+
+import java.lang.foreign.Arena;
+
+import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 
 /**
  * Helper class for testing the cache.
@@ -37,7 +41,7 @@ public class CacheTestHelper {
   /**
    * Page reading transaction.
    */
-  public static PageReadOnlyTrx PAGE_READ_TRX;
+  public static StorageEngineReader PAGE_READ_TRX;
 
   /**
    * Unordered record pages.
@@ -46,6 +50,8 @@ public class CacheTestHelper {
 
   private static final int VERSIONSTORESTORE = 3;
 
+  private static Arena arena;
+
   /**
    * Setup the cache.
    *
@@ -53,24 +59,52 @@ public class CacheTestHelper {
    * @throws SirixException if setting up Sirix session fails
    */
   public static void setUp(final Cache<Long, PageContainer> cache) throws SirixException {
-    PAGE_READ_TRX = Holder.openResourceManager().getResourceManager().beginPageReadOnlyTrx();
+    arena = Arena.ofConfined();
+    PAGE_READ_TRX = Holder.openResourceSession().getResourceSession().beginPageReadOnlyTrx();
     PAGES = new KeyValueLeafPage[LRUCache.CACHE_CAPACITY + 1][VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
       final KeyValueLeafPage page = new KeyValueLeafPage(i,
                                                          IndexType.DOCUMENT,
                                                          PAGE_READ_TRX.getResourceSession().getResourceConfig(),
-                                                         PAGE_READ_TRX.getRevisionNumber());
+                                                         PAGE_READ_TRX.getRevisionNumber(),
+                                                         arena.allocate(SIXTYFOUR_KB),
+                                                         null);
       final KeyValueLeafPage[] revs = new KeyValueLeafPage[VERSIONSTORESTORE];
 
       for (int j = 0; j < VERSIONSTORESTORE; j++) {
         PAGES[i][j + 1] = new KeyValueLeafPage(i,
                                                IndexType.DOCUMENT,
                                                PAGE_READ_TRX.getResourceSession().getResourceConfig(),
-                                               PAGE_READ_TRX.getRevisionNumber());
+                                               PAGE_READ_TRX.getRevisionNumber(),
+                                               arena.allocate(SIXTYFOUR_KB),
+                                               null);
         revs[j] = PAGES[i][j + 1];
       }
       PAGES[i][0] = page;
       cache.put((long) i, PageContainer.getInstance(page, page));
+    }
+  }
+
+  /**
+   * Cleanup all pages created during setup.
+   * Must be called after tests to prevent page leaks.
+   */
+  public static void tearDown() {
+    if (PAGES != null) {
+      for (int i = 0; i < PAGES.length; i++) {
+        for (int j = 0; j < PAGES[i].length; j++) {
+          if (PAGES[i][j] != null) {
+            // close() will handle memory properly - it knows memory was externally allocated
+            PAGES[i][j].close();
+            PAGES[i][j] = null;
+          }
+        }
+      }
+      PAGES = null;
+    }
+    if (arena != null) {
+      arena.close();
+      arena = null;
     }
   }
 

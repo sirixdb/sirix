@@ -42,7 +42,7 @@ public final class JsonRedBlackTreeIntegrationTest {
   @Test
   public void testCreateCASIndexWhileListeningAndCASIndexOnDemandWithInvalidQName() {
     final var jsonPath = JSON.resolve("business-service-providers.json");
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx()) {
       var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
@@ -86,7 +86,7 @@ public final class JsonRedBlackTreeIntegrationTest {
   @Test
   public void testCreateNameIndexWhileListeningAndNameIndexOnDemand() {
     final var jsonPath = JSON.resolve("abc-location-stations.json");
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = session.beginNodeTrx()) {
       var indexController = session.getWtxIndexController(trx.getRevisionNumber());
@@ -227,7 +227,7 @@ public final class JsonRedBlackTreeIntegrationTest {
   @Test
   public void testCreateCASIndexWhileListeningAndCASIndexOnDemand() {
     final var jsonPath = JSON.resolve("abc-location-stations.json");
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx()) {
       var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
@@ -377,7 +377,7 @@ public final class JsonRedBlackTreeIntegrationTest {
   @Test
   public void testPathIndexWhileListeningAndPathIndexOnDemand() {
     final var jsonPath = JSON.resolve("abc-location-stations.json");
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var trx = manager.beginNodeTrx()) {
       var indexController = manager.getWtxIndexController(trx.getRevisionNumber());

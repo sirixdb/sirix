@@ -21,10 +21,11 @@
 
 package io.sirix.access.trx.node.xml;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.access.trx.node.*;
 import io.sirix.api.Axis;
 import io.sirix.api.Movement;
-import io.sirix.api.PageTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.axis.DescendantAxis;
@@ -51,8 +52,8 @@ import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.XMLToken;
-import net.openhft.chronicle.bytes.Bytes;
-import io.brackit.query.atomic.QNm;
+import io.sirix.node.BytesOut;
+import io.sirix.node.Bytes;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -89,7 +90,7 @@ import static java.util.Objects.requireNonNull;
 final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNodeTrx, XmlNodeFactory, ImmutableXmlNode, InternalXmlNodeReadOnlyTrx>
     implements InternalXmlNodeTrx, ForwardingXmlNodeReadOnlyTrx {
 
-  private final Bytes<ByteBuffer> bytes = Bytes.elasticHeapByteBuffer();
+  private final BytesOut<?> bytes = Bytes.elasticOffHeapByteBuffer();
 
   /**
    * The deweyID manager.
@@ -110,7 +111,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
    * Constructor.
    *
    * @param resourceManager   the resource manager this transaction is bound to
-   * @param nodeReadOnlyTrx   {@link PageTrx} to interact with the page layer
+   * @param nodeReadOnlyTrx   {@link StorageEngineWriter} to interact with the page layer
    * @param pathSummaryWriter the path summary writer
    * @param maxNodeCount      maximum number of node modifications before auto commit
    * @param nodeHashing       hashes node contents
@@ -141,7 +142,13 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
 
     useTextCompression = resourceManager.getResourceConfig().useTextCompression;
     deweyIDManager = new XmlDeweyIDManager(this);
-
+    
+    // Register index listeners for any existing indexes.
+    // This is critical for subsequent write transactions to update indexes on node modifications.
+    final var existingIndexDefs = indexController.getIndexes().getIndexDefs();
+    if (!existingIndexDefs.isEmpty()) {
+      indexController.createIndexListeners(existingIndexDefs, this);
+    }
   }
 
   @Override
@@ -1986,12 +1993,12 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
   }
 
   @Override
-  protected AbstractNodeHashing<ImmutableXmlNode, XmlNodeReadOnlyTrx> reInstantiateNodeHashing(PageTrx pageTrx) {
+  protected AbstractNodeHashing<ImmutableXmlNode, XmlNodeReadOnlyTrx> reInstantiateNodeHashing(StorageEngineWriter pageTrx) {
     return new XmlNodeHashing(resourceSession.getResourceConfig(), nodeReadOnlyTrx, pageTrx);
   }
 
   @Override
-  protected XmlNodeFactory reInstantiateNodeFactory(PageTrx pageTrx) {
+  protected XmlNodeFactory reInstantiateNodeFactory(StorageEngineWriter pageTrx) {
     return new XmlNodeFactoryImpl(resourceSession.getResourceConfig().nodeHashFunction, pageTrx);
   }
 }

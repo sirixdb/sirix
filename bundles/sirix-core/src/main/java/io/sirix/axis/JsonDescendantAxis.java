@@ -25,6 +25,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import io.sirix.api.NodeCursor;
 import io.sirix.utils.Pair;
+import io.sirix.settings.Fixed;
 
 /**
  * <p>
@@ -83,25 +84,31 @@ public final class JsonDescendantAxis extends AbstractAxis {
         key = cursor.getNodeKey();
       } else {
         key = cursor.getFirstChildKey();
-        depth++;
+        if (key != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          depth++;
+        }
       }
 
       return key;
     }
 
     // Always follow first child if there is one.
-    if (cursor.hasFirstChild()) {
-      key = cursor.getFirstChildKey();
-      if (cursor.hasRightSibling()) {
-        rightSiblingKeyStack.push(new Pair<>(cursor.getRightSiblingKey(), depth));
+    // PERF: Avoid calling hasFirstChild() + getFirstChildKey() (reads the same flyweight field twice).
+    final long firstChildKey = cursor.getFirstChildKey();
+    if (firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      final long rightSiblingKey = cursor.getRightSiblingKey();
+      if (rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+        rightSiblingKeyStack.push(new Pair<>(rightSiblingKey, depth));
       }
       depth++;
-      return key;
+      return firstChildKey;
     }
 
     // Then follow right sibling if there is one.
-    if (cursor.hasRightSibling()) {
-      key = cursor.getRightSiblingKey();
+    // PERF: Avoid calling hasRightSibling() + getRightSiblingKey() (reads the same flyweight field twice).
+    final long rightSiblingKey = cursor.getRightSiblingKey();
+    if (rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      key = rightSiblingKey;
 
       if (depth == 0) {
         return done();

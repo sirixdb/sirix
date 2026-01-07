@@ -1,11 +1,14 @@
 package io.sirix.access.node.json;
 
+import io.sirix.JsonTestHelper;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.JsonTestHelper;
-import io.sirix.utils.JsonDocumentCreator;
-import org.junit.jupiter.api.*;
 import io.sirix.settings.Constants;
+import io.sirix.utils.JsonDocumentCreator;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -33,37 +36,37 @@ public final class JsonNodeTrxGetPreviousRevisionNumberTest {
       wtx.moveTo(2);
       assertEquals(Constants.NULL_REVISION_NUMBER, wtx.getPreviousRevisionNumber());
       wtx.setObjectKeyName("newKey");
-      Assertions.assertEquals(1, wtx.getPreviousRevisionNumber());
+      assertEquals(1, wtx.getPreviousRevisionNumber());
       wtx.commit();
       wtx.moveTo(2);
-      Assertions.assertEquals(1, wtx.getPreviousRevisionNumber());
+      assertEquals(1, wtx.getPreviousRevisionNumber());
 
       // Set string value.
       wtx.moveTo(4);
       assertEquals(Constants.NULL_REVISION_NUMBER, wtx.getPreviousRevisionNumber());
       wtx.setStringValue("changeStringValue");
-      Assertions.assertEquals(1, wtx.getPreviousRevisionNumber());
+      assertEquals(1, wtx.getPreviousRevisionNumber());
       wtx.commit();
       wtx.moveTo(4);
-      Assertions.assertEquals(1, wtx.getPreviousRevisionNumber());
+      assertEquals(1, wtx.getPreviousRevisionNumber());
 
       // Set number value.
       wtx.moveTo(6);
       assertEquals(Constants.NULL_REVISION_NUMBER, wtx.getPreviousRevisionNumber());
       wtx.setNumberValue(123);
-      Assertions.assertEquals(1, wtx.getPreviousRevisionNumber());
+      assertEquals(1, wtx.getPreviousRevisionNumber());
       wtx.commit();
       wtx.moveTo(6);
-      Assertions.assertEquals(1, wtx.getPreviousRevisionNumber());
+      assertEquals(1, wtx.getPreviousRevisionNumber());
 
       // Set boolean value.
       wtx.moveTo(12);
       assertEquals(Constants.NULL_REVISION_NUMBER, wtx.getPreviousRevisionNumber());
       wtx.setBooleanValue(false);
-      Assertions.assertEquals(1, wtx.getPreviousRevisionNumber());
+      assertEquals(1, wtx.getPreviousRevisionNumber());
       wtx.commit();
       wtx.moveTo(12);
-      Assertions.assertEquals(1, wtx.getPreviousRevisionNumber());
+      assertEquals(1, wtx.getPreviousRevisionNumber());
     }
   }
 }
