@@ -330,7 +330,7 @@ Revision N:                    Revision N+1:
 
 **The Problem**: Pure delta-based versioning (like INCREMENTAL) is compact, but reading revision 1000 means reconstructing from 1000 deltas. Reads degrade linearly with history depth. INCREMENTAL versioning mitigates this with intermittent full snapshots, but these cause unpredictable write spikes.
 
-**SirixDB's Solution**: The **SLIDING_SNAPSHOT** algorithm bounds reconstruction to a constant window (typically 4 fragments), regardless of total revision count. Revision 1 and revision 10,000 have the same read performance—without the write spikes of periodic full snapshots.
+**SirixDB's Solution**: The **SLIDING_SNAPSHOT** algorithm bounds reconstruction to a constant window (default: 3 fragments), regardless of total revision count. Revision 1 and revision 10,000 have the same read performance—without the write spikes of periodic full snapshots.
 
 ---
 
@@ -1712,14 +1712,14 @@ Instead of rewriting everything, track which records exist in the in-window frag
 │  ──────────────                                                           │
 │    ResourceConfiguration.newBuilder("resource")                           │
 │        .versioningApproach(VersioningType.SLIDING_SNAPSHOT)               │
-│        .revisionsToRestore(4)  // Window size (default)                   │
+│        .revisionsToRestore(3)  // Window size (default)                   │
 │        .build();                                                          │
 │                                                                           │
 │  Trade-off Tuning:                                                        │
 │  ─────────────────                                                        │
-│    • Smaller window (4): Less read cost, more preservation writes         │
+│    • Smaller window (3): Less read cost, more preservation writes         │
 │    • Larger window (16): Less preservation, more fragments to combine     │
-│    • Default (4): Current default, optimal value is workload-dependent    │
+│    • Default (3): Current default, optimal value is workload-dependent    │
 │                                                                           │
 │  Future: Adaptive window sizing based on workload characteristics         │
 │                                                                           │
@@ -2162,7 +2162,7 @@ ResourceConfiguration.newBuilder("myresource")
 | Option | Values | Default | Description |
 |--------|--------|---------|-------------|
 | `versioningApproach` | FULL, INCREMENTAL, DIFFERENTIAL, SLIDING_SNAPSHOT | SLIDING_SNAPSHOT | Page versioning strategy |
-| `revisionsToRestore` | 1-N | 8 | Window size for versioning |
+| `revisionsToRestore` | 1-N | 3 | Max page fragments to combine for reconstruction |
 | `hashKind` | NONE, ROLLING, POSTORDER | ROLLING | Hash computation method |
 | `indexBackendType` | RB_TREE, HOT | RB_TREE | Secondary index implementation |
 | `buildPathSummary` | true/false | true | Enable path summary |
