@@ -28,7 +28,7 @@ SirixDB is a **temporal node store** that makes version control a first-class ci
 
 ### What Makes This Hard
 
-Traditional approaches to temporal databases face an impossible trilemma:
+Traditional approaches to temporal databases must choose between conflicting goals:
 
 ```
                     ┌─────────────────────┐
@@ -36,7 +36,7 @@ Traditional approaches to temporal databases face an impossible trilemma:
                     │   (single lookup)   │
                     └──────────┬──────────┘
                                │
-              Pick two:        │
+            Trade-offs:        │
                                │
     ┌──────────────────────────┼──────────────────────────┐
     │                          │                          │
@@ -70,28 +70,40 @@ Traditional approaches to temporal databases face an impossible trilemma:
 Most document databases (MongoDB, CouchDB, etc.) treat a document as an opaque blob: store it, retrieve it, replace it. SirixDB takes a radically different approach—it understands the *structure* of your data.
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                   Document Store vs. Node Store                          │
-├──────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│   Document Store (MongoDB, etc.)         Node Store (SirixDB)            │
-│   ──────────────────────────────         ─────────────────────           │
-│                                                                          │
-│   ┌─────────────────────────┐           ┌────┐                           │
-│   │ { "user": "alice",      │           │root│──────────────────┐        │
-│   │   "orders": [           │           └─┬──┘                  │        │
-│   │     { "id": 1, ... },   │    ┌───────┴───────┐              │        │
-│   │     { "id": 2, ... },   │   user           orders           │        │
-│   │     ...10000 orders...  │  "alice"    ┌────┴────┐           │        │
-│   │   ]                     │           [0]  [1] ... [9999]     │        │
-│   │ }                       │            │    │        │        │        │
-│   └─────────────────────────┘           {...}{...}   {...}      │        │
-│        ↓                                                        │        │
-│   Stored as ONE blob                    Each node stored        │        │
-│   Updated as ONE blob                   independently           │        │
-│   Limited by max doc size               No size limit!          │        │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│                   Document Store vs. Node Store                           │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│   Document Store (MongoDB, etc.)         Node Store (SirixDB)             │
+│   ──────────────────────────────         ─────────────────────            │
+│                                                                           │
+│   ┌─────────────────────────┐           Each node stores pointers:        │
+│   │ { "user": "alice",      │           ┌─────────────────────────────┐   │
+│   │   "orders": [           │           │ parentKey                   │   │
+│   │     { "id": 1, ... },   │           │ firstChildKey, lastChildKey │   │
+│   │     { "id": 2, ... },   │           │ leftSiblingKey, rightSibling│   │
+│   │     ...10000 orders...  │           │ childCount, descendantCount │   │
+│   │   ]                     │           └─────────────────────────────┘   │
+│   │ }                       │                                             │
+│   └─────────────────────────┘                    ┌───────┐                │
+│        ↓                                         │ root  │                │
+│   Stored as ONE blob                             └───┬───┘                │
+│   Updated as ONE blob                       ┌────────┴────────┐           │
+│   Limited by max doc size                   ▼                 ▼           │
+│                                          ┌──────┐         ┌────────┐      │
+│   SirixDB Node Encoding:                 │"user"│ ◄─────► │"orders"│      │
+│                                          └──┬───┘         └────┬───┘      │
+│         parent                              ▼          ┌───────┼───────┐  │
+│           ▲                             ┌───────┐      ▼       ▼       ▼  │
+│           │                             │"alice"│    ┌───┐   ┌───┐   ┌───┐│
+│   left ◄──┼──► right                    └───────┘    │[0]│◄─►│[1]│◄─►│...││
+│           │                             (child of    └─┬─┘   └─┬─┘   └───┘│
+│     ┌─────┴─────┐                        "user")       ▼       ▼          │
+│     ▼           ▼                                    {...}   {...}        │
+│   first       last                                                        │
+│   child       child                              O(1) navigation in any   │
+│                                                  direction. No size limit │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Why this matters:**
@@ -109,7 +121,7 @@ Most document databases (MongoDB, CouchDB, etc.) treat a document as an opaque b
 
 1. **No artificial document splits**: A 100GB JSON dataset with millions of records? Store it as one logical resource. No need to shard by arbitrary boundaries.
 
-2. **Surgical updates**: Change one field in a deeply nested object? SirixDB writes just that node (and its path to the root). The document store rewrites everything.
+2. **Surgical updates**: Change one field in a deeply nested object? Depending on the versioning type, SirixDB writes just that node plus the modified path through the page index structure. If node hashing is enabled, the path to the document root is also updated to reflect the new rolling hash. The document store rewrites everything.
 
 3. **Efficient streaming**: Process a billion-node tree without ever holding the full structure in memory. Navigate node-by-node.
 
@@ -117,14 +129,33 @@ Most document databases (MongoDB, CouchDB, etc.) treat a document as an opaque b
 
 5. **Partial materialization**: Need just one branch of a huge tree? Fetch and reconstruct only that subtree. The rest stays on disk.
 
+**Note on child lookup complexity**: While navigation to parent, first/last child, and siblings is O(1), finding a *specific* child (e.g., the 5000th element in an array) requires O(n) sibling traversal. This is where secondary indexes shine:
+
+```xquery
+(: SLOW: O(n) sibling traversal to find order with id=5000 :)
+jn:doc('shop','orders').orders[][5000]
+
+(: FAST: O(log n) with a CAS index on order IDs :)
+(: First, create the index on the 'id' field: :)
+let $doc := jn:doc('shop','orders')
+let $idx := jn:create-cas-index($doc, 'xs:integer', '/orders/[]/id')
+return sdb:commit($doc)
+
+(: Then query the index directly - O(log n) lookup :)
+let $doc := jn:doc('shop','orders')
+let $idxNo := jn:find-cas-index($doc, 'xs:integer', '/orders/[]/id')
+for $node in jn:scan-cas-index($doc, $idxNo, 5000, '==', '/orders/[]/id')
+return $node
+```
+
 ```xquery
 (: Navigate to a specific node in a 100GB resource - 
-   loads only the path, not the whole tree :)
+   loads only the pages along the path, not the whole tree :)
 let $doc := jn:doc('huge', 'dataset')
 return $doc.customers[10000].orders[500].items[3].price
 ```
 
-This query touches ~5 nodes, not 100GB.
+This query touches ~5 nodes across a few pages (each page holds up to 1024 nodes), not 100GB. Note: the page-level granularity means neighboring nodes are loaded together—a potential future optimization would be "mini-pages" (as proposed by Viktor Leis et al.) for finer-grained caching.
 
 ---
 
@@ -258,7 +289,7 @@ Node keys are stable. You can surgically access any subtree at any point in hist
 Yes! When querying by timestamp (e.g., `jn:open(..., xs:dateTime('2024-01-15T15:00:00Z'))`), SirixDB must find the corresponding revision:
 
 1. The `sirix.revisions` file stores: `[(rev, timestamp, offset), ...]`
-2. Binary search finds the revision for a timestamp: **O(log R)** where R = revisions
+2. A cache-line friendly binary search finds the revision for a timestamp: **O(log R)** where R = revisions
 3. After that, *all operations* in that revision are timestamp-free
 
 The key difference:
@@ -276,21 +307,30 @@ And typically, you open a session on a revision and run many queries—so that o
 
 ---
 
-### Problem 7: Structural Sharing (Why Git Works)
+### Problem 7: Structural Sharing
 
-**The Insight**: Git doesn't copy your entire repo on each commit. It shares unchanged blobs and trees. SirixDB applies the same principle to database pages.
+**The Problem**: Naive copy-on-write creates a full copy of every modified structure, leading to O(n) storage per revision where n = data size.
 
-**Traditional Temporal DBs**: Store full rows with validity periods. Even unchanged data has new timestamp metadata.
+**Structural Sharing**: When a page is modified, only the path from that page to the root is copied. Unchanged sibling pages are referenced (not copied) in the new revision. This is the same principle used in persistent data structures (Okasaki) and version control systems.
 
-**SirixDB**: Only *modified pages* are written. Unchanged subtrees reference existing pages across revisions. A 10GB document with 1000 revisions that change 0.1% each? ~20GB total, not 10TB.
+```
+Revision N:                    Revision N+1:
+    Root ──► A ──► C              Root' ──► A ──► C     (A, C shared)
+         └─► B ──► D                   └─► B'──► D'    (B', D' new)
+```
+
+**Storage Complexity**: For a modification affecting k pages in a tree of depth d:
+- Pages written: O(k + d) — modified pages plus path to root
+- Storage growth: O(Δ) per revision where Δ = actual change size
+- Example: 10GB document, 1000 revisions, 0.1% change each → ~20GB total, not 10TB
 
 ---
 
 ### Problem 8: The Read Degradation Trap
 
-**The Problem**: Pure delta-based versioning (like INCREMENTAL) is compact, but reading revision 1000 means reconstructing from 1000 deltas. Reads degrade linearly with history depth.
+**The Problem**: Pure delta-based versioning (like INCREMENTAL) is compact, but reading revision 1000 means reconstructing from 1000 deltas. Reads degrade linearly with history depth. INCREMENTAL versioning mitigates this with intermittent full snapshots, but these cause unpredictable write spikes.
 
-**SirixDB's Solution**: The **SLIDING_SNAPSHOT** algorithm bounds reconstruction to a constant window (typically 8 fragments), regardless of total revision count. Revision 1 and revision 10,000 have the same read performance.
+**SirixDB's Solution**: The **SLIDING_SNAPSHOT** algorithm bounds reconstruction to a constant window (default: 3 fragments), regardless of total revision count. Revision 1 and revision 10,000 have the same read performance—without the write spikes of periodic full snapshots.
 
 ---
 
@@ -488,7 +528,7 @@ This query **joins data across time**—something that would require ETL pipelin
 
 Every document is stored as a tree of **nodes**, where each node has:
 - A unique `nodeKey` (64-bit integer, stable across all revisions)
-- Structural pointers (parent, children, siblings)
+- Structural pointers: `parentKey`, `firstChildKey`, `lastChildKey`, `leftSiblingKey`, `rightSiblingKey`
 - Type-specific data (values, names)
 
 ```
@@ -593,7 +633,9 @@ Axes are iterators that traverse from a context node to related nodes. SirixDB p
 | Axis | Direction | Description |
 |------|-----------|-------------|
 | `ChildAxis` | Down | Direct children only |
-| `DescendantAxis` | Down | All descendants (depth-first) |
+| `DescendantAxis` | Down | All descendants (depth-first, pre-order) |
+| `PostOrderAxis` | Down | All descendants (depth-first, post-order) |
+| `LevelOrderAxis` | Down | All descendants (breadth-first) |
 | `ParentAxis` | Up | Direct parent |
 | `AncestorAxis` | Up | All ancestors to root |
 | `FollowingSiblingAxis` | Right | Siblings after this node |
@@ -601,9 +643,10 @@ Axes are iterators that traverse from a context node to related nodes. SirixDB p
 | `SelfAxis` | None | The node itself |
 
 ```java
-// Example: iterate all children
+// Example: iterate all children of the document root
 try (var rtx = resource.beginNodeReadOnlyTrx()) {
-    rtx.moveTo(parentNodeKey);
+    rtx.moveToDocumentRoot();
+    rtx.moveToFirstChild();  // Move to content root
     for (var axis = new ChildAxis(rtx); axis.hasNext(); ) {
         axis.nextLong();
         System.out.println(rtx.getName() + ": " + rtx.getValue());
@@ -646,9 +689,10 @@ Navigate the same node across different revisions:
 #### Combining Spatial and Temporal
 
 ```java
-// Get all versions of all children
+// Get all versions of all children of the document root
 try (var rtx = resource.beginNodeReadOnlyTrx()) {
-    rtx.moveTo(parentKey);
+    rtx.moveToDocumentRoot();
+    rtx.moveToFirstChild();  // Move to actual content root
     var childAxis = new ChildAxis(rtx);
     while (childAxis.hasNext()) {
         childAxis.nextLong();
@@ -1668,14 +1712,16 @@ Instead of rewriting everything, track which records exist in the in-window frag
 │  ──────────────                                                           │
 │    ResourceConfiguration.newBuilder("resource")                           │
 │        .versioningApproach(VersioningType.SLIDING_SNAPSHOT)               │
-│        .revisionsToRestore(8)  // Window size (default)                   │
+│        .revisionsToRestore(3)  // Window size (default)                   │
 │        .build();                                                          │
 │                                                                           │
 │  Trade-off Tuning:                                                        │
 │  ─────────────────                                                        │
-│    • Smaller window (4): Less read cost, more preservation writes         │
+│    • Smaller window (3): Less read cost, more preservation writes         │
 │    • Larger window (16): Less preservation, more fragments to combine     │
-│    • Default (8): Good balance for most workloads                         │
+│    • Default (3): Current default, optimal value is workload-dependent    │
+│                                                                           │
+│  Future: Adaptive window sizing based on workload characteristics         │
 │                                                                           │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1870,13 +1916,22 @@ The `PageContainer` holds two views of a page during modification:
 │   Example:                                                                  │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │ // Read latest revision                                             │   │
-│   │ JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx();           │   │
+│   │ var rtx = session.beginNodeReadOnlyTrx();                           │   │
 │   │                                                                     │   │
 │   │ // Read specific historical revision                                │   │
-│   │ JsonNodeReadOnlyTrx rtx5 = session.beginNodeReadOnlyTrx(5);         │   │
+│   │ var rtx5 = session.beginNodeReadOnlyTrx(5);                         │   │
 │   │                                                                     │   │
 │   │ // Read revision at specific timestamp                              │   │
-│   │ JsonNodeReadOnlyTrx rtxTime = session.beginNodeReadOnlyTrx(instant);│   │
+│   │ var rtxTime = session.beginNodeReadOnlyTrx(instant);                │   │
+│   │                                                                     │   │
+│   │ // Read revisions between two timestamps                            │   │
+│   │ int startRev = session.getRevisionNumber(startInstant);             │   │
+│   │ int endRev = session.getRevisionNumber(endInstant);                 │   │
+│   │ for (int rev = startRev; rev <= endRev; rev++) {                    │   │
+│   │     try (var trx = session.beginNodeReadOnlyTrx(rev)) {             │   │
+│   │         // Process each revision in the time range                  │   │
+│   │     }                                                               │   │
+│   │ }                                                                   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   Read-Write Transaction (NodeTrx)                                          │
@@ -2098,7 +2153,7 @@ ResourceConfiguration.newBuilder("myresource")
     .hashKind(HashType.ROLLING)
     .useTextCompression(true)
     .buildPathSummary(true)
-    .indexBackendType(IndexBackendType.HOT_TRIE)
+    .indexBackendType(IndexBackendType.HOT)
     .build();
 ```
 
@@ -2107,9 +2162,9 @@ ResourceConfiguration.newBuilder("myresource")
 | Option | Values | Default | Description |
 |--------|--------|---------|-------------|
 | `versioningApproach` | FULL, INCREMENTAL, DIFFERENTIAL, SLIDING_SNAPSHOT | SLIDING_SNAPSHOT | Page versioning strategy |
-| `revisionsToRestore` | 1-N | 8 | Window size for versioning |
+| `revisionsToRestore` | 1-N | 3 | Max page fragments to combine for reconstruction |
 | `hashKind` | NONE, ROLLING, POSTORDER | ROLLING | Hash computation method |
-| `indexBackendType` | RB_TREE, HOT_TRIE | RB_TREE | Secondary index implementation |
+| `indexBackendType` | RB_TREE, HOT | RB_TREE | Secondary index implementation |
 | `buildPathSummary` | true/false | true | Enable path summary |
 
 ---

@@ -29,12 +29,9 @@ import io.sirix.node.DeweyIDNode;
 import io.sirix.node.SirixDeweyID;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.StorageEngineReader;
-import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
-
-import java.util.Map;
 
 public final class DeweyIDPage extends AbstractForwardingPage {
 
@@ -58,8 +55,6 @@ public final class DeweyIDPage extends AbstractForwardingPage {
    */
   private int currentMaxLevelOfIndirectPages;
 
-  private Map<SirixDeweyID, Long> deweyIDsToNodeKeys;
-
   /**
    * Create dewey-ID page.
    */
@@ -68,18 +63,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
     currentMaxLevelOfIndirectPages = 1;
   }
 
-//  /**
-//   * Read name page.
-//   *
-//   * @param in input bytes to read from
-//   */
-//  DeweyIDPage(final Bytes<?> in, final SerializationType type) {
-//    delegate = PageUtils.createDelegate(in, type);
-//    maxNodeKey = in.readLong();
-//    currentMaxLevelOfIndirectPages = in.readByte() & 0xFF;
-//  }
-
-  /**
+/**
    *  Constructor to set deserialized data.
    *
    * @param delegate The references page delegate instance.
@@ -91,20 +75,6 @@ public final class DeweyIDPage extends AbstractForwardingPage {
     this.maxNodeKey = maxNodeKey;
     this.currentMaxLevelOfIndirectPages=currentMaxLevelOfIndirectPages;
   }
-
-//  @Override
-//  public void serialize(final StorageEngineReader pageReadOnlyTrx, final BytesOut<?> out,
-//      final SerializationType type) {
-//    if (delegate instanceof ReferencesPage4) {
-//      out.writeByte((byte) 0);
-//    } else if (delegate instanceof BitmapReferencesPage) {
-//      out.writeByte((byte) 1);
-//    }
-//    super.serialize(pageReadOnlyTrx, out, type);
-//
-//    out.writeLong(maxNodeKey);
-//    out.writeByte((byte) currentMaxLevelOfIndirectPages);
-//  }
 
   public int getCurrentMaxLevelOfIndirectPages() {
     return currentMaxLevelOfIndirectPages;
@@ -178,28 +148,5 @@ public final class DeweyIDPage extends AbstractForwardingPage {
       return null;
     }
     return node.getDeweyID();
-  }
-
-  public long getNodeKeyForDeweyId(final SirixDeweyID deweyId, final StorageEngineReader pageReadOnlyTrx) {
-    if (deweyIDsToNodeKeys == null) {
-//      deweyIDsToNodeKeys =
-//          ChronicleMap.of(SirixDeweyID.class, Long.class).name("deweyIDsToNodeKeysMap").entries(maxNodeKey).create();
-//      for (long i = 1, l = maxNodeKey; i < l; i += 2) {
-//        final long nodeKeyOfNode = i;
-//        final var deweyIDNode = pageReadOnlyTrx.getRecord(nodeKeyOfNode, IndexType.DEWEYID_TO_RECORDID, 0);
-//
-//        if (deweyIDNode != null && deweyIDNode.getKind() != NodeKind.DELETE) {
-//          deweyIDsToNodeKeys.put(deweyIDNode.getDeweyID(), nodeKeyOfNode);
-//        }
-//      }
-    }
-    return deweyIDsToNodeKeys.get(deweyId);
-  }
-
-  public void setDeweyID(final SirixDeweyID deweyId, final StorageEngineWriter pageTrx) {
-    final long nodeKey = maxNodeKey;
-    final DeweyIDNode node = new DeweyIDNode(maxNodeKey++, deweyId);
-    pageTrx.createRecord(node, IndexType.DEWEYID_TO_RECORDID, 0);
-    deweyIDsToNodeKeys.put(deweyId, nodeKey);
   }
 }

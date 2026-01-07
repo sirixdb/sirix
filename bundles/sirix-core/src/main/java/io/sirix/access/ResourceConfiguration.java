@@ -34,6 +34,7 @@ import com.google.gson.stream.JsonWriter;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.exception.SirixIOException;
+import io.sirix.io.HashAlgorithm;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerKind;
@@ -320,6 +321,26 @@ public final class ResourceConfiguration {
    */
   public final IndexBackendType indexBackendType;
 
+  /**
+   * Whether to verify page checksums on read operations.
+   * 
+   * <p>When enabled, each page read from storage is verified against its stored
+   * XXH3 hash to detect corruption. Uses zero-copy verification for native
+   * memory segments (~15 GB/s throughput).</p>
+   * 
+   * <p>Default is {@code true} for data integrity. Disable only if benchmarking.</p>
+   */
+  public final boolean verifyChecksumsOnRead;
+
+  /**
+   * The hash algorithm used for page checksums.
+   * 
+   * <p>Default is {@link HashAlgorithm#XXH3}, which provides ~15 GB/s throughput.
+   * The algorithm can be changed for future extensibility, though changing it
+   * requires re-writing all pages.</p>
+   */
+  public final HashAlgorithm hashAlgorithm;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -358,6 +379,8 @@ public final class ResourceConfiguration {
     binaryVersion = builder.binaryEncodingVersion;
     stringCompressionType = builder.stringCompressionType;
     indexBackendType = builder.indexBackendType;
+    verifyChecksumsOnRead = builder.verifyChecksumsOnRead;
+    hashAlgorithm = builder.hashAlgorithm;
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -486,7 +509,8 @@ public final class ResourceConfiguration {
       { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
           "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
           "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount",
-          "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance" };
+          "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance", "verifyChecksumsOnRead", 
+          "hashAlgorithm" };
 
   /**
    * Serialize the configuration.
@@ -544,6 +568,10 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[18]).value(config.indexBackendType.name());
       // DeweyID sibling distance.
       jsonWriter.name(JSONNAMES[19]).value(config.deweyIdSiblingDistance);
+      // Verify checksums on read.
+      jsonWriter.name(JSONNAMES[20]).value(config.verifyChecksumsOnRead);
+      // Hash algorithm for checksums.
+      jsonWriter.name(JSONNAMES[21]).value(config.hashAlgorithm.name());
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -668,6 +696,24 @@ public final class ResourceConfiguration {
         }
       }
 
+      // Verify checksums on read (optional for backward compatibility with older configs)
+      boolean verifyChecksumsOnRead = true; // Default value
+      if (jsonReader.hasNext()) {
+        name = jsonReader.nextName();
+        if (name.equals(JSONNAMES[20])) {
+          verifyChecksumsOnRead = jsonReader.nextBoolean();
+        }
+      }
+
+      // Hash algorithm (optional for backward compatibility with older configs)
+      HashAlgorithm hashAlgorithm = HashAlgorithm.XXH3; // Default value
+      if (jsonReader.hasNext()) {
+        name = jsonReader.nextName();
+        if (name.equals(JSONNAMES[21])) {
+          hashAlgorithm = HashAlgorithm.valueOf(jsonReader.nextString());
+        }
+      }
+
       jsonReader.endObject();
       jsonReader.close();
       fileReader.close();
@@ -693,7 +739,9 @@ public final class ResourceConfiguration {
              .storeNodeHistory(storeNodeHistory)
              .stringCompressionType(stringCompressionType)
              .indexBackendType(indexBackendType)
-             .deweyIdSiblingDistance(deweyIdSiblingDistance);
+             .deweyIdSiblingDistance(deweyIdSiblingDistance)
+             .verifyChecksumsOnRead(verifyChecksumsOnRead)
+             .hashAlgorithm(hashAlgorithm);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -805,9 +853,21 @@ public final class ResourceConfiguration {
 
     /**
      * Backend type for secondary indexes (PATH, CAS, NAME).
-     * Defaults to HOT_TRIE for best performance.
+     * Defaults to HOT for best performance.
      */
-    private IndexBackendType indexBackendType = IndexBackendType.HOT_TRIE;
+    private IndexBackendType indexBackendType = IndexBackendType.HOT;
+
+    /**
+     * Whether to verify page checksums on read operations.
+     * Default is true for data integrity.
+     */
+    private boolean verifyChecksumsOnRead = true;
+
+    /**
+     * Hash algorithm for page checksums.
+     * Default is XXH3 for maximum performance.
+     */
+    private HashAlgorithm hashAlgorithm = HashAlgorithm.XXH3;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -1040,7 +1100,7 @@ public final class ResourceConfiguration {
      * <p>This controls which data structure is used for storing index data:
      * <ul>
      *   <li>{@link IndexBackendType#RBTREE} - Red-Black Tree (default, stable)</li>
-     *   <li>{@link IndexBackendType#HOT_TRIE} - Height-Optimized Trie (high performance)</li>
+     *   <li>{@link IndexBackendType#HOT} - Height-Optimized Trie (high performance)</li>
      * </ul>
      *
      * @param indexBackendType the index backend type to use
@@ -1058,7 +1118,7 @@ public final class ResourceConfiguration {
      * explicitly overriding a previous setting.</p>
      * 
      * <p>This is a convenience method equivalent to calling
-     * {@code indexBackendType(IndexBackendType.HOT_TRIE)}.</p>
+     * {@code indexBackendType(IndexBackendType.HOT)}.</p>
      * 
      * <p>HOT indexes provide better performance for large datasets due to
      * improved cache utilization and reduced memory accesses.</p>
@@ -1066,7 +1126,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder useHOTIndexes() {
-      this.indexBackendType = IndexBackendType.HOT_TRIE;
+      this.indexBackendType = IndexBackendType.HOT;
       return this;
     }
 
@@ -1083,6 +1143,38 @@ public final class ResourceConfiguration {
      */
     public Builder useRBTreeIndexes() {
       this.indexBackendType = IndexBackendType.RBTREE;
+      return this;
+    }
+
+    /**
+     * Enable or disable page checksum verification on read operations.
+     * 
+     * <p>When enabled, each page read from storage is verified against its stored
+     * XXH3 hash to detect corruption. Uses zero-copy verification for native
+     * memory segments (~15 GB/s throughput).</p>
+     * 
+     * <p>Default is {@code true} for data integrity. Only disable for benchmarking
+     * or if external integrity mechanisms are in place.</p>
+     *
+     * @param verify true to enable checksum verification, false to disable
+     * @return reference to the builder object
+     */
+    public Builder verifyChecksumsOnRead(boolean verify) {
+      this.verifyChecksumsOnRead = verify;
+      return this;
+    }
+
+    /**
+     * Set the hash algorithm for page checksums.
+     * 
+     * <p>Default is {@link HashAlgorithm#XXH3}. Changing the algorithm after
+     * pages have been written requires re-writing all pages.</p>
+     *
+     * @param algorithm the hash algorithm to use
+     * @return reference to the builder object
+     */
+    public Builder hashAlgorithm(HashAlgorithm algorithm) {
+      this.hashAlgorithm = requireNonNull(algorithm);
       return this;
     }
 
@@ -1104,6 +1196,7 @@ public final class ResourceConfiguration {
                         .add("Use deweyIDs", useDeweyIDs)
                         .add("Byte handler pipeline", byteHandler)
                         .add("Index backend type", indexBackendType)
+                        .add("Verify checksums on read", verifyChecksumsOnRead)
                         .toString();
     }
 

@@ -40,7 +40,6 @@ import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 
 import java.lang.foreign.MemorySegment;
-import io.sirix.io.Reader;
 import io.sirix.node.Utils;
 import io.sirix.node.Bytes;
 import io.sirix.node.interfaces.DeweyIdSerializer;
@@ -399,8 +398,6 @@ public enum PageKind {
       } else {
         sink.writeByte((byte) 0); // No columnar data
       }
-
-      keyValueLeafPage.setHashCode(Reader.hashFunction.hashBytes(sink.bytesForRead().toByteArray()).asBytes());
 
       final BytesIn<?> uncompressedBytes = sink.bytesForRead();
       final byte[] uncompressedArray = uncompressedBytes.toByteArray();

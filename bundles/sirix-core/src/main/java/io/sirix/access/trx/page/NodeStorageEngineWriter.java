@@ -162,7 +162,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     /** Traditional bit-decomposed IndirectPage trie (existing approach). */
     KEYED_TRIE,
     /** HOT (Height Optimized Trie) for cache-friendly secondary indexes (new approach). */
-    HOT_TRIE
+    HOT
   }
 
   /**
@@ -240,10 +240,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Determine which trie type to use for the given index.
    * 
-   * <p>Currently all indexes use KEYED_TRIE. HOT_TRIE is available but requires
+   * <p>Currently all indexes use KEYED_TRIE. HOT is available but requires
    * HOTLeafPage to implement setRecord()/getRecord() compatible with existing API.</p>
    * 
-   * <p>TODO to enable HOT_TRIE:</p>
+   * <p>TODO to enable HOT:</p>
    * <ul>
    *   <li>Implement HOTLeafPage.setRecord() to store DataRecords</li>
    *   <li>Implement HOTLeafPage.getRecord() to retrieve DataRecords</li>
@@ -256,11 +256,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   @SuppressWarnings("unused") // indexType/indexNumber will be used when HOT is enabled
   private TrieType getTrieType(@NonNull IndexType indexType, int indexNumber) {
-    // HOT_TRIE is not yet fully integrated with DataRecord storage.
+    // HOT is not yet fully integrated with DataRecord storage.
     // HOTLeafPage needs to implement setRecord()/getRecord() to be compatible.
     // Once implemented, enable with:
     //   return switch (indexType) {
-    //     case PATH, CAS, NAME -> TrieType.HOT_TRIE;
+    //     case PATH, CAS, NAME -> TrieType.HOT;
     //     default -> TrieType.KEYED_TRIE;
     //   };
     return TrieType.KEYED_TRIE;
@@ -840,7 +840,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     
     // Route to appropriate trie implementation
     TrieType trieType = getTrieType(indexType, indexNumber);
-    if (trieType == TrieType.HOT_TRIE) {
+    if (trieType == TrieType.HOT) {
       return prepareRecordPageViaHOT(recordPageKey, indexNumber, indexType);
     }
     

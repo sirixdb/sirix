@@ -99,13 +99,13 @@ class HOTIndexIntegrationTest {
   @DisplayName("Per-resource IndexBackendType configuration works correctly")
   void testPerResourceIndexBackendConfiguration() {
     // This test verifies that:
-    // 1. ResourceConfiguration.indexBackendType defaults to HOT_TRIE
+    // 1. ResourceConfiguration.indexBackendType defaults to HOT
     // 2. ResourceConfiguration.indexBackendType can be explicitly set to RBTREE
     // 3. Configuration is properly stored and accessible
     
     System.clearProperty("sirix.index.useHOT");
     
-    // Test 1: Default configuration should be HOT_TRIE
+    // Test 1: Default configuration should be HOT
     JsonTestHelper.deleteEverything();
     try {
       final var databaseWithDefault = JsonTestHelper.getDatabaseWithResourceConfig(
@@ -115,15 +115,15 @@ class HOTIndexIntegrationTest {
       
       try (final var manager = databaseWithDefault.beginResourceSession(JsonTestHelper.RESOURCE)) {
         // Verify default is HOT
-        assertEquals(IndexBackendType.HOT_TRIE, 
+        assertEquals(IndexBackendType.HOT, 
             manager.getResourceConfig().indexBackendType,
-            "Default index backend should be HOT_TRIE");
+            "Default index backend should be HOT");
       }
     } finally {
       JsonTestHelper.closeEverything();
     }
     
-    // Test 2: Explicit HOT_TRIE configuration
+    // Test 2: Explicit HOT configuration
     JsonTestHelper.deleteEverything();
     try {
       final var databaseWithHOT = JsonTestHelper.getDatabaseWithResourceConfig(
@@ -133,7 +133,7 @@ class HOTIndexIntegrationTest {
               .build());
       
       try (final var manager = databaseWithHOT.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        assertEquals(IndexBackendType.HOT_TRIE, 
+        assertEquals(IndexBackendType.HOT, 
             manager.getResourceConfig().indexBackendType,
             "Resource should be configured for HOT");
       }

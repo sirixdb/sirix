@@ -148,12 +148,18 @@ public final class FileChannelReader extends AbstractReader {
         if (byteHandler.supportsMemorySegments()) {
           // Zero-copy: wrap direct ByteBuffer as MemorySegment
           MemorySegment segment = MemorySegment.ofBuffer(buffer);
-          return deserializeFromSegment(resourceConfiguration, segment);
+          // Verify checksum for non-KVLP pages (KVLP verified after decompression)
+          verifyChecksumIfNeeded(segment, reference, resourceConfiguration);
+          // Pass reference for KVLP verification after decompression
+          return deserializeFromSegment(resourceConfiguration, segment, reference);
         } else {
           // Fallback: copy to byte array for stream-based decompression
           final byte[] page = new byte[dataLength];
           buffer.get(page);
-          return deserialize(resourceConfiguration, page);
+          // Verify checksum for non-KVLP pages (KVLP verified after decompression)
+          verifyChecksumIfNeeded(page, reference, resourceConfiguration);
+          // Pass reference for KVLP verification after decompression
+          return deserialize(resourceConfiguration, page, reference);
         }
       } catch (final IOException e) {
         throw new SirixIOException(e);
