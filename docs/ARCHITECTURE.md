@@ -319,9 +319,9 @@ And typically, you open a session on a revision and run many queries—so that o
 
 ### Problem 8: The Read Degradation Trap
 
-**The Problem**: Pure delta-based versioning (like INCREMENTAL) is compact, but reading revision 1000 means reconstructing from 1000 deltas. Reads degrade linearly with history depth.
+**The Problem**: Pure delta-based versioning (like INCREMENTAL) is compact, but reading revision 1000 means reconstructing from 1000 deltas. Reads degrade linearly with history depth. INCREMENTAL versioning mitigates this with intermittent full snapshots, but these cause unpredictable write spikes.
 
-**SirixDB's Solution**: The **SLIDING_SNAPSHOT** algorithm bounds reconstruction to a constant window (typically 8 fragments), regardless of total revision count. Revision 1 and revision 10,000 have the same read performance.
+**SirixDB's Solution**: The **SLIDING_SNAPSHOT** algorithm bounds reconstruction to a constant window (typically 4 fragments), regardless of total revision count. Revision 1 and revision 10,000 have the same read performance—without the write spikes of periodic full snapshots.
 
 ---
 
