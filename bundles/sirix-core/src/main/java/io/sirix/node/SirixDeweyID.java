@@ -86,14 +86,29 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
 
   static {
     // calculates the maxDivisionValues
+    // 
+    // ENCODING FIX (2026-01-07): Changed tier boundaries to use EXCLUSIVE upper bounds.
+    // 
+    // The issue was: Tier 0 used suffix = v + 1, giving suffix range [1, 128] for v in [0, 127].
+    // But 128 requires 8 bits and only 7 bits are available, causing truncation.
+    // 
+    // Fix: Each tier now handles values [prevMax, currentMax) instead of (prevMax, currentMax].
+    // This ensures suffix values fit within the allocated bits.
+    //
+    // Tier boundaries (exclusive upper bound):
+    //   Tier 0: [0, 127)    = values 0-126,   suffix 1-127   (7 bits, fits)
+    //   Tier 1: [127, 16511) = values 127-16510, suffix 0-16383 (14 bits, fits)
+    //   Tier 2: [16511, 2113663) etc.
+    //
     for (int i = 0; i < divisionLengthArray.length; i++) {
       maxDivisionValue[i] = 1 << divisionLengthArray[i];
 
-      /* for 0-reasons the 000 cannot be used
-       * Because Division-Value 0 is allowed
-       */
-      if (i == 0)
-        maxDivisionValue[i] -= 1;
+      // For tier 0: we use suffix = v + 1 to avoid all-zeros encoding
+      // Max suffix that fits in 7 bits is 127, so max v is 126
+      // Therefore maxDivisionValue[0] = 127 (exclusive bound, so values 0-126)
+      if (i == 0) {
+        maxDivisionValue[i] -= 1;  // = 127, used as exclusive bound
+      }
 
       if (i != 0) {
         if (maxDivisionValue[i] < 0) {
@@ -150,16 +165,14 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
         }
       }
       if (i == 0) {
-        // the first row begin with 1
-        // binaryTreeSuffixInit[index] = 1;
-        // but we have to begin at 000 for 0-reasons
-        binaryTreeSuffixInit[index] = 0;
-
-        // because the 0-value is allowed
-        binaryTreeSuffixInit[index] -= 1;
+        // Tier 0: suffix = v + 1, so decoded value = suffix - 1
+        // binaryTreeSuffixInit represents the base value for decoding
+        binaryTreeSuffixInit[index] = -1;
       } else {
-        // all other rows begin after the max value of the row before
-        binaryTreeSuffixInit[index] = maxDivisionValue[i - 1] + 1;
+        // Tier i (i > 0): values start at maxDivisionValue[i-1] (the exclusive bound of prev tier)
+        // suffix = v - maxDivisionValue[i-1], so decoded value = suffix + maxDivisionValue[i-1]
+        // FIX: Changed from maxDivisionValue[i-1] + 1 to maxDivisionValue[i-1]
+        binaryTreeSuffixInit[index] = maxDivisionValue[i - 1];
       }
 
       binaryTreeSearchArray[index] = divisionLengthArray[i];
@@ -432,33 +445,31 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
 
   /**
    * Calculates the number of bits, that are needed to store the chosen
-   * division-value
+   * division-value.
+   * 
+   * Uses EXCLUSIVE upper bounds: value < maxDivisionValue[i] means tier i.
    */
   private int getDivisionBits(int division) {
-    if (divisionValues[division] <= maxDivisionValue[0])
+    // FIX: Changed from <= to < for exclusive upper bounds
+    if (divisionValues[division] < maxDivisionValue[0])
       return completeDivisionLengthArray[0];
-    else if (divisionValues[division] <= maxDivisionValue[1])
+    else if (divisionValues[division] < maxDivisionValue[1])
       return completeDivisionLengthArray[1];
-    else if (divisionValues[division] <= maxDivisionValue[2])
+    else if (divisionValues[division] < maxDivisionValue[2])
       return completeDivisionLengthArray[2];
-    else if (divisionValues[division] <= maxDivisionValue[3])
+    else if (divisionValues[division] < maxDivisionValue[3])
       return completeDivisionLengthArray[3];
-    else if (divisionValues[division] <= maxDivisionValue[4])
-      return completeDivisionLengthArray[4];
-    else if (divisionValues[division] <= maxDivisionValue[5])
-      return completeDivisionLengthArray[5];
-    else if (divisionValues[division] <= maxDivisionValue[6])
-      return completeDivisionLengthArray[6];
-    else if (divisionValues[division] <= maxDivisionValue[7])
-      return completeDivisionLengthArray[7];
     else
-      return completeDivisionLengthArray[8];
+      return completeDivisionLengthArray[4];
   }
 
   /** 
-   * sets the bits in the byteArray for the given division, which has to write
-   * its bits at position bitIndex
-   * returns the bitIndex where the next Division can start
+   * Sets the bits in the byteArray for the given division, which has to write
+   * its bits at position bitIndex.
+   * Returns the bitIndex where the next Division can start.
+   * 
+   * ENCODING FIX: Uses EXCLUSIVE upper bounds (< instead of <=) and adjusted suffix formulas
+   * to prevent overflow at tier boundaries.
    */
   private int setDivisionBitArray(int[] divisionValues, byte[] byteArray, int division,
       int bitIndex) {
@@ -466,22 +477,31 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     int suffix;
     boolean[] prefix;
 
+    // Default to last tier
     prefix = bitStringAsBoolean[divisionLengthArray.length - 1];
-    suffix = divisionValues[division] - maxDivisionValue[divisionLengthArray.length - 2] - 1;
+    // FIX: Changed from - 1 to no adjustment for last tier
+    suffix = divisionValues[division] - maxDivisionValue[divisionLengthArray.length - 2];
 
-    for (int i = 0; i < divisionLengthArray.length - 2; i++) {
-      if (divisionValues[division] <= maxDivisionValue[i]) {
+    // Find the correct tier using EXCLUSIVE upper bounds
+    for (int i = 0; i < divisionLengthArray.length - 1; i++) {
+      // FIX: Changed from <= to < for exclusive bounds
+      if (divisionValues[division] < maxDivisionValue[i]) {
         prefix = bitStringAsBoolean[i];
         if (i != 0) {
-          suffix = divisionValues[division] - maxDivisionValue[i - 1] - 1;
+          // FIX: Changed from - 1 to no adjustment
+          // Tier i handles values [maxDivisionValue[i-1], maxDivisionValue[i])
+          // suffix = value - maxDivisionValue[i-1]
+          suffix = divisionValues[division] - maxDivisionValue[i - 1];
         } else {
+          // Tier 0: values [0, maxDivisionValue[0])
+          // suffix = value + 1 to avoid all-zeros encoding
           suffix = divisionValues[division] + 1;
         }
         break;
       }
     }
 
-    // set the prefixbits
+    // set the prefix bits
     for (boolean b : prefix) {
       if (b) {
         byteArray[bitIndex / 8] |= 1 << 7 - (bitIndex & 7);
@@ -489,11 +509,10 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
       bitIndex++;
     }
 
-    // calculate the rest of the bits
+    // write the suffix bits (MSB first)
     int rest = divisionSize - prefix.length;
     for (int i = 1; i <= rest; i++) {
-      int k = 1;
-      k = k << rest - i;
+      int k = 1 << (rest - i);
       if (suffix >= k) {
         suffix -= k;
         byteArray[bitIndex / 8] |= 1 << 7 - (bitIndex & 7);
@@ -522,25 +541,18 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     int numberOfDivisionBits = 0;
 
     // starting at second division, because the first "1" can be optimized
+    // FIX: Changed from <= to < for exclusive tier bounds
     for (int i = 1; i < divisionValues.length; i++) {
-      if (divisionValues[i] <= maxDivisionValue[0])
+      if (divisionValues[i] < maxDivisionValue[0])
         numberOfDivisionBits += completeDivisionLengthArray[0];
-      else if (divisionValues[i] <= maxDivisionValue[1])
+      else if (divisionValues[i] < maxDivisionValue[1])
         numberOfDivisionBits += completeDivisionLengthArray[1];
-      else if (divisionValues[i] <= maxDivisionValue[2])
+      else if (divisionValues[i] < maxDivisionValue[2])
         numberOfDivisionBits += completeDivisionLengthArray[2];
-      else if (divisionValues[i] <= maxDivisionValue[3])
+      else if (divisionValues[i] < maxDivisionValue[3])
         numberOfDivisionBits += completeDivisionLengthArray[3];
-      else if (divisionValues[i] <= maxDivisionValue[4])
-        numberOfDivisionBits += completeDivisionLengthArray[4];
-      else if (divisionValues[i] <= maxDivisionValue[5])
-        numberOfDivisionBits += completeDivisionLengthArray[5];
-      else if (divisionValues[i] <= maxDivisionValue[6])
-        numberOfDivisionBits += completeDivisionLengthArray[6];
-      else if (divisionValues[i] <= maxDivisionValue[7])
-        numberOfDivisionBits += completeDivisionLengthArray[7];
       else
-        numberOfDivisionBits += completeDivisionLengthArray[8];
+        numberOfDivisionBits += completeDivisionLengthArray[4];
     }
 
     byte[] deweyIDbytes;
