@@ -1214,6 +1214,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           .setKey(pageReference.getKey())
           .setDatabaseId(databaseId)
           .setResourceId(resourceId);
+      // Copy hash for checksum verification
+      if (pageReference.getHash() != null) {
+        pageReferenceWithKey.setHash(pageReference.getHash());
+      }
 
       KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
           .getOrLoadAndGuard(pageReferenceWithKey,
@@ -1243,6 +1247,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final long originalStorageKey = pageReference.getKey();
     final var pageReferenceWithKey =
         new PageReference().setKey(originalStorageKey).setDatabaseId(databaseId).setResourceId(resourceId);
+    // Copy hash for checksum verification of the first fragment
+    if (pageReference.getHash() != null) {
+      pageReferenceWithKey.setHash(pageReference.getHash());
+    }
 
     // Load first fragment atomically with guard
     KeyValueLeafPage page = resourceBufferManager.getRecordPageFragmentCache()
@@ -1702,6 +1710,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
     
     // Load additional fragments from the versioning chain
+    // Note: Fragment keys don't include hashes - only the first fragment can be verified
+    // Future improvement: Store fragment hashes in PageFragmentKey for complete verification
     for (PageFragmentKey fragmentKey : pageFragments) {
       PageReference fragmentRef = new PageReference()
           .setKey(fragmentKey.key())

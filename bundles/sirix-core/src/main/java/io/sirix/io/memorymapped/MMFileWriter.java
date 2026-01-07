@@ -27,6 +27,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.AbstractForwardingReader;
 import io.sirix.io.IOStorage;
+import io.sirix.io.PageHasher;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
@@ -339,7 +340,8 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
             if (page instanceof KeyValueLeafPage keyValueLeafPage) {
                 pageReference.setHash(keyValueLeafPage.getHashCode());
             } else {
-                pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
+                // Use XXH3 for fast page checksums (non-KVLP pages hash compressed bytes)
+                pageReference.setHash(PageHasher.computeXXH3(serializedPage));
             }
             
             // Handle revision tracking
@@ -449,7 +451,8 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
             mappedRegion.force();
             
             pageReference.setKey(offset);
-            pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
+            // Use XXH3 for fast page checksums
+            pageReference.setHash(PageHasher.computeXXH3(serializedPage));
             
             // Update revision file
             if (serializationType == SerializationType.DATA && isFirstUberPage) {

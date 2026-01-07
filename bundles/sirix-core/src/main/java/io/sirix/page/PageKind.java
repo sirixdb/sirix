@@ -36,11 +36,11 @@ import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
+import io.sirix.io.PageHasher;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 
 import java.lang.foreign.MemorySegment;
-import io.sirix.io.Reader;
 import io.sirix.node.Utils;
 import io.sirix.node.Bytes;
 import io.sirix.node.interfaces.DeweyIdSerializer;
@@ -400,7 +400,8 @@ public enum PageKind {
         sink.writeByte((byte) 0); // No columnar data
       }
 
-      keyValueLeafPage.setHashCode(Reader.hashFunction.hashBytes(sink.bytesForRead().toByteArray()).asBytes());
+      // Use XXH3 for fast page checksums (KVLP pages hash uncompressed bytes)
+      keyValueLeafPage.setHashCode(PageHasher.computeXXH3(sink.bytesForRead().toByteArray()));
 
       final BytesIn<?> uncompressedBytes = sink.bytesForRead();
       final byte[] uncompressedArray = uncompressedBytes.toByteArray();

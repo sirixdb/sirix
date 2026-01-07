@@ -26,11 +26,14 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.exception.SirixCorruptionException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
+import io.sirix.io.PageHasher;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.bytepipe.ByteHandler;
+import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.PageUtils;
@@ -38,7 +41,6 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
-import io.sirix.node.BytesOut;
 import io.sirix.node.BytesIn;
 import io.sirix.node.Bytes;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -125,16 +127,73 @@ public final class FileReader implements Reader {
       final byte[] page = new byte[dataLength];
       dataFile.read(page);
 
-      return getPage(resourceConfiguration, page);
+      // Verify checksum for non-KVLP pages (KVLP verified after decompression)
+      verifyChecksumIfNeeded(page, reference, resourceConfiguration);
+
+      return getPage(resourceConfiguration, page, reference);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
+  /**
+   * Verify page checksum for non-KeyValueLeafPage pages.
+   */
+  private void verifyChecksumIfNeeded(byte[] compressedData, PageReference reference,
+                                       ResourceConfiguration resourceConfig) {
+    if (resourceConfig == null || !resourceConfig.verifyChecksumsOnRead) {
+      return;
+    }
+
+    byte[] expectedHash = reference.getHash();
+    if (expectedHash == null || expectedHash.length == 0) {
+      return;
+    }
+
+    // Skip KVLP pages - they are verified after decompression
+    if (compressedData.length > 0 && compressedData[0] == PageKind.KEYVALUELEAFPAGE.getID()) {
+      return;
+    }
+
+    if (!PageHasher.verify(compressedData, expectedHash)) {
+      byte[] actualHash = PageHasher.computeActualHash(compressedData);
+      throw new SirixCorruptionException(reference.getKey(), "compressed", expectedHash, actualHash);
+    }
+  }
+
+  /**
+   * Verify KVLP checksum on uncompressed bytes.
+   */
+  private void verifyKVLPChecksum(byte[] uncompressedData, PageReference reference,
+                                   ResourceConfiguration resourceConfig) {
+    if (reference == null || resourceConfig == null || !resourceConfig.verifyChecksumsOnRead) {
+      return;
+    }
+
+    byte[] expectedHash = reference.getHash();
+    if (expectedHash == null || expectedHash.length == 0) {
+      return;
+    }
+
+    // Only verify for KVLP pages
+    if (uncompressedData.length > 0 && uncompressedData[0] == PageKind.KEYVALUELEAFPAGE.getID()) {
+      if (!PageHasher.verify(uncompressedData, expectedHash)) {
+        byte[] actualHash = PageHasher.computeActualHash(uncompressedData);
+        throw new SirixCorruptionException(reference.getKey(), "uncompressed-KVLP", expectedHash, actualHash);
+      }
+    }
+  }
+
   @NonNull
-  private Page getPage(ResourceConfiguration resourceConfiguration, byte[] page) throws IOException {
+  private Page getPage(ResourceConfiguration resourceConfiguration, byte[] page, 
+                       PageReference reference) throws IOException {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
-    final BytesIn<?> input = Bytes.wrapForRead(inputStream.readAllBytes());
+    byte[] uncompressedBytes = inputStream.readAllBytes();
+    
+    // Verify KVLP checksum on uncompressed bytes
+    verifyKVLPChecksum(uncompressedBytes, reference, resourceConfiguration);
+    
+    final BytesIn<?> input = Bytes.wrapForRead(uncompressedBytes);
     final var deserializedPage = pagePersiter.deserializePage(resourceConfiguration, input, serializationType);
     
     // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page

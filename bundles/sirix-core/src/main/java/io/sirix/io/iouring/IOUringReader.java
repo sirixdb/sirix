@@ -125,8 +125,11 @@ public final class IOUringReader extends AbstractReader {
       final byte[] page = new byte[dataLength];
       buffer.get(page);
 
-      // Perform byte operations.
-      return deserialize(resourceConfiguration, page);
+      // Verify checksum for non-KVLP pages (KVLP verified after decompression)
+      verifyChecksumIfNeeded(page, reference, resourceConfiguration);
+
+      // Perform byte operations (pass reference for KVLP verification after decompression)
+      return deserialize(resourceConfiguration, page, reference);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

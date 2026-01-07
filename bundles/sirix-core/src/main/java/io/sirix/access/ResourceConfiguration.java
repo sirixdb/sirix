@@ -320,6 +320,17 @@ public final class ResourceConfiguration {
    */
   public final IndexBackendType indexBackendType;
 
+  /**
+   * Whether to verify page checksums on read operations.
+   * 
+   * <p>When enabled, each page read from storage is verified against its stored
+   * XXH3 hash to detect corruption. Uses zero-copy verification for native
+   * memory segments (~15 GB/s throughput).</p>
+   * 
+   * <p>Default is {@code true} for data integrity. Disable only if benchmarking.</p>
+   */
+  public final boolean verifyChecksumsOnRead;
+
   // END MEMBERS FOR FIXED FIELDS
 
   /**
@@ -358,6 +369,7 @@ public final class ResourceConfiguration {
     binaryVersion = builder.binaryEncodingVersion;
     stringCompressionType = builder.stringCompressionType;
     indexBackendType = builder.indexBackendType;
+    verifyChecksumsOnRead = builder.verifyChecksumsOnRead;
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -486,7 +498,7 @@ public final class ResourceConfiguration {
       { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
           "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
           "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount",
-          "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance" };
+          "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance", "verifyChecksumsOnRead" };
 
   /**
    * Serialize the configuration.
@@ -544,6 +556,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[18]).value(config.indexBackendType.name());
       // DeweyID sibling distance.
       jsonWriter.name(JSONNAMES[19]).value(config.deweyIdSiblingDistance);
+      // Verify checksums on read.
+      jsonWriter.name(JSONNAMES[20]).value(config.verifyChecksumsOnRead);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -668,6 +682,15 @@ public final class ResourceConfiguration {
         }
       }
 
+      // Verify checksums on read (optional for backward compatibility with older configs)
+      boolean verifyChecksumsOnRead = false; // Default value
+      if (jsonReader.hasNext()) {
+        name = jsonReader.nextName();
+        if (name.equals(JSONNAMES[20])) {
+          verifyChecksumsOnRead = jsonReader.nextBoolean();
+        }
+      }
+
       jsonReader.endObject();
       jsonReader.close();
       fileReader.close();
@@ -693,7 +716,8 @@ public final class ResourceConfiguration {
              .storeNodeHistory(storeNodeHistory)
              .stringCompressionType(stringCompressionType)
              .indexBackendType(indexBackendType)
-             .deweyIdSiblingDistance(deweyIdSiblingDistance);
+             .deweyIdSiblingDistance(deweyIdSiblingDistance)
+             .verifyChecksumsOnRead(verifyChecksumsOnRead);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -808,6 +832,12 @@ public final class ResourceConfiguration {
      * Defaults to HOT for best performance.
      */
     private IndexBackendType indexBackendType = IndexBackendType.HOT;
+
+    /**
+     * Whether to verify page checksums on read operations.
+     * Default is true for data integrity.
+     */
+    private boolean verifyChecksumsOnRead = true;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -1086,6 +1116,24 @@ public final class ResourceConfiguration {
       return this;
     }
 
+    /**
+     * Enable or disable page checksum verification on read operations.
+     * 
+     * <p>When enabled, each page read from storage is verified against its stored
+     * XXH3 hash to detect corruption. Uses zero-copy verification for native
+     * memory segments (~15 GB/s throughput).</p>
+     * 
+     * <p>Default is {@code true} for data integrity. Only disable for benchmarking
+     * or if external integrity mechanisms are in place.</p>
+     *
+     * @param verify true to enable checksum verification, false to disable
+     * @return reference to the builder object
+     */
+    public Builder verifyChecksumsOnRead(boolean verify) {
+      this.verifyChecksumsOnRead = verify;
+      return this;
+    }
+
     @Override
     public String toString() {
       return MoreObjects.toStringHelper(this)
@@ -1104,6 +1152,7 @@ public final class ResourceConfiguration {
                         .add("Use deweyIDs", useDeweyIDs)
                         .add("Byte handler pipeline", byteHandler)
                         .add("Index backend type", indexBackendType)
+                        .add("Verify checksums on read", verifyChecksumsOnRead)
                         .toString();
     }
 

@@ -248,7 +248,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       if (page instanceof KeyValueLeafPage keyValueLeafPage) {
         pageReference.setHash(keyValueLeafPage.getHashCode());
       } else {
-        pageReference.setHash(reader.hashFunction.hashBytes(serializedPage).asBytes());
+        // Use XXH3 for fast page checksums (non-KVLP pages hash compressed bytes)
+        pageReference.setHash(PageHasher.computeXXH3(serializedPage));
       }
 
       if (serializationType == SerializationType.DATA) {
