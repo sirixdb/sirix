@@ -1916,13 +1916,22 @@ The `PageContainer` holds two views of a page during modification:
 │   Example:                                                                  │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │ // Read latest revision                                             │   │
-│   │ JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx();           │   │
+│   │ var rtx = session.beginNodeReadOnlyTrx();                           │   │
 │   │                                                                     │   │
 │   │ // Read specific historical revision                                │   │
-│   │ JsonNodeReadOnlyTrx rtx5 = session.beginNodeReadOnlyTrx(5);         │   │
+│   │ var rtx5 = session.beginNodeReadOnlyTrx(5);                         │   │
 │   │                                                                     │   │
 │   │ // Read revision at specific timestamp                              │   │
-│   │ JsonNodeReadOnlyTrx rtxTime = session.beginNodeReadOnlyTrx(instant);│   │
+│   │ var rtxTime = session.beginNodeReadOnlyTrx(instant);                │   │
+│   │                                                                     │   │
+│   │ // Read revisions between two timestamps                            │   │
+│   │ int startRev = session.getRevisionNumber(startInstant);             │   │
+│   │ int endRev = session.getRevisionNumber(endInstant);                 │   │
+│   │ for (int rev = startRev; rev <= endRev; rev++) {                    │   │
+│   │     try (var trx = session.beginNodeReadOnlyTrx(rev)) {             │   │
+│   │         // Process each revision in the time range                  │   │
+│   │     }                                                               │   │
+│   │ }                                                                   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   Read-Write Transaction (NodeTrx)                                          │
