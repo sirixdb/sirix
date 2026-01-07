@@ -1,6 +1,6 @@
 # Stage-1
 # Build jar
-FROM gradle:8.9.0-jdk25-graal as builder
+FROM gradle:jdk25-alpine as builder
 LABEL maintainer="Johannes Lichtenberger <johannes.lichtenberger@sirix.io>"
 WORKDIR /usr/app/
 
