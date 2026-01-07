@@ -189,12 +189,8 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       // Remember page coordinates.
       pageReference.setKey(offset);
 
-      if (page instanceof KeyValueLeafPage keyValueLeafPage) {
-        pageReference.setHash(keyValueLeafPage.getHashCode());
-      } else {
-        // Use XXH3 for fast page checksums (non-KVLP pages hash compressed bytes)
-        pageReference.setHash(PageHasher.compute(serializedPage));
-      }
+      // Compute hash on compressed bytes for ALL page types (consistent approach)
+      pageReference.setHash(PageHasher.compute(serializedPage));
 
       if (type == SerializationType.DATA) {
         if (page instanceof RevisionRootPage revisionRootPage) {

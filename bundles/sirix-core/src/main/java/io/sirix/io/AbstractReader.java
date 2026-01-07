@@ -4,7 +4,6 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.node.MemorySegmentBytesIn;
-import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
@@ -65,18 +64,7 @@ public abstract class AbstractReader implements Reader {
       return; // No hash to verify
     }
     
-    // Check if this is a KeyValueLeafPage by peeking at the page type byte
-    // KVLP pages have hash computed on uncompressed data, so we skip verification here
-    // (KVLP verification happens after decompression in PageKind)
-    if (compressedData.length > 0) {
-      byte pageTypeId = compressedData[0];
-      if (pageTypeId == PageKind.KEYVALUELEAFPAGE.getID()) {
-        // Skip - KVLP verification happens after decompression
-        return;
-      }
-    }
-    
-    // Verify hash on compressed data
+    // All page types use hash computed on compressed data
     HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
     if (!PageHasher.verify(compressedData, expectedHash, hashAlgorithm)) {
       byte[] actualHash = PageHasher.computeActualHash(compressedData, hashAlgorithm);
@@ -89,10 +77,7 @@ public abstract class AbstractReader implements Reader {
   }
 
   /**
-   * Verify page checksum for non-KeyValueLeafPage pages using MemorySegment (zero-copy).
-   *
-   * <p>For native (off-heap) segments with XXH3 hashes, verification is zero-copy.
-   * For SHA-256 (legacy) hashes, a copy is required.</p>
+   * Verify page checksum using MemorySegment (zero-copy for native segments).
    *
    * @param compressedSegment the compressed page data as MemorySegment
    * @param reference the page reference containing expected hash
@@ -110,15 +95,7 @@ public abstract class AbstractReader implements Reader {
       return;
     }
     
-    // Check page type
-    if (compressedSegment.byteSize() > 0) {
-      byte pageTypeId = compressedSegment.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
-      if (pageTypeId == PageKind.KEYVALUELEAFPAGE.getID()) {
-        return; // Skip - KVLP verification happens after decompression
-      }
-    }
-    
-    // Zero-copy verification for native segments
+    // All page types use hash computed on compressed data (zero-copy for native segments)
     HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
     if (!PageHasher.verify(compressedSegment, expectedHash, hashAlgorithm)) {
       byte[] actualHash = PageHasher.computeActualHash(compressedSegment, hashAlgorithm);
@@ -158,9 +135,6 @@ public abstract class AbstractReader implements Reader {
       decompressedBytes = inputStream.readAllBytes();
     }
     
-    // Verify KVLP checksum on uncompressed bytes
-    verifyKVLPChecksum(decompressedBytes, reference, resourceConfiguration);
-    
     // Zero-copy wrap: MemorySegment backed directly by the byte array
     final var deserializedPage = pagePersister.deserializePage(
         resourceConfiguration, 
@@ -176,34 +150,6 @@ public abstract class AbstractReader implements Reader {
     }
     
     return deserializedPage;
-  }
-
-  /**
-   * Verify checksum for KeyValueLeafPage on uncompressed bytes.
-   */
-  private void verifyKVLPChecksum(byte[] uncompressedData, PageReference reference,
-                                   ResourceConfiguration resourceConfig) {
-    if (reference == null || resourceConfig == null || !resourceConfig.verifyChecksumsOnRead) {
-      return;
-    }
-    
-    byte[] expectedHash = reference.getHash();
-    if (expectedHash == null || expectedHash.length == 0) {
-      return;
-    }
-    
-    // Only verify for KVLP pages (hash was computed on uncompressed bytes)
-    if (uncompressedData.length > 0 && uncompressedData[0] == PageKind.KEYVALUELEAFPAGE.getID()) {
-      HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
-      if (!PageHasher.verify(uncompressedData, expectedHash, hashAlgorithm)) {
-        byte[] actualHash = PageHasher.computeActualHash(uncompressedData, hashAlgorithm);
-        throw new SirixCorruptionException(reference.getKey(), "uncompressed-KVLP", expectedHash, actualHash);
-      }
-      
-      if (LOGGER.isTraceEnabled()) {
-        LOGGER.trace("KVLP checksum verified for page at key {}", reference.getKey());
-      }
-    }
   }
 
   /**
@@ -246,9 +192,7 @@ public abstract class AbstractReader implements Reader {
     var decompressionResult = byteHandler.decompressScoped(compressedPage);
     
     try {
-      // Verify KVLP checksum on uncompressed bytes before deserialization
       MemorySegment uncompressedSegment = decompressionResult.segment();
-      verifyKVLPChecksumFromSegment(uncompressedSegment, reference, resourceConfiguration);
       
       // Pass DecompressionResult to enable zero-copy for KeyValueLeafPages
       Page deserializedPage = pagePersister.deserializePage(
@@ -268,38 +212,6 @@ public abstract class AbstractReader implements Reader {
       // Only release if ownership wasn't transferred (for non-KVLP pages or fallback path)
       // The close() method checks ownershipTransferred internally
       decompressionResult.close();
-    }
-  }
-
-  /**
-   * Verify checksum for KeyValueLeafPage on uncompressed MemorySegment.
-   */
-  private void verifyKVLPChecksumFromSegment(MemorySegment uncompressedSegment, PageReference reference,
-                                              ResourceConfiguration resourceConfig) {
-    if (reference == null || resourceConfig == null || !resourceConfig.verifyChecksumsOnRead) {
-      return;
-    }
-    
-    byte[] expectedHash = reference.getHash();
-    if (expectedHash == null || expectedHash.length == 0) {
-      return;
-    }
-    
-    // Only verify for KVLP pages (hash was computed on uncompressed bytes)
-    if (uncompressedSegment.byteSize() > 0) {
-      byte pageTypeId = uncompressedSegment.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
-      if (pageTypeId == PageKind.KEYVALUELEAFPAGE.getID()) {
-        // Zero-copy verification for native segments
-        HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
-        if (!PageHasher.verify(uncompressedSegment, expectedHash, hashAlgorithm)) {
-          byte[] actualHash = PageHasher.computeActualHash(uncompressedSegment, hashAlgorithm);
-          throw new SirixCorruptionException(reference.getKey(), "uncompressed-KVLP", expectedHash, actualHash);
-        }
-        
-        if (LOGGER.isTraceEnabled()) {
-          LOGGER.trace("KVLP checksum verified for page at key {}", reference.getKey());
-        }
-      }
     }
   }
 

@@ -34,7 +34,6 @@ import io.sirix.io.PageHasher;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.bytepipe.ByteHandler;
-import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.PageUtils;
@@ -138,7 +137,7 @@ public final class FileReader implements Reader {
   }
 
   /**
-   * Verify page checksum for non-KeyValueLeafPage pages.
+   * Verify page checksum on compressed data (all page types).
    */
   private void verifyChecksumIfNeeded(byte[] compressedData, PageReference reference,
                                        ResourceConfiguration resourceConfig) {
@@ -151,39 +150,10 @@ public final class FileReader implements Reader {
       return;
     }
 
-    // Skip KVLP pages - they are verified after decompression
-    if (compressedData.length > 0 && compressedData[0] == PageKind.KEYVALUELEAFPAGE.getID()) {
-      return;
-    }
-
     HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
     if (!PageHasher.verify(compressedData, expectedHash, hashAlgorithm)) {
       byte[] actualHash = PageHasher.computeActualHash(compressedData, hashAlgorithm);
       throw new SirixCorruptionException(reference.getKey(), "compressed", expectedHash, actualHash);
-    }
-  }
-
-  /**
-   * Verify KVLP checksum on uncompressed bytes.
-   */
-  private void verifyKVLPChecksum(byte[] uncompressedData, PageReference reference,
-                                   ResourceConfiguration resourceConfig) {
-    if (reference == null || resourceConfig == null || !resourceConfig.verifyChecksumsOnRead) {
-      return;
-    }
-
-    byte[] expectedHash = reference.getHash();
-    if (expectedHash == null || expectedHash.length == 0) {
-      return;
-    }
-
-    // Only verify for KVLP pages
-    if (uncompressedData.length > 0 && uncompressedData[0] == PageKind.KEYVALUELEAFPAGE.getID()) {
-      HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
-      if (!PageHasher.verify(uncompressedData, expectedHash, hashAlgorithm)) {
-        byte[] actualHash = PageHasher.computeActualHash(uncompressedData, hashAlgorithm);
-        throw new SirixCorruptionException(reference.getKey(), "uncompressed-KVLP", expectedHash, actualHash);
-      }
     }
   }
 
@@ -192,9 +162,6 @@ public final class FileReader implements Reader {
                        PageReference reference) throws IOException {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
     byte[] uncompressedBytes = inputStream.readAllBytes();
-    
-    // Verify KVLP checksum on uncompressed bytes
-    verifyKVLPChecksum(uncompressedBytes, reference, resourceConfiguration);
     
     final BytesIn<?> input = Bytes.wrapForRead(uncompressedBytes);
     final var deserializedPage = pagePersiter.deserializePage(resourceConfiguration, input, serializationType);

@@ -400,9 +400,6 @@ public enum PageKind {
         sink.writeByte((byte) 0); // No columnar data
       }
 
-      // Use XXH3 for fast page checksums (KVLP pages hash uncompressed bytes)
-      keyValueLeafPage.setHashCode(PageHasher.compute(sink.bytesForRead().toByteArray()));
-
       final BytesIn<?> uncompressedBytes = sink.bytesForRead();
       final byte[] uncompressedArray = uncompressedBytes.toByteArray();
 
