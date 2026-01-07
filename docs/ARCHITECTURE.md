@@ -150,12 +150,12 @@ return $node
 
 ```xquery
 (: Navigate to a specific node in a 100GB resource - 
-   loads only the path, not the whole tree :)
+   loads only the pages along the path, not the whole tree :)
 let $doc := jn:doc('huge', 'dataset')
 return $doc.customers[10000].orders[500].items[3].price
 ```
 
-This query touches ~5 nodes, not 100GB.
+This query touches ~5 nodes across a few pages (each page holds up to 1024 nodes), not 100GB. Note: the page-level granularity means neighboring nodes are loaded together—a potential future optimization would be "mini-pages" (as proposed by Viktor Leis et al.) for finer-grained caching.
 
 ---
 
