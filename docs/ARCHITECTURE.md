@@ -24,7 +24,7 @@
 
 **The core insight**: What if your database never forgot anything, and you could query any point in its history as fast as querying the present—without the storage exploding?
 
-SirixDB is a **temporal document store** that makes version control a first-class citizen of the storage engine itself. Every commit creates an immutable snapshot. Every revision is queryable. And unlike naive approaches that either copy everything (git-style) or maintain expensive logs (event sourcing), SirixDB achieves this through **structural sharing** and a novel **sliding snapshot** versioning algorithm.
+SirixDB is a **temporal node store** that makes version control a first-class citizen of the storage engine itself. Every commit creates an immutable snapshot. Every revision is queryable. And unlike naive approaches that either copy everything (git-style) or maintain expensive logs (event sourcing), SirixDB achieves this through **structural sharing** and a novel **sliding snapshot** versioning algorithm.
 
 ### What Makes This Hard
 
