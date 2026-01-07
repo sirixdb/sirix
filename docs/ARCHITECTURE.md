@@ -28,7 +28,7 @@ SirixDB is a **temporal document store** that makes version control a first-clas
 
 ### What Makes This Hard
 
-Traditional approaches to temporal databases face an impossible trilemma:
+Traditional approaches to temporal databases must choose between conflicting goals:
 
 ```
                     ┌─────────────────────┐
@@ -36,7 +36,7 @@ Traditional approaches to temporal databases face an impossible trilemma:
                     │   (single lookup)   │
                     └──────────┬──────────┘
                                │
-              Pick two:        │
+            Trade-offs:        │
                                │
     ┌──────────────────────────┼──────────────────────────┐
     │                          │                          │
