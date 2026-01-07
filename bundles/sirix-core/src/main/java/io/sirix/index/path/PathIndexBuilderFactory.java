@@ -73,6 +73,6 @@ public final class PathIndexBuilderFactory {
     
     // Fall back to resource configuration
     final var resourceConfig = pageTrx.getResourceSession().getResourceConfig();
-    return resourceConfig.indexBackendType == IndexBackendType.HOT_TRIE;
+    return resourceConfig.indexBackendType == IndexBackendType.HOT;
   }
 }

@@ -2153,7 +2153,7 @@ ResourceConfiguration.newBuilder("myresource")
     .hashKind(HashType.ROLLING)
     .useTextCompression(true)
     .buildPathSummary(true)
-    .indexBackendType(IndexBackendType.HOT_TRIE)
+    .indexBackendType(IndexBackendType.HOT)
     .build();
 ```
 
@@ -2164,7 +2164,7 @@ ResourceConfiguration.newBuilder("myresource")
 | `versioningApproach` | FULL, INCREMENTAL, DIFFERENTIAL, SLIDING_SNAPSHOT | SLIDING_SNAPSHOT | Page versioning strategy |
 | `revisionsToRestore` | 1-N | 8 | Window size for versioning |
 | `hashKind` | NONE, ROLLING, POSTORDER | ROLLING | Hash computation method |
-| `indexBackendType` | RB_TREE, HOT_TRIE | RB_TREE | Secondary index implementation |
+| `indexBackendType` | RB_TREE, HOT | RB_TREE | Secondary index implementation |
 | `buildPathSummary` | true/false | true | Enable path summary |
 
 ---

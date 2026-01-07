@@ -69,6 +69,6 @@ public enum IndexBackendType {
    *   <li>General purpose workloads (default)</li>
    * </ul>
    */
-  HOT_TRIE
+  HOT
 }
 

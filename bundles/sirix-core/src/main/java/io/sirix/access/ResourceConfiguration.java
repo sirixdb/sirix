@@ -805,9 +805,9 @@ public final class ResourceConfiguration {
 
     /**
      * Backend type for secondary indexes (PATH, CAS, NAME).
-     * Defaults to HOT_TRIE for best performance.
+     * Defaults to HOT for best performance.
      */
-    private IndexBackendType indexBackendType = IndexBackendType.HOT_TRIE;
+    private IndexBackendType indexBackendType = IndexBackendType.HOT;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -1040,7 +1040,7 @@ public final class ResourceConfiguration {
      * <p>This controls which data structure is used for storing index data:
      * <ul>
      *   <li>{@link IndexBackendType#RBTREE} - Red-Black Tree (default, stable)</li>
-     *   <li>{@link IndexBackendType#HOT_TRIE} - Height-Optimized Trie (high performance)</li>
+     *   <li>{@link IndexBackendType#HOT} - Height-Optimized Trie (high performance)</li>
      * </ul>
      *
      * @param indexBackendType the index backend type to use
@@ -1058,7 +1058,7 @@ public final class ResourceConfiguration {
      * explicitly overriding a previous setting.</p>
      * 
      * <p>This is a convenience method equivalent to calling
-     * {@code indexBackendType(IndexBackendType.HOT_TRIE)}.</p>
+     * {@code indexBackendType(IndexBackendType.HOT)}.</p>
      * 
      * <p>HOT indexes provide better performance for large datasets due to
      * improved cache utilization and reduced memory accesses.</p>
@@ -1066,7 +1066,7 @@ public final class ResourceConfiguration {
      * @return reference to the builder object
      */
     public Builder useHOTIndexes() {
-      this.indexBackendType = IndexBackendType.HOT_TRIE;
+      this.indexBackendType = IndexBackendType.HOT;
       return this;
     }
 

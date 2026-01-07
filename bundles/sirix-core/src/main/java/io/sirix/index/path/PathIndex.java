@@ -52,7 +52,7 @@ public interface PathIndex<B, L extends ChangeListener> {
     
     // Fall back to resource configuration
     final var resourceConfig = pageRtx.getResourceSession().getResourceConfig();
-    return resourceConfig.indexBackendType == IndexBackendType.HOT_TRIE;
+    return resourceConfig.indexBackendType == IndexBackendType.HOT;
   }
   
   /**

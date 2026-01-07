@@ -75,7 +75,7 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     
     // Fall back to resource configuration
     final var resourceConfig = pageRtx.getResourceSession().getResourceConfig();
-    return resourceConfig.indexBackendType == IndexBackendType.HOT_TRIE;
+    return resourceConfig.indexBackendType == IndexBackendType.HOT;
   }
   
   /**
