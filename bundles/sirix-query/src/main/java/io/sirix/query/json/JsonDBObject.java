@@ -288,6 +288,16 @@ public final class JsonDBObject extends AbstractItem
   private JsonNodeTrx getReadWriteTrx() {
     final JsonResourceSession resourceManager = rtx.getResourceSession();
     final var trx = resourceManager.getNodeTrx().orElseGet(resourceManager::beginNodeTrx);
+    
+    // If the read transaction is from an older revision than the write transaction,
+    // revert the write transaction to match the source revision.
+    // This enables editing historical versions and creating new branches.
+    final int sourceRevision = rtx.getRevisionNumber();
+    final int mostRecentRevision = resourceManager.getMostRecentRevisionNumber();
+    if (sourceRevision < mostRecentRevision) {
+      trx.revertTo(sourceRevision);
+    }
+    
     trx.moveTo(nodeKey);
     return trx;
   }
