@@ -69,7 +69,18 @@ public final class MMFileReader extends AbstractReader {
   private final Arena arena;
 
   /**
-   * Constructor.
+   * Arena generation for reference counting. Used when managed by MMStorage.
+   */
+  private final MMStorage.@Nullable ArenaGeneration generation;
+
+  /**
+   * Reference to the storage for releasing the generation. Used when managed by MMStorage.
+   */
+  @Nullable
+  private final MMStorage storage;
+
+  /**
+   * Constructor for standalone reader with its own arena.
    *
    * @param dataFileSegment     memory-mapped segment for the data file
    * @param revisionFileSegment memory-mapped segment for the revisions file
@@ -82,11 +93,32 @@ public final class MMFileReader extends AbstractReader {
   public MMFileReader(final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment,
       final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersister,
       final Cache<Integer, RevisionFileData> cache, @Nullable final Arena arena) {
+    this(dataFileSegment, revisionFileSegment, byteHandler, type, pagePersister, cache, null, null);
+  }
+
+  /**
+   * Constructor for reader managed by MMStorage with reference counting.
+   *
+   * @param dataFileSegment     memory-mapped segment for the data file
+   * @param revisionFileSegment memory-mapped segment for the revisions file
+   * @param byteHandler         {@link ByteHandler} instance
+   * @param type                serialization type
+   * @param pagePersister       page persister
+   * @param cache               revision file data cache
+   * @param generation          arena generation for reference counting
+   * @param storage             storage for releasing the generation
+   */
+  public MMFileReader(final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment,
+      final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersister,
+      final Cache<Integer, RevisionFileData> cache, final MMStorage.@Nullable ArenaGeneration generation,
+      @Nullable final MMStorage storage) {
     super(byteHandler, pagePersister, type);
     this.dataFileSegment = requireNonNull(dataFileSegment);
     this.revisionsOffsetFileSegment = requireNonNull(revisionFileSegment);
     this.cache = requireNonNull(cache);
-    this.arena = arena;  // May be null if managed externally (by MMStorage)
+    this.arena = null;  // Not used when managed by MMStorage
+    this.generation = generation;
+    this.storage = storage;
   }
 
   @Override
@@ -161,9 +193,13 @@ public final class MMFileReader extends AbstractReader {
 
   @Override
   public void close() {
+    // If managed by MMStorage with reference counting, release the generation
+    if (generation != null && storage != null) {
+      storage.releaseGeneration(generation);
+    }
     // Only close the arena if we own it (not null).
     // When arena is null, the storage (MMStorage) owns and manages the shared arena.
-    if (arena != null) {
+    else if (arena != null) {
       arena.close();
     }
   }

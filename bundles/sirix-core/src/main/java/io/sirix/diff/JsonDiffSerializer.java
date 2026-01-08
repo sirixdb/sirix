@@ -242,7 +242,7 @@ public final class JsonDiffSerializer {
 
   /**
    * Get the path for a node using PathSummary.
-   * Returns null if PathSummary is not enabled.
+   * Returns null if PathSummary is not enabled or if the path cannot be retrieved.
    *
    * @param rtx the read-only transaction positioned at the node
    * @param revisionNumber the revision number
@@ -270,6 +270,10 @@ public final class JsonDiffSerializer {
 
       // Resolve array positions like sdb:path() does
       return resolveArrayPositions(rtx, path);
+    } catch (final IllegalStateException e) {
+      // Resource may have been closed (e.g., memory-mapped file reader)
+      // This can happen during concurrent operations or cleanup
+      return null;
     }
   }
 
