@@ -21,14 +21,21 @@ public interface JsonDBItem extends UpdatableJsonItem {
    */
   @Override
   default void replaceValue(Sequence newValue) {
-    final JsonNodeReadOnlyTrx rtx = getTrx();
-    rtx.moveTo(getNodeKey());
-    
     final JsonResourceSession resourceSession = getResourceSession();
     final JsonNodeTrx wtx = resourceSession.getNodeTrx().orElseGet(resourceSession::beginNodeTrx);
     wtx.moveTo(getNodeKey());
-    
-    // Use the JsonItemSequence utility to perform the replacement
     JsonItemSequence.replaceValue(wtx, newValue, getCollection());
+  }
+
+  /**
+   * Default implementation of delete that removes this item from its parent.
+   * This enables the use of sdb:select-item with delete expressions.
+   */
+  @Override
+  default void delete() {
+    final JsonResourceSession resourceSession = getResourceSession();
+    final JsonNodeTrx wtx = resourceSession.getNodeTrx().orElseGet(resourceSession::beginNodeTrx);
+    wtx.moveTo(getNodeKey());
+    wtx.remove();
   }
 }
