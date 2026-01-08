@@ -389,6 +389,27 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void testMultipleNestedObjectReplaceOp() throws IOException {
+    // This test verifies that multiple nested object replacements in a single query work correctly.
+    // Previously, only the last replacement in a sequence would be applied.
+    final String storeQuery = """
+          jn:store('json-path1','mydoc.jn','[{"a": {"x": 1}, "b": {"y": 2}}]')
+        """;
+    final String query = """
+        let $rec := sdb:select-item(jn:doc('json-path1','mydoc.jn'), 2)
+        return (
+          replace json value of $rec.a with {"x": 10},
+          replace json value of $rec.b with {"y": 20}
+        )
+        """.stripIndent();
+    final String openQuery = "jn:doc('json-path1','mydoc.jn')";
+    final String assertion = """
+        [{"a":{"x":10},"b":{"y":20}}]
+        """.strip();
+    test(storeQuery, query, openQuery, assertion);
+  }
+
+  @Test
   public void testSimpleDerefWithVariable() throws IOException {
     final String storeQuery = """
           jn:store('json-path1','mydoc.jn','{"first": 1, "second": 2}')

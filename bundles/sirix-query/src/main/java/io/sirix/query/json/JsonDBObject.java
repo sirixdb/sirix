@@ -349,7 +349,11 @@ public final class JsonDBObject extends AbstractItem
 
   private void insertSubtree(Sequence value, JsonNodeTrx trx) {
     final Item item = ExprUtil.asItem(value);
-    trx.insertSubtreeAsLastChild(item);
+    // Use Commit.NO to prevent auto-commit after insertion.
+    // Auto-commit would cause subsequent getReadWriteTrx() calls to see
+    // sourceRevision < mostRecentRevision, triggering revertTo() which 
+    // undoes the modifications.
+    trx.insertSubtreeAsLastChild(item, JsonNodeTrx.Commit.NO);
   }
 
   private boolean findField(QNm field, JsonNodeTrx trx) {
