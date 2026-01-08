@@ -56,6 +56,9 @@ class DiffHandler(private val location: Path) {
 
                         val startNodeKey: String? = ctx.queryParam("startNodeKey").getOrNull(0)
                         val maxDepth: String? = ctx.queryParam("maxDepth").getOrNull(0)
+                        // include-data controls whether full subtree data is included for inserts
+                        // Default is false (compact mode) for scalability with large resources
+                        val includeData: Boolean = ctx.queryParam("include-data").getOrNull(0)?.toBoolean() ?: false
 
                         val startNodeKeyAsLong = startNodeKey?.let { startNodeKey.toLong() } ?: 0
                         val maxDepthAsLong = maxDepth?.let { maxDepth.toLong() } ?: Long.MAX_VALUE
@@ -89,7 +92,8 @@ class DiffHandler(private val location: Path) {
                                 firstRevision.toInt(),
                                 secondRevision.toInt(),
                                 startNodeKeyAsLong,
-                                maxDepthAsLong
+                                maxDepthAsLong,
+                                includeData
                             )
                         }
                     }

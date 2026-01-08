@@ -3,14 +3,18 @@ package io.sirix.diff;
 import com.google.api.client.util.Objects;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.util.path.Path;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
 import io.sirix.service.json.serialize.JsonSerializer;
 
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.UncheckedIOException;
+import java.util.ArrayDeque;
 import java.util.Collection;
 
 public final class JsonDiffSerializer {
@@ -78,6 +82,9 @@ public final class JsonDiffSerializer {
 
             insertBasedOnNewRtx(newRtx, jsonInsertDiff);
 
+            // Add path using PathSummary (always available by default)
+            addPathIfAvailable(jsonInsertDiff, newRtx, newRevisionNumber);
+
             if (resourceManager.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
               jsonInsertDiff.addProperty("deweyID", deweyId.toString());
@@ -92,21 +99,20 @@ public final class JsonDiffSerializer {
             break;
           case DELETED:
             final var deletedJson = new JsonObject();
+            final var jsonDeletedDiff = new JsonObject();
+
+            jsonDeletedDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
+
+            // Add path using PathSummary (always available by default)
+            addPathIfAvailable(jsonDeletedDiff, oldRtx, oldRevisionNumber);
 
             if (resourceManager.getResourceConfig().areDeweyIDsStored) {
-              final var jsonDeletedDiff = new JsonObject();
-
-              jsonDeletedDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
-
               final var deweyId = oldRtx.getDeweyID();
               jsonDeletedDiff.addProperty("deweyID", deweyId.toString());
               jsonDeletedDiff.addProperty("depth", deweyId.getLevel());
-
-              deletedJson.add("delete", jsonDeletedDiff);
-            } else {
-              deletedJson.addProperty("delete", diffTuple.getOldNodeKey());
             }
 
+            deletedJson.add("delete", jsonDeletedDiff);
             jsonDiffs.add(deletedJson);
             break;
           case REPLACEDNEW:
@@ -117,6 +123,9 @@ public final class JsonDiffSerializer {
 
             jsonReplaceDiff.addProperty("oldNodeKey", diffTuple.getOldNodeKey());
             jsonReplaceDiff.addProperty("newNodeKey", diffTuple.getNewNodeKey());
+
+            // Add path using PathSummary (always available by default)
+            addPathIfAvailable(jsonReplaceDiff, newRtx, newRevisionNumber);
 
             if (resourceManager.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
@@ -133,6 +142,9 @@ public final class JsonDiffSerializer {
             final var jsonUpdateDiff = new JsonObject();
 
             jsonUpdateDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
+
+            // Add path using PathSummary (always available by default)
+            addPathIfAvailable(jsonUpdateDiff, newRtx, newRevisionNumber);
 
             if (resourceManager.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
@@ -225,6 +237,125 @@ public final class JsonDiffSerializer {
       jsonObject.addProperty("data", writer.toString());
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
+    }
+  }
+
+  /**
+   * Get the path for a node using PathSummary.
+   * Returns null if PathSummary is not enabled.
+   *
+   * @param rtx the read-only transaction positioned at the node
+   * @param revisionNumber the revision number
+   * @return the path string, or null if unavailable
+   */
+  private String getNodePath(JsonNodeReadOnlyTrx rtx, int revisionNumber) {
+    if (!resourceManager.getResourceConfig().withPathSummary) {
+      return null;
+    }
+
+    try (final PathSummaryReader pathReader = resourceManager.openPathSummary(revisionNumber)) {
+      if (!pathReader.moveTo(rtx.getPathNodeKey())) {
+        return null;
+      }
+
+      final var pathNode = pathReader.getPathNode();
+      if (pathNode == null) {
+        return null;
+      }
+
+      final Path<QNm> path = pathReader.getPath();
+      if (path == null) {
+        return null;
+      }
+
+      // Resolve array positions like sdb:path() does
+      return resolveArrayPositions(rtx, path);
+    }
+  }
+
+  /**
+   * Resolve array indices in the path to concrete positions.
+   * Converts "/arr/[]" to "/arr/[3]" based on actual sibling position.
+   *
+   * @param rtx the transaction positioned at the node
+   * @param path the path with unresolved array indices
+   * @return the path with resolved array indices
+   */
+  private String resolveArrayPositions(JsonNodeReadOnlyTrx rtx, Path<QNm> path) {
+    final String pathString = path.toString();
+
+    if (!pathString.contains("[]")) {
+      return pathString;
+    }
+
+    // We need to walk up the tree to resolve array positions
+    final var steps = path.steps();
+    final var positions = new ArrayDeque<Integer>();
+
+    // Save current position
+    final long originalNodeKey = rtx.getNodeKey();
+
+    try {
+      for (int i = steps.size() - 1; i >= 0; i--) {
+        final var step = steps.get(i);
+
+        if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
+          positions.addFirst(getArrayPosition(rtx));
+          rtx.moveToParent();
+        } else {
+          rtx.moveToParent();
+        }
+      }
+
+      var result = pathString;
+      for (Integer pos : positions) {
+        if (pos == -1) {
+          // Keep as [] for arrays that are direct children of object keys
+          continue;
+        }
+        result = result.replaceFirst("/\\[]", "/[" + pos + "]");
+      }
+
+      // Replace remaining unresolved positions with []
+      result = result.replaceAll("/\\[-1]", "/[]");
+
+      return result;
+    } finally {
+      // Restore original position
+      rtx.moveTo(originalNodeKey);
+    }
+  }
+
+  /**
+   * Get the array position (index) of the current node among its siblings.
+   *
+   * @param rtx the transaction positioned at the node
+   * @return the 0-based index, or -1 if this is an array directly under an object key
+   */
+  private int getArrayPosition(JsonNodeReadOnlyTrx rtx) {
+    if (rtx.getParentKind() == NodeKind.OBJECT_KEY && rtx.isArray()) {
+      return -1;
+    }
+
+    int index = 0;
+    while (rtx.hasLeftSibling()) {
+      rtx.moveToLeftSibling();
+      index++;
+    }
+    return index;
+  }
+
+  /**
+   * Add path to a diff JSON object if PathSummary is available.
+   *
+   * @param json the JSON object to add the path to
+   * @param rtx the transaction positioned at the node
+   * @param revisionNumber the revision number
+   */
+  private void addPathIfAvailable(JsonObject json, JsonNodeReadOnlyTrx rtx, int revisionNumber) {
+    final String path = getNodePath(rtx, revisionNumber);
+    if (path != null) {
+      json.addProperty("path", path);
     }
   }
 }
