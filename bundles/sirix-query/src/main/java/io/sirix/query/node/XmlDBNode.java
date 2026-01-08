@@ -114,7 +114,12 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     moveRtx();
     if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
-      return node.getImmutableNode().getNodeKey() == this.getImmutableNode().getNodeKey();
+      // Compare node key, revision, and resource to ensure full identity
+      // Same node key in different revisions or resources are NOT the same node
+      return node.nodeKey == this.nodeKey
+          && node.rtx.getRevisionNumber() == this.rtx.getRevisionNumber()
+          && node.rtx.getResourceSession().getResourceConfig().getID()
+              == this.rtx.getResourceSession().getResourceConfig().getID();
     }
     return false;
   }
@@ -1613,8 +1618,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
 
   @Override
   public int hashCode() {
-    moveRtx();
-    return Objects.hash(rtx.getNodeKey(), rtx.getValue(), rtx.getName());
+    // Must be consistent with equals() which uses isSelfOf()
+    // comparing node key, revision, and resource ID
+    return Objects.hash(nodeKey, rtx.getRevisionNumber(),
+        rtx.getResourceSession().getResourceConfig().getID());
   }
 
   @Override
