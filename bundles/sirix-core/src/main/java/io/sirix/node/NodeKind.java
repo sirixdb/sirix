@@ -1644,7 +1644,8 @@ public enum NodeKind implements DeweyIdSerializer {
     public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       final boolean isCompressed = source.readBoolean();
-      final var length = source.readByte();
+      // Use int for length to support nodes with many revision references (> 255)
+      final var length = source.readInt();
       final var revisions = new int[length];
       for (int i = 0; i < length; i++) {
         revisions[i] = source.readInt();
@@ -1671,7 +1672,8 @@ public enum NodeKind implements DeweyIdSerializer {
         compressedRevisions = revisions;
         sink.writeBoolean(false);
       }
-      sink.writeByte((byte) compressedRevisions.length);
+      // Use int for length to support nodes with many revision references (> 255)
+      sink.writeInt(compressedRevisions.length);
       for (int compressedRevision : compressedRevisions) {
         sink.writeInt(compressedRevision);
       }
