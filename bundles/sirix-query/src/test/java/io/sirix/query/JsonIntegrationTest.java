@@ -727,6 +727,26 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void testUpdateThenDeleteSameNode() throws IOException {
+    // Per XQuery Update Facility 1.0 section 3.2.1:
+    // "If a node is marked for deletion, updates to its properties have no effect."
+    // Brackit should skip the update and only apply the delete.
+    // 
+    // In this test, we use sdb:select-item for both update and delete to target
+    // the exact same item (the "name" object record at nodeKey 2).
+    final String storeQuery = """
+          jn:store('json-path1','mydoc.jn','{"name": "original", "other": 123}')
+        """;
+    // Update and delete the same node (nodeKey 2 = "name" object record) - update should be skipped
+    final String updateQuery = """
+          let $item := sdb:select-item(jn:doc('json-path1','mydoc.jn'), 2)
+          return (replace json value of $item with "updated", delete json $item)
+        """;
+    final String openQuery = "jn:doc('json-path1','mydoc.jn')";
+    test(storeQuery, updateQuery, openQuery, "{\"other\":123}");
+  }
+
+  @Test
   public void testRenameFieldInObject() throws IOException {
     final String storeQuery = """
           jn:store('json-path1','mydoc.jn','{"foo": "bar", "baz": true}')
