@@ -714,6 +714,19 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   }
 
   @Test
+  public void testRemoveFromObjectViaSdbSelectItem() throws IOException {
+    final String storeQuery = """
+          jn:store('json-path1','mydoc.jn','{"foo": "bar", "baz": true}')
+        """;
+    // Use sdb:select-item to get the 'foo' object-record (nodeKey 2) and delete it directly
+    final String updateQuery = """
+          delete json sdb:select-item(jn:doc('json-path1','mydoc.jn'), 2)
+        """;
+    final String openQuery = "jn:doc('json-path1','mydoc.jn')";
+    test(storeQuery, updateQuery, openQuery, "{\"baz\":true}");
+  }
+
+  @Test
   public void testRenameFieldInObject() throws IOException {
     final String storeQuery = """
           jn:store('json-path1','mydoc.jn','{"foo": "bar", "baz": true}')
