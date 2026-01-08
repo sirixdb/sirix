@@ -223,7 +223,8 @@ public final class JsonResourceCopy implements Callable<Void> {
               final JsonObject updateObject = diffsObject.getAsJsonObject(UPDATE);
               executeUpdate(updateObject, rtxOnRevision);
             } else if (diffsObject.has(DELETE)) {
-              final long nodeKey = diffsObject.getAsJsonPrimitive(DELETE).getAsLong();
+              final JsonObject deleteObject = diffsObject.getAsJsonObject(DELETE);
+              final long nodeKey = deleteObject.get("nodeKey").getAsLong();
               executeDelete(nodeKey);
             }
           }

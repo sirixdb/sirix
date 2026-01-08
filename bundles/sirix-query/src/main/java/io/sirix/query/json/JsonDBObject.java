@@ -288,6 +288,16 @@ public final class JsonDBObject extends AbstractItem
   private JsonNodeTrx getReadWriteTrx() {
     final JsonResourceSession resourceManager = rtx.getResourceSession();
     final var trx = resourceManager.getNodeTrx().orElseGet(resourceManager::beginNodeTrx);
+    
+    // If the read transaction is from an older revision than the write transaction,
+    // revert the write transaction to match the source revision.
+    // This enables editing historical versions and creating new branches.
+    final int sourceRevision = rtx.getRevisionNumber();
+    final int mostRecentRevision = resourceManager.getMostRecentRevisionNumber();
+    if (sourceRevision < mostRecentRevision) {
+      trx.revertTo(sourceRevision);
+    }
+    
     trx.moveTo(nodeKey);
     return trx;
   }
@@ -339,7 +349,11 @@ public final class JsonDBObject extends AbstractItem
 
   private void insertSubtree(Sequence value, JsonNodeTrx trx) {
     final Item item = ExprUtil.asItem(value);
-    trx.insertSubtreeAsLastChild(item);
+    // Use Commit.NO to prevent auto-commit after insertion.
+    // Auto-commit would cause subsequent getReadWriteTrx() calls to see
+    // sourceRevision < mostRecentRevision, triggering revertTo() which 
+    // undoes the modifications.
+    trx.insertSubtreeAsLastChild(item, JsonNodeTrx.Commit.NO);
   }
 
   private boolean findField(QNm field, JsonNodeTrx trx) {

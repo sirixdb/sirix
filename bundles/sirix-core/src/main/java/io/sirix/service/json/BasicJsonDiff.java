@@ -56,6 +56,22 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   @Override
   public String generateDiff(JsonResourceSession session, int oldRevisionNumber, int newRevisionNumber,
       long startNodeKey, long maxDepth) {
+    return generateDiff(session, oldRevisionNumber, newRevisionNumber, startNodeKey, maxDepth, true);
+  }
+
+  /**
+   * Diff two revisions with control over data inclusion.
+   *
+   * @param session           the resource manager to use
+   * @param oldRevisionNumber the revision number of the older revision
+   * @param newRevisionNumber the revision number of the newer revision
+   * @param startNodeKey      the start node key
+   * @param maxDepth          the maximum depth
+   * @param includeData       whether to include full subtree data for inserts (false for compact mode)
+   * @return a JSON-String describing the differences encountered between the two revisions
+   */
+  public String generateDiff(JsonResourceSession session, int oldRevisionNumber, int newRevisionNumber,
+      long startNodeKey, long maxDepth, boolean includeData) {
     diffs.clear();
 
     DiffFactory.invokeJsonDiff(new DiffFactory.Builder<>(session,
@@ -70,7 +86,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
                                                                                .oldMaxDepth(maxDepth));
 
     return new JsonDiffSerializer(this.databaseName, session, oldRevisionNumber, newRevisionNumber, diffs).serialize(
-        true);
+        includeData);
   }
 
   @Override
