@@ -431,34 +431,16 @@ class KotlinJsonStreamingShredder(
     }
 
     private fun getObjectRecordValue(objVal: Any?): ObjectRecordValue<*> {
-        val value: ObjectRecordValue<*>
-
-        when (objVal) {
-            is JsonObject -> {
-                level++
-                value = ObjectValue()
-            }
-            is JsonArray -> {
-                level++
-                value = ArrayValue()
-            }
-            is Boolean -> {
-                value = BooleanValue(objVal)
-            }
-            is String -> {
-                value = StringValue(objVal)
-            }
-            is NullValue -> {
-                value = NullValue()
-            }
-            is Number -> {
-                value = NumberValue(objVal)
-            }
-            else -> {
-                throw AssertionError()
-            }
+        // Note: Do NOT increment level here - it's already tracked by START_ARRAY/START_OBJECT events
+        return when (objVal) {
+            is JsonObject -> ObjectValue()
+            is JsonArray -> ArrayValue()
+            is Boolean -> BooleanValue(objVal)
+            is String -> StringValue(objVal)
+            is NullValue -> NullValue()
+            is Number -> NumberValue(objVal)
+            else -> throw AssertionError("Unknown object value type: ${objVal?.javaClass}")
         }
-        return value
     }
 
     data class KeyValue(val field: String, val value: Any)

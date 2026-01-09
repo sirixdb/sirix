@@ -312,6 +312,78 @@ class JsonStreamingShredderTest {
         fun testSingleNull() {
             testString("null")
         }
+
+        @Test
+        @DisplayName("Empty array")
+        fun testEmptyArray() {
+            testString("[]")
+        }
+
+        @Test
+        @DisplayName("Empty object")
+        fun testEmptyObject() {
+            testString("{}")
+        }
+
+        @Test
+        @DisplayName("Object with empty array field")
+        fun testObjectWithEmptyArray() {
+            testString("""{"a": []}""")
+        }
+
+        @Test
+        @DisplayName("Object with multiple empty array fields")
+        fun testObjectWithMultipleEmptyArrays() {
+            testString("""{"a": [], "b": []}""")
+        }
+
+        @Test
+        @DisplayName("Object with empty object field")
+        fun testObjectWithEmptyObject() {
+            testString("""{"a": {}}""")
+        }
+
+        @Test
+        @DisplayName("Array with empty array")
+        fun testArrayWithEmptyArray() {
+            testString("[[]]")
+        }
+
+        @Test
+        @DisplayName("Array with empty object")
+        fun testArrayWithEmptyObject() {
+            testString("[{}]")
+        }
+
+        @Test
+        @DisplayName("Empty array followed by value")
+        fun testEmptyArrayFollowedByValue() {
+            testString("""[[], "hello"]""")
+        }
+
+        @Test
+        @DisplayName("Empty object followed by value")
+        fun testEmptyObjectFollowedByValue() {
+            testString("""[{}, "hello"]""")
+        }
+
+        @Test
+        @DisplayName("Mixed empty containers and values")
+        fun testMixedEmptyContainersAndValues() {
+            testString("""{"a": [], "b": "hello", "c": {}, "d": 42}""")
+        }
+
+        @Test
+        @DisplayName("Deeply nested empty arrays")
+        fun testDeeplyNestedEmptyArrays() {
+            testString("[[[[]]]]")
+        }
+
+        @Test
+        @DisplayName("Deeply nested empty objects")
+        fun testDeeplyNestedEmptyObjects() {
+            testString("""{"a": {"b": {"c": {}}}}""")
+        }
     }
 
     private fun testString(json: String) {

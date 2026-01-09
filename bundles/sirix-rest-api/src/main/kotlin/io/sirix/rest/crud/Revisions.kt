@@ -80,7 +80,7 @@ class Revisions {
             } catch (_: DateTimeParseException) {
                 // Try with space separator instead of T: 2024-01-09 15:30:00.SSS
                 try {
-                    LocalDateTime.parse(revision, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))
+                LocalDateTime.parse(revision, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))
                 } catch (_: DateTimeParseException) {
                     // Try without milliseconds: 2024-01-09 15:30:00
                     try {
