@@ -5,6 +5,7 @@ import io.sirix.api.NodeReadOnlyTrx
 import io.sirix.api.NodeTrx
 import io.sirix.api.ResourceSession
 import java.time.LocalDateTime
+import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -59,9 +60,16 @@ class Revisions {
         }
 
         fun parseRevisionTimestamp(revision: String): ZonedDateTime {
-            // Try parsing as ZonedDateTime first (handles timestamps with timezone like 2024-01-09T15:30:00Z)
+            // Try parsing as ZonedDateTime first (handles timestamps with full timezone like 2024-01-09T15:30:00Z[UTC])
             try {
                 return ZonedDateTime.parse(revision)
+            } catch (_: DateTimeParseException) {
+                // Continue to try other formats
+            }
+            
+            // Try parsing as OffsetDateTime (handles timestamps with timezone offset like 2024-01-09T15:30:00+01:00)
+            try {
+                return OffsetDateTime.parse(revision).toZonedDateTime()
             } catch (_: DateTimeParseException) {
                 // Continue to try other formats
             }
