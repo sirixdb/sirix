@@ -4,3 +4,9 @@
  Container sirix-test-keycloak-1 Created 
  Container sirix-test-keycloak-1 Starting 
  Container sirix-test-keycloak-1 Started 
+ Container sirix-test-keycloak-1 Stopping 
+ Container sirix-test-keycloak-1 Stopped 
+ Container sirix-test-keycloak-1 Removing 
+ Container sirix-test-keycloak-1 Removed 
+ Network sirix-test_auth-network Removing 
+ Network sirix-test_auth-network Removed 
