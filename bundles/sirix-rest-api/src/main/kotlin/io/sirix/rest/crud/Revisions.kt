@@ -59,10 +59,29 @@ class Revisions {
         }
 
         fun parseRevisionTimestamp(revision: String): ZonedDateTime {
+            // Try parsing as ZonedDateTime first (handles timestamps with timezone like 2024-01-09T15:30:00Z)
+            try {
+                return ZonedDateTime.parse(revision)
+            } catch (_: DateTimeParseException) {
+                // Continue to try other formats
+            }
+            
+            // Try parsing as LocalDateTime (ISO 8601 without timezone: 2024-01-09T15:30:00 or 2024-01-09T15:30)
             val revisionDateTime = try {
                 LocalDateTime.parse(revision)
-            } catch (e: DateTimeParseException) {
-                LocalDateTime.parse(revision, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))
+            } catch (_: DateTimeParseException) {
+                // Try with space separator instead of T: 2024-01-09 15:30:00.SSS
+                try {
+                    LocalDateTime.parse(revision, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"))
+                } catch (_: DateTimeParseException) {
+                    // Try without milliseconds: 2024-01-09 15:30:00
+                    try {
+                        LocalDateTime.parse(revision, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                    } catch (_: DateTimeParseException) {
+                        // Try without seconds: 2024-01-09 15:30
+                        LocalDateTime.parse(revision, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                    }
+                }
             }
             return revisionDateTime.atZone(ZoneOffset.UTC)
         }
