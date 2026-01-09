@@ -828,7 +828,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     // Add to cache
-    resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, loadedPage);
+    if (trxIntentLog == null) {
+      resourceBufferManager.getRecordPageCache().put(pageReferenceToRecordPage, loadedPage);
+    }
 
     closeCurrentPageGuard();
     currentPageGuard = new PageGuard(loadedPage);
@@ -1057,7 +1059,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           // But if bypass is disabled for testing, they might be cached
           // Remove from cache before closing to prevent "closed page in cache" errors
           pathSummaryRecordPage.pageReference.setPage(null);
-          resourceBufferManager.getRecordPageCache().remove(pathSummaryRecordPage.pageReference);
+          //resourceBufferManager.getRecordPageCache().remove(pathSummaryRecordPage.pageReference);
 
           if (!pathSummaryRecordPage.page.isClosed()) {
             if (DEBUG_PATH_SUMMARY) {

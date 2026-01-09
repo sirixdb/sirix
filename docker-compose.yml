@@ -32,13 +32,13 @@ services:
     ports:
       - "9443:9443"
     restart: always
-    # Memory settings to match sirix-core tests (16GB heap + 4GB direct memory)
+    # Memory settings for laptop (4GB heap + 1GB direct memory)
     deploy:
       resources:
         limits:
-          memory: 24g
+          memory: 6g
         reservations:
-          memory: 8g
+          memory: 2g
     volumes:
       - /opt/sirix/sirix-data:/opt/sirix/sirix-data
       - ./bundles/sirix-rest-api/src/main/resources/cert.pem:/opt/sirix/sirix-data/cert.pem
