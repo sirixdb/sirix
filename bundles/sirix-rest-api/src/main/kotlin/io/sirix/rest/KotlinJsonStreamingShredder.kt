@@ -190,10 +190,14 @@ class KotlinJsonStreamingShredder(
     }
 
     private fun processEndArrayOrEndObject(isNextTokenParentToken: Boolean) {
+        if (parents.isEmpty) return
         parents.popLong()
+        if (parents.isEmpty) return
         wtx.moveTo(parents.peekLong(0))
         if (isNextTokenParentToken) {
+            if (parents.isEmpty) return
             parents.popLong()
+            if (parents.isEmpty) return
             wtx.moveTo(parents.peekLong(0))
         }
     }
