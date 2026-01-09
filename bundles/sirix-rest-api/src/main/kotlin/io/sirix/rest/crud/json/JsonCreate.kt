@@ -42,8 +42,9 @@ class JsonCreate(
             database.use {
                 val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
                 val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
+                val useDeweyIDs = ctx.queryParam("useDeweyIDs").getOrNull(0)?.toBoolean() ?: false
                 val resConfig =
-                    ResourceConfiguration.Builder(resPathName).useDeweyIDs(true)
+                    ResourceConfiguration.Builder(resPathName).useDeweyIDs(useDeweyIDs)
                         .hashKind(HashType.valueOf(hashType.uppercase()))
                         .customCommitTimestamps(commitTimestampAsString != null)
                         .build()
