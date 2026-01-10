@@ -121,12 +121,8 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
     
     @Override
     public BytesOut<MemorySegment> writeStopBit(long value) {
-        // Simple stop-bit encoding implementation
-        while ((value & ~0x7FL) != 0) {
-            writeByte((byte) ((value & 0x7F) | 0x80));
-            value >>>= 7;
-        }
-        writeByte((byte) (value & 0x7F));
+        // OPTIMIZED: Delegate to PooledGrowingSegment.writeVarLong which does single capacity check
+        segment.writeVarLong(value);
         return this;
     }
     

@@ -121,12 +121,33 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
 
     @Override
     public BytesOut<MemorySegment> writeStopBit(long value) {
-        // Simple stop-bit encoding implementation
-        while ((value & ~0x7FL) != 0) {
-            writeByte((byte) ((value & 0x7F) | 0x80));
-            value >>>= 7;
-        }
-        writeByte((byte) (value & 0x7F));
+        // OPTIMIZED: Delegate to GrowingMemorySegment.writeVarLong which does single capacity check
+        growingSegment.writeVarLong(value);
+        return this;
+    }
+    
+    /**
+     * Get the underlying GrowingMemorySegment for direct access.
+     * This allows bypassing interface dispatch in hot paths.
+     * 
+     * @return the underlying GrowingMemorySegment
+     */
+    public GrowingMemorySegment getGrowingSegment() {
+        return growingSegment;
+    }
+    
+    // ==================== BATCH WRITE METHODS ====================
+    // Delegate to GrowingMemorySegment's optimized batch methods
+    
+    @Override
+    public BytesOut<MemorySegment> writeBytes2(byte b0, byte b1) {
+        growingSegment.writeBytes2(b0, b1);
+        return this;
+    }
+    
+    @Override
+    public BytesOut<MemorySegment> writeBytes3(byte b0, byte b1, byte b2) {
+        growingSegment.writeBytes3(b0, b1, b2);
         return this;
     }
 
