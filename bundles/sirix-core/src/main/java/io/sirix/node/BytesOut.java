@@ -90,40 +90,6 @@ public interface BytesOut<T> extends AutoCloseable {
      */
     BytesOut<T> writeStopBit(long value);
     
-    // ==================== BATCH WRITE METHODS ====================
-    // These methods perform a single capacity check for multiple bytes,
-    // eliminating per-byte overhead in hot paths like varint encoding.
-    
-    /**
-     * Write two bytes with a single capacity check.
-     * Useful for 2-byte VarInt values (128-16383 range).
-     * 
-     * @param b0 first byte
-     * @param b1 second byte
-     * @return this BytesOut for method chaining
-     */
-    default BytesOut<T> writeBytes2(byte b0, byte b1) {
-        writeByte(b0);
-        writeByte(b1);
-        return this;
-    }
-    
-    /**
-     * Write three bytes with a single capacity check.
-     * Useful for 3-byte VarInt values (16384-2097151 range).
-     * 
-     * @param b0 first byte
-     * @param b1 second byte
-     * @param b2 third byte
-     * @return this BytesOut for method chaining
-     */
-    default BytesOut<T> writeBytes3(byte b0, byte b1, byte b2) {
-        writeByte(b0);
-        writeByte(b1);
-        writeByte(b2);
-        return this;
-    }
-    
     /**
      * Write a byte array.
      * @param bytes the byte array to write
