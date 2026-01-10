@@ -6,6 +6,7 @@ import io.sirix.node.NodeKind
 import io.sirix.service.InsertPosition
 import io.sirix.settings.Fixed
 import io.vertx.core.Future
+import io.vertx.core.Vertx
 import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.core.parsetools.JsonEventType
@@ -18,33 +19,48 @@ import kotlin.collections.ArrayDeque
 class KotlinJsonStreamingShredder(
     private val wtx: JsonNodeTrx,
     private val parser: JsonParser,
-    private var insert: InsertPosition = InsertPosition.AS_FIRST_CHILD
+    private val vertx: Vertx? = null,  // Optional - only needed for yielding control in REST API context
+    private var insert: InsertPosition = InsertPosition.AS_FIRST_CHILD,
+    private val yieldEveryNEvents: Int = 10000  // Yield control to event loop every N events
 ) {
     private val parents = LongArrayList()
 
     private var level = 0
+    private var eventCount = 0
 
     fun call(): Future<Int> {
         return Future.future { promise ->
             try {
                 parents.push(Fixed.NULL_NODE_KEY.standardProperty)
                 val revision = wtx.revisionNumber
-                val future = insertNewContent()
-                future.onFailure(Throwable::printStackTrace)
-                    .onSuccess { nodeKey ->
-                        parser.endHandler {
+                
+                // Set up exception handler on parser to catch parsing errors
+                parser.exceptionHandler { t ->
+                    promise.tryFail(t)
+                }
+                
+                val future = insertNewContent(promise)
+                future.onFailure { t ->
+                    // Propagate failure to the outer promise
+                    promise.tryFail(t)
+                }.onSuccess { nodeKey ->
+                    parser.endHandler {
+                        try {
                             processEndArrayOrEndObject(false)
                             wtx.moveTo(nodeKey)
                             promise.tryComplete(revision)
+                        } catch (t: Throwable) {
+                            promise.tryFail(t)
                         }
                     }
+                }
             } catch (t: Throwable) {
                 promise.tryFail(t)
             }
         }
     }
 
-    private fun insertNewContent(): Future<Long> {
+    private fun insertNewContent(outerPromise: io.vertx.core.Promise<Int>): Future<Long> {
         return Future.future { promise ->
             try {
                 level = 0
@@ -58,6 +74,7 @@ class KotlinJsonStreamingShredder(
                 
                 // Iterate over all nodes.
                 parser.handler { event ->
+                    try {
                     @Suppress("WHEN_ENUM_CAN_BE_NULL_IN_JAVA")
                     when (event.type()) {
                         JsonEventType.START_OBJECT -> {
@@ -186,6 +203,21 @@ class KotlinJsonStreamingShredder(
                             }
                             parentKind.addFirst(event.type())
                         }
+                    }
+                    
+                    // Yield control to event loop periodically to allow other requests to be processed
+                    eventCount++
+                    if (vertx != null && yieldEveryNEvents > 0 && eventCount >= yieldEveryNEvents) {
+                        eventCount = 0
+                        parser.pause()
+                        vertx.setTimer(1) {
+                            parser.resume()
+                        }
+                    }
+                    } catch (t: Throwable) {
+                        // Propagate handler exceptions to the outer promise
+                        outerPromise.tryFail(t)
+                        promise.tryFail(t)
                     }
                 }
             } catch (t: Throwable) {
