@@ -56,11 +56,13 @@ class XmlCreate(
 
             database.use {
                 val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
+                val useDeweyIDs = ctx.queryParam("useDeweyIDs").getOrNull(0)?.toBoolean() ?: false
                 val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
                 val resConfig =
                     ResourceConfiguration.Builder(resPathName).hashKind(
                         HashType.valueOf(hashType.uppercase())
                     )
+                        .useDeweyIDs(useDeweyIDs)
                         .customCommitTimestamps(commitTimestampAsString != null).build()
                 createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
                 val manager = database.beginResourceSession(resPathName)

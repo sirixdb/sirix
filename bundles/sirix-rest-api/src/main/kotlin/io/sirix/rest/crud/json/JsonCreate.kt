@@ -106,7 +106,7 @@ class JsonCreate(
         val wtx = manager.beginNodeTrx()
         return wtx.use {
             val jsonParser = JsonParser.newParser(ctx.request())
-            val future = KotlinJsonStreamingShredder(wtx, jsonParser).call()
+            val future = KotlinJsonStreamingShredder(wtx, jsonParser, ctx.vertx()).call()
             ctx.request().resume()
             future.await()
             wtx.commit(commitMessage, commitTimestamp)

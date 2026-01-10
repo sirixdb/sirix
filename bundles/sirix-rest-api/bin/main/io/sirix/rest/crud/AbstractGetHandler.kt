@@ -124,12 +124,12 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
             // Initialize queryResource context and store.
             val jsonDBStore = JsonSessionDBStore(
                 routingContext,
-                BasicJsonDBStore.newBuilder().storeDeweyIds(true).build(),
+                BasicJsonDBStore.newBuilder().location(location).storeDeweyIds(true).build(),
                 user,
                 authz
             )
             val xmlDBStore =
-                XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().storeDeweyIds(true).build(), user, authz)
+                XmlSessionDBStore(routingContext, BasicXmlDBStore.newBuilder().location(location).storeDeweyIds(true).build(), user, authz)
 
             val commitMessage = routingContext.queryParam("commitMessage").getOrElse(0) {
                 jsonBody?.getString("commitMessage")
