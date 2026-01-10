@@ -369,7 +369,8 @@ class SirixVerticleJsonTest {
                 val user = response.bodyAsJsonObject()
                 accessToken = user.getString("access_token")
 
-                var httpResponse = client.putAbs("$server$serverPath").putHeader(
+                // Enable DeweyIDs for this test since the diff functionality with update operations requires them
+                var httpResponse = client.putAbs("$server$serverPath?useDeweyIDs=true").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
