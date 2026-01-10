@@ -17,6 +17,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
+import org.junit.jupiter.api.Assertions.assertEquals
 
 private val databaseDirectory: Path = Paths.get(System.getProperty("java.io.tmpdir"), "sirix", "json-path1")
 
@@ -347,7 +348,14 @@ class JsonStreamingShredderTest {
                     serializer.call()
                 }
                 val actual = writer.toString()
-                JSONAssert.assertEquals(json, actual, true)
+                
+                // JSONAssert doesn't support standalone primitives (true, false, null, numbers, strings)
+                // For these cases, do a simple string comparison
+                if (json.trim().let { it.startsWith("{") || it.startsWith("[") }) {
+                    JSONAssert.assertEquals(json, actual, true)
+                } else {
+                    assertEquals(json.trim(), actual.trim(), "Primitive JSON value mismatch")
+                }
             }
         }
     }
