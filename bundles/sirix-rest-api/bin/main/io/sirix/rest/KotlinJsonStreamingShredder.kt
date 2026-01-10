@@ -53,6 +53,9 @@ class KotlinJsonStreamingShredder(
                 var lastEndObjectOrEndArrayEventType: JsonEventType? = null
                 val parentKind = ArrayDeque<JsonEventType>()
 
+                // Helper to safely get the first parent kind (or null if empty)
+                fun firstParentKind(): JsonEventType? = if (parentKind.isEmpty()) null else parentKind.first()
+                
                 // Iterate over all nodes.
                 parser.handler { event ->
                     @Suppress("WHEN_ENUM_CAN_BE_NULL_IN_JAVA")
@@ -67,11 +70,11 @@ class KotlinJsonStreamingShredder(
                             }
                             val name = event.fieldName()
                             if (lastEndObjectOrEndArrayEventType != null) {
-                                processEndArrayOrEndObject(name != null && parentKind.first() == JsonEventType.START_OBJECT)
+                                processEndArrayOrEndObject(name != null && firstParentKind() == JsonEventType.START_OBJECT)
                                 lastEndObjectOrEndArrayEventType = null
                             }
 
-                            if (name == null || parentKind.first() != JsonEventType.START_OBJECT) {
+                            if (name == null || firstParentKind() != JsonEventType.START_OBJECT) {
                                 val insertedObjectNodeKey = addObject()
 
                                 if (insertedRootNodeKey == -1L) {
@@ -87,7 +90,7 @@ class KotlinJsonStreamingShredder(
                             val name = event.fieldName()
                             if (keyValue != null) {
                                 val isNextTokenParentToken =
-                                    name != null && parentKind.first() == JsonEventType.START_OBJECT
+                                    name != null && firstParentKind() == JsonEventType.START_OBJECT
                                 addObjectRecord(keyValue!!.field, keyValue!!.value, isNextTokenParentToken)
                                 keyValue = null
                             }
@@ -148,7 +151,9 @@ class KotlinJsonStreamingShredder(
                                 processEndArrayOrEndObject(event.type() == JsonEventType.END_OBJECT)
                             }
                             lastEndObjectOrEndArrayEventType = event.type()
-                            parentKind.removeFirst()
+                            if (parentKind.isNotEmpty()) {
+                                parentKind.removeFirst()
+                            }
                         }
                         JsonEventType.START_ARRAY -> {
                             if (keyValue != null) {
@@ -163,13 +168,13 @@ class KotlinJsonStreamingShredder(
 
                             val name = event.fieldName()
                             if (lastEndObjectOrEndArrayEventType != null) {
-                                processEndArrayOrEndObject(name != null && parentKind.first() == JsonEventType.START_OBJECT)
+                                processEndArrayOrEndObject(name != null && firstParentKind() == JsonEventType.START_OBJECT)
                                 lastEndObjectOrEndArrayEventType = null
                             }
 
                             level++
 
-                            if (name == null || parentKind.first() != JsonEventType.START_OBJECT) {
+                            if (name == null || firstParentKind() != JsonEventType.START_OBJECT) {
                                 val insertedArrayNodeKey = insertArray()
 
                                 if (insertedRootNodeKey == -1L) {
@@ -190,25 +195,30 @@ class KotlinJsonStreamingShredder(
     }
 
     private fun processEndArrayOrEndObject(isNextTokenParentToken: Boolean) {
+        if (parents.isEmpty) return
         parents.popLong()
+        if (parents.isEmpty) return
         wtx.moveTo(parents.peekLong(0))
         if (isNextTokenParentToken) {
+            if (parents.isEmpty) return
             parents.popLong()
+            if (parents.isEmpty) return
             wtx.moveTo(parents.peekLong(0))
         }
     }
 
     private fun insertStringValue(stringValue: String): Long {
+        val isParentNull = parents.isEmpty || parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty
         val key = when (insert) {
             InsertPosition.AS_FIRST_CHILD -> {
-                if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
+                if (isParentNull) {
                     wtx.insertStringValueAsFirstChild(stringValue).nodeKey
                 } else {
                     wtx.insertStringValueAsRightSibling(stringValue).nodeKey
                 }
             }
             InsertPosition.AS_LAST_CHILD -> {
-                if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
+                if (isParentNull) {
                     wtx.insertStringValueAsLastChild(stringValue).nodeKey
                 } else {
                     wtx.insertStringValueAsRightSibling(stringValue).nodeKey
@@ -224,16 +234,17 @@ class KotlinJsonStreamingShredder(
     }
 
     private fun insertBooleanValue(boolValue: Boolean): Long {
+        val isParentNull = parents.isEmpty || parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty
         val key = when (insert) {
             InsertPosition.AS_FIRST_CHILD -> {
-                if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
+                if (isParentNull) {
                     wtx.insertBooleanValueAsFirstChild(boolValue).nodeKey
                 } else {
                     wtx.insertBooleanValueAsRightSibling(boolValue).nodeKey
                 }
             }
             InsertPosition.AS_LAST_CHILD -> {
-                if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
+                if (isParentNull) {
                     wtx.insertBooleanValueAsLastChild(boolValue).nodeKey
                 } else {
                     wtx.insertBooleanValueAsRightSibling(boolValue).nodeKey
@@ -250,13 +261,14 @@ class KotlinJsonStreamingShredder(
 
     private fun insertNumberValue(numberValue: Number): Long {
         val value = requireNonNull(numberValue)
+        val isParentNull = parents.isEmpty || parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty
         val key = when (insert) {
-            InsertPosition.AS_FIRST_CHILD -> if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
+            InsertPosition.AS_FIRST_CHILD -> if (isParentNull) {
                 wtx.insertNumberValueAsFirstChild(value).nodeKey
             } else {
                 wtx.insertNumberValueAsRightSibling(value).nodeKey
             }
-            InsertPosition.AS_LAST_CHILD -> if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
+            InsertPosition.AS_LAST_CHILD -> if (isParentNull) {
                 wtx.insertNumberValueAsLastChild(value).nodeKey
             } else {
                 wtx.insertNumberValueAsRightSibling(value).nodeKey
@@ -271,22 +283,26 @@ class KotlinJsonStreamingShredder(
     }
 
     private fun adaptTrxPosAndStack(nextTokenIsParent: Boolean, key: Long) {
-        parents.popLong()
+        if (!parents.isEmpty) {
+            parents.popLong()
+        }
 
-        if (nextTokenIsParent)
+        if (nextTokenIsParent && !parents.isEmpty) {
             wtx.moveTo(parents.peekLong(0))
-        else
+        } else {
             parents.push(key)
+        }
     }
 
     private fun insertNullValue(): Long {
+        val isParentNull = parents.isEmpty || parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty
         val key = when (insert) {
-            InsertPosition.AS_FIRST_CHILD -> if (parents.first() == Fixed.NULL_NODE_KEY.standardProperty) {
+            InsertPosition.AS_FIRST_CHILD -> if (isParentNull) {
                 wtx.insertNullValueAsFirstChild().nodeKey
             } else {
                 wtx.insertNullValueAsRightSibling().nodeKey
             }
-            InsertPosition.AS_LAST_CHILD -> if (parents.first() == Fixed.NULL_NODE_KEY.standardProperty) {
+            InsertPosition.AS_LAST_CHILD -> if (isParentNull) {
                 wtx.insertNullValueAsLastChild().nodeKey
             } else {
                 wtx.insertNullValueAsRightSibling().nodeKey
@@ -300,14 +316,15 @@ class KotlinJsonStreamingShredder(
     }
 
     private fun insertArray(): Long {
+        val isParentNull = parents.isEmpty || parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty
         val key: Long
         when (insert) {
-            InsertPosition.AS_FIRST_CHILD -> key = if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
+            InsertPosition.AS_FIRST_CHILD -> key = if (isParentNull) {
                 wtx.insertArrayAsFirstChild().nodeKey
             } else {
                 wtx.insertArrayAsRightSibling().nodeKey
             }
-            InsertPosition.AS_LAST_CHILD -> key = if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
+            InsertPosition.AS_LAST_CHILD -> key = if (isParentNull) {
                 wtx.insertArrayAsLastChild().nodeKey
             } else {
                 wtx.insertArrayAsRightSibling().nodeKey
@@ -330,21 +347,24 @@ class KotlinJsonStreamingShredder(
             }
             else -> throw AssertionError() // Must not happen.
         }
-        parents.popLong()
+        if (!parents.isEmpty) {
+            parents.popLong()
+        }
         parents.push(key)
         parents.push(Fixed.NULL_NODE_KEY.standardProperty)
         return key
     }
 
     private fun addObject(): Long {
+        val isParentNull = parents.isEmpty || parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty
         val key: Long
         when (insert) {
-            InsertPosition.AS_FIRST_CHILD -> key = if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
+            InsertPosition.AS_FIRST_CHILD -> key = if (isParentNull) {
                 wtx.insertObjectAsFirstChild().nodeKey
             } else {
                 wtx.insertObjectAsRightSibling().nodeKey
             }
-            InsertPosition.AS_LAST_CHILD -> key = if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
+            InsertPosition.AS_LAST_CHILD -> key = if (isParentNull) {
                 wtx.insertObjectAsLastChild().nodeKey
             } else {
                 wtx.insertObjectAsRightSibling().nodeKey
@@ -367,7 +387,9 @@ class KotlinJsonStreamingShredder(
             }
             else -> throw AssertionError() // Must not happen.
         }
-        parents.popLong()
+        if (!parents.isEmpty) {
+            parents.popLong()
+        }
         parents.push(key)
         parents.push(Fixed.NULL_NODE_KEY.standardProperty)
         return key
@@ -376,13 +398,14 @@ class KotlinJsonStreamingShredder(
     private fun addObjectRecord(name: String?, objectValue: Any, isNextTokenParentToken: Boolean) {
         assert(name != null)
         val value: ObjectRecordValue<*> = getObjectRecordValue(objectValue)
+        val isParentNull = parents.isEmpty || parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty
         val key: Long = when (insert) {
-            InsertPosition.AS_FIRST_CHILD -> if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
+            InsertPosition.AS_FIRST_CHILD -> if (isParentNull) {
                 wtx.insertObjectRecordAsFirstChild(name, value).nodeKey
             } else {
                 wtx.insertObjectRecordAsRightSibling(name, value).nodeKey
             }
-            InsertPosition.AS_LAST_CHILD -> if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.standardProperty) {
+            InsertPosition.AS_LAST_CHILD -> if (isParentNull) {
                 wtx.insertObjectRecordAsLastChild(name, value).nodeKey
             } else {
                 wtx.insertObjectRecordAsRightSibling(name, value).nodeKey
@@ -391,11 +414,15 @@ class KotlinJsonStreamingShredder(
             InsertPosition.AS_RIGHT_SIBLING -> wtx.insertObjectRecordAsRightSibling(name, value).nodeKey
             else -> throw AssertionError() //Should not happen
         }
-        parents.popLong()
+        if (!parents.isEmpty) {
+            parents.popLong()
+        }
         parents.push(wtx.parentKey)
         parents.push(Fixed.NULL_NODE_KEY.standardProperty)
         if (wtx.kind === NodeKind.OBJECT || wtx.kind === NodeKind.ARRAY) {
-            parents.popLong()
+            if (!parents.isEmpty) {
+                parents.popLong()
+            }
             parents.push(key)
             parents.push(Fixed.NULL_NODE_KEY.standardProperty)
         } else {
@@ -404,34 +431,16 @@ class KotlinJsonStreamingShredder(
     }
 
     private fun getObjectRecordValue(objVal: Any?): ObjectRecordValue<*> {
-        val value: ObjectRecordValue<*>
-
-        when (objVal) {
-            is JsonObject -> {
-                level++
-                value = ObjectValue()
-            }
-            is JsonArray -> {
-                level++
-                value = ArrayValue()
-            }
-            is Boolean -> {
-                value = BooleanValue(objVal)
-            }
-            is String -> {
-                value = StringValue(objVal)
-            }
-            is NullValue -> {
-                value = NullValue()
-            }
-            is Number -> {
-                value = NumberValue(objVal)
-            }
-            else -> {
-                throw AssertionError()
-            }
+        // Note: Do NOT increment level here - it's already tracked by START_ARRAY/START_OBJECT events
+        return when (objVal) {
+            is JsonObject -> ObjectValue()
+            is JsonArray -> ArrayValue()
+            is Boolean -> BooleanValue(objVal)
+            is String -> StringValue(objVal)
+            is NullValue -> NullValue()
+            is Number -> NumberValue(objVal)
+            else -> throw AssertionError("Unknown object value type: ${objVal?.javaClass}")
         }
-        return value
     }
 
     data class KeyValue(val field: String, val value: Any)

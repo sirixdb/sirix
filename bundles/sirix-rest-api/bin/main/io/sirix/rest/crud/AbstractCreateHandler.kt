@@ -105,9 +105,10 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
                 BodyHandler.create().handle(ctx)
                 val fileResolver = FileResolverImpl()
                 val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
+                val useDeweyIDs = ctx.queryParam("useDeweyIDs").getOrNull(0)?.toBoolean() ?: false
                 ctx.fileUploads().forEach { fileUpload ->
                     val fileName = fileUpload.fileName()
-                    val resConfig = ResourceConfiguration.Builder(fileName).useDeweyIDs(true)
+                    val resConfig = ResourceConfiguration.Builder(fileName).useDeweyIDs(useDeweyIDs)
                         .hashKind(HashType.valueOf(hashType.uppercase())).build()
                     createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher)
 
