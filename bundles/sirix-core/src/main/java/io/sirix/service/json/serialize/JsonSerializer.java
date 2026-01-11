@@ -106,6 +106,13 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
   private int currentIndent;
 
+  // Store builder values for delegation to JsonLimitedSerializer
+  private final long maxLevelLimit;
+  private final long maxNodesLimit;
+  private final long maxChildNodesLimit;
+  private final JsonResourceSession resourceSession;
+  private final int[] revisions;
+
   /**
    * Private constructor.
    *
@@ -135,6 +142,53 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     withNodeKeyMetaData = builder.withNodeKey;
     withNodeKeyAndChildNodeKeyMetaData = builder.withNodeKeyAndChildCount;
     serializeStartNodeWithBrackets = builder.serializeStartNodeWithBrackets;
+    // Store for delegation
+    this.maxLevelLimit = builder.maxLevel;
+    this.maxNodesLimit = builder.maxNodes;
+    this.maxChildNodesLimit = builder.maxChildNodes;
+    this.resourceSession = resourceMgr;
+    // Reconstruct full revisions array: [version, versions...]
+    if (builder.versions != null && builder.versions.length > 0) {
+      this.revisions = new int[1 + builder.versions.length];
+      this.revisions[0] = builder.version;
+      System.arraycopy(builder.versions, 0, this.revisions, 1, builder.versions.length);
+    } else {
+      this.revisions = new int[] { builder.version };
+    }
+  }
+
+  /**
+   * Override call() to delegate to JsonLimitedSerializer when appropriate.
+   * Delegates when maxLevel, maxChildNodes, or maxNodes are set.
+   */
+  @Override
+  public Void call() {
+    // Delegate to JsonLimitedSerializer if any limit is set
+    boolean hasLevelLimit = maxLevelLimit != Long.MAX_VALUE;
+    boolean hasChildLimit = maxChildNodesLimit != Long.MAX_VALUE;
+    boolean hasNodeLimit = maxNodesLimit != Long.MAX_VALUE;
+    
+    if (hasLevelLimit || hasChildLimit || hasNodeLimit) {
+      // Use JsonLimitedSerializer for proper limit handling
+      JsonLimitedSerializer.Builder limitedBuilder = new JsonLimitedSerializer.Builder(resourceSession, out, revisions)
+          .startNodeKey(startNodeKey)
+          .maxLevel(hasLevelLimit ? (int) maxLevelLimit : 0)
+          .maxChildren(hasChildLimit ? (int) maxChildNodesLimit : 0)
+          .maxNodes(hasNodeLimit ? maxNodesLimit : 0)
+          .prettyPrintIf(indent)
+          .indentSpaces(indentSpaces)
+          .withMetaData(withMetaData)
+          .withNodeKeyMetaData(withNodeKeyMetaData)
+          .withNodeKeyAndChildCountMetaData(withNodeKeyAndChildNodeKeyMetaData)
+          .serializeTimestamp(serializeTimestamp)
+          .serializeStartNodeWithBrackets(serializeStartNodeWithBrackets)
+          .isXQueryResultSequenceIf(emitXQueryResultSequence);
+      
+      return limitedBuilder.build().call();
+    }
+    
+    // Fall back to original AbstractSerializer behavior
+    return super.call();
   }
 
   /**

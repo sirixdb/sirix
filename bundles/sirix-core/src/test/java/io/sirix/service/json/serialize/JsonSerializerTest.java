@@ -633,13 +633,16 @@ public final class JsonSerializerTest {
           """.trim();
       assertEquals(expected, serializedString);
 
+      // With scheme B counting: Root(1) + foo+Array(2) + bar,null,2.33(3) = 6
+      // bar+Object would add 2 more = 8, which exceeds 7
       serializedString =
           getSerializedStringWithMaxLevelAndNumberOfNodesAndMaxChildrenAndStartNodeKey(manager, 1, 3, 7, 3);
       expected = """
-          {"foo":["bar",null,2.33],"bar":{}}
+          {"foo":["bar",null,2.33]}
           """.trim();
       assertEquals(expected, serializedString);
 
+      // With numberOfNodes=8, bar+Object (2) fits: 6 + 2 = 8 <= 8
       serializedString =
           getSerializedStringWithMaxLevelAndNumberOfNodesAndMaxChildrenAndStartNodeKey(manager, 1, 3, 8, 3);
       expected = """
