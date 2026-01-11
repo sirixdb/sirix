@@ -87,7 +87,7 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         val context = ctx.vertx().orCreateContext
         ctx.request().pause()
         createDatabaseIfNotExists(dbFile, context)
-        ctx.request().resume()
+        // DON'T resume here - let insertResource/shredder handle resume AFTER setting up handlers
         insertResource(dbFile, resPathName, ctx)
     }
 

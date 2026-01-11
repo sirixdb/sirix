@@ -1,18 +1,19 @@
 # Stage-1
 # Build jar
-FROM gradle:jdk25-alpine as builder
+FROM gradle:jdk25 AS builder
 LABEL maintainer="Johannes Lichtenberger <johannes.lichtenberger@sirix.io>"
 WORKDIR /usr/app/
 
 # Package jar
 COPY . .
-RUN gradle build --refresh-dependencies -x test
+RUN gradle build --refresh-dependencies -x test -x javadoc
 
 # Stage-2
 # Copy jar and run the server
+# Using glibc-based image for proper mmap support with Java FFM API
 
-FROM gradle:jdk25-alpine as server
-RUN apk update && apk add --no-cache bash && apk add --no-cache gcompat
+FROM eclipse-temurin:25-jre AS server
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 ENV VERTICLE_FILE sirix-rest-api-*-SNAPSHOT-fat.jar
 # Set the location of the verticles
 ENV VERTICLE_HOME /opt/sirix
@@ -31,7 +32,8 @@ COPY bundles/sirix-rest-api/src/main/resources/sirix-docker-conf.json ./
 # Replace localhost url with keycloack url in docker compose file
 # RUN sed -i 's/localhost/keycloak/g' sirix-conf.json
 
-VOLUME $VERTICLE_HOME
+# Note: Don't use VOLUME here - it creates an empty volume that overlays the JAR
+# VOLUME $VERTICLE_HOME
 EXPOSE 9443
 
 # Launch the verticle

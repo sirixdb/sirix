@@ -124,7 +124,11 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
     if (node.getNodeKey() != startNodeKey && node.getNodeKey() == lastVisitedNodeKey) {
       return;
     }
-    if (node.hasFirstChild() && currentChildNodes <= maxChildNodes) {
+    // Only increment level and reset child counter if:
+    // 1. Node has children AND
+    // 2. We haven't exceeded maxChildNodes AND
+    // 3. We're not at maxLevel (because if we are, we won't descend into children)
+    if (node.hasFirstChild() && currentChildNodes <= maxChildNodes && currentLevel < maxLevel) {
       currentLevel++;
 
       if (node.hasRightSibling()) {

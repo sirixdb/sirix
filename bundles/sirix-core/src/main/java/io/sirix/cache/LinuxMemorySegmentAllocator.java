@@ -546,20 +546,11 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   public synchronized void init(long maxBufferSize) {
     if (isInitialized.get()) {
       // Already initialized - just update max buffer size if needed
-      // CRITICAL: DO NOT reset borrowedSegments or physicalMemoryBytes!
-      // Live pages from previous tests may still hold segments - if we clear tracking,
-      // their release() calls will fail with "UNTRACKED ALLOCATION" errors
       long currentBufferSize = this.maxBufferSize.get();
       if (currentBufferSize != maxBufferSize) {
         LOGGER.debug("Allocator already initialized - updating max buffer size from {} to {} MB",
                     currentBufferSize / (1024 * 1024), maxBufferSize / (1024 * 1024));
         this.maxBufferSize.set(maxBufferSize);
-      }
-      
-      // Log current state for diagnostics
-      if (LOGGER.isDebugEnabled()) {
-        LOGGER.debug("Allocator re-init: {} borrowed segments, {} MB physical memory tracked",
-                    borrowedSegments.size(), physicalMemoryBytes.get() / (1024 * 1024));
       }
       return;
     }
@@ -670,6 +661,16 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
   @Override
   public MemorySegment allocate(long size) {
+    // Auto-initialize if not yet initialized (with default 16GB budget)
+    if (!isInitialized.get()) {
+      synchronized (this) {
+        if (!isInitialized.get()) {
+          LOGGER.warn("Allocator not initialized - auto-initializing with default 16GB budget");
+          init(16L * 1024 * 1024 * 1024);
+        }
+      }
+    }
+    
     long callNum = allocateCallCount.incrementAndGet();
     
     int index = SegmentAllocators.getIndexForSize(size);
@@ -733,6 +734,10 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
     // Track utilization
     totalBorrows[index].incrementAndGet();
+
+    // Touch first byte to ensure pages are faulted in after madvise(MADV_DONTNEED).
+    // This prevents SIGSEGV when native code (like LZ4) accesses the memory.
+    segment.set(JAVA_BYTE, 0, (byte) 0);
 
     return segment;
   }
