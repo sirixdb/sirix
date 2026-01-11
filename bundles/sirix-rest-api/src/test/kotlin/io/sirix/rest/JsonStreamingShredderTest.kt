@@ -1,12 +1,22 @@
 package io.sirix.rest
 
+import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.parsetools.JsonParser
+import io.vertx.junit5.VertxExtension
+import io.vertx.junit5.VertxTestContext
+import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.extension.ExtendWith
 import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.Databases
 import io.sirix.access.ResourceConfiguration
@@ -18,6 +28,8 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
+import java.util.concurrent.TimeUnit
+import io.vertx.junit5.Timeout
 
 private val databaseDirectory: Path = Paths.get(System.getProperty("java.io.tmpdir"), "sirix", "json-path1")
 
@@ -279,7 +291,7 @@ class JsonStreamingShredderTest {
                         wtx.use {
                             val parser = JsonParser.newParser()
                             val shredder = KotlinJsonStreamingShredder(wtx, parser)
-                            shredder.call()
+                            shredder.call().result() // Sync mode returns already-completed Future
                             // Don't send any data, just end
                             parser.end()
                         }
@@ -314,6 +326,118 @@ class JsonStreamingShredderTest {
         }
     }
 
+    /**
+     * Async tests that use a real Vertx instance to test the Channel-based async path.
+     */
+    @Nested
+    @ExtendWith(VertxExtension::class)
+    @DisplayName("Async path tests (with Vertx)")
+    inner class AsyncPathTests {
+
+        // Use unique directory per test to avoid transaction collisions
+        private var testId = 0
+
+        private fun nextAsyncDbDir(): Path {
+            testId++
+            return Paths.get(System.getProperty("java.io.tmpdir"), "sirix", "json-async-test-$testId-${System.currentTimeMillis()}")
+        }
+
+        @Test
+        @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+        @DisplayName("Simple object via async path")
+        fun testSimpleObjectAsync(vertx: Vertx, testContext: VertxTestContext) {
+            testStringAsync(vertx, testContext, """{"foo":"bar"}""")
+        }
+
+        @Test
+        @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+        @DisplayName("Nested structure via async path")
+        fun testNestedAsync(vertx: Vertx, testContext: VertxTestContext) {
+            testStringAsync(vertx, testContext, """{"a":{"b":{"c":"deep"}}}""")
+        }
+
+        @Test
+        @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+        @DisplayName("Array via async path")
+        fun testArrayAsync(vertx: Vertx, testContext: VertxTestContext) {
+            testStringAsync(vertx, testContext, """[1,2,3,"four",true,null]""")
+        }
+
+        @Test
+        @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+        @DisplayName("Large array via async path (tests back-pressure)")
+        fun testLargeArrayAsync(vertx: Vertx, testContext: VertxTestContext) {
+            val elements = (1..10000).joinToString(",")
+            testStringAsync(vertx, testContext, "[$elements]")
+        }
+
+        @Test
+        @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+        @DisplayName("Object with all types via async path")
+        fun testAllTypesAsync(vertx: Vertx, testContext: VertxTestContext) {
+            testStringAsync(vertx, testContext, """{"str":"hello","num":42,"bool":true,"nil":null,"arr":[1,2],"obj":{"nested":true}}""")
+        }
+
+        private fun testStringAsync(vertx: Vertx, testContext: VertxTestContext, json: String) {
+            val asyncDbDir = nextAsyncDbDir()
+            GlobalScope.launch(vertx.dispatcher()) {
+                try {
+                    Databases.removeDatabase(asyncDbDir)
+                    Databases.createJsonDatabase(DatabaseConfiguration(asyncDbDir))
+                    val database = Databases.openJsonDatabase(asyncDbDir)
+                    database.use {
+                        database.createResource(ResourceConfiguration.Builder("async-shredded").build())
+                        val manager = database.beginResourceSession("async-shredded")
+
+                        manager.use {
+                            val wtx = manager.beginNodeTrx()
+
+                            wtx.use {
+                                val parser = JsonParser.newParser()
+                                // Pass the real vertx instance - this will use the async Channel path
+                                val shredder = KotlinJsonStreamingShredder(wtx, parser, vertx)
+                                
+                                // Start sending data in a separate coroutine, then wait for shredder
+                                // This simulates how the REST API works - data streams in while processing
+                                // Start sending data in a separate coroutine
+                                launch {
+                                    // Small delay to ensure handlers are set up
+                                    delay(10)
+                                    parser.handle(Buffer.buffer(json))
+                                    parser.end()
+                                }
+                                
+                                // call() sets up handlers synchronously, returns Future
+                                shredder.call().await()
+                                wtx.commit()
+                            }
+
+                            val writer = StringWriter()
+                            writer.use {
+                                val serializer = JsonSerializer.Builder(manager, writer).build()
+                                serializer.call()
+                            }
+                            val actual = writer.toString()
+
+                            if (json.trim().let { it.startsWith("{") || it.startsWith("[") }) {
+                                JSONAssert.assertEquals(json, actual, true)
+                            } else {
+                                assertEquals(json.trim(), actual.trim(), "Primitive JSON value mismatch")
+                            }
+                        }
+                    }
+                    // Clean up
+                    Databases.removeDatabase(asyncDbDir)
+                    testContext.completeNow()
+                } catch (e: Throwable) {
+                    // Try to clean up even on failure
+                    try { Databases.removeDatabase(asyncDbDir) } catch (_: Exception) {}
+                    testContext.failNow(e)
+                }
+            }
+        }
+    }
+
     private fun testString(json: String) {
         Databases.createJsonDatabase(
             DatabaseConfiguration(
@@ -329,10 +453,10 @@ class JsonStreamingShredderTest {
                 val wtx = manager.beginNodeTrx()
 
                 wtx.use {
-                    val parser = JsonParser.newParser()
+                            val parser = JsonParser.newParser()
                     val shredder =
                         KotlinJsonStreamingShredder(wtx, parser)
-                    shredder.call()
+                    shredder.call().result() // Sync mode returns already-completed Future
                     parser.handle(
                         Buffer.buffer(
                             json

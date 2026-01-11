@@ -28,10 +28,14 @@ services:
       retries: 20
   server:
     build: .
-    image: sirixdb/sirix
+    image: sirixdb/sirix:local
     ports:
       - "9443:9443"
     restart: always
+    # Allow mmap syscalls for LinuxMemorySegmentAllocator
+    privileged: true
+    security_opt:
+      - seccomp:unconfined
     # Memory settings to match sirix-core tests (16GB heap + 4GB direct memory)
     deploy:
       resources:
