@@ -72,7 +72,7 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         ctx: RoutingContext
     ): String {
         val nextTopLevelNodes = ctx.queryParam("nextTopLevelNodes").getOrNull(0)?.toInt()
-        val lastTopLevelNodeKey = ctx.queryParam("lastTopLevelNodeKey").getOrNull(0)?.toLong()
+        val startNodeKey = ctx.queryParam("startNodeKey").getOrNull(0)?.toLong()
 
         val numberOfNodes = ctx.queryParam("numberOfNodes").getOrNull(0)?.toLong()
         val maxChildren = ctx.queryParam("maxChildren").getOrNull(0)?.toLong()
@@ -119,7 +119,11 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
             val serializerBuilder =
                 JsonRecordSerializer.newBuilder(manager, nextTopLevelNodes, out).revisions(revisions)
 
-            nodeId?.let { serializerBuilder.startNodeKey(nodeId) }
+            // For pagination: startNodeKey is the last loaded child, serialize its right siblings
+            // For initial load: startNodeKey is 0 (default), serialize from document root
+            if (startNodeKey != null) {
+                serializerBuilder.startNodeKey(startNodeKey)
+            }
 
             if (withMetaData != null) {
                 when (withMetaData) {
@@ -139,10 +143,6 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
 
             if (prettyPrint != null) {
                 serializerBuilder.prettyPrint()
-            }
-
-            if (lastTopLevelNodeKey != null) {
-                serializerBuilder.lastTopLevelNodeKey(lastTopLevelNodeKey)
             }
 
             if (numberOfNodes != null) {

@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public final class JsonRecordSerializerTest {
 
@@ -77,18 +78,20 @@ public final class JsonRecordSerializerTest {
   }
 
   @Test
-  public void serializeObjectWithLastTopLevelNodeKey() {
+  public void serializeObjectWithPagination() {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
          final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
+      // startNodeKey(7) = "bar" ObjectKey, pagination returns its right siblings with parent wrapper
       final var jsonRecordSerializer =
-          new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).lastTopLevelNodeKey(7).build();
+          new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).startNodeKey(7).build();
       jsonRecordSerializer.call();
 
+      // Pagination mode returns parent wrapper with array of siblings after node 7: "baz" and "tada"
       final var expected = """
-              {"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
+              {"value":[{"baz":"hello"},{"tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}]}
           """.strip();
 
       assertEquals(expected, stringWriter.toString());
@@ -96,19 +99,19 @@ public final class JsonRecordSerializerTest {
   }
 
   @Test
-  public void serializeObjectWithLastTopLevelNodeKeyAndNoRightSibling() {
+  public void serializePaginationWithNoRightSibling() {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
          final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
+      // startNodeKey(15) = "tada" ObjectKey, which is the last child - no right siblings
       final var jsonRecordSerializer =
-          new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).lastTopLevelNodeKey(15).build();
+          new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).startNodeKey(15).build();
       jsonRecordSerializer.call();
 
-      final var expected = """
-              {}
-          """.strip();
+      // Pagination mode with no siblings returns parent wrapper with empty array
+      final var expected = "{\"value\":[]}";
 
       assertEquals(expected, stringWriter.toString());
     }
@@ -239,13 +242,38 @@ public final class JsonRecordSerializerTest {
 
         final var stringWriter = new StringWriter();
         final var jsonRecordSerializer =
-            new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).lastTopLevelNodeKey(4).maxLevel(1).withMetaData(true).build();
+            new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).startNodeKey(4).maxLevel(1).withMetaData(true).build();
         jsonRecordSerializer.call();
 
         final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaDataAndLastTopLevelNode.json"));
 
         assertEquals(expected, stringWriter.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000"));
       }
+    }
+  }
+
+  @Test
+  public void serializePaginationWithNoRightSiblingAndMetaData() {
+    JsonTestHelper.createTestDocument();
+
+    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+         final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      final var stringWriter = new StringWriter();
+      // Use startNodeKey pointing to the LAST child (no right sibling) with metadata
+      final var jsonRecordSerializer =
+          new JsonRecordSerializer.Builder(resmgr, 3, stringWriter)
+              .startNodeKey(15)  // Last child of root object
+              .maxLevel(2)
+              .withNodeKeyAndChildCountMetaData(true)
+              .build();
+      jsonRecordSerializer.call();
+
+      // Pagination mode with no siblings returns parent metadata wrapper with empty array
+      // Parent is root object (nodeKey=1) with 4 children
+      final var result = stringWriter.toString();
+      assertTrue(result.startsWith("{\"metadata\":{\"nodeKey\":1"));
+      assertTrue(result.contains("\"childCount\":4"));
+      assertTrue(result.endsWith(",\"value\":[]}"));
     }
   }
 }
