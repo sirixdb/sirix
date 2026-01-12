@@ -639,6 +639,37 @@ public final class BasicJsonDBStore implements JsonDBStore {
   @Override
   public void close() {
     try {
+      // First, commit and close any open write transactions on all resource sessions
+      // This ensures transactions created by JsonDBObject.getReadWriteTrx() are properly closed
+      for (final var database : databases) {
+        for (final var resourcePath : database.listResources()) {
+          final var resourceName = resourcePath.getFileName().toString();
+          try {
+            // beginResourceSession returns existing session if already open
+            final var session = database.beginResourceSession(resourceName);
+            session.getNodeTrx().ifPresent(wtx -> {
+              try {
+                // Commit any pending changes before closing
+                wtx.commit();
+              } catch (Exception e) {
+                // If commit fails, rollback
+                try {
+                  wtx.rollback();
+                } catch (Exception ignored) {
+                }
+              } finally {
+                try {
+                  wtx.close();
+                } catch (Exception ignored) {
+                }
+              }
+            });
+          } catch (Exception e) {
+            // Resource might not exist or session might already be closed
+          }
+        }
+      }
+      // Now close all databases (which also closes all remaining transactions)
       for (final var database : databases) {
         database.close();
       }
