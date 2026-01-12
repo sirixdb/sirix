@@ -66,6 +66,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final ConcurrentMap<Database<JsonResourceSession>, JsonDBCollection> collections;
 
   /**
+   * Tracks resource sessions that have been used for write operations.
+   * These sessions may have open write transactions that need to be closed.
+   */
+  private final Set<JsonResourceSession> sessionsWithWriteTrx;
+
+  /**
    * {@link StorageType} instance.
    */
   private final StorageType storageType;
@@ -255,6 +261,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private BasicJsonDBStore(final Builder builder) {
     databases = Collections.synchronizedSet(new HashSet<>());
     collections = new ConcurrentHashMap<>();
+    sessionsWithWriteTrx = Collections.synchronizedSet(new HashSet<>());
     storageType = builder.storageType;
     location = builder.location;
     buildPathSummary = builder.buildPathSummary;
@@ -636,51 +643,54 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
+  /**
+   * Registers a resource session that has an open write transaction.
+   * This allows proper cleanup when the store is closed.
+   *
+   * @param session the resource session with an open write transaction
+   */
+  public void registerWriteSession(final JsonResourceSession session) {
+    sessionsWithWriteTrx.add(session);
+  }
+
   @Override
   public void close() {
     try {
-      // First, commit and close any open write transactions on all resource sessions
-      // This ensures transactions created by JsonDBObject.getReadWriteTrx() are properly closed
-      for (final var database : databases) {
-        // Skip if database is already closed
-        if (!database.isOpen()) {
-          continue;
-        }
+      // First, commit and close any open write transactions on tracked sessions
+      // These are sessions where getReadWriteTrx() was called
+      for (final var session : sessionsWithWriteTrx) {
         try {
-          for (final var resourcePath : database.listResources()) {
-            final var resourceName = resourcePath.getFileName().toString();
-            try {
-              // beginResourceSession returns existing session if already open
-              final var session = database.beginResourceSession(resourceName);
-              session.getNodeTrx().ifPresent(wtx -> {
+          if (!session.isClosed()) {
+            session.getNodeTrx().ifPresent(wtx -> {
+              try {
+                wtx.commit();
+              } catch (Exception e) {
                 try {
-                  // Commit any pending changes before closing
-                  wtx.commit();
-                } catch (Exception e) {
-                  // If commit fails, rollback
-                  try {
-                    wtx.rollback();
-                  } catch (Exception ignored) {
-                  }
-                } finally {
-                  try {
-                    wtx.close();
-                  } catch (Exception ignored) {
-                  }
+                  wtx.rollback();
+                } catch (Exception ignored) {
                 }
-              });
-            } catch (Exception e) {
-              // Resource might not exist or session might already be closed
-            }
+              } finally {
+                try {
+                  wtx.close();
+                } catch (Exception ignored) {
+                }
+              }
+            });
+          }
+        } catch (Exception e) {
+          // Session might already be closed
+        }
+      }
+      sessionsWithWriteTrx.clear();
+
+      // Now close all databases (which also closes all remaining transactions)
+      for (final var database : databases) {
+        try {
+          if (database.isOpen()) {
+            database.close();
           }
         } catch (Exception e) {
           // Database might have been closed concurrently
-        }
-      }
-      // Now close all databases (which also closes all remaining transactions)
-      for (final var database : databases) {
-        if (database.isOpen()) {
-          database.close();
         }
       }
     } catch (final SirixException e) {
