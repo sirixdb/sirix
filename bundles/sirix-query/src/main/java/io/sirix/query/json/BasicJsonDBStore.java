@@ -642,36 +642,46 @@ public final class BasicJsonDBStore implements JsonDBStore {
       // First, commit and close any open write transactions on all resource sessions
       // This ensures transactions created by JsonDBObject.getReadWriteTrx() are properly closed
       for (final var database : databases) {
-        for (final var resourcePath : database.listResources()) {
-          final var resourceName = resourcePath.getFileName().toString();
-          try {
-            // beginResourceSession returns existing session if already open
-            final var session = database.beginResourceSession(resourceName);
-            session.getNodeTrx().ifPresent(wtx -> {
-              try {
-                // Commit any pending changes before closing
-                wtx.commit();
-              } catch (Exception e) {
-                // If commit fails, rollback
+        // Skip if database is already closed
+        if (!database.isOpen()) {
+          continue;
+        }
+        try {
+          for (final var resourcePath : database.listResources()) {
+            final var resourceName = resourcePath.getFileName().toString();
+            try {
+              // beginResourceSession returns existing session if already open
+              final var session = database.beginResourceSession(resourceName);
+              session.getNodeTrx().ifPresent(wtx -> {
                 try {
-                  wtx.rollback();
-                } catch (Exception ignored) {
+                  // Commit any pending changes before closing
+                  wtx.commit();
+                } catch (Exception e) {
+                  // If commit fails, rollback
+                  try {
+                    wtx.rollback();
+                  } catch (Exception ignored) {
+                  }
+                } finally {
+                  try {
+                    wtx.close();
+                  } catch (Exception ignored) {
+                  }
                 }
-              } finally {
-                try {
-                  wtx.close();
-                } catch (Exception ignored) {
-                }
-              }
-            });
-          } catch (Exception e) {
-            // Resource might not exist or session might already be closed
+              });
+            } catch (Exception e) {
+              // Resource might not exist or session might already be closed
+            }
           }
+        } catch (Exception e) {
+          // Database might have been closed concurrently
         }
       }
       // Now close all databases (which also closes all remaining transactions)
       for (final var database : databases) {
-        database.close();
+        if (database.isOpen()) {
+          database.close();
+        }
       }
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
