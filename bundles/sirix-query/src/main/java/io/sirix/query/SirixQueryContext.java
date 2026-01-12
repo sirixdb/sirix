@@ -178,7 +178,10 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
               .map(mapDBNodeToWtx)
               .flatMap(Optional::stream)
               .filter(trx -> trxIDs.add(trx.getId()))
-              .forEach(trx -> trx.commit(commitMessage, commitTimestamp));
+              .forEach(trx -> {
+                trx.commit(commitMessage, commitTimestamp);
+                trx.close();
+              });
   }
 
   private void commitJsonTrx(List<UpdateOp> updateList) {
@@ -197,7 +200,10 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
               .map(mapDBNodeToWtx)
               .flatMap(Optional::stream)
               .filter(trx -> trxIDs.add(trx.getId()))
-              .forEach(trx -> trx.commit(commitMessage, commitTimestamp));
+              .forEach(trx -> {
+                trx.commit(commitMessage, commitTimestamp);
+                trx.close();
+              });
   }
 
   @Override
