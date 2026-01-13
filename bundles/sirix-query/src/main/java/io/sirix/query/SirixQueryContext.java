@@ -186,10 +186,9 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
 
   private void commitJsonTrx(List<UpdateOp> updateList) {
     final Function<Sequence, Optional<JsonNodeTrx>> mapDBNodeToWtx = sequence -> {
-      if (sequence instanceof JsonDBItem) {
-        return ((JsonDBItem) sequence).getTrx().getResourceSession().getNodeTrx();
+      if (sequence instanceof JsonDBItem jsonItem) {
+        return jsonItem.getTrx().getResourceSession().getNodeTrx();
       }
-
       return Optional.empty();
     };
 
