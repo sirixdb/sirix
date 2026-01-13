@@ -235,12 +235,15 @@ public final class JsonLimitedSerializer implements Callable<Void> {
       // Non-ObjectKey nodes that are NOT ObjectKey values: count as 1
       // ObjectKey values were pre-counted with their ObjectKey parent above
       if (!isObjectKey && !isValueOfObjectKey) {
-        nodeCount++;
-        // Check if nodeCount has reached or exceeded maxNodes
-        if (maxNodes > 0 && nodeCount >= maxNodes) {
-          shouldTerminate = true;
-          break;
+        if (maxNodes > 0) {
+          // Pre-check (consistent with ObjectKey handling):
+          // with maxNodes=N we must still emit the node that makes nodeCount == N.
+          if (nodeCount + 1 > maxNodes) {
+            shouldTerminate = true;
+            break;
+          }
         }
+        nodeCount++;
       }
       
       // Print comma before each sibling (except the first and ObjectKey values)
