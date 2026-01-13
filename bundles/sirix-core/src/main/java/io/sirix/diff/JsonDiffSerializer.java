@@ -9,6 +9,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
+import io.sirix.settings.Fixed;
 import io.sirix.service.json.serialize.JsonSerializer;
 
 import java.io.IOException;
@@ -243,6 +244,9 @@ public final class JsonDiffSerializer {
   /**
    * Get the path for a node using PathSummary.
    * Returns null if PathSummary is not enabled or if the path cannot be retrieved.
+   * 
+   * For value nodes (STRING_VALUE, BOOLEAN_VALUE, NUMBER_VALUE, NULL_VALUE), the path
+   * is obtained from the parent OBJECT_KEY node since value nodes don't have their own path.
    *
    * @param rtx the read-only transaction positioned at the node
    * @param revisionNumber the revision number
@@ -253,8 +257,28 @@ public final class JsonDiffSerializer {
       return null;
     }
 
+    // Value nodes don't have a path node key - they use the parent's path
+    // Check if this is a value node and move to parent if needed
+    final long originalNodeKey = rtx.getNodeKey();
+    final long nullNodeKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+    long pathNodeKey = rtx.getPathNodeKey();
+    
+    // Value nodes (STRING_VALUE, BOOLEAN_VALUE, OBJECT_STRING_VALUE, etc.) have pathNodeKey == NULL_NODE_KEY
+    // Try to get path from parent OBJECT_KEY node
+    if (pathNodeKey == nullNodeKey) {
+      if (rtx.hasParent() && rtx.moveToParent()) {
+        pathNodeKey = rtx.getPathNodeKey();
+        // Move back to original position for resolveArrayPositions
+        rtx.moveTo(originalNodeKey);
+      }
+    }
+    
+    if (pathNodeKey == nullNodeKey) {
+      return null;
+    }
+
     try (final PathSummaryReader pathReader = resourceManager.openPathSummary(revisionNumber)) {
-      if (!pathReader.moveTo(rtx.getPathNodeKey())) {
+      if (!pathReader.moveTo(pathNodeKey)) {
         return null;
       }
 
