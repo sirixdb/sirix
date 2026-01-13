@@ -296,18 +296,18 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final Path dbPath = location.resolve(name);
     if (Databases.existsDatabase(dbPath)) {
       try {
-        final var database = Databases.openJsonDatabase(dbPath);
-        final Optional<Database<JsonResourceSession>> storedCollection =
-            databases.stream().findFirst().filter(db -> db.equals(database));
-        if (storedCollection.isPresent()) {
-          final var db = storedCollection.get();
-
-          if (db.isOpen()) {
-            return collections.get(db);
-          } else {
-            databases.remove(db);
-          }
+        // First, check if we already have a database open for this path
+        // by comparing database names (not object identity)
+        final Optional<Database<JsonResourceSession>> existingDb =
+            databases.stream().filter(db -> db.getName().equals(name) && db.isOpen()).findFirst();
+        
+        if (existingDb.isPresent()) {
+          // Reuse existing database and its collection
+          return collections.get(existingDb.get());
         }
+        
+        // No existing database found, open a new one
+        final var database = Databases.openJsonDatabase(dbPath);
         databases.add(database);
         final JsonDBCollection collection = new JsonDBCollection(name, database, this);
         collections.put(database, collection);

@@ -62,6 +62,9 @@ class PermissionCheckingQuery {
     }
 
     private fun run(ctx: QueryContext, lazy: Boolean): Sequence? {
+        // #region agent log
+        try { java.io.FileWriter("/home/johannes/IdeaProjects/.cursor/debug.log", true).use { w -> w.write("{\"hypothesisId\":\"A\",\"location\":\"PermissionCheckingQuery.run\",\"message\":\"query start\",\"data\":{\"isUpdating\":${module.body?.isUpdating ?: false},\"contextId\":\"${System.identityHashCode(ctx)}\"},\"timestamp\":${System.currentTimeMillis()}}\n") } } catch (e: Exception) {}
+        // #endregion
         val body = module.body
             ?: throw QueryException(ErrorCode.BIT_DYN_INT_ERROR, "Module does not contain a query body.")
         val result = body.evaluate(ctx, TupleImpl())

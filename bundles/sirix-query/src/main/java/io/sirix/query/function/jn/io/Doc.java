@@ -11,6 +11,7 @@ import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.json.JsonDBCollection;
+import io.sirix.query.json.JsonDBItem;
 
 /**
  * <p>

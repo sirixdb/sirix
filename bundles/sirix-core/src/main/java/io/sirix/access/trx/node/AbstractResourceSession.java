@@ -477,8 +477,28 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // Make sure not to exceed available number of write transactions.
     try {
       if (!writeLock.tryAcquire(5, TimeUnit.SECONDS)) {
-        throw new SirixUsageException(
-            "No read-write transaction available, please close the running read-write transaction first.");
+        // Check if this is an orphaned lock situation (lock held but no transaction tracked)
+        final boolean hasTrackedTransaction = nodeTrxMap.values().stream()
+            .anyMatch(NodeTrx.class::isInstance);
+        
+        if (!hasTrackedTransaction) {
+          // Orphaned lock detected - the lock is held but no transaction exists
+          // This can happen if a transaction was closed improperly (e.g., exception during close)
+          LOGGER.warn("Orphaned write lock detected - releasing lock and retrying. " +
+              "This may indicate a previous transaction was not properly closed.");
+          
+          // Force release the orphaned lock
+          writeLock.release();
+          
+          // Try to acquire again
+          if (!writeLock.tryAcquire(5, TimeUnit.SECONDS)) {
+            throw new SirixUsageException(
+                "No read-write transaction available, please close the running read-write transaction first.");
+          }
+        } else {
+          throw new SirixUsageException(
+              "No read-write transaction available, please close the running read-write transaction first.");
+        }
       }
     } catch (final InterruptedException e) {
       throw new SirixThreadedException(e);
