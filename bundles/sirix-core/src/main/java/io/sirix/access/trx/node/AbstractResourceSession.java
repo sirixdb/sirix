@@ -478,8 +478,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     try {
       if (!writeLock.tryAcquire(5, TimeUnit.SECONDS)) {
         // Check if this is an orphaned lock situation (lock held but no transaction tracked)
-        final boolean hasTrackedTransaction = nodeTrxMap.values().stream()
+        // Must check both nodeTrxMap (for NodeTrx instances) and pageTrxMap (for StorageEngineWriter instances)
+        // since beginPageTrx also acquires the writeLock and stores transactions in pageTrxMap
+        final boolean hasTrackedNodeTrx = nodeTrxMap.values().stream()
             .anyMatch(NodeTrx.class::isInstance);
+        final boolean hasTrackedPageWriteTrx = pageTrxMap.values().stream()
+            .anyMatch(StorageEngineWriter.class::isInstance);
+        final boolean hasTrackedTransaction = hasTrackedNodeTrx || hasTrackedPageWriteTrx;
         
         if (!hasTrackedTransaction) {
           // Orphaned lock detected - the lock is held but no transaction exists
