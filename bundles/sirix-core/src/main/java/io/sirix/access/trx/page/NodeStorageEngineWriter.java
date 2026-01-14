@@ -135,6 +135,22 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private volatile java.util.concurrent.CompletableFuture<Void> pendingFsync;
 
   /**
+   * Pending snapshot being committed asynchronously.
+   * <p>
+   * Used for layered TIL lookup during async auto-commit:
+   * 1. Check active TIL (via generation counter)
+   * 2. Check pending snapshot (via identity map or logKey fallback)
+   * 3. Fall back to disk
+   */
+  private volatile CommitSnapshot pendingSnapshot;
+
+  /**
+   * Semaphore for backpressure on async commits.
+   * Only one async commit can be in flight at a time.
+   */
+  private final java.util.concurrent.Semaphore commitPermit = new java.util.concurrent.Semaphore(1);
+
+  /**
    * {@link XmlIndexController} instance.
    */
   private final IndexController<?, ?> indexController;
@@ -236,6 +252,245 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
     };
   }
+
+  // ============================================================================
+  // Async Auto-Commit: Layered TIL Lookup
+  // ============================================================================
+
+  /**
+   * 3-step layered lookup for async auto-commit support.
+   * <p>
+   * During async auto-commit, pages may be in:
+   * <ol>
+   *   <li>Active TIL (pages added after rotation)</li>
+   *   <li>Pending snapshot (pages being committed in background)</li>
+   *   <li>Disk (pages already committed or from previous revisions)</li>
+   * </ol>
+   * <p>
+   * This method checks in that order and returns the first match.
+   *
+   * @param ref the page reference to look up
+   * @return the page container, or null if page should be loaded from disk
+   */
+  @Nullable
+  PageContainer getFromActiveOrPending(final PageReference ref) {
+    if (ref == null) {
+      return null;
+    }
+
+    // STEP 1: FAST PATH - Check if ref was added to active TIL after rotation
+    final int currentGen = log.getCurrentGeneration();
+    if (ref.isInActiveTil(currentGen)) {
+      // This ref belongs to current active TIL
+      return log.getUnchecked(ref.getLogKey());
+    }
+
+    // STEP 2: Check pending snapshot
+    final CommitSnapshot snapshot = pendingSnapshot;
+    if (snapshot == null) {
+      // No pending snapshot - fall back to disk
+      return null;
+    }
+
+    return getFromSnapshot(ref, snapshot);
+  }
+
+  /**
+   * Look up a page in the pending snapshot.
+   *
+   * @param ref the page reference
+   * @param snapshot the pending snapshot
+   * @return the page container, or null to signal disk load
+   */
+  @Nullable
+  private PageContainer getFromSnapshot(final PageReference ref, final CommitSnapshot snapshot) {
+    // STEP 2a: If commit is complete, use disk offset mapping for lazy propagation
+    if (snapshot.isCommitComplete()) {
+      final int logKey = ref.getLogKey();
+      if (logKey >= 0) {
+        final long diskOffset = snapshot.getDiskOffset(logKey);
+        if (diskOffset >= 0) {
+          // Lazy propagation: update ref's key for future disk loads
+          ref.setKey(diskOffset);
+          return null; // Signal: load from disk using updated key
+        }
+      }
+      return null;
+    }
+
+    // STEP 2b: Try identity-based lookup (works for original refs)
+    PageContainer result = snapshot.getByIdentity(ref);
+    if (result != null) {
+      return result;
+    }
+
+    // STEP 2c: Fallback for cloned RRP refs (8 root references)
+    final int logKey = ref.getLogKey();
+    if (logKey >= 0 && logKey < snapshot.size()) {
+      return snapshot.getEntry(logKey);
+    }
+
+    return null; // Fall back to disk
+  }
+
+  // ============================================================================
+  // Async Auto-Commit: Snapshot Management
+  // ============================================================================
+
+  /**
+   * Acquire permit for async commit (backpressure).
+   * <p>
+   * Blocks if a previous async commit is still in flight.
+   * Call this before {@link #prepareAsyncCommitSnapshot}.
+   *
+   * @throws InterruptedException if interrupted while waiting
+   */
+  public void acquireCommitPermit() throws InterruptedException {
+    commitPermit.acquire();
+  }
+
+  /**
+   * Try to acquire permit for async commit without blocking.
+   *
+   * @return true if permit acquired, false if another commit is in flight
+   */
+  public boolean tryAcquireCommitPermit() {
+    return commitPermit.tryAcquire();
+  }
+
+  /**
+   * Prepare a snapshot for async commit by rotating the TIL.
+   * <p>
+   * This method:
+   * <ol>
+   *   <li>Rotates the TIL (increments generation, swaps arrays)</li>
+   *   <li>Creates a deep copy of RevisionRootPage for isolation</li>
+   *   <li>Creates an immutable CommitSnapshot</li>
+   *   <li>Sets it as the pending snapshot for layered lookup</li>
+   * </ol>
+   * <p>
+   * After this call, inserts continue into the fresh TIL while
+   * the snapshot can be committed in background.
+   *
+   * @param commitMessage optional commit message
+   * @param commitTimestamp the commit timestamp
+   * @param commitFile the commit file (may be null)
+   * @return the commit snapshot for background processing
+   */
+  public CommitSnapshot prepareAsyncCommitSnapshot(
+      final String commitMessage,
+      final long commitTimestamp,
+      final java.io.File commitFile) {
+
+    pageRtx.assertNotClosed();
+
+    // Rotate TIL: freeze current entries, reset for new inserts
+    final TransactionIntentLog.RotationResult rotation = log.detachAndReset();
+
+    // Check for empty snapshot
+    if (rotation.size() == 0) {
+      // Nothing to commit - release permit immediately
+      commitPermit.release();
+      return null;
+    }
+
+    // Create snapshot with deep-copied RRP
+    final CommitSnapshot snapshot = new CommitSnapshot(
+        rotation,
+        pageRtx.getUberPage(),
+        new PageReference()
+            .setDatabaseId(pageRtx.getDatabaseId())
+            .setResourceId(pageRtx.getResourceId()),
+        newRevisionRootPage,
+        newRevisionRootPage.getRevision(),
+        commitMessage,
+        commitTimestamp,
+        commitFile,
+        getResourceSession().getResourceConfig()
+    );
+
+    // Set as pending for layered lookup
+    this.pendingSnapshot = snapshot;
+
+    // Reset local caches after rotation
+    mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
+    secondMostRecentPageContainer = mostRecentPageContainer;
+    mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
+    pageContainerCache.clear();
+
+    return snapshot;
+  }
+
+  /**
+   * Execute commit of a snapshot in the background.
+   * <p>
+   * This method performs the actual serialization and disk writing
+   * using the snapshot's frozen TIL. It should be called from a
+   * background thread.
+   * <p>
+   * After completion, the snapshot is marked complete and eventually
+   * cleared from pending.
+   *
+   * @param snapshot the snapshot to commit
+   */
+  public void executeCommitSnapshot(final CommitSnapshot snapshot) {
+    if (snapshot == null) {
+      return;
+    }
+
+    try {
+      // Create snapshot-specific committer
+      final SnapshotCommitter committer = new SnapshotCommitter(
+          snapshot,
+          storagePageReaderWriter,
+          Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE)
+      );
+
+      // Commit the page tree starting from uber page reference
+      // The snapshot contains deep-copied RRP, so we commit its children
+      final RevisionRootPage rrp = snapshot.revisionRootPage();
+      for (final PageReference ref : rrp.getReferences()) {
+        committer.commit(ref);
+      }
+
+      // Write uber page last
+      storagePageReaderWriter.writeUberPageReference(
+          snapshot.resourceConfig(),
+          snapshot.uberPageReference(),
+          snapshot.uberPage(),
+          Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE)
+      );
+
+      // Mark commit complete for disk offset propagation
+      snapshot.markCommitComplete();
+
+      // Fsync for durability
+      storagePageReaderWriter.forceAll();
+
+    } finally {
+      // Clear pending snapshot if this was it
+      if (this.pendingSnapshot == snapshot) {
+        this.pendingSnapshot = null;
+      }
+
+      // Release permit for next commit
+      commitPermit.release();
+    }
+  }
+
+  /**
+   * Get the pending snapshot (for testing/debugging).
+   *
+   * @return the pending snapshot, or null if none
+   */
+  @Nullable
+  CommitSnapshot getPendingSnapshot() {
+    return pendingSnapshot;
+  }
+
+  // ============================================================================
+  // Trie Type Routing
+  // ============================================================================
   
   /**
    * Determine which trie type to use for the given index.
@@ -1293,6 +1548,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     PageReference prepareLeafOfTree(final StorageEngineWriter pageRtx, final TransactionIntentLog log,
         final int[] inpLevelPageCountExp, final PageReference startReference, @NonNegative final long pageKey,
         final int index, final IndexType indexType, final RevisionRootPage revisionRootPage) {
+      return prepareLeafOfTree(pageRtx, log, inpLevelPageCountExp, startReference, pageKey, index, indexType,
+          revisionRootPage, null);
+    }
+
+    /**
+     * Prepare the leaf of the trie with Copy-on-Write support for async auto-commit.
+     *
+     * @param pageRtx the page reading transaction
+     * @param log the transaction intent log
+     * @param inpLevelPageCountExp array which holds the maximum number of indirect page references per trie level
+     * @param startReference the reference to start the trie traversal from
+     * @param pageKey page key to lookup (decomposed bit-by-bit)
+     * @param index the index number or {@code -1} if a regular record page should be prepared
+     * @param indexType the index type
+     * @param revisionRootPage the revision root page
+     * @param pendingSnapshot the pending snapshot for CoW (may be null)
+     * @return {@link PageReference} instance pointing to the leaf page
+     */
+    PageReference prepareLeafOfTree(final StorageEngineWriter pageRtx, final TransactionIntentLog log,
+        final int[] inpLevelPageCountExp, final PageReference startReference, @NonNegative final long pageKey,
+        final int index, final IndexType indexType, final RevisionRootPage revisionRootPage,
+        final @Nullable CommitSnapshot pendingSnapshot) {
       // Initial state pointing to the indirect nodePageReference of level 0.
       PageReference reference = startReference;
 
@@ -1332,7 +1609,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
            level < height; level++) {
         offset = (int) (levelKey >> inpLevelPageCountExp[level]);
         levelKey -= (long) offset << inpLevelPageCountExp[level];
-        final IndirectPage page = prepareIndirectPage(pageRtx, log, reference);
+        final IndirectPage page = prepareIndirectPage(pageRtx, log, reference, pendingSnapshot);
         reference = page.getOrCreateReference(offset);
       }
 
@@ -1343,6 +1620,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     /**
      * Prepare indirect page, that is getting the referenced indirect page or creating a new page
      * and putting the whole path into the log.
+     * <p>
+     * This overload does not support Copy-on-Write from pending snapshot.
+     * Use {@link #prepareIndirectPage(StorageEngineReader, TransactionIntentLog, PageReference, CommitSnapshot)}
+     * for async auto-commit scenarios.
      *
      * @param pageRtx the page reading transaction
      * @param log the transaction intent log
@@ -1351,6 +1632,58 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
      */
     IndirectPage prepareIndirectPage(final StorageEngineReader pageRtx, final TransactionIntentLog log,
         final PageReference reference) {
+      return prepareIndirectPage(pageRtx, log, reference, null);
+    }
+
+    /**
+     * Prepare indirect page with Copy-on-Write support for async auto-commit.
+     * <p>
+     * This method performs a 3-step lookup:
+     * <ol>
+     *   <li>Check active TIL (via generation counter)</li>
+     *   <li>Check pending snapshot and perform CoW if found</li>
+     *   <li>Load from disk if not in either</li>
+     * </ol>
+     *
+     * @param pageRtx the page reading transaction
+     * @param log the transaction intent log
+     * @param reference {@link PageReference} to get the indirect page from or to create a new one
+     * @param pendingSnapshot the pending snapshot (may be null)
+     * @return {@link IndirectPage} reference
+     */
+    IndirectPage prepareIndirectPage(final StorageEngineReader pageRtx, final TransactionIntentLog log,
+        final PageReference reference, final @Nullable CommitSnapshot pendingSnapshot) {
+
+      // STEP 1: Check if ref is in active TIL (fast path via generation)
+      final int currentGen = log.getCurrentGeneration();
+      if (reference.isInActiveTil(currentGen)) {
+        final PageContainer cont = log.getUnchecked(reference.getLogKey());
+        if (cont != null) {
+          return (IndirectPage) cont.getComplete();
+        }
+      }
+
+      // STEP 2: Check pending snapshot and perform CoW if found
+      if (pendingSnapshot != null && !pendingSnapshot.isCommitComplete()) {
+        PageContainer snapshotContainer = pendingSnapshot.getByIdentity(reference);
+        if (snapshotContainer == null) {
+          // Fallback for cloned refs
+          final int logKey = reference.getLogKey();
+          if (logKey >= 0 && logKey < pendingSnapshot.size()) {
+            snapshotContainer = pendingSnapshot.getEntry(logKey);
+          }
+        }
+
+        if (snapshotContainer != null) {
+          // COPY-ON-WRITE: Create deep copy for active TIL
+          final IndirectPage original = (IndirectPage) snapshotContainer.getComplete();
+          final IndirectPage copy = new IndirectPage(original);
+          log.put(reference, PageContainer.getInstance(copy, copy));
+          return copy;
+        }
+      }
+
+      // STEP 3: Not in active TIL or pending snapshot - load from disk or create new
       final PageContainer cont = log.get(reference);
       IndirectPage page = cont == null ? null : (IndirectPage) cont.getComplete();
       if (page == null) {

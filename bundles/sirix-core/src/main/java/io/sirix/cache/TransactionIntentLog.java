@@ -6,6 +6,8 @@ import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.IdentityHashMap;
 import java.util.List;
 
 /**
@@ -16,15 +18,49 @@ import java.util.List;
  * <p>
  * Pages added to the TIL are removed from global caches since they represent
  * uncommitted changes that should not be visible to other transactions.
+ * <p>
+ * <b>Async Auto-Commit Support:</b>
+ * <p>
+ * For async auto-commit during bulk imports, the TIL supports <em>rotation</em>:
+ * <ul>
+ *   <li>{@link #detachAndReset()} freezes the current entries and returns them as a
+ *       {@link RotationResult} for background commit processing</li>
+ *   <li>The TIL is immediately reset for new inserts with an incremented generation counter</li>
+ *   <li>The generation counter enables O(1) membership checking via
+ *       {@link PageReference#isInActiveTil(int)}</li>
+ * </ul>
  *
  * @author Johannes Lichtenberger
  */
 public final class TransactionIntentLog implements AutoCloseable {
 
   /**
-   * The collection to hold the maps.
+   * Default initial capacity for the entries array.
    */
-  private final List<PageContainer> list;
+  private static final int DEFAULT_INITIAL_CAPACITY = 4096;
+
+  /**
+   * The collection to hold page containers - using array for O(1) direct access.
+   */
+  private PageContainer[] entries;
+
+  /**
+   * Current size (number of entries in the array).
+   */
+  private int size;
+
+  /**
+   * Identity-based mapping from PageReference to its index for correct lookups.
+   * Uses object identity (==) rather than equals() to distinguish refs with same logKey.
+   */
+  private final IdentityHashMap<PageReference, Integer> refToIndex;
+
+  /**
+   * Generation counter for O(1) TIL rotation.
+   * Incremented on each {@link #detachAndReset()} call.
+   * PageReferences in this TIL have their activeTilGeneration set to this value.
+   */
+  private volatile int currentGeneration;
 
   /**
    * The buffer manager.
@@ -32,7 +68,7 @@ public final class TransactionIntentLog implements AutoCloseable {
   private final BufferManager bufferManager;
 
   /**
-   * The log key.
+   * The log key (legacy - kept for compatibility, same as size).
    */
   private int logKey;
 
@@ -44,8 +80,12 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public TransactionIntentLog(final BufferManager bufferManager, final int maxInMemoryCapacity) {
     this.bufferManager = bufferManager;
-    logKey = 0;
-    list = new ArrayList<>(maxInMemoryCapacity);
+    this.logKey = 0;
+    this.size = 0;
+    this.currentGeneration = 0;
+    final int initialCapacity = Math.max(maxInMemoryCapacity, DEFAULT_INITIAL_CAPACITY);
+    this.entries = new PageContainer[initialCapacity];
+    this.refToIndex = new IdentityHashMap<>(initialCapacity * 4 / 3);
   }
 
   /**
@@ -56,11 +96,33 @@ public final class TransactionIntentLog implements AutoCloseable {
    * cache
    */
   public PageContainer get(final PageReference key) {
-    var logKey = key.getLogKey();
-    if ((logKey >= this.logKey) || logKey < 0) {
+    // First check by identity (most reliable for avoiding logKey collisions)
+    final Integer index = refToIndex.get(key);
+    if (index != null && index < size) {
+      return entries[index];
+    }
+    // Fallback to logKey lookup for backward compatibility
+    var logKeyVal = key.getLogKey();
+    if ((logKeyVal >= this.size) || logKeyVal < 0) {
       return null;
     }
-    return list.get(logKey);
+    return entries[logKeyVal];
+  }
+
+  /**
+   * Direct array access by logKey index - caller must ensure validity.
+   * <p>
+   * This is used for fast-path lookups when the caller has already verified
+   * the PageReference belongs to this TIL via {@link PageReference#isInActiveTil(int)}.
+   *
+   * @param logKeyIndex the log key index
+   * @return the page container at that index, or null if out of bounds
+   */
+  public PageContainer getUnchecked(final int logKeyIndex) {
+    if (logKeyIndex >= 0 && logKeyIndex < size) {
+      return entries[logKeyIndex];
+    }
+    return null;
   }
 
   /**
@@ -108,12 +170,23 @@ public final class TransactionIntentLog implements AutoCloseable {
       }
     }
 
+    // Set page reference properties
     key.setKey(Constants.NULL_ID_LONG);
     key.setPage(null);
-    key.setLogKey(logKey);
+    key.setLogKey(size);
+    // CRITICAL: Mark this ref as belonging to current TIL generation for O(1) lookup
+    key.setActiveTilGeneration(currentGeneration);
 
-    list.add(value);
-    logKey++;
+    // Store in identity map for correct lookups after rotation
+    refToIndex.put(key, size);
+
+    // Grow array if needed
+    if (size >= entries.length) {
+      entries = Arrays.copyOf(entries, entries.length * 2);
+    }
+    entries[size] = value;
+    size++;
+    logKey = size; // Keep logKey in sync for backward compatibility
 
     // Release guards - TIL pages are transaction-private
     if (value.getComplete() instanceof KeyValueLeafPage completePage && completePage.getGuardCount() > 0) {
@@ -141,13 +214,18 @@ public final class TransactionIntentLog implements AutoCloseable {
     bufferManager.getPageCache().cleanUp();
 
     // Close all pages owned by TIL
-    for (final PageContainer pageContainer : list) {
-      closePage(pageContainer.getComplete());
-      if (pageContainer.getModified() != pageContainer.getComplete()) {
-        closePage(pageContainer.getModified());
+    for (int i = 0; i < size; i++) {
+      final PageContainer pageContainer = entries[i];
+      if (pageContainer != null) {
+        closePage(pageContainer.getComplete());
+        if (pageContainer.getModified() != pageContainer.getComplete()) {
+          closePage(pageContainer.getModified());
+        }
+        entries[i] = null; // Help GC
       }
     }
-    list.clear();
+    size = 0;
+    refToIndex.clear();
   }
 
   /**
@@ -163,12 +241,30 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Get a view of the underlying map.
+   * Get a view of the underlying entries as a list.
+   * <p>
+   * Note: This creates a new list for compatibility. For performance-critical
+   * code, prefer using {@link #getUnchecked(int)} with {@link #size()}.
    *
-   * @return an unmodifiable view of all entries in the cache
+   * @return a new list containing all entries in the cache
    */
   public List<PageContainer> getList() {
-    return list;
+    final List<PageContainer> result = new ArrayList<>(size);
+    for (int i = 0; i < size; i++) {
+      result.add(entries[i]);
+    }
+    return result;
+  }
+
+  /**
+   * Get the entries array directly (for snapshot creation).
+   * <p>
+   * WARNING: This returns the internal array. Do not modify!
+   *
+   * @return the internal entries array
+   */
+  PageContainer[] getEntriesArray() {
+    return entries;
   }
 
   /**
@@ -182,22 +278,29 @@ public final class TransactionIntentLog implements AutoCloseable {
     bufferManager.getPageCache().cleanUp();
 
     // Close all pages owned by TIL
-    for (final PageContainer pageContainer : list) {
-      closePage(pageContainer.getComplete());
-      if (pageContainer.getModified() != pageContainer.getComplete()) {
-        closePage(pageContainer.getModified());
+    for (int i = 0; i < size; i++) {
+      final PageContainer pageContainer = entries[i];
+      if (pageContainer != null) {
+        closePage(pageContainer.getComplete());
+        if (pageContainer.getModified() != pageContainer.getComplete()) {
+          closePage(pageContainer.getModified());
+        }
+        entries[i] = null; // Help GC
       }
     }
 
     logKey = 0;
-    list.clear();
+    size = 0;
+    refToIndex.clear();
   }
   
   /**
    * Get the number of containers in the TIL.
+   *
+   * @return the number of entries
    */
   public int size() {
-    return list.size();
+    return size;
   }
   
   /**
@@ -208,6 +311,75 @@ public final class TransactionIntentLog implements AutoCloseable {
   public int getLogKey() {
     return logKey;
   }
+
+  /**
+   * Get the current generation counter.
+   * <p>
+   * This is used for O(1) TIL membership checking via
+   * {@link PageReference#isInActiveTil(int)}.
+   *
+   * @return the current generation counter
+   */
+  public int getCurrentGeneration() {
+    return currentGeneration;
+  }
+
+  /**
+   * Rotate the TIL for async commit: freeze current entries and reset for new inserts.
+   * <p>
+   * This operation is O(1) for the array swap and O(n) for building the identity map.
+   * After this call:
+   * <ul>
+   *   <li>The returned {@link RotationResult} contains all current entries</li>
+   *   <li>This TIL is reset with a new empty array and incremented generation</li>
+   *   <li>New inserts will have the new generation, old refs retain old generation</li>
+   * </ul>
+   *
+   * @return the rotation result containing frozen entries and identity map
+   */
+  public RotationResult detachAndReset() {
+    // O(1): Increment generation - makes old refs distinguishable from new
+    currentGeneration++;
+
+    // Capture current state
+    final PageContainer[] snapshotEntries = this.entries;
+    final int snapshotSize = this.size;
+
+    // O(1): Swap in new array (don't copy, just allocate fresh)
+    final int newCapacity = Math.max(snapshotSize, DEFAULT_INITIAL_CAPACITY);
+    this.entries = new PageContainer[newCapacity];
+    this.size = 0;
+    this.logKey = 0;
+
+    // O(n): Build identity map for snapshot (unavoidable for correct lookups)
+    final IdentityHashMap<PageReference, PageContainer> snapshotRefMap =
+        new IdentityHashMap<>(snapshotSize * 4 / 3 + 1);
+    for (var entry : refToIndex.entrySet()) {
+      final PageReference ref = entry.getKey();
+      final int index = entry.getValue();
+      if (index < snapshotSize && snapshotEntries[index] != null) {
+        snapshotRefMap.put(ref, snapshotEntries[index]);
+      }
+    }
+
+    // Clear for new inserts
+    refToIndex.clear();
+
+    return new RotationResult(snapshotEntries, snapshotSize, snapshotRefMap);
+  }
+
+  /**
+   * Result of TIL rotation containing frozen entries and identity map.
+   *
+   * @param entries the frozen entries array
+   * @param size the number of valid entries
+   * @param refToContainer identity-based map from PageReference to PageContainer
+   */
+  public record RotationResult(
+      PageContainer[] entries,
+      int size,
+      IdentityHashMap<PageReference, PageContainer> refToContainer
+  ) {}
 }
 
 

@@ -41,14 +41,30 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class PageReference {
 
+  // ============================================================================
+  // HOT FIELDS (accessed frequently in layered lookup) - first cache line
+  // ============================================================================
+
+  /** Key in persistent storage. */
+  private volatile long key = Constants.NULL_ID_LONG;
+
+  /** Log key - index into TransactionIntentLog. */
+  private volatile int logKey = Constants.NULL_ID_INT;
+
+  /**
+   * Generation counter for O(1) TIL membership check.
+   * When a PageReference is added to TIL, this is set to TIL's current generation.
+   * After TIL rotation, generation increments, making old refs distinguishable from new ones.
+   * Value of -1 indicates this ref has never been in a TIL.
+   */
+  private volatile int activeTilGeneration = -1;
+
   /** In-memory deserialized page instance. */
   private volatile Page page;
 
-  /** Key in persistent storage. */
-  private long key = Constants.NULL_ID_LONG;
-
-  /** Log key. */
-  private int logKey = Constants.NULL_ID_INT;
+  // ============================================================================
+  // COLD FIELDS - accessed less frequently
+  // ============================================================================
 
   /** Unique database ID to distinguish pages from different databases in global BufferManager. */
   private long databaseId = Constants.NULL_ID_LONG;
@@ -82,9 +98,12 @@ public final class PageReference {
    * @param reference {@link PageReference} to copy
    */
   public PageReference(final PageReference reference) {
-    logKey = reference.logKey;
-    page = reference.page;
+    // Hot fields
     key = reference.key;
+    logKey = reference.logKey;
+    activeTilGeneration = reference.activeTilGeneration;
+    page = reference.page;
+    // Cold fields
     databaseId = reference.databaseId;
     resourceId = reference.resourceId;
     hashInBytes = reference.hashInBytes;
@@ -180,6 +199,41 @@ public final class PageReference {
   public PageReference setLogKey(final int key) {
     hash = 0;  // Clear cached hashCode since it includes logKey
     logKey = key;
+    return this;
+  }
+
+  /**
+   * Check if this PageReference belongs to the current active TIL.
+   * <p>
+   * This is an O(1) operation used for fast-path in layered lookup to determine
+   * if a ref was added to the TIL after the last rotation.
+   *
+   * @param currentTilGeneration the current generation counter from TransactionIntentLog
+   * @return true if this ref's generation matches the current TIL generation
+   */
+  public boolean isInActiveTil(final int currentTilGeneration) {
+    return activeTilGeneration == currentTilGeneration;
+  }
+
+  /**
+   * Get the TIL generation this reference was added to.
+   *
+   * @return the generation counter, or -1 if never added to a TIL
+   */
+  public int getActiveTilGeneration() {
+    return activeTilGeneration;
+  }
+
+  /**
+   * Set the TIL generation this reference belongs to.
+   * <p>
+   * Called by TransactionIntentLog.put() to mark this ref as belonging to the current TIL.
+   *
+   * @param generation the current TIL generation counter
+   * @return this instance
+   */
+  public PageReference setActiveTilGeneration(final int generation) {
+    this.activeTilGeneration = generation;
     return this;
   }
   
