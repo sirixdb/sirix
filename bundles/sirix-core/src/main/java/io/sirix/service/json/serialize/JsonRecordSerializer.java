@@ -433,22 +433,13 @@ public final class JsonRecordSerializer implements Callable<Void> {
       return;
     }
 
-    // Get parent state for metadata
-    final State parentState;
+    // Emit parent metadata wrapper
     if (rtx.hasParent()) {
       rtx.moveToParent();
-      if (rtx.isObject()) {
-        parentState = State.IS_OBJECT;
-      } else if (rtx.isArray()) {
-        parentState = State.IS_ARRAY;
-      } else {
-        parentState = State.IS_PRIMITIVE;
-      }
       
-      // Emit parent metadata
       final boolean hasMetadata = withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData;
       if (hasMetadata) {
-        emitParentMetadata(rtx, parentState);
+        emitParentMetadata(rtx);
       } else {
         // No metadata mode - just emit value wrapper for consistency
         out.append("{\"value\":[");
@@ -457,7 +448,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
       // Move back to start node
       rtx.moveTo(startNodeKey);
     } else {
-      parentState = State.IS_PRIMITIVE;
       out.append("{\"value\":[");
     }
 
@@ -550,7 +540,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
     // Emit the parent wrapper manually to avoid the extra '{' that emitNode adds for OBJECT
     // which would conflict with separately serialized children
     if (hasMetadata) {
-      emitParentMetadata(rtx, state);
+      emitParentMetadata(rtx);
     } else {
       // No metadata - just emit the opening bracket
       if (state == State.IS_OBJECT) {
@@ -560,20 +550,23 @@ public final class JsonRecordSerializer implements Callable<Void> {
       }
     }
 
-    // Serialize children
-    if (rtx.hasFirstChild()) {
-      rtx.moveToFirstChild();
+    // Create builder for serialization
+    final JsonSerializer.Builder builder = new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions)
+        .serializeStartNodeWithBrackets(false)
+        .maxLevel(maxLevel)
+        .maxChildren(maxChildNodes)
+        .serializeTimestamp(serializeTimestamp)
+        .withMetaData(withMetaData)
+        .withNodeKeyAndChildCountMetaData(withNodeKeyAndChildNodeKeyMetaData)
+        .withNodeKeyMetaData(withNodeKeyMetaData)
+        .numberOfNodes(numberOfNodes);
 
-      // Create builder ONCE for all children
-      final JsonSerializer.Builder builder = new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions)
-          .serializeStartNodeWithBrackets(false)
-          .maxLevel(maxLevel)
-          .maxChildren(maxChildNodes)
-          .serializeTimestamp(serializeTimestamp)
-          .withMetaData(withMetaData)
-          .withNodeKeyAndChildCountMetaData(withNodeKeyAndChildNodeKeyMetaData)
-          .withNodeKeyMetaData(withNodeKeyMetaData)
-          .numberOfNodes(numberOfNodes);
+    // For primitives, serialize the node itself (not children, which don't exist)
+    if (state == State.IS_PRIMITIVE) {
+      builder.startNodeKey(rtx.getNodeKey()).build().call();
+    } else if (rtx.hasFirstChild()) {
+      // Serialize children for objects/arrays
+      rtx.moveToFirstChild();
 
       int count = 0;
       do {
@@ -610,24 +603,34 @@ public final class JsonRecordSerializer implements Callable<Void> {
     // Close parent structure
     if (state == State.IS_OBJECT) {
       if (hasMetadata) {
+        // Close {"metadata":{...},"value":[...]}
         out.append("]}");
       } else {
         out.append('}');
       }
     } else if (state == State.IS_ARRAY) {
       if (hasMetadata) {
+        // Close {"metadata":{...},"value":[...]}
         out.append("]}");
       } else {
         out.append(']');
       }
+    } else if (hasMetadata) {
+      // IS_PRIMITIVE with metadata: close {"metadata":{...},"value":[...]}
+      out.append("]}");
     }
   }
 
   /**
    * Emit parent node metadata wrapper.
    * Output format: {"metadata":{nodeKey:X,...},"value":[
+   * 
+   * Always uses array wrapper for value to ensure consistency between
+   * initial load and pagination responses.
+   *
+   * @param rtx the read-only transaction
    */
-  private void emitParentMetadata(final JsonNodeReadOnlyTrx rtx, final State state) throws IOException {
+  private void emitParentMetadata(final JsonNodeReadOnlyTrx rtx) throws IOException {
     out.append("{\"metadata\":{");
     
     // Node key
