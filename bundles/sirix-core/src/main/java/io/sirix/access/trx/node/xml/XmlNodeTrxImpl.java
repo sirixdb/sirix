@@ -1887,12 +1887,6 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
     return this;
   }
 
-  @Override
-  public XmlNodeTrx setBulkInsertion(boolean bulkInsertion) {
-    nodeHashing.setBulkInsert(bulkInsertion);
-    return this;
-  }
-
   @SuppressWarnings("resource")
   @Override
   public XmlNodeTrx replaceNode(final XmlNodeReadOnlyTrx rtx) {

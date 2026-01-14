@@ -226,6 +226,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @Override
   public W setBulkInsertion(final boolean bulkInsertion) {
     nodeHashing.setBulkInsert(bulkInsertion);
+    // When enabling bulk insertion with auto-committing transactions, we need to also
+    // enable autoCommit on nodeHashing so that hashes are computed during insertion.
+    // This is critical for the KotlinJsonStreamingShredder which calls setBulkInsertion(true)
+    // externally rather than going through insertSubtreeAsFirstChild().
+    if (bulkInsertion && isAutoCommitting) {
+      nodeHashing.setAutoCommit(true);
+    } else if (!bulkInsertion) {
+      // When disabling bulk insertion, also disable autoCommit on nodeHashing
+      nodeHashing.setAutoCommit(false);
+    }
     return self();
   }
 
