@@ -290,21 +290,16 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
                              prefixKey,
                              localNameKey);
       } else {
-        if (pathSummaryReader.getKind() == NodeKind.XML_DOCUMENT
-            || pathSummaryReader.getKind() == NodeKind.JSON_DOCUMENT) {
-          insertPathAsFirstChild(name, node.getKind(), 1);
-        } else {
-          /* The path summary just needs to be updated for the new renamed node. */
-          pathSummaryReader.moveTo(oldPathNodeKey);
-          final PathNode pathNode =
-              pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
-          pathNode.setPrefixKey(prefixKey);
-          pathNode.setLocalNameKey(localNameKey);
-          pathNode.setURIKey(uriKey);
-          pathNode.setName(name);
-          pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
-          pathSummaryReader.putQNameMapping(pathNode, name);
-        }
+        /* The path summary just needs to be updated for the new renamed node. */
+        pathSummaryReader.moveTo(oldPathNodeKey);
+        final PathNode pathNode =
+            pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
+        pathNode.setPrefixKey(prefixKey);
+        pathNode.setLocalNameKey(localNameKey);
+        pathNode.setURIKey(uriKey);
+        pathNode.setName(name);
+        pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+        pathSummaryReader.putQNameMapping(pathNode, name);
       }
     } else {
       int level = moveSummaryGetLevel(node);
