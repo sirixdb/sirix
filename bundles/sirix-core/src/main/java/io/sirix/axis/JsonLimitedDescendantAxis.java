@@ -27,9 +27,6 @@ import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 
-import java.io.FileWriter;
-import java.io.IOException;
-
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -46,15 +43,6 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger
  */
 public final class JsonLimitedDescendantAxis extends AbstractAxis {
-
-  // #region agent log
-  private static final String DEBUG_LOG_PATH = "/home/johannes/IdeaProjects/.cursor/debug.log";
-  private void debugLog(String message, String data) {
-    try (FileWriter fw = new FileWriter(DEBUG_LOG_PATH, true)) {
-      fw.write("{\"message\":\"AXIS-" + message + "\",\"data\":" + data + ",\"timestamp\":" + System.currentTimeMillis() + "}\n");
-    } catch (IOException e) { /* ignore */ }
-  }
-  // #endregion
 
   /** Maximum depth to traverse (0 = start node only) */
   private final int maxLevel;
@@ -199,9 +187,6 @@ public final class JsonLimitedDescendantAxis extends AbstractAxis {
       if (includeSelf() == IncludeSelf.YES) {
         level = 1;  // Start at level 1 (matches old algorithm)
         setChildCount(1, 1);
-        // #region agent log
-        debugLog("FIRST", "{\"nodeKey\":" + cursor.getNodeKey() + ",\"level\":1,\"maxLevel\":" + maxLevel + ",\"maxChildren\":" + maxChildren + ",\"hypothesisId\":\"A\"}");
-        // #endregion
         return cursor.getNodeKey();
       } else {
         // Skip start node, go to first child
