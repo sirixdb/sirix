@@ -125,7 +125,12 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
           emitRevisionStartNode(rtx);
           
-          rtx.moveTo(startNodeKey);
+          if (!rtx.moveTo(startNodeKey)) {
+            // startNodeKey points to a non-existent node - emit empty output and continue
+            LOGWRAPPER.debug("moveTo failed for startNodeKey {}, node does not exist", startNodeKey);
+            emitRevisionEndNode(rtx);
+            continue;
+          }
           
           // Handle JSON_DOCUMENT node specially - move to first child
           if (rtx.getKind() == NodeKind.JSON_DOCUMENT) {
