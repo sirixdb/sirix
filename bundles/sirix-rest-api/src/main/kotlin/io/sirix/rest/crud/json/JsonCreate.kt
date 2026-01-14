@@ -135,9 +135,9 @@ class JsonCreate(
         }
         
         // Auto-commit every N nodes to keep memory bounded during large imports
-        // Default: ~4.7M nodes - same as JsonShredderTest for Chicago dataset
+        // Default: ~4.5M nodes - same as JsonShredderTest for Chicago dataset
         // Smaller values cause frequent commits which trigger cache eviction blocking
-        val maxNodes = ctx.queryParam("maxNodes").getOrNull(0)?.toIntOrNull() ?: ((262_144 shl 3) + 262_144)
+        val maxNodes = ctx.queryParam("maxNodes").getOrNull(0)?.toIntOrNull() ?: ((262_144 shl 4) + 262_144)
 
         val wtx = manager.beginNodeTrx(maxNodes)
         return wtx.use {
