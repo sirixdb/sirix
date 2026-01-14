@@ -453,6 +453,22 @@ public final class JsonSerializerTest {
   }
 
   @Test
+  public void testArrayWithNumberOfNodesEmitsExactLimit() throws IOException {
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx();
+         final Writer writer = new StringWriter()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2]"));
+      wtx.commit();
+
+      final var serializer = new JsonSerializer.Builder(manager, writer).numberOfNodes(2).build();
+      serializer.call();
+
+      assertEquals("[1]", writer.toString());
+    }
+  }
+
+  @Test
   public void testJsonDocumentWithMaxLevelAndNumberOfNodes() throws IOException {
     JsonTestHelper.createTestDocument();
 
@@ -557,19 +573,19 @@ public final class JsonSerializerTest {
 
       var serializedString = getSerializedStringWithMaxLevelAndNumberOfNodesAndStartNodeKey(manager, 2, level + 1, 3);
       var expected = """
-          {"foo":[]}
+          {"foo":["bar"]}
           """.trim();
       assertEquals(expected, serializedString);
 
       serializedString = getSerializedStringWithMaxLevelAndNumberOfNodesAndStartNodeKey(manager, 2, level + 1, 4);
       expected = """
-          {"foo":["bar"]}
+          {"foo":["bar",null]}
           """.trim();
       assertEquals(expected, serializedString);
 
       serializedString = getSerializedStringWithMaxLevelAndNumberOfNodesAndStartNodeKey(manager, 2, level + 1, 5);
       expected = """
-          {"foo":["bar",null]}
+          {"foo":["bar",null,2.33]}
           """.trim();
       assertEquals(expected, serializedString);
 
@@ -608,7 +624,7 @@ public final class JsonSerializerTest {
       var serializedString =
           getSerializedStringWithMaxLevelAndNumberOfNodesAndMaxChildrenAndStartNodeKey(manager, 2, level, 3, 1);
       var expected = """
-          {"foo":[]}
+          {"foo":["bar"]}
           """.trim();
       assertEquals(expected, serializedString);
 
