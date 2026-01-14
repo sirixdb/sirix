@@ -475,35 +475,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     requireNonNull(timeUnit);
 
     // Make sure not to exceed available number of write transactions.
+    // The writeLock is shared across ALL ResourceSession instances for the same resource
+    // (via WriteLocksRegistry), so we cannot detect orphaned locks by checking only this
+    // session's transaction maps - another session may legitimately hold the lock.
     try {
       if (!writeLock.tryAcquire(5, TimeUnit.SECONDS)) {
-        // Check if this is an orphaned lock situation (lock held but no transaction tracked)
-        // Must check both nodeTrxMap (for NodeTrx instances) and pageTrxMap (for StorageEngineWriter instances)
-        // since beginPageTrx also acquires the writeLock and stores transactions in pageTrxMap
-        final boolean hasTrackedNodeTrx = nodeTrxMap.values().stream()
-            .anyMatch(NodeTrx.class::isInstance);
-        final boolean hasTrackedPageWriteTrx = pageTrxMap.values().stream()
-            .anyMatch(StorageEngineWriter.class::isInstance);
-        final boolean hasTrackedTransaction = hasTrackedNodeTrx || hasTrackedPageWriteTrx;
-        
-        if (!hasTrackedTransaction) {
-          // Orphaned lock detected - the lock is held but no transaction exists
-          // This can happen if a transaction was closed improperly (e.g., exception during close)
-          LOGGER.warn("Orphaned write lock detected - releasing lock and retrying. " +
-              "This may indicate a previous transaction was not properly closed.");
-          
-          // Force release the orphaned lock
-          writeLock.release();
-          
-          // Try to acquire again
-          if (!writeLock.tryAcquire(5, TimeUnit.SECONDS)) {
-            throw new SirixUsageException(
-                "No read-write transaction available, please close the running read-write transaction first.");
-          }
-        } else {
-          throw new SirixUsageException(
-              "No read-write transaction available, please close the running read-write transaction first.");
-        }
+        throw new SirixUsageException(
+            "No read-write transaction available, please close the running read-write transaction first.");
       }
     } catch (final InterruptedException e) {
       throw new SirixThreadedException(e);
