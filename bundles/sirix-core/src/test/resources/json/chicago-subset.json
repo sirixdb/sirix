@@ -1,0 +1,2102 @@
+{
+  "meta" : {
+    "view" : {
+      "id" : "ijzp-q8t2",
+      "name" : "Crimes - 2001 to present",
+      "attribution" : "Chicago Police Department",
+      "attributionLink" : "https://portal.chicagopolice.org/portal/page/portal/ClearPath",
+      "averageRating" : 0,
+      "category" : "Public Safety",
+      "createdAt" : 1317405571,
+      "description" : "This dataset reflects reported incidents of crime (with the exception of murders where data exists for each victim) that occurred in the City of Chicago from 2001 to present, minus the most recent seven days. Data is extracted from the Chicago Police Department's CLEAR (Citizen Law Enforcement Analysis and Reporting) system. In order to protect the privacy of crime victims, addresses are shown at the block level only and specific locations are not identified. Should you have questions about this dataset, you may contact the Research & Development Division of the Chicago Police Department at PSITAdministration@ChicagoPolice.org.  Disclaimer: These crimes may be based upon preliminary information supplied to the Police Department by the reporting parties that have not been verified. The preliminary crime classifications may be changed at a later date based upon additional investigation and there is always the possibility of mechanical or human error. Therefore, the Chicago Police Department does not guarantee (either expressed or implied) the accuracy, completeness, timeliness, or correct sequencing of the information and the information should not be used for comparison purposes over time. The Chicago Police Department will not be responsible for any error or omission, or for the use of, or the results obtained from the use of this information. All data visualizations on maps should be considered approximate and attempts to derive specific addresses are strictly prohibited. The Chicago Police Department is not responsible for the content of any off-site pages that are referenced by or that reference this web page other than an official City of Chicago or Chicago Police Department web page. The user specifically acknowledges that the Chicago Police Department is not responsible for any defamatory, offensive, misleading, or illegal conduct of other users, links, or third parties and that the risk of injury from the foregoing rests entirely with the user.  The unauthorized use of the words \"Chicago Police Department,\" \"Chicago Police,\" or any colorable imitation of these words or the unauthorized use of the Chicago Police Department logo is unlawful. This web page does not, in any way, authorize such use. Data are updated daily. To access a list of Chicago Police Department - Illinois Uniform Crime Reporting (IUCR) codes, go to http://data.cityofchicago.org/Public-Safety/Chicago-Police-Department-Illinois-Uniform-Crime-R/c7ck-438e",
+      "displayType" : "table",
+      "downloadCount" : 551748,
+      "hideFromCatalog" : false,
+      "hideFromDataJson" : false,
+      "indexUpdatedAt" : 1555502288,
+      "licenseId" : "SEE_TERMS_OF_USE",
+      "newBackend" : true,
+      "numberOfComments" : 0,
+      "oid" : 21515155,
+      "provenance" : "official",
+      "publicationAppendEnabled" : false,
+      "publicationDate" : 1465420961,
+      "publicationGroup" : 239997,
+      "publicationStage" : "published",
+      "resourceName" : "crimes",
+      "rowClass" : "",
+      "rowIdentifierColumnId" : 258138724,
+      "rowsUpdatedAt" : 1579522325,
+      "rowsUpdatedBy" : "n9j5-zhen",
+      "tableId" : 11209420,
+      "totalTimesRated" : 0,
+      "viewCount" : 543993,
+      "viewLastModified" : 1562866511,
+      "viewType" : "tabular",
+      "approvals" : [ {
+        "reviewedAt" : 1465420961,
+        "reviewedAutomatically" : true,
+        "state" : "approved",
+        "submissionId" : 941873,
+        "submissionObject" : "public_audience_request",
+        "submissionOutcome" : "change_audience",
+        "submittedAt" : 1465420961,
+        "workflowId" : 2226,
+        "submissionDetails" : {
+          "permissionType" : "READ"
+        },
+        "submissionOutcomeApplication" : {
+          "failureCount" : 0,
+          "status" : "success"
+        },
+        "submitter" : {
+          "id" : "scy9-9wg4",
+          "displayName" : "cocadmin"
+        }
+      } ],
+      "columns" : [ {
+        "id" : -1,
+        "name" : "sid",
+        "dataTypeName" : "meta_data",
+        "fieldName" : ":sid",
+        "position" : 0,
+        "renderTypeName" : "meta_data",
+        "format" : { },
+        "flags" : [ "hidden" ]
+      }, {
+        "id" : -1,
+        "name" : "id",
+        "dataTypeName" : "meta_data",
+        "fieldName" : ":id",
+        "position" : 0,
+        "renderTypeName" : "meta_data",
+        "format" : { },
+        "flags" : [ "hidden" ]
+      }, {
+        "id" : -1,
+        "name" : "position",
+        "dataTypeName" : "meta_data",
+        "fieldName" : ":position",
+        "position" : 0,
+        "renderTypeName" : "meta_data",
+        "format" : { },
+        "flags" : [ "hidden" ]
+      }, {
+        "id" : -1,
+        "name" : "created_at",
+        "dataTypeName" : "meta_data",
+        "fieldName" : ":created_at",
+        "position" : 0,
+        "renderTypeName" : "meta_data",
+        "format" : { },
+        "flags" : [ "hidden" ]
+      }, {
+        "id" : -1,
+        "name" : "created_meta",
+        "dataTypeName" : "meta_data",
+        "fieldName" : ":created_meta",
+        "position" : 0,
+        "renderTypeName" : "meta_data",
+        "format" : { },
+        "flags" : [ "hidden" ]
+      }, {
+        "id" : -1,
+        "name" : "updated_at",
+        "dataTypeName" : "meta_data",
+        "fieldName" : ":updated_at",
+        "position" : 0,
+        "renderTypeName" : "meta_data",
+        "format" : { },
+        "flags" : [ "hidden" ]
+      }, {
+        "id" : -1,
+        "name" : "updated_meta",
+        "dataTypeName" : "meta_data",
+        "fieldName" : ":updated_meta",
+        "position" : 0,
+        "renderTypeName" : "meta_data",
+        "format" : { },
+        "flags" : [ "hidden" ]
+      }, {
+        "id" : -1,
+        "name" : "meta",
+        "dataTypeName" : "meta_data",
+        "fieldName" : ":meta",
+        "position" : 0,
+        "renderTypeName" : "meta_data",
+        "format" : { },
+        "flags" : [ "hidden" ]
+      }, {
+        "id" : 258138724,
+        "name" : "ID",
+        "dataTypeName" : "number",
+        "description" : "Unique identifier for the record.",
+        "fieldName" : "id",
+        "position" : 1,
+        "renderTypeName" : "number",
+        "tableColumnId" : 2154841,
+        "width" : 100,
+        "cachedContents" : {
+          "largest" : "11955832",
+          "non_null" : "7052124",
+          "average" : "6301596.971835348",
+          "null" : "0",
+          "top" : [ {
+            "item" : "635",
+            "count" : "1"
+          }, {
+            "item" : "636",
+            "count" : "1"
+          }, {
+            "item" : "637",
+            "count" : "1"
+          }, {
+            "item" : "638",
+            "count" : "1"
+          }, {
+            "item" : "639",
+            "count" : "1"
+          }, {
+            "item" : "640",
+            "count" : "1"
+          }, {
+            "item" : "641",
+            "count" : "1"
+          }, {
+            "item" : "642",
+            "count" : "1"
+          }, {
+            "item" : "643",
+            "count" : "1"
+          }, {
+            "item" : "644",
+            "count" : "1"
+          }, {
+            "item" : "645",
+            "count" : "1"
+          }, {
+            "item" : "646",
+            "count" : "1"
+          }, {
+            "item" : "647",
+            "count" : "1"
+          }, {
+            "item" : "648",
+            "count" : "1"
+          }, {
+            "item" : "649",
+            "count" : "1"
+          }, {
+            "item" : "650",
+            "count" : "1"
+          }, {
+            "item" : "651",
+            "count" : "1"
+          }, {
+            "item" : "652",
+            "count" : "1"
+          }, {
+            "item" : "653",
+            "count" : "1"
+          }, {
+            "item" : "654",
+            "count" : "1"
+          } ],
+          "smallest" : "634",
+          "not_null" : "7016057",
+          "sum" : "43138672246975",
+          "cardinality" : "7052124"
+        },
+        "format" : {
+          "precisionStyle" : "standard",
+          "noCommas" : "true",
+          "align" : "right"
+        }
+      }, {
+        "id" : 258138725,
+        "name" : "Case Number",
+        "dataTypeName" : "text",
+        "description" : "The Chicago Police Department RD Number (Records Division Number), which is unique to the incident. ",
+        "fieldName" : "case_number",
+        "position" : 2,
+        "renderTypeName" : "text",
+        "tableColumnId" : 1514295,
+        "width" : 134,
+        "cachedContents" : {
+          "largest" : "ZZZ199957",
+          "non_null" : "7052120",
+          "null" : "4",
+          "top" : [ {
+            "item" : "HJ590004",
+            "count" : "6"
+          }, {
+            "item" : "HZ140230",
+            "count" : "6"
+          }, {
+            "item" : "JC470284",
+            "count" : "5"
+          }, {
+            "item" : "HS256531",
+            "count" : "5"
+          }, {
+            "item" : "HP296582",
+            "count" : "5"
+          }, {
+            "item" : "HY346207",
+            "count" : "4"
+          }, {
+            "item" : "HZ554936",
+            "count" : "4"
+          }, {
+            "item" : "JA206252",
+            "count" : "4"
+          }, {
+            "item" : "HJ756295",
+            "count" : "4"
+          }, {
+            "item" : "JA432970",
+            "count" : "4"
+          }, {
+            "item" : "HZ403466",
+            "count" : "4"
+          }, {
+            "item" : "HS496074",
+            "count" : "4"
+          }, {
+            "item" : "HJ104730",
+            "count" : "4"
+          }, {
+            "item" : "HN217726",
+            "count" : "4"
+          }, {
+            "item" : "HZ564892",
+            "count" : "3"
+          }, {
+            "item" : "HZ408788",
+            "count" : "3"
+          }, {
+            "item" : "HS325550",
+            "count" : "3"
+          }, {
+            "item" : "HK172551",
+            "count" : "3"
+          }, {
+            "item" : "HJ528074",
+            "count" : "3"
+          }, {
+            "item" : "HS313197",
+            "count" : "3"
+          } ],
+          "smallest" : "01G050460",
+          "not_null" : "7016053",
+          "cardinality" : "7051693"
+        },
+        "format" : {
+          "displayStyle" : "plain",
+          "align" : "left",
+          "aggregate" : "count"
+        }
+      }, {
+        "id" : 258138726,
+        "name" : "Date",
+        "dataTypeName" : "calendar_date",
+        "description" : "Date when the incident occurred. this is sometimes a best estimate. ",
+        "fieldName" : "date",
+        "position" : 3,
+        "renderTypeName" : "calendar_date",
+        "tableColumnId" : 1514296,
+        "width" : 148,
+        "cachedContents" : {
+          "largest" : "2020-01-12T23:50:00.000",
+          "non_null" : "7052124",
+          "null" : "0",
+          "top" : [ {
+            "item" : "2008-01-01T00:01:00.000",
+            "count" : "296"
+          }, {
+            "item" : "2007-01-01T00:01:00.000",
+            "count" : "253"
+          }, {
+            "item" : "2006-01-01T00:01:00.000",
+            "count" : "226"
+          }, {
+            "item" : "2003-01-01T00:01:00.000",
+            "count" : "213"
+          }, {
+            "item" : "2004-01-01T00:00:00.000",
+            "count" : "213"
+          }, {
+            "item" : "2005-01-01T00:01:00.000",
+            "count" : "210"
+          }, {
+            "item" : "2007-01-01T00:00:00.000",
+            "count" : "205"
+          }, {
+            "item" : "2003-01-01T00:00:00.000",
+            "count" : "205"
+          }, {
+            "item" : "2009-01-01T00:01:00.000",
+            "count" : "197"
+          }, {
+            "item" : "2012-01-01T00:01:00.000",
+            "count" : "192"
+          }, {
+            "item" : "2001-01-01T00:00:00.000",
+            "count" : "191"
+          }, {
+            "item" : "2005-01-01T00:00:00.000",
+            "count" : "184"
+          }, {
+            "item" : "2015-01-01T00:01:00.000",
+            "count" : "183"
+          }, {
+            "item" : "2004-01-01T00:01:00.000",
+            "count" : "174"
+          }, {
+            "item" : "2006-01-01T00:00:00.000",
+            "count" : "174"
+          }, {
+            "item" : "2002-01-01T00:01:00.000",
+            "count" : "172"
+          }, {
+            "item" : "2008-01-01T00:00:00.000",
+            "count" : "169"
+          }, {
+            "item" : "2009-01-01T00:00:00.000",
+            "count" : "166"
+          }, {
+            "item" : "2016-01-01T00:01:00.000",
+            "count" : "162"
+          }, {
+            "item" : "2010-01-01T00:01:00.000",
+            "count" : "161"
+          } ],
+          "smallest" : "2001-01-01T00:00:00.000",
+          "not_null" : "7016057",
+          "cardinality" : "2847481"
+        },
+        "format" : {
+          "view" : "date_time",
+          "align" : "left"
+        }
+      }, {
+        "id" : 258138727,
+        "name" : "Block",
+        "dataTypeName" : "text",
+        "description" : "The partially redacted address where the incident occurred, placing it on the same block as the actual address. ",
+        "fieldName" : "block",
+        "position" : 4,
+        "renderTypeName" : "text",
+        "tableColumnId" : 1514297,
+        "width" : 160,
+        "cachedContents" : {
+          "largest" : "XX  UNKNOWN",
+          "non_null" : "7052124",
+          "null" : "0",
+          "top" : [ {
+            "item" : "100XX W OHARE ST",
+            "count" : "15595"
+          }, {
+            "item" : "001XX N STATE ST",
+            "count" : "13544"
+          }, {
+            "item" : "076XX S CICERO AVE",
+            "count" : "9557"
+          }, {
+            "item" : "008XX N MICHIGAN AVE",
+            "count" : "8907"
+          }, {
+            "item" : "0000X N STATE ST",
+            "count" : "8376"
+          }, {
+            "item" : "064XX S DR MARTIN LUTHER KING JR DR",
+            "count" : "5253"
+          }, {
+            "item" : "023XX S STATE ST",
+            "count" : "5220"
+          }, {
+            "item" : "063XX S DR MARTIN LUTHER KING JR DR",
+            "count" : "5152"
+          }, {
+            "item" : "0000X W TERMINAL ST",
+            "count" : "5112"
+          }, {
+            "item" : "001XX W 87TH ST",
+            "count" : "4311"
+          }, {
+            "item" : "008XX N STATE ST",
+            "count" : "4179"
+          }, {
+            "item" : "022XX S STATE ST",
+            "count" : "3997"
+          }, {
+            "item" : "0000X S STATE ST",
+            "count" : "3907"
+          }, {
+            "item" : "006XX N MICHIGAN AVE",
+            "count" : "3866"
+          }, {
+            "item" : "012XX S WABASH AVE",
+            "count" : "3860"
+          }, {
+            "item" : "009XX W BELMONT AVE",
+            "count" : "3730"
+          }, {
+            "item" : "057XX S CICERO AVE",
+            "count" : "3586"
+          }, {
+            "item" : "038XX W ROOSEVELT RD",
+            "count" : "3521"
+          }, {
+            "item" : "002XX W 87TH ST",
+            "count" : "3449"
+          }, {
+            "item" : "011XX W WILSON AVE",
+            "count" : "3428"
+          } ],
+          "smallest" : "0000X E 100 PL",
+          "not_null" : "7016057",
+          "cardinality" : "60720"
+        },
+        "format" : {
+          "displayStyle" : "plain",
+          "align" : "left"
+        }
+      }, {
+        "id" : 258138728,
+        "name" : "IUCR",
+        "dataTypeName" : "text",
+        "description" : "The Illinois Unifrom Crime Reporting code. This is directly linked to the Primary Type and Description. See the list of IUCR codes at https://data.cityofchicago.org/d/c7ck-438e.",
+        "fieldName" : "iucr",
+        "position" : 5,
+        "renderTypeName" : "text",
+        "tableColumnId" : 1514298,
+        "width" : 148,
+        "cachedContents" : {
+          "largest" : "9901",
+          "non_null" : "7052124",
+          "null" : "0",
+          "top" : [ {
+            "item" : "0820",
+            "count" : "574075"
+          }, {
+            "item" : "0486",
+            "count" : "544712"
+          }, {
+            "item" : "0460",
+            "count" : "521647"
+          }, {
+            "item" : "1320",
+            "count" : "376692"
+          }, {
+            "item" : "1310",
+            "count" : "369829"
+          }, {
+            "item" : "0810",
+            "count" : "365553"
+          }, {
+            "item" : "0560",
+            "count" : "306491"
+          }, {
+            "item" : "1811",
+            "count" : "278068"
+          }, {
+            "item" : "0610",
+            "count" : "269622"
+          }, {
+            "item" : "0910",
+            "count" : "255549"
+          }, {
+            "item" : "0890",
+            "count" : "239254"
+          }, {
+            "item" : "0860",
+            "count" : "179836"
+          }, {
+            "item" : "2820",
+            "count" : "138680"
+          }, {
+            "item" : "1330",
+            "count" : "124516"
+          }, {
+            "item" : "2027",
+            "count" : "120878"
+          }, {
+            "item" : "0620",
+            "count" : "106992"
+          }, {
+            "item" : "2825",
+            "count" : "103405"
+          }, {
+            "item" : "2024",
+            "count" : "95287"
+          }, {
+            "item" : "031A",
+            "count" : "93765"
+          }, {
+            "item" : "0320",
+            "count" : "91977"
+          } ],
+          "smallest" : "0110",
+          "not_null" : "7016057",
+          "cardinality" : "403"
+        },
+        "format" : {
+          "displayStyle" : "plain",
+          "align" : "left"
+        }
+      }, {
+        "id" : 258138729,
+        "name" : "Primary Type",
+        "dataTypeName" : "text",
+        "description" : "The primary description of the IUCR code.",
+        "fieldName" : "primary_type",
+        "position" : 6,
+        "renderTypeName" : "text",
+        "tableColumnId" : 1514299,
+        "width" : 244,
+        "cachedContents" : {
+          "largest" : "WEAPONS VIOLATION",
+          "non_null" : "7052124",
+          "null" : "0",
+          "top" : [ {
+            "item" : "THEFT",
+            "count" : "1491195"
+          }, {
+            "item" : "BATTERY",
+            "count" : "1289289"
+          }, {
+            "item" : "CRIMINAL DAMAGE",
+            "count" : "802364"
+          }, {
+            "item" : "NARCOTICS",
+            "count" : "727720"
+          }, {
+            "item" : "ASSAULT",
+            "count" : "442217"
+          }, {
+            "item" : "OTHER OFFENSE",
+            "count" : "438070"
+          }, {
+            "item" : "BURGLARY",
+            "count" : "399469"
+          }, {
+            "item" : "MOTOR VEHICLE THEFT",
+            "count" : "324829"
+          }, {
+            "item" : "DECEPTIVE PRACTICE",
+            "count" : "285849"
+          }, {
+            "item" : "ROBBERY",
+            "count" : "265219"
+          }, {
+            "item" : "CRIMINAL TRESPASS",
+            "count" : "201282"
+          }, {
+            "item" : "WEAPONS VIOLATION",
+            "count" : "77929"
+          }, {
+            "item" : "PROSTITUTION",
+            "count" : "69097"
+          }, {
+            "item" : "PUBLIC PEACE VIOLATION",
+            "count" : "49537"
+          }, {
+            "item" : "OFFENSE INVOLVING CHILDREN",
+            "count" : "48316"
+          }, {
+            "item" : "CRIM SEXUAL ASSAULT",
+            "count" : "29204"
+          }, {
+            "item" : "SEX OFFENSE",
+            "count" : "26685"
+          }, {
+            "item" : "INTERFERENCE WITH PUBLIC OFFICER",
+            "count" : "16889"
+          }, {
+            "item" : "GAMBLING",
+            "count" : "14571"
+          }, {
+            "item" : "LIQUOR LAW VIOLATION",
+            "count" : "14325"
+          } ],
+          "smallest" : "ARSON",
+          "not_null" : "7016057",
+          "cardinality" : "35"
+        },
+        "format" : {
+          "displayStyle" : "plain",
+          "align" : "left"
+        }
+      }, {
+        "id" : 258138730,
+        "name" : "Description",
+        "dataTypeName" : "text",
+        "description" : "The secondary description of the IUCR code, a subcategory of the primary description.",
+        "fieldName" : "description",
+        "position" : 7,
+        "renderTypeName" : "text",
+        "tableColumnId" : 1514300,
+        "width" : 298,
+        "cachedContents" : {
+          "largest" : "WIREROOM/SPORTS",
+          "non_null" : "7052124",
+          "null" : "0",
+          "top" : [ {
+            "item" : "SIMPLE",
+            "count" : "831175"
+          }, {
+            "item" : "$500 AND UNDER",
+            "count" : "574060"
+          }, {
+            "item" : "DOMESTIC BATTERY SIMPLE",
+            "count" : "544712"
+          }, {
+            "item" : "TO VEHICLE",
+            "count" : "389730"
+          }, {
+            "item" : "TO PROPERTY",
+            "count" : "369829"
+          }, {
+            "item" : "OVER $500",
+            "count" : "365540"
+          }, {
+            "item" : "POSS: CANNABIS 30GMS OR LESS",
+            "count" : "278068"
+          }, {
+            "item" : "FORCIBLE ENTRY",
+            "count" : "269622"
+          }, {
+            "item" : "AUTOMOBILE",
+            "count" : "255549"
+          }, {
+            "item" : "FROM BUILDING",
+            "count" : "239254"
+          }, {
+            "item" : "RETAIL THEFT",
+            "count" : "179836"
+          }, {
+            "item" : "TELEPHONE THREAT",
+            "count" : "138680"
+          }, {
+            "item" : "TO LAND",
+            "count" : "124516"
+          }, {
+            "item" : "POSS: CRACK",
+            "count" : "120878"
+          }, {
+            "item" : "UNLAWFUL ENTRY",
+            "count" : "106992"
+          }, {
+            "item" : "HARASSMENT BY TELEPHONE",
+            "count" : "103405"
+          }, {
+            "item" : "AGGRAVATED: OTHER DANG WEAPON",
+            "count" : "96570"
+          }, {
+            "item" : "POSS: HEROIN(WHITE)",
+            "count" : "95287"
+          }, {
+            "item" : "ARMED: HANDGUN",
+            "count" : "93765"
+          }, {
+            "item" : "STRONGARM - NO WEAPON",
+            "count" : "91977"
+          } ],
+          "smallest" : "$300 AND UNDER",
+          "not_null" : "7016057",
+          "cardinality" : "381"
+        },
+        "format" : {
+          "displayStyle" : "plain",
+          "align" : "left"
+        }
+      }, {
+        "id" : 258138731,
+        "name" : "Location Description",
+        "dataTypeName" : "text",
+        "description" : "Description of the location where the incident occurred.",
+        "fieldName" : "location_description",
+        "position" : 8,
+        "renderTypeName" : "text",
+        "tableColumnId" : 1514301,
+        "width" : 340,
+        "cachedContents" : {
+          "largest" : "YMCA",
+          "non_null" : "7046013",
+          "null" : "6111",
+          "top" : [ {
+            "item" : "STREET",
+            "count" : "1836326"
+          }, {
+            "item" : "RESIDENCE",
+            "count" : "1193973"
+          }, {
+            "item" : "APARTMENT",
+            "count" : "738524"
+          }, {
+            "item" : "SIDEWALK",
+            "count" : "688533"
+          }, {
+            "item" : "OTHER",
+            "count" : "269145"
+          }, {
+            "item" : "PARKING LOT/GARAGE(NON.RESID.)",
+            "count" : "202441"
+          }, {
+            "item" : "ALLEY",
+            "count" : "156698"
+          }, {
+            "item" : "SCHOOL, PUBLIC, BUILDING",
+            "count" : "145923"
+          }, {
+            "item" : "RESIDENCE-GARAGE",
+            "count" : "135386"
+          }, {
+            "item" : "SMALL RETAIL STORE",
+            "count" : "127442"
+          }, {
+            "item" : "RESIDENCE PORCH/HALLWAY",
+            "count" : "123766"
+          }, {
+            "item" : "VEHICLE NON-COMMERCIAL",
+            "count" : "113788"
+          }, {
+            "item" : "RESTAURANT",
+            "count" : "113778"
+          }, {
+            "item" : "GROCERY FOOD STORE",
+            "count" : "91248"
+          }, {
+            "item" : "DEPARTMENT STORE",
+            "count" : "89386"
+          }, {
+            "item" : "GAS STATION",
+            "count" : "76290"
+          }, {
+            "item" : "RESIDENTIAL YARD (FRONT/BACK)",
+            "count" : "74899"
+          }, {
+            "item" : "CHA PARKING LOT/GROUNDS",
+            "count" : "56081"
+          }, {
+            "item" : "PARK PROPERTY",
+            "count" : "54180"
+          }, {
+            "item" : "COMMERCIAL / BUSINESS OFFICE",
+            "count" : "51147"
+          } ],
+          "smallest" : "ABANDONED BUILDING",
+          "not_null" : "7010180",
+          "cardinality" : "180"
+        },
+        "format" : {
+          "displayStyle" : "plain",
+          "align" : "left"
+        }
+      }, {
+        "id" : 258138732,
+        "name" : "Arrest",
+        "dataTypeName" : "checkbox",
+        "description" : "Indicates whether an arrest was made.",
+        "fieldName" : "arrest",
+        "position" : 9,
+        "renderTypeName" : "checkbox",
+        "tableColumnId" : 1514302,
+        "width" : 106,
+        "cachedContents" : {
+          "non_null" : "7052124",
+          "null" : "0",
+          "top" : [ {
+            "item" : false,
+            "count" : "5115376"
+          }, {
+            "item" : true,
+            "count" : "1936748"
+          } ],
+          "not_null" : "7016057",
+          "cardinality" : "2"
+        },
+        "format" : {
+          "align" : "center"
+        }
+      }, {
+        "id" : 258138733,
+        "name" : "Domestic",
+        "dataTypeName" : "checkbox",
+        "description" : "Indicates whether the incident was domestic-related as defined by the Illinois Domestic Violence Act.",
+        "fieldName" : "domestic",
+        "position" : 10,
+        "renderTypeName" : "checkbox",
+        "tableColumnId" : 1514303,
+        "width" : 127,
+        "cachedContents" : {
+          "non_null" : "7052124",
+          "null" : "0",
+          "top" : [ {
+            "item" : false,
+            "count" : "6116272"
+          }, {
+            "item" : true,
+            "count" : "935852"
+          } ],
+          "not_null" : "7016057",
+          "cardinality" : "2"
+        },
+        "format" : {
+          "align" : "center"
+        }
+      }, {
+        "id" : 258138734,
+        "name" : "Beat",
+        "dataTypeName" : "text",
+        "description" : "Indicates the beat where the incident occurred.  A beat is the smallest police geographic area – each beat has a dedicated police beat car.  Three to five beats make up a police sector, and three sectors make up a police district.  The Chicago Police Department has 22 police districts.  \n\nSee the beats at https://data.cityofchicago.org/d/aerh-rz74.\n",
+        "fieldName" : "beat",
+        "position" : 11,
+        "renderTypeName" : "text",
+        "tableColumnId" : 1514304,
+        "width" : 148,
+        "cachedContents" : {
+          "largest" : "2535",
+          "non_null" : "7052124",
+          "null" : "0",
+          "top" : [ {
+            "item" : "0423",
+            "count" : "54843"
+          }, {
+            "item" : "0421",
+            "count" : "54108"
+          }, {
+            "item" : "0624",
+            "count" : "49031"
+          }, {
+            "item" : "1533",
+            "count" : "47749"
+          }, {
+            "item" : "0511",
+            "count" : "47747"
+          }, {
+            "item" : "1112",
+            "count" : "47639"
+          }, {
+            "item" : "1834",
+            "count" : "47448"
+          }, {
+            "item" : "0823",
+            "count" : "46904"
+          }, {
+            "item" : "0414",
+            "count" : "44491"
+          }, {
+            "item" : "1522",
+            "count" : "44317"
+          }, {
+            "item" : "2533",
+            "count" : "43564"
+          }, {
+            "item" : "0621",
+            "count" : "42919"
+          }, {
+            "item" : "0612",
+            "count" : "42040"
+          }, {
+            "item" : "0321",
+            "count" : "41377"
+          }, {
+            "item" : "0825",
+            "count" : "41231"
+          }, {
+            "item" : "0522",
+            "count" : "40094"
+          }, {
+            "item" : "0713",
+            "count" : "40064"
+          }, {
+            "item" : "0512",
+            "count" : "39820"
+          }, {
+            "item" : "0631",
+            "count" : "39254"
+          }, {
+            "item" : "1532",
+            "count" : "39092"
+          } ],
+          "smallest" : "0111",
+          "not_null" : "7016057",
+          "cardinality" : "304"
+        },
+        "format" : {
+          "displayStyle" : "plain",
+          "align" : "left"
+        }
+      }, {
+        "id" : 258138735,
+        "name" : "District",
+        "dataTypeName" : "text",
+        "description" : "Indicates the police district where the incident occurred.  See the districts at https://data.cityofchicago.org/d/fthy-xz3r.",
+        "fieldName" : "district",
+        "position" : 12,
+        "renderTypeName" : "text",
+        "tableColumnId" : 5086344,
+        "width" : 100,
+        "cachedContents" : {
+          "largest" : "031",
+          "non_null" : "7052077",
+          "null" : "47",
+          "top" : [ {
+            "item" : "008",
+            "count" : "477545"
+          }, {
+            "item" : "011",
+            "count" : "453096"
+          }, {
+            "item" : "007",
+            "count" : "414624"
+          }, {
+            "item" : "006",
+            "count" : "408297"
+          }, {
+            "item" : "025",
+            "count" : "404876"
+          }, {
+            "item" : "004",
+            "count" : "399041"
+          }, {
+            "item" : "003",
+            "count" : "357580"
+          }, {
+            "item" : "009",
+            "count" : "348384"
+          }, {
+            "item" : "012",
+            "count" : "345789"
+          }, {
+            "item" : "002",
+            "count" : "333681"
+          }, {
+            "item" : "019",
+            "count" : "314640"
+          }, {
+            "item" : "018",
+            "count" : "314325"
+          }, {
+            "item" : "005",
+            "count" : "312446"
+          }, {
+            "item" : "015",
+            "count" : "306273"
+          }, {
+            "item" : "010",
+            "count" : "303126"
+          }, {
+            "item" : "001",
+            "count" : "280210"
+          }, {
+            "item" : "014",
+            "count" : "277134"
+          }, {
+            "item" : "016",
+            "count" : "233066"
+          }, {
+            "item" : "022",
+            "count" : "230804"
+          }, {
+            "item" : "024",
+            "count" : "210453"
+          } ],
+          "smallest" : "001",
+          "not_null" : "7016010",
+          "cardinality" : "24"
+        },
+        "format" : {
+          "displayStyle" : "plain",
+          "align" : "left"
+        }
+      }, {
+        "id" : 258138736,
+        "name" : "Ward",
+        "dataTypeName" : "number",
+        "description" : "The ward (City Council district) where the incident occurred.  See the wards at https://data.cityofchicago.org/d/sp34-6z76.",
+        "fieldName" : "ward",
+        "position" : 13,
+        "renderTypeName" : "number",
+        "tableColumnId" : 1514305,
+        "width" : 148,
+        "cachedContents" : {
+          "largest" : "50",
+          "non_null" : "6437294",
+          "average" : "22.68735103335168",
+          "null" : "614830",
+          "top" : [ {
+            "item" : "28",
+            "count" : "294879"
+          }, {
+            "item" : "42",
+            "count" : "265281"
+          }, {
+            "item" : "24",
+            "count" : "254017"
+          }, {
+            "item" : "2",
+            "count" : "243473"
+          }, {
+            "item" : "27",
+            "count" : "236924"
+          }, {
+            "item" : "17",
+            "count" : "214629"
+          }, {
+            "item" : "20",
+            "count" : "212083"
+          }, {
+            "item" : "6",
+            "count" : "209183"
+          }, {
+            "item" : "3",
+            "count" : "196521"
+          }, {
+            "item" : "21",
+            "count" : "194514"
+          }, {
+            "item" : "16",
+            "count" : "185458"
+          }, {
+            "item" : "34",
+            "count" : "180905"
+          }, {
+            "item" : "15",
+            "count" : "174951"
+          }, {
+            "item" : "8",
+            "count" : "174080"
+          }, {
+            "item" : "37",
+            "count" : "173610"
+          }, {
+            "item" : "7",
+            "count" : "171822"
+          }, {
+            "item" : "9",
+            "count" : "163740"
+          }, {
+            "item" : "5",
+            "count" : "153163"
+          }, {
+            "item" : "29",
+            "count" : "149022"
+          }, {
+            "item" : "1",
+            "count" : "124583"
+          } ],
+          "smallest" : "1",
+          "not_null" : "6401230",
+          "sum" : "141361277",
+          "cardinality" : "50"
+        },
+        "format" : {
+          "precisionStyle" : "standard",
+          "noCommas" : "false",
+          "align" : "right"
+        }
+      }, {
+        "id" : 258138737,
+        "name" : "Community Area",
+        "dataTypeName" : "text",
+        "description" : "Indicates the community area where the incident occurred.  Chicago has 77 community areas. \n\nSee the community areas at https://data.cityofchicago.org/d/cauq-8yn6.\n",
+        "fieldName" : "community_area",
+        "position" : 14,
+        "renderTypeName" : "text",
+        "tableColumnId" : 5086360,
+        "width" : 170,
+        "cachedContents" : {
+          "largest" : "9",
+          "non_null" : "6438629",
+          "null" : "613495",
+          "top" : [ {
+            "item" : "25",
+            "count" : "408002"
+          }, {
+            "item" : "8",
+            "count" : "223537"
+          }, {
+            "item" : "43",
+            "count" : "210330"
+          }, {
+            "item" : "23",
+            "count" : "203249"
+          }, {
+            "item" : "28",
+            "count" : "191184"
+          }, {
+            "item" : "24",
+            "count" : "189918"
+          }, {
+            "item" : "67",
+            "count" : "188320"
+          }, {
+            "item" : "29",
+            "count" : "187152"
+          }, {
+            "item" : "71",
+            "count" : "182615"
+          }, {
+            "item" : "49",
+            "count" : "171564"
+          }, {
+            "item" : "68",
+            "count" : "170998"
+          }, {
+            "item" : "69",
+            "count" : "158786"
+          }, {
+            "item" : "66",
+            "count" : "158775"
+          }, {
+            "item" : "32",
+            "count" : "156683"
+          }, {
+            "item" : "44",
+            "count" : "139245"
+          }, {
+            "item" : "22",
+            "count" : "135474"
+          }, {
+            "item" : "61",
+            "count" : "132179"
+          }, {
+            "item" : "6",
+            "count" : "128366"
+          }, {
+            "item" : "27",
+            "count" : "121900"
+          }, {
+            "item" : "26",
+            "count" : "120986"
+          } ],
+          "smallest" : "0",
+          "not_null" : "6402562",
+          "cardinality" : "78"
+        },
+        "format" : {
+          "displayStyle" : "plain",
+          "align" : "left"
+        }
+      }, {
+        "id" : 258138738,
+        "name" : "FBI Code",
+        "dataTypeName" : "text",
+        "description" : "Indicates the crime classification as outlined in the FBI's National Incident-Based Reporting System (NIBRS).\n\nSee the Chicago Police Department listing of these classifications at http://gis.chicagopolice.org/clearmap_crime_sums/crime_types.html.\n",
+        "fieldName" : "fbi_code",
+        "position" : 15,
+        "renderTypeName" : "text",
+        "tableColumnId" : 1514306,
+        "width" : 196,
+        "cachedContents" : {
+          "largest" : "26",
+          "non_null" : "7052124",
+          "null" : "0",
+          "top" : [ {
+            "item" : "06",
+            "count" : "1491195"
+          }, {
+            "item" : "08B",
+            "count" : "1102342"
+          }, {
+            "item" : "14",
+            "count" : "802364"
+          }, {
+            "item" : "26",
+            "count" : "712578"
+          }, {
+            "item" : "18",
+            "count" : "684265"
+          }, {
+            "item" : "05",
+            "count" : "399469"
+          }, {
+            "item" : "08A",
+            "count" : "335115"
+          }, {
+            "item" : "07",
+            "count" : "324829"
+          }, {
+            "item" : "03",
+            "count" : "265219"
+          }, {
+            "item" : "11",
+            "count" : "242753"
+          }, {
+            "item" : "04B",
+            "count" : "187856"
+          }, {
+            "item" : "04A",
+            "count" : "114121"
+          }, {
+            "item" : "15",
+            "count" : "78463"
+          }, {
+            "item" : "16",
+            "count" : "69160"
+          }, {
+            "item" : "24",
+            "count" : "52333"
+          }, {
+            "item" : "10",
+            "count" : "38761"
+          }, {
+            "item" : "02",
+            "count" : "33828"
+          }, {
+            "item" : "17",
+            "count" : "33756"
+          }, {
+            "item" : "20",
+            "count" : "28701"
+          }, {
+            "item" : "19",
+            "count" : "14862"
+          } ],
+          "smallest" : "01A",
+          "not_null" : "7016057",
+          "cardinality" : "26"
+        },
+        "format" : {
+          "displayStyle" : "plain",
+          "align" : "left"
+        }
+      }, {
+        "id" : 258138739,
+        "name" : "X Coordinate",
+        "dataTypeName" : "number",
+        "description" : "The x coordinate of the location where the incident occurred in State Plane Illinois East NAD 1983 projection.  This location is shifted from the actual location for partial redaction but falls on the same block.",
+        "fieldName" : "x_coordinate",
+        "position" : 16,
+        "renderTypeName" : "number",
+        "tableColumnId" : 1514307,
+        "width" : 143,
+        "cachedContents" : {
+          "largest" : "1205119",
+          "non_null" : "6984645",
+          "average" : "1164520.638158698",
+          "null" : "67479",
+          "top" : [ {
+            "item" : "1100658",
+            "count" : "13463"
+          }, {
+            "item" : "1145727",
+            "count" : "9783"
+          }, {
+            "item" : "1176352",
+            "count" : "8397"
+          }, {
+            "item" : "1177338",
+            "count" : "6950"
+          }, {
+            "item" : "1176436",
+            "count" : "4600"
+          }, {
+            "item" : "1176365",
+            "count" : "3375"
+          }, {
+            "item" : "1176963",
+            "count" : "3308"
+          }, {
+            "item" : "1176223",
+            "count" : "3298"
+          }, {
+            "item" : "1149512",
+            "count" : "3243"
+          }, {
+            "item" : "1145011",
+            "count" : "3228"
+          }, {
+            "item" : "1171084",
+            "count" : "2975"
+          }, {
+            "item" : "1145654",
+            "count" : "2617"
+          }, {
+            "item" : "1176740",
+            "count" : "2611"
+          }, {
+            "item" : "1177762",
+            "count" : "2515"
+          }, {
+            "item" : "1176364",
+            "count" : "2479"
+          }, {
+            "item" : "1180796",
+            "count" : "2438"
+          }, {
+            "item" : "1191768",
+            "count" : "2433"
+          }, {
+            "item" : "1174313",
+            "count" : "2368"
+          }, {
+            "item" : "1154228",
+            "count" : "2355"
+          }, {
+            "item" : "1173303",
+            "count" : "2331"
+          } ],
+          "smallest" : "0",
+          "not_null" : "6948985",
+          "sum" : "7897886103891",
+          "cardinality" : "78693"
+        },
+        "format" : {
+          "precisionStyle" : "standard",
+          "noCommas" : "true",
+          "align" : "right"
+        }
+      }, {
+        "id" : 258138740,
+        "name" : "Y Coordinate",
+        "dataTypeName" : "number",
+        "description" : "The y coordinate of the location where the incident occurred in State Plane Illinois East NAD 1983 projection. This location is shifted from the actual location for partial redaction but falls on the same block.",
+        "fieldName" : "y_coordinate",
+        "position" : 17,
+        "renderTypeName" : "number",
+        "tableColumnId" : 1514308,
+        "width" : 142,
+        "cachedContents" : {
+          "largest" : "1951622",
+          "non_null" : "6984645",
+          "average" : "1885724.660309385",
+          "null" : "67479",
+          "top" : [ {
+            "item" : "1934241",
+            "count" : "13475"
+          }, {
+            "item" : "1853720",
+            "count" : "9863"
+          }, {
+            "item" : "1900927",
+            "count" : "7582"
+          }, {
+            "item" : "1906181",
+            "count" : "4774"
+          }, {
+            "item" : "1910225",
+            "count" : "3562"
+          }, {
+            "item" : "1905805",
+            "count" : "3316"
+          }, {
+            "item" : "1901446",
+            "count" : "2963"
+          }, {
+            "item" : "1950346",
+            "count" : "2934"
+          }, {
+            "item" : "1866253",
+            "count" : "2670"
+          }, {
+            "item" : "1950347",
+            "count" : "2609"
+          }, {
+            "item" : "1908425",
+            "count" : "2593"
+          }, {
+            "item" : "1900502",
+            "count" : "2583"
+          }, {
+            "item" : "1847273",
+            "count" : "2549"
+          }, {
+            "item" : "1841949",
+            "count" : "2521"
+          }, {
+            "item" : "1847705",
+            "count" : "2517"
+          }, {
+            "item" : "1921430",
+            "count" : "2480"
+          }, {
+            "item" : "1935229",
+            "count" : "2309"
+          }, {
+            "item" : "1904058",
+            "count" : "2300"
+          }, {
+            "item" : "1830380",
+            "count" : "2293"
+          }, {
+            "item" : "1895173",
+            "count" : "2263"
+          } ],
+          "smallest" : "0",
+          "not_null" : "6948985",
+          "sum" : "12789158132887",
+          "cardinality" : "129903"
+        },
+        "format" : {
+          "precisionStyle" : "standard",
+          "noCommas" : "true",
+          "align" : "right"
+        }
+      }, {
+        "id" : 258138741,
+        "name" : "Year",
+        "dataTypeName" : "number",
+        "description" : "Year the incident occurred.",
+        "fieldName" : "year",
+        "position" : 18,
+        "renderTypeName" : "number",
+        "tableColumnId" : 1518776,
+        "width" : 100,
+        "cachedContents" : {
+          "largest" : "2020",
+          "non_null" : "7052124",
+          "average" : "2008.467142967536",
+          "null" : "0",
+          "top" : [ {
+            "item" : "2002",
+            "count" : "486762"
+          }, {
+            "item" : "2001",
+            "count" : "485763"
+          }, {
+            "item" : "2003",
+            "count" : "475952"
+          }, {
+            "item" : "2004",
+            "count" : "469390"
+          }, {
+            "item" : "2005",
+            "count" : "453720"
+          }, {
+            "item" : "2006",
+            "count" : "448129"
+          }, {
+            "item" : "2007",
+            "count" : "437033"
+          }, {
+            "item" : "2008",
+            "count" : "427079"
+          }, {
+            "item" : "2009",
+            "count" : "392736"
+          }, {
+            "item" : "2010",
+            "count" : "370363"
+          }, {
+            "item" : "2011",
+            "count" : "351836"
+          }, {
+            "item" : "2012",
+            "count" : "336072"
+          }, {
+            "item" : "2013",
+            "count" : "307210"
+          }, {
+            "item" : "2014",
+            "count" : "275433"
+          }, {
+            "item" : "2016",
+            "count" : "269261"
+          }, {
+            "item" : "2017",
+            "count" : "268464"
+          }, {
+            "item" : "2018",
+            "count" : "267768"
+          }, {
+            "item" : "2015",
+            "count" : "264308"
+          }, {
+            "item" : "2019",
+            "count" : "257612"
+          }, {
+            "item" : "2020",
+            "count" : "7233"
+          } ],
+          "smallest" : "2001",
+          "not_null" : "7016057",
+          "sum" : "13749309292",
+          "cardinality" : "20"
+        },
+        "format" : {
+          "precisionStyle" : "standard",
+          "noCommas" : "true",
+          "align" : "right"
+        }
+      }, {
+        "id" : 258138742,
+        "name" : "Updated On",
+        "dataTypeName" : "calendar_date",
+        "description" : "Date and time the record was last updated.",
+        "fieldName" : "updated_on",
+        "position" : 19,
+        "renderTypeName" : "calendar_date",
+        "tableColumnId" : 2154842,
+        "width" : 164,
+        "cachedContents" : {
+          "largest" : "2020-01-19T15:49:20.000",
+          "non_null" : "7052124",
+          "null" : "0",
+          "top" : [ {
+            "item" : "2018-02-10T15:50:01.000",
+            "count" : "2789649"
+          }, {
+            "item" : "2018-02-28T15:56:25.000",
+            "count" : "2765381"
+          }, {
+            "item" : "2015-08-17T15:03:40.000",
+            "count" : "527649"
+          }, {
+            "item" : "2016-02-04T06:33:39.000",
+            "count" : "349258"
+          }, {
+            "item" : "2018-05-04T15:51:04.000",
+            "count" : "84537"
+          }, {
+            "item" : "2019-06-30T15:56:27.000",
+            "count" : "25294"
+          }, {
+            "item" : "2017-02-14T15:49:42.000",
+            "count" : "18163"
+          }, {
+            "item" : "2019-07-19T16:09:50.000",
+            "count" : "8866"
+          }, {
+            "item" : "2018-02-09T15:44:29.000",
+            "count" : "6107"
+          }, {
+            "item" : "2019-03-19T16:11:22.000",
+            "count" : "6100"
+          }, {
+            "item" : "2019-01-18T09:37:14.000",
+            "count" : "5370"
+          }, {
+            "item" : "2018-10-26T16:01:05.000",
+            "count" : "5185"
+          }, {
+            "item" : "2019-01-10T15:16:50.000",
+            "count" : "4721"
+          }, {
+            "item" : "2019-03-18T16:08:09.000",
+            "count" : "3297"
+          }, {
+            "item" : "2019-01-23T11:26:56.000",
+            "count" : "2901"
+          }, {
+            "item" : "2019-01-23T16:13:37.000",
+            "count" : "2741"
+          }, {
+            "item" : "2018-10-25T16:10:05.000",
+            "count" : "1663"
+          }, {
+            "item" : "2006-03-31T22:03:38.000",
+            "count" : "809"
+          }, {
+            "item" : "2018-08-25T15:59:23.000",
+            "count" : "800"
+          }, {
+            "item" : "2018-11-07T16:21:48.000",
+            "count" : "774"
+          } ],
+          "smallest" : "2006-03-31T22:03:38.000",
+          "not_null" : "7016057",
+          "cardinality" : "3192"
+        },
+        "format" : {
+          "view" : "date_time",
+          "align" : "left"
+        }
+      }, {
+        "id" : 258138743,
+        "name" : "Latitude",
+        "dataTypeName" : "number",
+        "description" : "The latitude of the location where the incident occurred. This location is shifted from the actual location for partial redaction but falls on the same block.",
+        "fieldName" : "latitude",
+        "position" : 20,
+        "renderTypeName" : "number",
+        "tableColumnId" : 1514309,
+        "width" : 119,
+        "cachedContents" : {
+          "largest" : "42.022910333",
+          "non_null" : "6984645",
+          "average" : "41.84202507869564",
+          "null" : "67479",
+          "top" : [ {
+            "item" : "41.976290414",
+            "count" : "13463"
+          }, {
+            "item" : "41.754592961",
+            "count" : "9754"
+          }, {
+            "item" : "41.883500187",
+            "count" : "7563"
+          }, {
+            "item" : "41.897895128",
+            "count" : "4629"
+          }, {
+            "item" : "41.896888586",
+            "count" : "3285"
+          }, {
+            "item" : "41.909664252",
+            "count" : "3219"
+          }, {
+            "item" : "41.885487535",
+            "count" : "2826"
+          }, {
+            "item" : "41.788987036",
+            "count" : "2585"
+          }, {
+            "item" : "41.88233367",
+            "count" : "2561"
+          }, {
+            "item" : "41.904192368",
+            "count" : "2545"
+          }, {
+            "item" : "41.736259984",
+            "count" : "2486"
+          }, {
+            "item" : "41.721627204",
+            "count" : "2440"
+          }, {
+            "item" : "41.737094305",
+            "count" : "2370"
+          }, {
+            "item" : "41.979006297",
+            "count" : "2301"
+          }, {
+            "item" : "41.891990384",
+            "count" : "2289"
+          }, {
+            "item" : "41.68995741",
+            "count" : "2280"
+          }, {
+            "item" : "41.868180939",
+            "count" : "2253"
+          }, {
+            "item" : "41.868541914",
+            "count" : "2212"
+          }, {
+            "item" : "41.739265865",
+            "count" : "2202"
+          }, {
+            "item" : "41.736148121",
+            "count" : "2145"
+          } ],
+          "smallest" : "36.619446395",
+          "not_null" : "6948985",
+          "sum" : "283776463.550021084",
+          "cardinality" : "868244"
+        },
+        "format" : {
+          "precisionStyle" : "standard",
+          "noCommas" : "false",
+          "align" : "right"
+        }
+      }, {
+        "id" : 258138744,
+        "name" : "Longitude",
+        "dataTypeName" : "number",
+        "description" : "The longitude of the location where the incident occurred. This location is shifted from the actual location for partial redaction but falls on the same block.",
+        "fieldName" : "longitude",
+        "position" : 21,
+        "renderTypeName" : "number",
+        "tableColumnId" : 1514310,
+        "width" : 133,
+        "cachedContents" : {
+          "largest" : "-87.524529378",
+          "non_null" : "6984645",
+          "average" : "-87.67178792087790",
+          "null" : "67479",
+          "top" : [ {
+            "item" : "-87.905227221",
+            "count" : "13463"
+          }, {
+            "item" : "-87.741528537",
+            "count" : "9754"
+          }, {
+            "item" : "-87.627876698",
+            "count" : "7563"
+          }, {
+            "item" : "-87.624096605",
+            "count" : "4631"
+          }, {
+            "item" : "-87.628203192",
+            "count" : "3285"
+          }, {
+            "item" : "-87.742728815",
+            "count" : "3219"
+          }, {
+            "item" : "-87.726422045",
+            "count" : "2826"
+          }, {
+            "item" : "-87.74147999",
+            "count" : "2585"
+          }, {
+            "item" : "-87.627841791",
+            "count" : "2561"
+          }, {
+            "item" : "-87.647000785",
+            "count" : "2545"
+          }, {
+            "item" : "-87.628068782",
+            "count" : "2486"
+          }, {
+            "item" : "-87.624485177",
+            "count" : "2440"
+          }, {
+            "item" : "-87.572998178",
+            "count" : "2370"
+          }, {
+            "item" : "-87.906463155",
+            "count" : "2301"
+          }, {
+            "item" : "-87.611461502",
+            "count" : "2289"
+          }, {
+            "item" : "-87.637460623",
+            "count" : "2280"
+          }, {
+            "item" : "-87.709271389",
+            "count" : "2253"
+          }, {
+            "item" : "-87.639235361",
+            "count" : "2212"
+          }, {
+            "item" : "-87.604893749",
+            "count" : "2202"
+          }, {
+            "item" : "-87.629070243",
+            "count" : "2145"
+          } ],
+          "smallest" : "-91.686565684",
+          "not_null" : "6948985",
+          "sum" : "-594598131.483882665",
+          "cardinality" : "867678"
+        },
+        "format" : {
+          "precisionStyle" : "standard",
+          "noCommas" : "false",
+          "align" : "right"
+        }
+      }, {
+        "id" : 258138745,
+        "name" : "Location",
+        "dataTypeName" : "location",
+        "description" : "The location where the incident occurred in a format that allows for creation of maps and other geographic operations on this data portal. This location is shifted from the actual location for partial redaction but falls on the same block.",
+        "fieldName" : "location",
+        "position" : 22,
+        "renderTypeName" : "location",
+        "tableColumnId" : 1514311,
+        "width" : 196,
+        "format" : {
+          "view" : "coords",
+          "align" : "left"
+        },
+        "subColumnTypes" : [ "human_address", "latitude", "longitude", "machine_address", "needs_recoding" ]
+      }, {
+        "id" : 285841071,
+        "name" : "Historical Wards 2003-2015",
+        "dataTypeName" : "number",
+        "fieldName" : ":@computed_region_awaf_s7ux",
+        "position" : 27,
+        "renderTypeName" : "number",
+        "tableColumnId" : 27782213,
+        "computationStrategy" : {
+          "source_columns" : [ "location" ],
+          "type" : "georegion_match_on_point",
+          "parameters" : {
+            "region" : "_awaf-s7ux",
+            "primary_key" : "_feature_id"
+          }
+        },
+        "format" : { }
+      }, {
+        "id" : 285841072,
+        "name" : "Zip Codes",
+        "dataTypeName" : "number",
+        "fieldName" : ":@computed_region_6mkv_f3dw",
+        "position" : 28,
+        "renderTypeName" : "number",
+        "tableColumnId" : 27782214,
+        "computationStrategy" : {
+          "source_columns" : [ "location" ],
+          "type" : "georegion_match_on_point",
+          "parameters" : {
+            "region" : "_6mkv-f3dw",
+            "primary_key" : "_feature_id"
+          }
+        },
+        "format" : { }
+      }, {
+        "id" : 285841073,
+        "name" : "Community Areas",
+        "dataTypeName" : "number",
+        "fieldName" : ":@computed_region_vrxf_vc4k",
+        "position" : 29,
+        "renderTypeName" : "number",
+        "tableColumnId" : 27782215,
+        "computationStrategy" : {
+          "source_columns" : [ "location" ],
+          "type" : "georegion_match_on_point",
+          "parameters" : {
+            "region" : "_vrxf-vc4k",
+            "primary_key" : "_feature_id"
+          }
+        },
+        "format" : { }
+      }, {
+        "id" : 285841074,
+        "name" : "Census Tracts",
+        "dataTypeName" : "number",
+        "fieldName" : ":@computed_region_bdys_3d7i",
+        "position" : 30,
+        "renderTypeName" : "number",
+        "tableColumnId" : 27782216,
+        "computationStrategy" : {
+          "source_columns" : [ "location" ],
+          "type" : "georegion_match_on_point",
+          "parameters" : {
+            "region" : "_bdys-3d7i",
+            "primary_key" : "_feature_id"
+          }
+        },
+        "format" : { }
+      }, {
+        "id" : 285841075,
+        "name" : "Wards",
+        "dataTypeName" : "number",
+        "description" : "",
+        "fieldName" : ":@computed_region_43wa_7qmu",
+        "position" : 31,
+        "renderTypeName" : "number",
+        "tableColumnId" : 28240039,
+        "computationStrategy" : {
+          "source_columns" : [ "location" ],
+          "type" : "georegion_match_on_point",
+          "parameters" : {
+            "region" : "_43wa-7qmu",
+            "primary_key" : "_feature_id"
+          }
+        },
+        "format" : { }
+      }, {
+        "id" : 285841076,
+        "name" : "Boundaries - ZIP Codes",
+        "dataTypeName" : "number",
+        "fieldName" : ":@computed_region_rpca_8um6",
+        "position" : 32,
+        "renderTypeName" : "number",
+        "tableColumnId" : 35863212,
+        "computationStrategy" : {
+          "source_columns" : [ "location" ],
+          "type" : "georegion_match_on_point",
+          "parameters" : {
+            "region" : "_rpca-8um6",
+            "primary_key" : "_feature_id"
+          }
+        },
+        "format" : { }
+      }, {
+        "id" : 285841077,
+        "name" : "Police Districts",
+        "dataTypeName" : "number",
+        "fieldName" : ":@computed_region_d9mm_jgwp",
+        "position" : 33,
+        "renderTypeName" : "number",
+        "tableColumnId" : 42660468,
+        "computationStrategy" : {
+          "source_columns" : [ "location" ],
+          "type" : "georegion_match_on_point",
+          "parameters" : {
+            "region" : "_d9mm-jgwp",
+            "primary_key" : "_feature_id"
+          }
+        },
+        "format" : { }
+      }, {
+        "id" : 285841078,
+        "name" : "Police Beats",
+        "dataTypeName" : "number",
+        "fieldName" : ":@computed_region_d3ds_rm58",
+        "position" : 34,
+        "renderTypeName" : "number",
+        "tableColumnId" : 42671243,
+        "computationStrategy" : {
+          "source_columns" : [ "location" ],
+          "type" : "georegion_match_on_point",
+          "parameters" : {
+            "region" : "_d3ds-rm58",
+            "primary_key" : "_feature_id"
+          }
+        },
+        "format" : { }
+      } ],
+      "grants" : [ {
+        "inherited" : false,
+        "type" : "viewer",
+        "flags" : [ "public" ]
+      } ],
+      "license" : {
+        "name" : "See Terms of Use"
+      },
+      "metadata" : {
+        "rdfSubject" : "0",
+        "rdfClass" : "",
+        "jsonQuery" : {
+          "order" : [ {
+            "columnFieldName" : "date",
+            "ascending" : false
+          } ]
+        },
+        "custom_fields" : {
+          "Metadata" : {
+            "Time Period" : "2001 to present, minus the most recent seven days",
+            "Frequency" : "Data are updated daily.",
+            "Data Owner" : "Police"
+          }
+        },
+        "rowIdentifier" : 258138724,
+        "rowLabel" : "Reported Crime",
+        "availableDisplayTypes" : [ "table", "fatrow", "page" ],
+        "renderTypeConfig" : {
+          "visible" : {
+            "table" : true
+          }
+        }
+      },
+      "owner" : {
+        "id" : "scy9-9wg4",
+        "displayName" : "cocadmin",
+        "profileImageUrlLarge" : "/api/users/scy9-9wg4/profile_images/LARGE",
+        "profileImageUrlMedium" : "/api/users/scy9-9wg4/profile_images/THUMB",
+        "profileImageUrlSmall" : "/api/users/scy9-9wg4/profile_images/TINY",
+        "screenName" : "cocadmin",
+        "type" : "interactive",
+        "userSegment" : "site_member"
+      },
+      "query" : {
+        "orderBys" : [ {
+          "ascending" : false,
+          "expression" : {
+            "columnId" : 258138726,
+            "type" : "column"
+          }
+        } ]
+      },
+      "rights" : [ "read" ],
+      "tableAuthor" : {
+        "id" : "scy9-9wg4",
+        "displayName" : "cocadmin",
+        "profileImageUrlLarge" : "/api/users/scy9-9wg4/profile_images/LARGE",
+        "profileImageUrlMedium" : "/api/users/scy9-9wg4/profile_images/THUMB",
+        "profileImageUrlSmall" : "/api/users/scy9-9wg4/profile_images/TINY",
+        "screenName" : "cocadmin",
+        "type" : "interactive",
+        "userSegment" : "site_member"
+      },
+      "tags" : [ "crime", "police" ],
+      "flags" : [ "default", "restorable", "restorePossibleForType", "unsaved" ]
+    }
+  },
+  "data" : [ [ "row-4jhp_hkwt_p4tb", "00000000-0000-0000-6B00-104D3C02B388", 0, 1502019488, null, 1502019488, null, "{ }", "11034701", "JA366925", "2001-01-01T11:00:00", "016XX E 86TH PL", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "RESIDENCE", false, false, "0412", "004", "8", "45", "11", null, null, "2001", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-mfb7-n5vp.vmyi", "00000000-0000-0000-C020-B42BFEAC324D", 0, 1518441587, null, 1518441591, null, "{ }", "11227287", "JB147188", "2017-10-08T03:00:00", "092XX S RACINE AVE", "0281", "CRIM SEXUAL ASSAULT", "NON-AGGRAVATED", "RESIDENCE", false, false, "2222", "022", "21", "73", "02", null, null, "2017", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-hc2z-d6y5~idpt", "00000000-0000-0000-9E14-9E0ACC4752A7", 0, 1518441587, null, 1518441591, null, "{ }", "11227583", "JB147595", "2017-03-28T14:00:00", "026XX W 79TH ST", "0620", "BURGLARY", "UNLAWFUL ENTRY", "OTHER", false, false, "0835", "008", "18", "70", "05", null, null, "2017", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-dwzd-etkg_xubu", "00000000-0000-0000-99E1-80474CC70B7A", 0, 1518441587, null, 1518441591, null, "{ }", "11227293", "JB147230", "2017-09-09T20:17:00", "060XX S EBERHART AVE", "0810", "THEFT", "OVER $500", "RESIDENCE", false, false, "0313", "003", "20", "42", "06", null, null, "2017", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-3594-43pw~fkw6", "00000000-0000-0000-ADF9-9FB4C5CC15D7", 0, 1518441587, null, 1518441591, null, "{ }", "11227634", "JB147599", "2017-08-26T10:00:00", "001XX W RANDOLPH ST", "0281", "CRIM SEXUAL ASSAULT", "NON-AGGRAVATED", "HOTEL/MOTEL", false, false, "0122", "001", "42", "32", "02", null, null, "2017", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-snz3.xysa_x4gr", "00000000-0000-0000-9141-82FAA22F768D", 0, 1518441587, null, 1518441591, null, "{ }", "11227517", "JB138481", "2013-02-10T00:00:00", "071XX S LAFAYETTE AVE", "0266", "CRIM SEXUAL ASSAULT", "PREDATORY", "RESIDENCE", false, false, "0731", "007", "6", "69", "02", null, null, "2013", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-rc7k-at7j~dye9", "00000000-0000-0000-7779-F9EFBC2BFE51", 0, 1518441587, null, 1555156923, null, "{ }", "11227503", "JB146383", "2015-01-01T00:01:00", "061XX S KILBOURN AVE", "1751", "OFFENSE INVOLVING CHILDREN", "CRIM SEX ABUSE BY FAM MEMBER", "RESIDENCE", false, true, "0813", "008", "13", "65", "17", null, null, "2015", "2019-04-12T16:00:15", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-24rv.dneb.t8ag", "00000000-0000-0000-21F7-9216050F34A3", 0, 1518441587, null, 1518441591, null, "{ }", "11227508", "JB146365", "2017-01-01T00:01:00", "027XX S WHIPPLE ST", "1754", "OFFENSE INVOLVING CHILDREN", "AGG SEX ASSLT OF CHILD FAM MBR", "RESIDENCE", false, false, "1033", "010", "12", "30", "02", null, null, "2017", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-wtaf-tkqa~kmkf", "00000000-0000-0000-EF49-95105D6F9915", 0, 1500983188, null, 1500983188, null, "{ }", "11022695", "JA353568", "2017-07-17T10:10:00", "021XX W MC LEAN AVE", "0810", "THEFT", "OVER $500", "RESIDENCE", false, false, "1432", "014", "32", "22", "06", null, null, "2017", "2017-07-24T15:54:23", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-yvca_e2gb.fck5", "00000000-0000-0000-8106-1089E1596BDA", 0, 1518441587, null, 1518441591, null, "{ }", "11227633", "JB147500", "2017-12-28T15:55:00", "011XX S MICHIGAN AVE", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", null, false, false, "0123", "001", "2", "32", "11", null, null, "2017", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-76hs~jwk3.fns2", "00000000-0000-0000-A101-7A57519E065B", 0, 1518441587, null, 1518441591, null, "{ }", "11227586", "JB147613", "2017-02-10T12:00:00", "089XX S COTTAGE GROVE AVE", "1310", "CRIMINAL DAMAGE", "TO PROPERTY", "APARTMENT", false, false, "0633", "006", "8", "44", "14", null, null, "2017", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-dn9b_bhqe~ym53", "00000000-0000-0000-8D83-C265BF2BA73B", 0, 1518441587, null, 1518441591, null, "{ }", "11227475", "JB147314", "2017-11-22T02:42:00", "056XX N CHRISTIANA AVE", "2826", "OTHER OFFENSE", "HARASSMENT BY ELECTRONIC MEANS", "APARTMENT", false, true, "1711", "017", "39", "13", "26", null, null, "2017", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-8iw4.i2ti-vxeu", "00000000-0000-0000-9570-3F4BDD421B1B", 0, 1518441587, null, 1518441591, null, "{ }", "11227247", "JB147078", "2012-01-01T09:00:00", "105XX S INDIANAPOLIS AVE", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "RESIDENCE", false, false, "0432", "004", "10", "52", "11", null, null, "2012", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-gjkv~rcxq.jk8d", "00000000-0000-0000-8607-9F261CFC7915", 0, 1502019488, null, 1502019488, null, "{ }", "11036284", "JA370282", "2017-07-29T15:40:00", "014XX W Devon Ave", "0820", "THEFT", "$500 AND UNDER", "SIDEWALK", false, false, "2432", "024", "40", "1", "06", null, null, "2017", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-c6b3.bha6_jfpr", "00000000-0000-0000-A04E-5FBE2F836B0E", 0, 1518441587, null, 1518441591, null, "{ }", "11227509", "JB146413", "2017-01-22T00:01:00", "079XX S JEFFERY BLVD", "1752", "OFFENSE INVOLVING CHILDREN", "AGG CRIM SEX ABUSE FAM MEMBER", "APARTMENT", false, false, "0414", "004", "8", "46", "20", null, null, "2017", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-wxyp-zpgb-3kbr", "00000000-0000-0000-8627-D0459D00F2BA", 0, 1518441587, null, 1519391385, null, "{ }", "11227407", "JB147329", "2017-10-14T00:01:00", "037XX N SOUTHPORT AVE", "1150", "DECEPTIVE PRACTICE", "CREDIT CARD FRAUD", "OTHER", false, false, "1922", "019", "44", "6", "11", null, null, "2017", "2018-02-22T15:56:47", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-nxvg.ym4u-98re", "00000000-0000-0000-5C86-1AF43CDEC69C", 0, 1500983188, null, 1500983188, null, "{ }", "11028056", "JA359834", "2014-10-15T15:00:00", "047XX S PULASKI RD", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "PARKING LOT/GARAGE(NON.RESID.)", false, false, "0821", "008", "14", "57", "11", null, null, "2014", "2017-07-24T15:54:23", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-4rvk.u26s_sjhm", "00000000-0000-0000-866F-D0C12A78EC21", 0, 1454566556, null, 1484173884, null, "{ }", "5253983", "HM665450", "2006-10-17T13:05:00", "052XX W HURON ST", "2017", "NARCOTICS", "MANU/DELIVER:CRACK", "STREET", true, false, "1524", "015", "28", "25", "18", null, null, "2006", "2015-08-17T15:03:40", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-r44f-3whb.4rcs", "00000000-0000-0000-BB70-99FB41E13210", 0, 1500983188, null, 1526472470, null, "{ }", "11028299", "JA360073", "2015-05-30T00:00:00", "074XX S HARVARD AVE", "1753", "OFFENSE INVOLVING CHILDREN", "SEX ASSLT OF CHILD BY FAM MBR", "RESIDENCE", false, true, "0731", "007", "17", "69", "02", null, null, "2015", "2018-05-15T15:52:47", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-tbj4-y8vm_dqwt", "00000000-0000-0000-0AC1-E5F173C404D9", 0, 1500983188, null, 1527075258, null, "{ }", "11028290", "JA360134", "2015-05-30T00:00:00", "074XX S HARVARD AVE", "1753", "OFFENSE INVOLVING CHILDREN", "SEX ASSLT OF CHILD BY FAM MBR", "RESIDENCE", false, true, "0731", "007", "17", "69", "02", null, null, "2015", "2018-05-22T16:05:33", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-4gys-pwng~msi3", "00000000-0000-0000-6D8F-31E8549A1F02", 0, 1502019488, null, 1502019488, null, "{ }", "11041422", "JA375398", "2017-07-29T10:00:00", "022XX W WINNEMAC AVE", "0810", "THEFT", "OVER $500", "RESIDENCE-GARAGE", false, false, "2031", "020", "47", "4", "06", null, null, "2017", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-xzxn.mw46_t9pj", "00000000-0000-0000-A36C-281F49D79873", 0, 1502019488, null, 1502019488, null, "{ }", "11042125", "JA376558", "2011-12-16T00:00:00", "003XX W 64TH ST", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "HOSPITAL BUILDING/GROUNDS", false, false, "0722", "007", "20", "68", "11", null, null, "2011", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-ju75.vixq~46qp", "00000000-0000-0000-56DB-FB8C7B53B7F4", 0, 1502019488, null, 1502019488, null, "{ }", "11042141", "JA376559", "2013-05-16T00:00:00", "003XX W 64TH ST", "1154", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT $300 AND UNDER", "HOSPITAL BUILDING/GROUNDS", false, false, "0722", "007", "20", "68", "11", null, null, "2013", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-m3kr~up6s.r4sz", "00000000-0000-0000-10D9-55D61EEC2788", 0, 1502019488, null, 1502019488, null, "{ }", "11042183", "JA376593", "2001-07-12T00:01:00", "024XX N LUNA AVE", "0266", "CRIM SEXUAL ASSAULT", "PREDATORY", "RESIDENCE", false, true, "2515", "025", "30", "19", "02", null, null, "2001", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-vzis~2kpc~w793", "00000000-0000-0000-0B0C-E9E3AC63107F", 0, 1502019488, null, 1508673177, null, "{ }", "11039126", "JA371798", "2007-01-01T00:01:00", "009XX N DRAKE AVE", "0266", "CRIM SEXUAL ASSAULT", "PREDATORY", "RESIDENCE", false, false, "1121", "011", "27", "23", "02", null, null, "2007", "2017-10-21T15:44:12", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-yqvg.juyv-un2u", "00000000-0000-0000-C272-DC8901F2966A", 0, 1502019488, null, 1502711900, null, "{ }", "11042582", "JA377037", "2011-01-01T00:01:00", "054XX S CALIFORNIA AVE", "1754", "OFFENSE INVOLVING CHILDREN", "AGG SEX ASSLT OF CHILD FAM MBR", "APARTMENT", true, true, "0923", "009", "14", "63", "02", null, null, "2011", "2017-08-13T15:50:54", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-y8ki_5hjw_f598", "00000000-0000-0000-1FB5-2279633399D0", 0, 1502019488, null, 1502019488, null, "{ }", "11042759", "JA376850", "2013-07-08T16:10:00", "056XX N KENMORE AVE", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", null, false, false, "2022", "020", "48", "77", "11", null, null, "2013", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-qa2r~q9eq.2b9y", "00000000-0000-0000-D707-DEAE68FF2916", 0, 1502019488, null, 1502019488, null, "{ }", "11042763", "JA376821", "2017-07-27T01:00:00", "019XX W AINSLIE ST", "0890", "THEFT", "FROM BUILDING", "APARTMENT", false, false, "2032", "020", "47", "4", "06", null, null, "2017", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-ktu3~rpds_6rgk", "00000000-0000-0000-C4E2-AC102259E6A4", 0, 1518441587, null, 1518441591, null, "{ }", "11227495", "JB147292", "2014-03-20T09:00:00", "003XX E ERIE ST", "1154", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT $300 AND UNDER", "RESIDENCE", false, false, "1834", "018", "42", "8", "11", null, null, "2014", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-wcbb.sknv~bhni", "00000000-0000-0000-14FC-03CCE9A972E2", 0, 1502019488, null, 1502019488, null, "{ }", "11042867", "JA374764", "2015-01-01T00:01:00", "086XX S MANISTEE AVE", "0266", "CRIM SEXUAL ASSAULT", "PREDATORY", "RESIDENCE", false, false, "0423", "004", "7", "46", "02", null, null, "2015", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-j8hu.ypva~ewfz", "00000000-0000-0000-0721-2461B48E8ED6", 0, 1502019488, null, 1502019488, null, "{ }", "11042911", "JA376915", "2013-01-01T12:00:00", "034XX N WESTERN AVE", "1154", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT $300 AND UNDER", "BANK", false, false, "1921", "019", "47", "5", "11", null, null, "2013", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-xm92.rcwg-si82", "00000000-0000-0000-B0AA-0079AEDB73AB", 0, 1502019488, null, 1502019488, null, "{ }", "11042930", "JA374409", "2010-01-01T00:01:00", "080XX S MARSHFIELD AVE", "0266", "CRIM SEXUAL ASSAULT", "PREDATORY", "RESIDENCE", false, false, "0611", "006", "21", "71", "02", null, null, "2010", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-6zgt_6923.gs9e", "00000000-0000-0000-7359-823D19269EFF", 0, 1502019488, null, 1502019488, null, "{ }", "11042931", "JA374193", "2015-01-01T00:01:00", "069XX S STEWART AVE", "1562", "SEX OFFENSE", "AGG CRIMINAL SEXUAL ABUSE", "RESIDENCE", false, false, "0731", "007", "6", "68", "17", null, null, "2015", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-uuaq-qpg6~2a27", "00000000-0000-0000-1651-099AFEBAC417", 0, 1502019488, null, 1502019488, null, "{ }", "11042934", "JA374701", "2015-01-27T00:01:00", "044XX S CALUMET AVE", "0266", "CRIM SEXUAL ASSAULT", "PREDATORY", "RESIDENCE", false, false, "0215", "002", "3", "38", "02", null, null, "2015", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-nk2f_cs82_6adj", "00000000-0000-0000-97E4-B63E7D9E85D5", 0, 1502019488, null, 1508673177, null, "{ }", "11042861", "JA374153", "2007-01-01T00:01:00", "026XX W 21ST ST", "0266", "CRIM SEXUAL ASSAULT", "PREDATORY", "RESIDENCE", false, false, "1023", "010", "28", "30", "02", null, null, "2007", "2017-10-21T15:44:12", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-kn5m~9cks_nbw3", "00000000-0000-0000-E43C-693881446A7D", 0, 1502019488, null, 1502625171, null, "{ }", "11042901", "JA374744", "2015-04-01T00:01:00", "051XX S MARSHFIELD AVE", "0291", "CRIM SEXUAL ASSAULT", "ATTEMPT NON-AGGRAVATED", "APARTMENT", false, false, "0932", "009", "16", "61", "02", null, null, "2015", "2017-08-12T15:48:24", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-ui72-6wxq.fib9", "00000000-0000-0000-B09B-B98EC81C4F09", 0, 1502019488, null, 1503750652, null, "{ }", "11042927", "JA374449", "2015-01-01T00:01:00", "022XX N AVERS AVE", "1750", "OFFENSE INVOLVING CHILDREN", "CHILD ABUSE", "RESIDENCE", false, true, "2525", "025", "30", "22", "20", null, null, "2015", "2017-08-25T15:48:04", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-3xi4~m7b8.n6ne", "00000000-0000-0000-AB7F-9A9402E0E24E", 0, 1518441587, null, 1567682089, null, "{ }", "11227505", "JB146342", "2017-06-01T00:01:00", "115XX S ABERDEEN ST", "1751", "OFFENSE INVOLVING CHILDREN", "CRIM SEX ABUSE BY FAM MEMBER", "RESIDENCE", false, true, "0524", "005", "34", "53", "17", null, null, "2017", "2019-09-04T16:07:44", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-vszm-p77r~2ya6", "00000000-0000-0000-C002-5E6A817EFCE2", 0, 1502019488, null, 1503230430, null, "{ }", "11042914", "JA374555", "2008-01-01T00:01:00", "011XX S WHIPPLE ST", "0281", "CRIM SEXUAL ASSAULT", "NON-AGGRAVATED", "RESIDENCE", false, true, "1134", "011", "28", "29", "02", null, null, "2008", "2017-08-19T15:48:07", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-rivf.rz5x_xk6t", "00000000-0000-0000-4226-AB1C36595FA8", 0, 1502019488, null, 1502019488, null, "{ }", "11042939", "JA376124", "2015-01-01T00:01:00", "049XX S LECLAIRE AVE", "0281", "CRIM SEXUAL ASSAULT", "NON-AGGRAVATED", "RESIDENCE", false, false, "0814", "008", "23", "56", "02", null, null, "2015", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-38qj-xe2f_gdu3", "00000000-0000-0000-DD76-0A769F31D872", 0, 1502019488, null, 1502019488, null, "{ }", "11043021", "JA367631", "2016-10-19T19:00:00", "075XX S YATES BLVD", "0610", "BURGLARY", "FORCIBLE ENTRY", "RESTAURANT", false, false, "0421", "004", "7", "43", "05", null, null, "2016", "2017-08-05T15:50:08", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-vqhv_vr6h-wz4h", "00000000-0000-0000-8522-F8798F7C22A1", 0, 1502019488, null, 1540725192, null, "{ }", "11042905", "JA374476", "2003-01-01T00:01:00", "056XX S ARTESIAN AVE", "1563", "SEX OFFENSE", "CRIMINAL SEXUAL ABUSE", "RESIDENCE", false, false, "0824", "008", "15", "63", "17", null, null, "2003", "2018-10-27T16:00:07", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-b9ih~36e2~hksy", "00000000-0000-0000-D417-2B8329C94BF9", 0, 1518441587, null, 1518441591, null, "{ }", "11227569", "JB147582", "2017-10-01T00:00:00", "004XX E 71ST ST", "1582", "OFFENSE INVOLVING CHILDREN", "CHILD PORNOGRAPHY", "APARTMENT", false, false, "0323", "003", "6", "69", "17", null, null, "2017", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-mpep_6rn5~5atk", "00000000-0000-0000-C7C1-AADD2EB8403F", 0, 1502019488, null, 1503230430, null, "{ }", "11042938", "JA377035", "2007-01-01T00:01:00", "019XX N HARLEM AVE", "0266", "CRIM SEXUAL ASSAULT", "PREDATORY", "DAY CARE CENTER", false, false, "2513", "025", "36", "25", "02", null, null, "2007", "2017-08-19T15:48:07", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-ni95.uy7e-sejh", "00000000-0000-0000-A5E8-DD56E316CB19", 0, 1518441587, null, 1518441591, null, "{ }", "11227513", "JB137941", "2017-09-01T09:00:00", "030XX W HARRISON ST", "1562", "SEX OFFENSE", "AGG CRIMINAL SEXUAL ABUSE", "SCHOOL, PUBLIC, BUILDING", false, false, "1134", "011", "28", "27", "17", null, null, "2017", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-edmt_5eig~x2ka", "00000000-0000-0000-A709-E309BD92D3F4", 0, 1518441587, null, 1518441591, null, "{ }", "11223717", "JB141803", "2018-02-04T15:25:00", "044XX W WASHINGTON BLVD", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", null, false, false, "1113", "011", "28", "26", "11", null, null, "2018", "2018-02-11T15:57:41", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-efhy-ht37~bxzv", "00000000-0000-0000-6A5C-7F1F565C0FCB", 0, 1454566556, null, 1484173884, null, "{ }", "1744168", "G553545", "2001-09-15T02:00:00", "013XX W POLK ST", "0460", "BATTERY", "SIMPLE", "STREET", false, false, "1213", "012", null, null, "08B", null, null, "2001", "2015-08-17T15:03:40", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-yuc4_9gbu_mwsa", "00000000-0000-0000-3EDC-023A8D009DC2", 0, 1467463678, null, 1519997144, null, "{ }", "10581023", "HZ329792", "2014-09-01T08:00:00", "0000X E LAKE ST", "1140", "DECEPTIVE PRACTICE", "EMBEZZLEMENT", "OTHER", true, false, "0111", "001", "42", "32", "12", null, null, "2014", "2018-03-01T15:52:35", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-26t5~havm~2qhz", "00000000-0000-0000-1D2F-8EFF5BCE463C", 0, 1454566556, null, 1484173884, null, "{ }", "1833988", "G666677", "2001-11-02T18:30:00", "002XX W CONGRESS PW", "0810", "THEFT", "OVER $500", "OTHER", false, false, "0131", "001", null, null, "06", null, null, "2001", "2015-08-17T15:03:40", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-eszb-rs59_sw8c", "00000000-0000-0000-2F58-C27F16DAF93E", 0, 1519997144, null, 1519997150, null, "{ }", "11243066", "JB168427", "2016-03-29T07:00:00", "067XX S RIDGELAND AVE", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "OTHER", false, false, "0332", "003", "5", "43", "11", null, null, "2016", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-v7zf~pdvs.8em5", "00000000-0000-0000-D08C-5D33D505DB2B", 0, 1519997144, null, 1519997150, null, "{ }", "11243056", "JB168410", "2017-12-13T00:01:00", "005XX W OHARE ST", "0810", "THEFT", "OVER $500", "AIRPORT BUILDING NON-TERMINAL - SECURE AREA", false, false, "1654", "016", "41", "76", "06", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-cep5.iyvb.mkpy", "00000000-0000-0000-37E2-F7AC68AB0BFF", 0, 1519997144, null, 1519997150, null, "{ }", "11243415", "JB168962", "2017-12-18T09:00:00", "025XX W BIRCHWOOD AVE", "1150", "DECEPTIVE PRACTICE", "CREDIT CARD FRAUD", "APARTMENT", false, false, "2411", "024", "50", "2", "11", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-367v.kw58~r5xf", "00000000-0000-0000-FC6A-18428CDFE06F", 0, 1519997144, null, 1519997150, null, "{ }", "11243873", "JB168420", "2017-02-28T00:00:00", "110XX S VERNON AVE", "0265", "CRIM SEXUAL ASSAULT", "AGGRAVATED: OTHER", "SCHOOL, PUBLIC, BUILDING", false, false, "0513", "005", "9", "49", "02", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-ek3u.dfh5~n9x7", "00000000-0000-0000-4ACD-BBF1AB1B4AF3", 0, 1519997144, null, 1519997150, null, "{ }", "11243020", "HZ184094", "2016-03-11T23:00:00", "052XX N ST LOUIS AVE", "0281", "CRIM SEXUAL ASSAULT", "NON-AGGRAVATED", "RESIDENCE PORCH/HALLWAY", false, false, "1712", "017", "39", "13", "02", null, null, "2016", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-rfm2.vt3e~wt5w", "00000000-0000-0000-0491-FA81435C46A3", 0, 1519997144, null, 1519997150, null, "{ }", "11243109", "JB168444", "2017-12-14T12:15:00", "020XX S CLARK ST", "2825", "OTHER OFFENSE", "HARASSMENT BY TELEPHONE", "APARTMENT", false, false, "0131", "001", "3", "33", "26", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-ik5c~4ts4-7p8v", "00000000-0000-0000-2E3A-518697E15AA8", 0, 1519997144, null, 1519997150, null, "{ }", "11243511", "JB168893", "2018-02-20T16:21:00", "005XX W ARLINGTON PL", "0820", "THEFT", "$500 AND UNDER", "RESIDENCE PORCH/HALLWAY", false, false, "1935", "019", "43", "7", "06", null, null, "2018", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-bwti_5mzc~djgv", "00000000-0000-0000-24F7-55C5D7D611E2", 0, 1519997144, null, 1519997150, null, "{ }", "11243026", "JB168257", "2017-11-15T14:00:00", "012XX W ARTHINGTON ST", "1150", "DECEPTIVE PRACTICE", "CREDIT CARD FRAUD", "RESIDENCE", false, false, "1231", "012", "2", "28", "11", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-25s8~ywrf.b8wy", "00000000-0000-0000-69CC-D452DFADC3CA", 0, 1519997144, null, 1519997150, null, "{ }", "11243839", "JB165874", "2017-11-05T08:00:00", "084XX S PARNELL AVE", "0820", "THEFT", "$500 AND UNDER", "RESIDENTIAL YARD (FRONT/BACK)", false, false, "0622", "006", "21", "71", "06", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-tbsu_4c9j_vjpq", "00000000-0000-0000-3A8E-69BF92810C90", 0, 1519997144, null, 1526472470, null, "{ }", "11243258", "JB167849", "2017-01-01T00:01:00", "045XX N HAMLIN AVE", "1752", "OFFENSE INVOLVING CHILDREN", "AGG CRIM SEX ABUSE FAM MEMBER", "APARTMENT", false, true, "1723", "017", "39", "14", "20", null, null, "2017", "2018-05-15T15:52:47", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-jdmf.6qfw.qnd5", "00000000-0000-0000-6921-F7BF5A8AED71", 0, 1519997144, null, 1519997150, null, "{ }", "11242963", "JB168261", "2014-11-01T09:00:00", "009XX N TRUMBULL AVE", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "RESIDENCE", false, false, "1121", "011", "27", "23", "11", null, null, "2014", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-7iq4-hbax.juug", "00000000-0000-0000-A095-3221383C1A33", 0, 1519997144, null, 1521203892, null, "{ }", "11243412", "JB168772", "2017-08-24T15:18:00", "057XX S CICERO AVE", "0810", "THEFT", "OVER $500", "RESTAURANT", true, false, "0813", "008", "23", "56", "06", null, null, "2017", "2018-03-15T15:53:30", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-ecak~y72q.y9ve", "00000000-0000-0000-8C57-F7FDD35D7EBD", 0, 1519997144, null, 1519997150, null, "{ }", "11243580", "JB169163", "2017-08-17T10:00:00", "061XX N NORTHWEST HWY", "0890", "THEFT", "FROM BUILDING", "BAR OR TAVERN", false, false, "1611", "016", "41", "10", "06", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-u6ny-q8gj_w9sg", "00000000-0000-0000-7367-E21FEB523878", 0, 1454566556, null, 1484173884, null, "{ }", "1896258", "G749215", "2001-12-15T02:00:00", "011XX N STATE ST", "0460", "BATTERY", "SIMPLE", "STREET", false, false, "1824", "018", null, null, "08B", null, null, "2001", "2015-08-17T15:03:40", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-3384.zvrq-em3i", "00000000-0000-0000-A6AA-2A13379E8AC0", 0, 1519997144, null, 1536929460, null, "{ }", "11243268", "JB167760", "2017-01-01T00:01:00", "047XX N CLARK ST", "1562", "SEX OFFENSE", "AGG CRIMINAL SEXUAL ABUSE", "APARTMENT", false, false, "1913", "019", "47", "3", "17", null, null, "2017", "2018-09-13T15:56:52", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-srdj-yj5u~78dv", "00000000-0000-0000-CC7F-C567F86AB38A", 0, 1519997144, null, 1539690558, null, "{ }", "11243251", "JB166394", "2012-08-07T00:01:00", "037XX W HAYFORD ST", "1754", "OFFENSE INVOLVING CHILDREN", "AGG SEX ASSLT OF CHILD FAM MBR", "RESIDENCE", false, true, "0833", "008", "18", "70", "02", null, null, "2012", "2018-10-15T16:31:50", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-7i74_6ct7_tnc4", "00000000-0000-0000-3C1E-37FE10486628", 0, 1518528269, null, 1518528272, null, "{ }", "11223707", "JB141873", "2018-02-05T00:00:00", "061XX N KENMORE AVE", "2820", "OTHER OFFENSE", "TELEPHONE THREAT", "RESIDENCE", false, false, "2433", "024", "48", "77", "26", null, null, "2018", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-w8cv.gvs3-xvgz", "00000000-0000-0000-2C18-0E03125C1683", 0, 1518528269, null, 1518528272, null, "{ }", "11227940", "JB148122", "2016-01-01T11:00:00", "108XX S CALUMET AVE", "1154", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT $300 AND UNDER", "RESIDENCE", false, false, "0513", "005", "9", "49", "11", null, null, "2016", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-ps3j.m8sj-qnys", "00000000-0000-0000-9371-EE5FB791E9F5", 0, 1518528269, null, 1518528272, null, "{ }", "11228287", "JB148482", "2018-01-03T15:45:00", "0000X W C1 ST", "0810", "THEFT", "OVER $500", "AIRPORT TERMINAL LOWER LEVEL - NON-SECURE AREA", false, false, "1651", "016", "41", "76", "06", null, null, "2018", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-6jsu_e6w7-reir", "00000000-0000-0000-E058-E3E9E107E600", 0, 1502105953, null, 1502105953, null, "{ }", "11037549", "JA371812", "2017-07-30T04:00:00", "004XX N DEARBORN ST", "0870", "THEFT", "POCKET-PICKING", "ALLEY", false, false, "1831", "018", "42", "8", "06", null, null, "2017", "2017-08-06T15:53:31", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-vdfu~dij2-tway", "00000000-0000-0000-0427-41DB79DC70E7", 0, 1518528269, null, 1518528272, null, "{ }", "11227960", "JB148137", "2017-10-20T09:00:00", "008XX N PAULINA ST", "2826", "OTHER OFFENSE", "HARASSMENT BY ELECTRONIC MEANS", "RESIDENCE", false, true, "1213", "012", "1", "24", "26", null, null, "2017", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-rh5s.bwj8.akkx", "00000000-0000-0000-D90A-498E5024BBB0", 0, 1518528269, null, 1518528272, null, "{ }", "11228593", "JB149038", "2016-03-01T00:00:00", "092XX S WESTERN AVE", "2820", "OTHER OFFENSE", "TELEPHONE THREAT", "AUTO / BOAT / RV DEALERSHIP", false, false, "2221", "022", "19", "72", "26", null, null, "2016", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-6x6j~tddz-mtur", "00000000-0000-0000-3E4B-96F8379A98F0", 0, 1518528269, null, 1518528272, null, "{ }", "11228565", "JB148941", "2017-12-16T14:30:00", "102XX S EBERHART AVE", "0610", "BURGLARY", "FORCIBLE ENTRY", "VACANT LOT/LAND", false, false, "0511", "005", "9", "49", "05", null, null, "2017", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-t8jq-b355-a4wr", "00000000-0000-0000-F042-2BA1B5203B6A", 0, 1502105953, null, 1502105953, null, "{ }", "11043823", "JA378025", "2013-08-11T17:00:00", "004XX N CLARK ST", "0820", "THEFT", "$500 AND UNDER", "RESTAURANT", false, false, "1831", "018", "42", "8", "06", null, null, "2013", "2017-08-06T15:53:31", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-syd3~76ey-dzsa", "00000000-0000-0000-DF9D-E83495FF1375", 0, 1502105953, null, 1502105953, null, "{ }", "11043900", "JA378845", "2015-09-30T19:45:00", "030XX N KNOX AVE", "0810", "THEFT", "OVER $500", "WAREHOUSE", false, false, "2521", "025", "31", "19", "06", null, null, "2015", "2017-08-06T15:53:31", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-frie.driu_24ec", "00000000-0000-0000-E216-FEEB375CE1CC", 0, 1518528269, null, 1518528272, null, "{ }", "11228293", "JB148253", "2017-07-01T20:40:00", "060XX S TALMAN AVE", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", null, false, false, "0825", "008", "15", "66", "11", null, null, "2017", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-ktst~5bi8_gavu", "00000000-0000-0000-B256-7B4A42DB3142", 0, 1501069207, null, 1501069207, null, "{ }", "11029364", "JA361501", "2014-05-10T08:00:00", "077XX S KINGSTON AVE", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "OTHER", false, false, "0421", "004", "7", "43", "11", null, null, "2014", "2017-07-25T15:48:23", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-ktwe_g7it_fufw", "00000000-0000-0000-D821-7AAAE4C4818E", 0, 1519997144, null, 1519997150, null, "{ }", "11243391", "JB168811", "2017-12-30T00:01:00", "0000X E LAKE ST", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "OTHER", false, false, "0111", "001", "42", "32", "11", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-c6n5~ik7e-hu8f", "00000000-0000-0000-6460-6CA7ED2B1642", 0, 1501069207, null, 1501069207, null, "{ }", "11029405", "JA361556", "2014-10-01T07:00:00", "018XX N ST LOUIS AVE", "1154", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT $300 AND UNDER", "APARTMENT", false, false, "1422", "014", "26", "22", "11", null, null, "2014", "2017-07-25T15:48:23", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-mm9n_3wyb-8wu8", "00000000-0000-0000-716C-D1F344140446", 0, 1501069207, null, 1501069207, null, "{ }", "11029462", "JA361647", "2013-07-01T12:00:00", "060XX N ALBANY AVE", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "RESIDENCE", false, false, "2413", "024", "50", "2", "11", null, null, "2013", "2017-07-25T15:48:23", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-k9ia_a8zx_uc5h", "00000000-0000-0000-ADF5-6FD67CE30705", 0, 1501069207, null, 1501069207, null, "{ }", "11029532", "JA361567", "2013-12-01T21:00:00", "021XX N MULLIGAN AVE", "0265", "CRIM SEXUAL ASSAULT", "AGGRAVATED: OTHER", "RESIDENCE", false, true, "2512", "025", "29", "19", "02", null, null, "2013", "2017-07-25T15:48:23", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-gvgs_7rfb~dryz", "00000000-0000-0000-A250-C3926F56E4FF", 0, 1518528269, null, 1518528272, null, "{ }", "11228256", "JB148524", "2017-09-07T18:00:00", "035XX N WILTON AVE", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "RESIDENCE", false, false, "1924", "019", "44", "6", "11", null, null, "2017", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-beja.6wzf~r28u", "00000000-0000-0000-E663-D3191C9C2887", 0, 1501069207, null, 1501069207, null, "{ }", "11029711", "JA361905", "2014-09-01T10:00:00", "061XX S EBERHART AVE", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "RESIDENCE", false, false, "0313", "003", "20", "42", "11", null, null, "2014", "2017-07-25T15:48:23", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-mts6.sjcz_knpg", "00000000-0000-0000-EDA5-B478EEC7243C", 0, 1501069207, null, 1518181715, null, "{ }", "11029673", "JA361846", "2009-01-24T18:00:00", "024XX W 46TH ST", "1752", "OFFENSE INVOLVING CHILDREN", "AGG CRIM SEX ABUSE FAM MEMBER", "RESIDENCE", true, false, "0922", "009", "12", "58", "20", null, null, "2009", "2018-02-08T15:48:45", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-jnk7.kizc_8xkt", "00000000-0000-0000-67FB-D5A639B02D05", 0, 1518528269, null, 1518528272, null, "{ }", "11228573", "JB148940", "2017-11-01T15:00:00", "004XX E 33RD ST", "2825", "OTHER OFFENSE", "HARASSMENT BY TELEPHONE", "RESIDENCE", false, true, "0211", "002", "4", "35", "26", null, null, "2017", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-np7f~hrg4-raa6", "00000000-0000-0000-2515-E7E3CEBCC051", 0, 1501069207, null, 1501069207, null, "{ }", "9771966", "HX347197", "2014-07-16T10:50:00", "063XX S COTTAGE GROVE AVE", "1821", "NARCOTICS", "MANU/DEL:CANNABIS 10GM OR LESS", "VEHICLE NON-COMMERCIAL", true, false, "0312", "003", "20", "42", "18", null, null, "2014", "2017-07-25T15:48:23", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-iw3v~efrw-ej7z", "00000000-0000-0000-ADF1-AB8C9D2BAFFD", 0, 1500983188, null, 1501069207, null, "{ }", "9715284", "HX282369", "2014-05-30T11:06:56", "029XX W WILCOX ST", "2027", "NARCOTICS", "POSS: CRACK", "APARTMENT", true, false, "1124", "011", "2", "27", "18", null, null, "2014", "2017-07-25T15:46:39", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-66nq-jyrn_fw2t", "00000000-0000-0000-AA3D-D6731BBEFE5B", 0, 1518528269, null, 1518528272, null, "{ }", "11228094", "JB148335", "2017-11-20T15:00:00", "055XX N CHRISTIANA AVE", "1156", "DECEPTIVE PRACTICE", "ATTEMPT - FINANCIAL IDENTITY THEFT", "POOL ROOM", false, false, "1712", "017", "40", "13", "11", null, null, "2017", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-u4ms_q7ej.9kx8", "00000000-0000-0000-2967-65992DD3F715", 0, 1518528269, null, 1518528272, null, "{ }", "11228056", "JB148123", "2017-11-21T12:00:00", "028XX N SACRAMENTO AVE", "1152", "DECEPTIVE PRACTICE", "ILLEGAL USE CASH CARD", "APARTMENT", false, false, "1411", "014", "35", "21", "11", null, null, "2017", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-ednh.pahe~kih2", "00000000-0000-0000-2AAC-86E80DB086D5", 0, 1518528269, null, 1518528272, null, "{ }", "11228588", "JB149037", "2012-06-04T12:00:00", "037XX W 85TH PL", "1154", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT $300 AND UNDER", "RESIDENCE", false, false, "0834", "008", "18", "70", "11", null, null, "2012", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-dgsd_vzvi-69hn", "00000000-0000-0000-E20F-6A54BBB9409E", 0, 1518528269, null, 1518528272, null, "{ }", "11225457", "JB144550", "2018-02-05T18:00:00", "013XX N LA SALLE DR", "0890", "THEFT", "FROM BUILDING", "RESIDENCE-GARAGE", false, false, "1821", "018", "43", "8", "06", null, null, "2018", "2018-02-12T15:49:14", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-2smf.gdjj_xbgw", "00000000-0000-0000-D3D7-18B7644D53DE", 0, 1519997144, null, 1519997150, null, "{ }", "11243635", "JB169214", "2017-08-31T00:00:00", "039XX W VAN BUREN ST", "1150", "DECEPTIVE PRACTICE", "CREDIT CARD FRAUD", "APARTMENT", false, true, "1132", "011", "24", "26", "11", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-pczb.p4v3.gzu5", "00000000-0000-0000-D7B8-2A2738DEEBA6", 0, 1520084976, null, 1520084982, null, "{ }", "11244245", "JB167262", "2017-10-10T19:27:00", "085XX S CARPENTER ST", "0820", "THEFT", "$500 AND UNDER", "RESIDENCE", false, false, "0613", "006", "21", "71", "06", null, null, "2017", "2018-03-02T15:54:48", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-b8uf.umru-u864", "00000000-0000-0000-8B8E-B925A4A98025", 0, 1519997144, null, 1519997150, null, "{ }", "11242929", "JB168310", "2015-01-01T00:00:00", "049XX S COTTAGE GROVE AVE", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "APARTMENT", false, false, "0223", "002", "4", "39", "11", null, null, "2015", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-uk6h~zy5x~k6hp", "00000000-0000-0000-79CD-91296915CED8", 0, 1519997144, null, 1519997150, null, "{ }", "11243481", "JB168909", "2017-11-04T22:00:00", "064XX S DR MARTIN LUTHER KING JR DR", "5002", "OTHER OFFENSE", "OTHER VEHICLE OFFENSE", "STREET", false, false, "0312", "003", "20", "69", "26", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-cncr~f38c_wk47", "00000000-0000-0000-D30E-28F7B763DB4D", 0, 1519997144, null, 1519997150, null, "{ }", "11243284", "JB168734", "2017-12-28T09:00:00", "064XX N BELL AVE", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "RESIDENCE", false, false, "2412", "024", "50", "2", "11", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-ah2c~8pit_r9u3", "00000000-0000-0000-FB93-2CDC7C8B3C65", 0, 1519997144, null, 1519997150, null, "{ }", "11242965", "JB168370", "2017-12-28T14:00:00", "027XX N HAMPDEN CT", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", "RESIDENCE", false, false, "1935", "019", "43", "7", "11", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-vaw3~r8ub-bfgb", "00000000-0000-0000-7C2F-9CDEC99F038C", 0, 1519997144, null, 1519997150, null, "{ }", "11243493", "JB169102", "2017-08-04T15:00:00", "003XX E RANDOLPH ST", "0810", "THEFT", "OVER $500", "PARK PROPERTY", false, false, "0114", "001", "42", "32", "06", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-wtdn.zvd6-i7iy", "00000000-0000-0000-A0FA-F493B6EEDB85", 0, 1519997144, null, 1519997150, null, "{ }", "11243514", "JB168799", "2014-11-12T00:00:00", "107XX S PEORIA ST", "1153", "DECEPTIVE PRACTICE", "FINANCIAL IDENTITY THEFT OVER $ 300", null, false, false, "2233", "022", "34", "75", "11", null, null, "2014", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-28gx.wsje~qxg3", "00000000-0000-0000-3A0C-994BA6DD7CBF", 0, 1502193338, null, 1502193338, null, "{ }", "11037536", "JA371293", "2017-07-31T08:05:00", "004XX N MC CLURG CT", "1310", "CRIMINAL DAMAGE", "TO PROPERTY", "BOAT/WATERCRAFT", false, false, "1834", "018", "42", "8", "14", null, null, "2017", "2017-08-07T15:52:24", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-53m3~vnpu-qtb9", "00000000-0000-0000-D22F-DA7D25FE1D9F", 0, 1519997144, null, 1519997150, null, "{ }", "11243040", "JB167177", "2017-12-12T12:00:00", "033XX W 47TH ST", "0890", "THEFT", "FROM BUILDING", "WAREHOUSE", false, false, "0821", "008", "14", "58", "06", null, null, "2017", "2018-03-01T15:54:55", null, null, null, null, null, null, null, null, null, null, null ]
+, [ "row-n7iv~aygx_gtqv", "00000000-0000-0000-E51D-C9481466C347", 0, 1501157425, null, 1501157425, null, "{ }", "11024203", "JA354900", "2017-07-19T07:15:00", "0000X E WASHINGTON ST", "0890", "THEFT", "FROM BUILDING", "RESTAURANT", false, false, "0112", "001", "42", "32", "06", null, null, "2017", "2017-07-26T15:56:50", null, null, null, null, null, null, null, null, null, null, null ]
+  ]
+}

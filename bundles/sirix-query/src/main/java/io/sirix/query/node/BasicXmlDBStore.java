@@ -275,12 +275,18 @@ public final class BasicXmlDBStore implements XmlDBStore {
     final Path dbPath = location.resolve(name);
     if (Databases.existsDatabase(dbPath)) {
       try {
-        final var database = Databases.openXmlDatabase(dbPath);
-        final Optional<Database<XmlResourceSession>> storedCollection =
-            databases.stream().findFirst().filter(db -> db.equals(database));
-        if (storedCollection.isPresent()) {
-          return collections.get(storedCollection.get());
+        // First, check if we already have a database open for this path
+        // by comparing database names (not object identity)
+        final Optional<Database<XmlResourceSession>> existingDb =
+            databases.stream().filter(db -> db.getName().equals(name) && db.isOpen()).findFirst();
+        
+        if (existingDb.isPresent()) {
+          // Reuse existing database and its collection
+          return collections.get(existingDb.get());
         }
+        
+        // No existing database found, open a new one
+        final var database = Databases.openXmlDatabase(dbPath);
         databases.add(database);
         final XmlDBCollection collection = new XmlDBCollection(name, database);
         collections.put(database, collection);

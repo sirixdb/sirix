@@ -66,6 +66,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final ConcurrentMap<Database<JsonResourceSession>, JsonDBCollection> collections;
 
   /**
+   * Tracks resource sessions that have been used for write operations.
+   * These sessions may have open write transactions that need to be closed.
+   */
+  private final Set<JsonResourceSession> sessionsWithWriteTrx;
+
+  /**
    * {@link StorageType} instance.
    */
   private final StorageType storageType;
@@ -255,6 +261,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private BasicJsonDBStore(final Builder builder) {
     databases = Collections.synchronizedSet(new HashSet<>());
     collections = new ConcurrentHashMap<>();
+    sessionsWithWriteTrx = Collections.synchronizedSet(new HashSet<>());
     storageType = builder.storageType;
     location = builder.location;
     buildPathSummary = builder.buildPathSummary;
@@ -289,18 +296,18 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final Path dbPath = location.resolve(name);
     if (Databases.existsDatabase(dbPath)) {
       try {
-        final var database = Databases.openJsonDatabase(dbPath);
-        final Optional<Database<JsonResourceSession>> storedCollection =
-            databases.stream().findFirst().filter(db -> db.equals(database));
-        if (storedCollection.isPresent()) {
-          final var db = storedCollection.get();
-
-          if (db.isOpen()) {
-            return collections.get(db);
-          } else {
-            databases.remove(db);
-          }
+        // First, check if we already have a database open for this path
+        // by comparing database names (not object identity)
+        final Optional<Database<JsonResourceSession>> existingDb =
+            databases.stream().filter(db -> db.getName().equals(name) && db.isOpen()).findFirst();
+        
+        if (existingDb.isPresent()) {
+          // Reuse existing database and its collection
+          return collections.get(existingDb.get());
         }
+        
+        // No existing database found, open a new one
+        final var database = Databases.openJsonDatabase(dbPath);
         databases.add(database);
         final JsonDBCollection collection = new JsonDBCollection(name, database, this);
         collections.put(database, collection);
@@ -636,11 +643,55 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
+  /**
+   * Registers a resource session that has an open write transaction.
+   * This allows proper cleanup when the store is closed.
+   *
+   * @param session the resource session with an open write transaction
+   */
+  public void registerWriteSession(final JsonResourceSession session) {
+    sessionsWithWriteTrx.add(session);
+  }
+
   @Override
   public void close() {
     try {
+      // First, commit and close any open write transactions on tracked sessions
+      // These are sessions where getReadWriteTrx() was called
+      for (final var session : sessionsWithWriteTrx) {
+        try {
+          if (!session.isClosed()) {
+            session.getNodeTrx().ifPresent(wtx -> {
+              try {
+                wtx.commit();
+              } catch (Exception e) {
+                try {
+                  wtx.rollback();
+                } catch (Exception ignored) {
+                }
+              } finally {
+                try {
+                  wtx.close();
+                } catch (Exception ignored) {
+                }
+              }
+            });
+          }
+        } catch (Exception e) {
+          // Session might already be closed
+        }
+      }
+      sessionsWithWriteTrx.clear();
+
+      // Now close all databases (which also closes all remaining transactions)
       for (final var database : databases) {
-        database.close();
+        try {
+          if (database.isOpen()) {
+            database.close();
+          }
+        } catch (Exception e) {
+          // Database might have been closed concurrently
+        }
       }
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());

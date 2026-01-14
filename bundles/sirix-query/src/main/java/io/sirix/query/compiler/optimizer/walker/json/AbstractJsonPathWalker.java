@@ -274,7 +274,16 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       resourceName = node.getChild(1).getStringValue();
 
       if (node.getChildCount() > 2) {
-        revision = (int) node.getChild(2).getValue();
+        final var revisionValue = node.getChild(2).getValue();
+        if (revisionValue instanceof Integer intVal) {
+          revision = intVal;
+        } else if (revisionValue instanceof io.brackit.query.atomic.Int32 int32Val) {
+          revision = int32Val.intValue();
+        } else if (revisionValue instanceof Number numVal) {
+          revision = numVal.intValue();
+        } else {
+          revision = -1;
+        }
       } else {
         revision = -1;
       }

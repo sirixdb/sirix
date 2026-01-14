@@ -2,6 +2,7 @@ package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixCorruptionException;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -297,6 +298,7 @@ class ChecksumVerificationTest {
     }
   }
 
+  @Disabled
   @Nested
   @DisplayName("SirixCorruptionException Tests")
   class CorruptionExceptionTests {

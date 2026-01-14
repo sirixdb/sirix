@@ -31,6 +31,8 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
   private final long maxChildNodes;
 
+  private final long startNodeKey;
+
   private enum State {
     IS_OBJECT,
 
@@ -44,21 +46,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
    */
   private final Appendable out;
 
-  /**
-   * Indent output.
-   */
-  private final boolean indent;
-
-  /**
-   * Number of spaces to indent.
-   */
-  private final int indentSpaces;
-
-  /**
-   * Determines if serializing with initial indentation.
-   */
-  private final boolean withInitialIndent;
-
   private final boolean serializeTimestamp;
 
   private final boolean withMetaData;
@@ -67,16 +54,10 @@ public final class JsonRecordSerializer implements Callable<Void> {
 
   private final boolean withNodeKeyAndChildNodeKeyMetaData;
 
-  private boolean hadToAddBracket;
-
-  private int currentIndent;
-
   /**
    * Array with versions to print.
    */
   private final int[] revisions;
-
-  private long lastTopLevelNodeKey;
 
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
@@ -96,15 +77,12 @@ public final class JsonRecordSerializer implements Callable<Void> {
     maxLevel = builder.maxLevel;
     maxChildNodes = builder.maxChildNodes;
     out = builder.stream;
-    indent = builder.indent;
-    indentSpaces = builder.indentSpaces;
-    withInitialIndent = builder.initialIndent;
     serializeTimestamp = builder.serializeTimestamp;
     withMetaData = builder.withMetaData;
     withNodeKeyMetaData = builder.withNodeKey;
     withNodeKeyAndChildNodeKeyMetaData = builder.withNodeKeyAndChildCount;
-    lastTopLevelNodeKey = builder.lastTopLevelNodeKey;
     numberOfNodes = builder.maxNodes;
+    startNodeKey = builder.nodeKey;
   }
 
   /**
@@ -220,8 +198,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
      */
     private boolean withNodeKeyAndChildCount;
 
-    private long lastTopLevelNodeKey;
-
     private long maxNodes = Long.MAX_VALUE;
 
     private long maxChildNodes = Long.MAX_VALUE;
@@ -290,16 +266,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
       return this;
     }
 
-    /**
-     * Specify the start node key.
-     *
-     * @param nodeKey node key to start serialization from (the root of the subtree to serialize)
-     * @return this reference
-     */
-    public Builder lastTopLevelNodeKey(final long nodeKey) {
-      this.lastTopLevelNodeKey = nodeKey;
-      return this;
-    }
 
     /**
      * Specify the maximum of nodes.
@@ -423,11 +389,13 @@ public final class JsonRecordSerializer implements Callable<Void> {
   }
 
   /**
-   * Serialize the first {@code numberOfRecords}, that is the first n-nodes of the 1st level.
+   * Serialize records. Two modes of operation:
+   * <ul>
+   *   <li>Initial Load Mode (startNodeKey == 0): Serialize from document root with parent wrapper</li>
+   *   <li>Pagination Mode (startNodeKey > 0): Serialize right siblings of startNodeKey as array</li>
+   * </ul>
    */
   public Void call() {
-    var state = State.IS_PRIMITIVE;
-
     final int nrOfRevisions = revisions.length;
     final int length =
         (nrOfRevisions == 1 && revisions[0] < 0) ? resourceMgr.getMostRecentRevisionNumber() : nrOfRevisions;
@@ -436,120 +404,261 @@ public final class JsonRecordSerializer implements Callable<Void> {
       try (final JsonNodeReadOnlyTrx rtx = resourceMgr.beginNodeReadOnlyTrx((nrOfRevisions == 1 && revisions[0] < 0)
                                                                                 ? i
                                                                                 : revisions[i - 1])) {
-        rtx.moveToDocumentRoot();
-
-        if (rtx.hasFirstChild()) {
-          rtx.moveToFirstChild();
-
-          var jsonSerializer =
-              new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions).startNodeKey(rtx.getNodeKey())
-                                                                                  .serializeStartNodeWithBrackets(false)
-                                                                                  .serializeTimestamp(serializeTimestamp)
-                                                                                  .withMetaData(withMetaData)
-                                                                                  .withNodeKeyAndChildCountMetaData(
-                                                                                      withNodeKeyAndChildNodeKeyMetaData)
-                                                                                  .withNodeKeyMetaData(
-                                                                                      withNodeKeyMetaData)
-                                                                                  .numberOfNodes(numberOfNodes)
-                                                                                  .build();
-          jsonSerializer.emitNode(rtx);
-
-          if (rtx.isObject()) {
-            state = State.IS_OBJECT;
-          } else if (rtx.isArray()) {
-            state = State.IS_ARRAY;
-          }
-
-          if (rtx.hasFirstChild()) {
-            boolean hasMoved = false;
-            if (lastTopLevelNodeKey != 0) {
-              rtx.moveTo(lastTopLevelNodeKey);
-              if (rtx.hasRightSibling()) {
-                rtx.moveToRightSibling();
-                hasMoved = true;
-              }
-            } else {
-              rtx.moveToFirstChild();
-              hasMoved = true;
-            }
-
-            if (hasMoved) {
-              var nodeKey = rtx.getNodeKey();
-              jsonSerializer =
-                  new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions).startNodeKey(nodeKey)
-                                                                                      .serializeStartNodeWithBrackets(
-                                                                                          false)
-                                                                                      .maxLevel(maxLevel)
-                                                                                      .maxChildren(maxChildNodes)
-                                                                                      .serializeTimestamp(
-                                                                                          serializeTimestamp)
-                                                                                      .withMetaData(withMetaData)
-                                                                                      .withNodeKeyAndChildCountMetaData(
-                                                                                          withNodeKeyAndChildNodeKeyMetaData)
-                                                                                      .withNodeKeyMetaData(
-                                                                                          withNodeKeyMetaData)
-                                                                                      .numberOfNodes(numberOfNodes)
-                                                                                      .build();
-              jsonSerializer.call();
-              if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData)) {
-                out.append("}");
-              }
-              rtx.moveTo(nodeKey);
-
-              if (rtx.hasRightSibling()) {
-                for (int j = 1; j < numberOfRecords && rtx.hasRightSibling(); j++) {
-                  rtx.moveToRightSibling();
-                  nodeKey = rtx.getNodeKey();
-                  out.append(",");
-                  if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData
-                      || withNodeKeyMetaData)) {
-                    out.append("{");
-                  }
-                  jsonSerializer =
-                      new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions).startNodeKey(nodeKey)
-                                                                                          .serializeStartNodeWithBrackets(
-                                                                                              false)
-                                                                                          .maxLevel(maxLevel)
-                                                                                          .maxChildren(maxChildNodes)
-                                                                                          .serializeTimestamp(
-                                                                                              serializeTimestamp)
-                                                                                          .withMetaData(withMetaData)
-                                                                                          .withNodeKeyAndChildCountMetaData(
-                                                                                              withNodeKeyAndChildNodeKeyMetaData)
-                                                                                          .withNodeKeyMetaData(
-                                                                                              withNodeKeyMetaData)
-                                                                                          .numberOfNodes(numberOfNodes)
-                                                                                          .build();
-                  jsonSerializer.call();
-                  if (rtx.isObjectKey() && (withMetaData || withNodeKeyAndChildNodeKeyMetaData
-                      || withNodeKeyMetaData)) {
-                    out.append("}");
-                  }
-                  rtx.moveTo(nodeKey);
-                }
-              }
-            }
-          }
-
-          if (state == State.IS_OBJECT) {
-            if (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData) {
-              out.append("]");
-            }
-            out.append("}");
-          } else if (state == State.IS_ARRAY) {
-            if (withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData) {
-              out.append("]}");
-            } else {
-              out.append("]");
-            }
-          }
+        if (startNodeKey > 0) {
+          // PAGINATION MODE: Serialize right siblings of startNodeKey as array
+          serializeSiblingsAfter(rtx);
+        } else {
+          // INITIAL LOAD MODE: Serialize from document root with parent wrapper
+          serializeWithParentWrapper(rtx);
         }
-
       } catch (final IOException e) {
         throw new UncheckedIOException(e);
       }
     }
 
     return null;
+  }
+
+  /**
+   * Pagination mode: Serialize right siblings of startNodeKey as a JSON array with parent metadata.
+   * Output format: {"metadata":{parentNodeKey, childCount, ...}, "value":[{sibling1}, {sibling2}, ...]}
+   * 
+   * @param rtx the read-only transaction
+   * @throws IOException if serialization fails
+   */
+  private void serializeSiblingsAfter(final JsonNodeReadOnlyTrx rtx) throws IOException {
+    // Move to the start node (last loaded child)
+    if (!rtx.moveTo(startNodeKey)) {
+      out.append("{\"value\":[]}");
+      return;
+    }
+
+    // Emit parent metadata wrapper
+    if (rtx.hasParent()) {
+      rtx.moveToParent();
+      
+      final boolean hasMetadata = withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData;
+      if (hasMetadata) {
+        emitParentMetadata(rtx);
+      } else {
+        // No metadata mode - just emit value wrapper for consistency
+        out.append("{\"value\":[");
+      }
+      
+      // Move back to start node
+      rtx.moveTo(startNodeKey);
+    } else {
+      out.append("{\"value\":[");
+    }
+
+    // Move to right sibling (first new child to serialize)
+    if (!rtx.hasRightSibling()) {
+      out.append("]}");
+      return;
+    }
+    rtx.moveToRightSibling();
+
+    // Pre-compute metadata flag for efficiency
+    final boolean hasMetadata = withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData;
+
+    // Create builder ONCE with all common settings - only startNodeKey changes per sibling
+    final JsonSerializer.Builder builder = new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions)
+        .serializeStartNodeWithBrackets(false)
+        .maxLevel(maxLevel)
+        .maxChildren(maxChildNodes)
+        .serializeTimestamp(serializeTimestamp)
+        .withMetaData(withMetaData)
+        .withNodeKeyAndChildCountMetaData(withNodeKeyAndChildNodeKeyMetaData)
+        .withNodeKeyMetaData(withNodeKeyMetaData)
+        .numberOfNodes(numberOfNodes);
+
+    int count = 0;
+    do {
+      if (count > 0) {
+        out.append(',');
+      }
+
+      final long nodeKey = rtx.getNodeKey();
+      final boolean isObjectKey = rtx.isObjectKey();
+
+      // ObjectKey nodes ALWAYS need wrapper {} for valid JSON array elements
+      // e.g., [{"key1": value1}, {"key2": value2}] instead of ["key1": value1, ...]
+      if (isObjectKey) {
+        out.append('{');
+      }
+
+      // Serialize this sibling's subtree - only update startNodeKey, reuse everything else
+      builder.startNodeKey(nodeKey).build().call();
+
+      // Close ObjectKey wrapper
+      if (isObjectKey) {
+        out.append('}');
+      }
+
+      // Restore cursor position to this sibling (serialization may have moved it)
+      rtx.moveTo(nodeKey);
+      count++;
+
+      // Check if we should continue
+      if (count >= numberOfRecords) {
+        break;
+      }
+    } while (rtx.hasRightSibling() && rtx.moveToRightSibling());
+
+    out.append("]}");
+  }
+
+  /**
+   * Initial load mode: Serialize from document root with parent wrapper.
+   * Output format: {"metadata":{...}, "value":[{child1}, {child2}, ...]}
+   * 
+   * @param rtx the read-only transaction
+   * @throws IOException if serialization fails
+   */
+  private void serializeWithParentWrapper(final JsonNodeReadOnlyTrx rtx) throws IOException {
+    var state = State.IS_PRIMITIVE;
+
+    rtx.moveToDocumentRoot();
+    if (!rtx.hasFirstChild()) {
+      return;
+    }
+    rtx.moveToFirstChild();
+
+    if (rtx.getNodeKey() <= 0) {
+      return;
+    }
+
+    // Pre-compute metadata flag for efficiency
+    final boolean hasMetadata = withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData;
+
+    if (rtx.isObject()) {
+      state = State.IS_OBJECT;
+    } else if (rtx.isArray()) {
+      state = State.IS_ARRAY;
+    }
+
+    // Emit the parent wrapper manually to avoid the extra '{' that emitNode adds for OBJECT
+    // which would conflict with separately serialized children
+    if (hasMetadata) {
+      emitParentMetadata(rtx);
+    } else {
+      // No metadata - just emit the opening bracket
+      if (state == State.IS_OBJECT) {
+        out.append('{');
+      } else if (state == State.IS_ARRAY) {
+        out.append('[');
+      }
+    }
+
+    // Create builder for serialization
+    final JsonSerializer.Builder builder = new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions)
+        .serializeStartNodeWithBrackets(false)
+        .maxLevel(maxLevel)
+        .maxChildren(maxChildNodes)
+        .serializeTimestamp(serializeTimestamp)
+        .withMetaData(withMetaData)
+        .withNodeKeyAndChildCountMetaData(withNodeKeyAndChildNodeKeyMetaData)
+        .withNodeKeyMetaData(withNodeKeyMetaData)
+        .numberOfNodes(numberOfNodes);
+
+    // For primitives, serialize the node itself (not children, which don't exist)
+    if (state == State.IS_PRIMITIVE) {
+      builder.startNodeKey(rtx.getNodeKey()).build().call();
+    } else if (rtx.hasFirstChild()) {
+      // Serialize children for objects/arrays
+      rtx.moveToFirstChild();
+
+      int count = 0;
+      do {
+        if (count > 0) {
+          out.append(',');
+        }
+
+        final long nodeKey = rtx.getNodeKey();
+        final boolean isObjectKey = rtx.isObjectKey();
+        // When metadata is enabled, ObjectKey children need {} wrapping because:
+        // 1. We set startNodeKey to each child, so serializer skips its auto-wrapping logic
+        // 2. ObjectKey format with metadata is {"key":"...", "metadata":{...}, "value":...}
+        final boolean needsWrapper = isObjectKey && hasMetadata;
+
+        if (needsWrapper) {
+          out.append('{');
+        }
+
+        builder.startNodeKey(nodeKey).build().call();
+
+        if (needsWrapper) {
+          out.append('}');
+        }
+
+        rtx.moveTo(nodeKey);
+        count++;
+
+        if (count >= numberOfRecords) {
+          break;
+        }
+      } while (rtx.hasRightSibling() && rtx.moveToRightSibling());
+    }
+
+    // Close parent structure
+    if (state == State.IS_OBJECT) {
+      if (hasMetadata) {
+        // Close {"metadata":{...},"value":[...]}
+        out.append("]}");
+      } else {
+        out.append('}');
+      }
+    } else if (state == State.IS_ARRAY) {
+      if (hasMetadata) {
+        // Close {"metadata":{...},"value":[...]}
+        out.append("]}");
+      } else {
+        out.append(']');
+      }
+    } else if (hasMetadata) {
+      // IS_PRIMITIVE with metadata: close {"metadata":{...},"value":[...]}
+      out.append("]}");
+    }
+  }
+
+  /**
+   * Emit parent node metadata wrapper.
+   * Output format: {"metadata":{nodeKey:X,...},"value":[
+   * 
+   * Always uses array wrapper for value to ensure consistency between
+   * initial load and pagination responses.
+   *
+   * @param rtx the read-only transaction
+   */
+  private void emitParentMetadata(final JsonNodeReadOnlyTrx rtx) throws IOException {
+    out.append("{\"metadata\":{");
+    
+    // Node key
+    if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
+      out.append("\"nodeKey\":").append(String.valueOf(rtx.getNodeKey()));
+    }
+    
+    // Hash and type (for full metadata)
+    if (withMetaData) {
+      if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
+        out.append(',');
+      }
+      if (rtx.getHash() != 0L) {
+        out.append("\"hash\":\"").append(String.format("%016x", rtx.getHash())).append("\",");
+      }
+      out.append("\"type\":\"").append(rtx.getKind().toString()).append('"');
+      if (rtx.getHash() != 0L) {
+        out.append(",\"descendantCount\":").append(String.valueOf(rtx.getDescendantCount()));
+      }
+    }
+    
+    // Child count (for nodeKeyAndChildCount metadata)
+    // When withNodeKeyAndChildNodeKeyMetaData is true, nodeKey was already output above,
+    // so we always need a comma before childCount
+    if (withNodeKeyAndChildNodeKeyMetaData) {
+      out.append(",\"childCount\":").append(String.valueOf(rtx.getChildCount()));
+    }
+    
+    out.append("},\"value\":[");
   }
 }
