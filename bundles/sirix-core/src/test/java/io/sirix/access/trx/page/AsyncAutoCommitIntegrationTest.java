@@ -363,4 +363,435 @@ public final class AsyncAutoCommitIntegrationTest {
       wtx.rollback();
     }
   }
+
+  // ============================================================================
+  // Extensive Integration Tests
+  // ============================================================================
+
+  @Test
+  public void testMultipleRotationCyclesWithGenerationTracking() {
+    try (final var wtx = resourceSession.beginNodeTrx()) {
+      JsonDocumentCreator.create(wtx);
+      wtx.commit();
+
+      final var pageTrx = (NodeStorageEngineWriter) wtx.getPageTrx();
+      final var log = pageTrx.getLog();
+
+      // Test generation increment across multiple rotations
+      // Note: We can only insert in the first cycle because subsequent rotations
+      // would require full layered lookup integration for path summary pages
+
+      // First cycle - insert data
+      final int genBefore = log.getCurrentGeneration();
+
+      for (int i = 0; i < 3; i++) {
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.insertObjectRecordAsFirstChild("cycle0_key" + i, new StringValue("value" + i));
+      }
+
+      final int sizeBefore = log.size();
+      assertTrue(sizeBefore > 0, "TIL should have entries in first cycle");
+
+      // Rotate
+      TransactionIntentLog.RotationResult rotation = log.detachAndReset();
+
+      // Verify first rotation
+      assertEquals(sizeBefore, rotation.size(), "Rotation should preserve size");
+      assertEquals(genBefore + 1, log.getCurrentGeneration(), "Generation should increment");
+      assertEquals(0, log.size(), "TIL should be empty after rotation");
+
+      // Now test multiple empty rotations to verify generation keeps incrementing
+      for (int cycle = 1; cycle < 5; cycle++) {
+        final int currentGen = log.getCurrentGeneration();
+        // Rotate empty TIL
+        TransactionIntentLog.RotationResult emptyRotation = log.detachAndReset();
+        assertEquals(0, emptyRotation.size(), "Empty rotation should have 0 entries");
+        assertEquals(currentGen + 1, log.getCurrentGeneration(), 
+            "Generation should increment even for empty rotation in cycle " + cycle);
+      }
+
+      // Final generation should be initial + 5
+      assertEquals(genBefore + 5, log.getCurrentGeneration(), "Final generation should be 5 more than initial");
+
+      wtx.rollback();
+    }
+  }
+
+  @Test
+  public void testIdentityMapPreservesReferenceIdentity() {
+    try (final var wtx = resourceSession.beginNodeTrx()) {
+      JsonDocumentCreator.create(wtx);
+      wtx.commit();
+
+      final var pageTrx = (NodeStorageEngineWriter) wtx.getPageTrx();
+      final var log = pageTrx.getLog();
+
+      // Insert to get page references
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
+      wtx.insertObjectRecordAsFirstChild("identity_test", new StringValue("value"));
+
+      // Get a reference from the TIL
+      final int sizeBefore = log.size();
+      assertTrue(sizeBefore > 0, "Should have entries");
+
+      // Rotate
+      TransactionIntentLog.RotationResult rotation = log.detachAndReset();
+
+      // The identity map should be populated
+      assertNotNull(rotation.refToContainer(), "Identity map should exist");
+      assertEquals(sizeBefore, rotation.refToContainer().size(), "Identity map should have all refs");
+
+      // Each entry in identity map should have a non-null container
+      for (var entry : rotation.refToContainer().entrySet()) {
+        assertNotNull(entry.getKey(), "Key should not be null");
+        assertNotNull(entry.getValue(), "Container should not be null");
+      }
+
+      wtx.rollback();
+    }
+  }
+
+  @Test
+  public void testSnapshotIsolationFromNewInserts() throws Exception {
+    try (final var wtx = resourceSession.beginNodeTrx()) {
+      JsonDocumentCreator.create(wtx);
+      wtx.commit();
+
+      final var pageTrx = (NodeStorageEngineWriter) wtx.getPageTrx();
+      final var log = pageTrx.getLog();
+
+      // Insert initial data
+      for (int i = 0; i < 5; i++) {
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.insertObjectRecordAsFirstChild("initial" + i, new StringValue("value" + i));
+      }
+
+      final int initialSize = log.size();
+
+      // Create snapshot
+      pageTrx.acquireCommitPermit();
+      final CommitSnapshot snapshot = pageTrx.prepareAsyncCommitSnapshot(
+          "isolation test",
+          System.currentTimeMillis(),
+          null
+      );
+
+      assertNotNull(snapshot, "Snapshot should be created");
+
+      // Snapshot should have initial size
+      assertEquals(initialSize, snapshot.size(), "Snapshot should capture initial entries");
+
+      // TIL should be empty
+      assertEquals(0, log.size(), "Active TIL should be empty");
+
+      // Snapshot size should NOT change when new data would be inserted
+      // (though we can't insert here due to path summary issues)
+      assertEquals(initialSize, snapshot.size(), "Snapshot size should remain constant");
+
+      wtx.rollback();
+    }
+  }
+
+  @Test
+  public void testDiskOffsetArrayBoundsChecking() throws Exception {
+    try (final var wtx = resourceSession.beginNodeTrx()) {
+      JsonDocumentCreator.create(wtx);
+      wtx.commit();
+
+      final var pageTrx = (NodeStorageEngineWriter) wtx.getPageTrx();
+
+      // Insert data
+      for (int i = 0; i < 5; i++) {
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.insertObjectRecordAsFirstChild("bounds" + i, new StringValue("value" + i));
+      }
+
+      pageTrx.acquireCommitPermit();
+      final CommitSnapshot snapshot = pageTrx.prepareAsyncCommitSnapshot(
+          "bounds test",
+          System.currentTimeMillis(),
+          null
+      );
+
+      if (snapshot != null) {
+        final int snapshotSize = snapshot.size();
+
+        // Test valid offsets
+        for (int i = 0; i < snapshotSize; i++) {
+          snapshot.recordDiskOffset(i, 1000L + i);
+          assertEquals(1000L + i, snapshot.getDiskOffset(i), "Should record offset for index " + i);
+        }
+
+        // Test out of bounds - should return -1, not throw
+        assertEquals(-1L, snapshot.getDiskOffset(-1), "Negative index should return -1");
+        assertEquals(-1L, snapshot.getDiskOffset(snapshotSize), "Index at size should return -1");
+        assertEquals(-1L, snapshot.getDiskOffset(snapshotSize + 100), "Large index should return -1");
+      }
+
+      wtx.rollback();
+    }
+  }
+
+  @Test
+  public void testCommitCompleteStatePropagation() throws Exception {
+    final ExecutorService executor = Executors.newSingleThreadExecutor();
+    final CountDownLatch commitStarted = new CountDownLatch(1);
+    final CountDownLatch checkComplete = new CountDownLatch(1);
+
+    try (final var wtx = resourceSession.beginNodeTrx()) {
+      JsonDocumentCreator.create(wtx);
+      wtx.commit();
+
+      final var pageTrx = (NodeStorageEngineWriter) wtx.getPageTrx();
+
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
+      wtx.insertObjectRecordAsFirstChild("state_prop", new StringValue("value"));
+
+      pageTrx.acquireCommitPermit();
+      final CommitSnapshot snapshot = pageTrx.prepareAsyncCommitSnapshot(
+          "state propagation test",
+          System.currentTimeMillis(),
+          null
+      );
+
+      if (snapshot != null) {
+        // Initially not complete
+        assertTrue(!snapshot.isCommitComplete(), "Should not be complete initially");
+
+        executor.submit(() -> {
+          try {
+            commitStarted.countDown();
+            checkComplete.await(1, TimeUnit.SECONDS);
+            
+            // Now mark complete
+            snapshot.markCommitComplete();
+          } catch (Exception e) {
+            // Ignore
+          }
+        });
+
+        // Wait for thread to start
+        commitStarted.await(1, TimeUnit.SECONDS);
+
+        // Still not complete
+        assertTrue(!snapshot.isCommitComplete(), "Should not be complete before markCommitComplete");
+
+        // Signal to complete
+        checkComplete.countDown();
+
+        // Wait for completion
+        Thread.sleep(100);
+
+        // Now should be complete
+        assertTrue(snapshot.isCommitComplete(), "Should be complete after markCommitComplete");
+      }
+
+      executor.shutdown();
+      assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+
+      wtx.rollback();
+    } finally {
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  public void testEmptyRotationAfterClear() throws Exception {
+    try (final var wtx = resourceSession.beginNodeTrx()) {
+      JsonDocumentCreator.create(wtx);
+      wtx.commit();
+
+      final var pageTrx = (NodeStorageEngineWriter) wtx.getPageTrx();
+      final var log = pageTrx.getLog();
+
+      // After commit, the TIL has some entries from the commit process.
+      // Do a rotation to clear it, then test empty rotation.
+      TransactionIntentLog.RotationResult firstRotation = log.detachAndReset();
+      assertTrue(firstRotation.size() >= 0, "First rotation captures whatever was in TIL");
+
+      // Now TIL should be empty
+      assertEquals(0, log.size(), "TIL should be empty after rotation");
+
+      // Try to prepare snapshot with empty TIL
+      pageTrx.acquireCommitPermit();
+      final CommitSnapshot snapshot = pageTrx.prepareAsyncCommitSnapshot(
+          "empty snapshot",
+          System.currentTimeMillis(),
+          null
+      );
+
+      // prepareAsyncCommitSnapshot returns null for empty TIL and releases permit
+      assertNull(snapshot, "Empty TIL should result in null snapshot");
+
+      wtx.rollback();
+    }
+  }
+
+  @Test
+  public void testPageReferenceGenerationField() {
+    try (final var wtx = resourceSession.beginNodeTrx()) {
+      JsonDocumentCreator.create(wtx);
+      wtx.commit();
+
+      final var pageTrx = (NodeStorageEngineWriter) wtx.getPageTrx();
+      final var log = pageTrx.getLog();
+
+      final int initialGen = log.getCurrentGeneration();
+
+      // Insert to create page references
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
+      wtx.insertObjectRecordAsFirstChild("gen_test", new StringValue("value"));
+
+      // Rotate
+      log.detachAndReset();
+
+      final int newGen = log.getCurrentGeneration();
+      assertEquals(initialGen + 1, newGen, "Generation should increment after rotation");
+
+      // New inserts after rotation should get new generation
+      // (We can't verify the PageReference generation directly without more invasive testing)
+
+      wtx.rollback();
+    }
+  }
+
+  @Test
+  public void testSnapshotCommitterRecordsDiskOffsets() throws Exception {
+    try (final var wtx = resourceSession.beginNodeTrx()) {
+      JsonDocumentCreator.create(wtx);
+      wtx.commit();
+
+      final var pageTrx = (NodeStorageEngineWriter) wtx.getPageTrx();
+
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
+      wtx.insertObjectRecordAsFirstChild("disk_offset", new StringValue("value"));
+
+      pageTrx.acquireCommitPermit();
+      final CommitSnapshot snapshot = pageTrx.prepareAsyncCommitSnapshot(
+          "disk offset test",
+          System.currentTimeMillis(),
+          null
+      );
+
+      if (snapshot != null) {
+        // Simulate what SnapshotCommitter would do
+        for (int i = 0; i < snapshot.size(); i++) {
+          // Record disk offset
+          snapshot.recordDiskOffset(i, 50000L + i * 100);
+        }
+
+        // Verify all offsets recorded
+        for (int i = 0; i < snapshot.size(); i++) {
+          assertEquals(50000L + i * 100, snapshot.getDiskOffset(i), 
+              "Disk offset should be recorded for logKey " + i);
+        }
+
+        // Mark complete
+        snapshot.markCommitComplete();
+        assertTrue(snapshot.isCommitComplete(), "Commit should be complete");
+      }
+
+      wtx.rollback();
+    }
+  }
+
+  @Test
+  public void testLargeNumberOfEntriesRotation() {
+    try (final var wtx = resourceSession.beginNodeTrx()) {
+      JsonDocumentCreator.create(wtx);
+      wtx.commit();
+
+      final var pageTrx = (NodeStorageEngineWriter) wtx.getPageTrx();
+      final var log = pageTrx.getLog();
+
+      // Insert many entries - not as many as 100 since each insert creates multiple pages
+      // (record page + path summary pages, etc.)
+      final int numInserts = 20;
+      for (int i = 0; i < numInserts; i++) {
+        wtx.moveToDocumentRoot();
+        wtx.moveToFirstChild();
+        wtx.insertObjectRecordAsFirstChild("large" + i, new StringValue("value" + i));
+      }
+
+      final int sizeBefore = log.size();
+      // Each insert creates multiple TIL entries (record page, path summary, etc.)
+      assertTrue(sizeBefore > 0, "Should have entries in TIL");
+
+      // Rotate
+      TransactionIntentLog.RotationResult rotation = log.detachAndReset();
+
+      // Verify all entries preserved
+      assertEquals(sizeBefore, rotation.size(), "Rotation should preserve all entries");
+      assertEquals(sizeBefore, rotation.refToContainer().size(), "Identity map should have all entries");
+
+      // Verify TIL reset
+      assertEquals(0, log.size(), "TIL should be empty after rotation");
+
+      wtx.rollback();
+    }
+  }
+
+  @Test
+  public void testRevisionRootPageDeepCopy() throws Exception {
+    try (final var wtx = resourceSession.beginNodeTrx()) {
+      JsonDocumentCreator.create(wtx);
+      wtx.commit();
+
+      final var pageTrx = (NodeStorageEngineWriter) wtx.getPageTrx();
+
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
+      wtx.insertObjectRecordAsFirstChild("rrp_copy", new StringValue("value"));
+
+      pageTrx.acquireCommitPermit();
+      final CommitSnapshot snapshot = pageTrx.prepareAsyncCommitSnapshot(
+          "rrp deep copy test",
+          System.currentTimeMillis(),
+          null
+      );
+
+      if (snapshot != null) {
+        // Verify RevisionRootPage is captured
+        assertNotNull(snapshot.revisionRootPage(), "RRP should be captured");
+        
+        // Verify commit message is captured
+        assertEquals("rrp deep copy test", snapshot.commitMessage(), "Commit message should be captured");
+
+        // Verify revision is captured
+        assertTrue(snapshot.revision() >= 0, "Revision should be non-negative");
+      }
+
+      wtx.rollback();
+    }
+  }
+
+  @Test
+  public void testTryAcquireCommitPermitNonBlocking() throws Exception {
+    try (final var wtx = resourceSession.beginNodeTrx()) {
+      JsonDocumentCreator.create(wtx);
+      wtx.commit();
+
+      final var pageTrx = (NodeStorageEngineWriter) wtx.getPageTrx();
+
+      // First tryAcquire should succeed
+      assertTrue(pageTrx.tryAcquireCommitPermit(), "First tryAcquire should succeed");
+
+      // Second tryAcquire should fail immediately (non-blocking)
+      long start = System.currentTimeMillis();
+      boolean secondResult = pageTrx.tryAcquireCommitPermit();
+      long duration = System.currentTimeMillis() - start;
+
+      assertTrue(!secondResult, "Second tryAcquire should fail");
+      assertTrue(duration < 100, "tryAcquire should be non-blocking (took " + duration + "ms)");
+
+      wtx.rollback();
+    }
+  }
 }

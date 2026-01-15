@@ -122,6 +122,30 @@ public final class HOTTrieWriter {
       byte[] key,
       @NonNull IndexType indexType,
       int indexNumber) {
+    return prepareKeyedLeafForModification(pageRtx, log, startReference, key, indexType, indexNumber, null);
+  }
+
+  /**
+   * Navigate keyed trie (HOT) with async auto-commit support.
+   * Uses layered lookup: active TIL -> pending snapshot -> disk.
+   *
+   * @param pageRtx storage engine writer
+   * @param log transaction intent log
+   * @param startReference root reference (from PathPage/CASPage/NamePage)
+   * @param key the search key (semantic bytes, not decomposed bit-by-bit)
+   * @param indexType PATH/CAS/NAME
+   * @param indexNumber the index number
+   * @param pendingSnapshot the pending snapshot for layered lookup (may be null)
+   * @return PageContainer with complete and modifying HOTLeafPage, or null if not found
+   */
+  public @Nullable PageContainer prepareKeyedLeafForModification(
+      @NonNull StorageEngineWriter pageRtx,
+      @NonNull TransactionIntentLog log,
+      @NonNull PageReference startReference,
+      byte[] key,
+      @NonNull IndexType indexType,
+      int indexNumber,
+      @Nullable CommitSnapshot pendingSnapshot) {
     
     Objects.requireNonNull(pageRtx);
     Objects.requireNonNull(log);
@@ -132,14 +156,14 @@ public final class HOTTrieWriter {
     // Reset COW path (no allocation!)
     cowPathDepth = 0;
     
-    // Check if already in log (modified this transaction)
-    PageContainer cached = log.get(startReference);
+    // Check if already in log (modified this transaction) - using layered lookup
+    PageContainer cached = getFromActiveOrPending(startReference, log, pendingSnapshot);
     if (cached != null) {
-      return navigateWithinCachedTree(cached, key, pageRtx, log, indexType, indexNumber);
+      return navigateWithinCachedTree(cached, key, pageRtx, log, indexType, indexNumber, pendingSnapshot);
     }
     
     // Navigate HOT trie, COW'ing along the path (uses pre-allocated arrays)
-    PageReference leafRef = navigateToLeaf(pageRtx, startReference, key, log);
+    PageReference leafRef = navigateToLeaf(pageRtx, startReference, key, log, pendingSnapshot);
     
     if (leafRef == null) {
       // Key not found, need to create new leaf
@@ -147,7 +171,71 @@ public final class HOTTrieWriter {
     }
     
     // Get leaf page through versioning pipeline
-    return dereferenceHOTLeafForModification(pageRtx, leafRef, log);
+    return dereferenceHOTLeafForModification(pageRtx, leafRef, log, pendingSnapshot);
+  }
+
+  /**
+   * 3-step layered lookup for async auto-commit support.
+   * Checks: active TIL (via generation) -> pending snapshot -> null (disk)
+   *
+   * @param ref the page reference
+   * @param log the transaction intent log
+   * @param pendingSnapshot the pending snapshot (may be null)
+   * @return the page container, or null if should load from disk
+   */
+  private @Nullable PageContainer getFromActiveOrPending(
+      @NonNull PageReference ref,
+      @NonNull TransactionIntentLog log,
+      @Nullable CommitSnapshot pendingSnapshot) {
+
+    // STEP 1: FAST PATH - Check if ref is in active TIL via generation
+    final int currentGen = log.getCurrentGeneration();
+    if (ref.isInActiveTil(currentGen)) {
+      return log.getUnchecked(ref.getLogKey());
+    }
+
+    // STEP 2: Check pending snapshot
+    if (pendingSnapshot == null) {
+      return null;
+    }
+
+    return getFromSnapshot(ref, pendingSnapshot);
+  }
+
+  /**
+   * Look up a page in the pending snapshot.
+   */
+  private @Nullable PageContainer getFromSnapshot(
+      @NonNull PageReference ref,
+      @NonNull CommitSnapshot snapshot) {
+
+    // If commit is complete, use disk offset mapping for lazy propagation
+    if (snapshot.isCommitComplete()) {
+      final int logKey = ref.getLogKey();
+      if (logKey >= 0) {
+        final long diskOffset = snapshot.getDiskOffset(logKey);
+        if (diskOffset >= 0) {
+          // Lazy propagation: update ref's key for future disk loads
+          ref.setKey(diskOffset);
+          return null; // Signal: load from disk using updated key
+        }
+      }
+      return null;
+    }
+
+    // Try identity-based lookup
+    PageContainer result = snapshot.getByIdentity(ref);
+    if (result != null) {
+      return result;
+    }
+
+    // Fallback for cloned refs
+    final int logKey = ref.getLogKey();
+    if (logKey >= 0 && logKey < snapshot.size()) {
+      return snapshot.getEntry(logKey);
+    }
+
+    return null;
   }
   
   /**
@@ -166,15 +254,48 @@ public final class HOTTrieWriter {
       @NonNull PageReference startReference,
       byte[] key,
       @NonNull TransactionIntentLog log) {
+    return navigateToLeaf(pageRtx, startReference, key, log, null);
+  }
+
+  /**
+   * Navigate through keyed trie (HOT) with async auto-commit support.
+   * Uses layered lookup: active TIL -> pending snapshot -> disk.
+   *
+   * @param pageRtx the storage engine reader
+   * @param startReference the starting reference
+   * @param key the search key
+   * @param log the transaction intent log
+   * @param pendingSnapshot the pending snapshot (may be null)
+   * @return the leaf page reference, or null if not found
+   */
+  private @Nullable PageReference navigateToLeaf(
+      @NonNull StorageEngineReader pageRtx,
+      @NonNull PageReference startReference,
+      byte[] key,
+      @NonNull TransactionIntentLog log,
+      @Nullable CommitSnapshot pendingSnapshot) {
     
     PageReference currentRef = startReference;
     
     while (true) {
-      // Check log first
-      PageContainer container = log.get(currentRef);
+      // Use layered lookup: active TIL -> pending snapshot -> disk
+      PageContainer container = getFromActiveOrPending(currentRef, log, pendingSnapshot);
       Page page;
       if (container != null) {
         page = container.getComplete();
+        // Check if page is in pending snapshot and perform COW if needed
+        if (pendingSnapshot != null && !pendingSnapshot.isCommitComplete()) {
+          PageContainer snapshotContainer = pendingSnapshot.getByIdentity(currentRef);
+          if (snapshotContainer != null && snapshotContainer == container) {
+            // Page is from snapshot - need to COW for this HOTIndirectPage
+            if (page instanceof HOTIndirectPage hotNode) {
+              HOTIndirectPage copy = new HOTIndirectPage(hotNode);
+              PageContainer cowContainer = PageContainer.getInstance(copy, copy);
+              log.put(currentRef, cowContainer);
+              page = copy;
+            }
+          }
+        }
       } else {
         page = loadPage(pageRtx, currentRef);
       }
@@ -242,15 +363,47 @@ public final class HOTTrieWriter {
       @NonNull StorageEngineWriter pageRtx,
       @NonNull PageReference leafRef,
       @NonNull TransactionIntentLog log) {
+    return dereferenceHOTLeafForModification(pageRtx, leafRef, log, null);
+  }
+
+  /**
+   * Dereference HOT leaf page with async auto-commit support.
+   * Uses layered lookup for correct page resolution.
+   */
+  private @Nullable PageContainer dereferenceHOTLeafForModification(
+      @NonNull StorageEngineWriter pageRtx,
+      @NonNull PageReference leafRef,
+      @NonNull TransactionIntentLog log,
+      @Nullable CommitSnapshot pendingSnapshot) {
     
-    // Check if already in log
-    PageContainer existing = log.get(leafRef);
-    if (existing != null) {
-      return existing;
+    // Check if already in active TIL (via generation check)
+    if (leafRef.isInActiveTil(log.getCurrentGeneration())) {
+      PageContainer existing = log.getUnchecked(leafRef.getLogKey());
+      if (existing != null) {
+        return existing;
+      }
+    }
+
+    // Check pending snapshot
+    PageContainer snapshotContainer = null;
+    if (pendingSnapshot != null && !pendingSnapshot.isCommitComplete()) {
+      snapshotContainer = pendingSnapshot.getByIdentity(leafRef);
+      if (snapshotContainer == null) {
+        int logKey = leafRef.getLogKey();
+        if (logKey >= 0 && logKey < pendingSnapshot.size()) {
+          snapshotContainer = pendingSnapshot.getEntry(logKey);
+        }
+      }
     }
     
-    // Load the leaf page
-    Page page = loadPage(pageRtx, leafRef);
+    // Load the leaf page (from snapshot or disk)
+    Page page;
+    if (snapshotContainer != null) {
+      page = snapshotContainer.getComplete();
+    } else {
+      page = loadPage(pageRtx, leafRef);
+    }
+
     if (!(page instanceof HOTLeafPage hotLeaf)) {
       clearCowPath();
       return null;
@@ -313,6 +466,21 @@ public final class HOTTrieWriter {
       @NonNull TransactionIntentLog log,
       @NonNull IndexType indexType,
       int indexNumber) {
+    return navigateWithinCachedTree(cached, key, pageRtx, log, indexType, indexNumber, null);
+  }
+
+  /**
+   * Navigate within a cached tree with async auto-commit support.
+   * Uses layered lookup for child page resolution.
+   */
+  private @Nullable PageContainer navigateWithinCachedTree(
+      @NonNull PageContainer cached,
+      byte[] key,
+      @NonNull StorageEngineWriter pageRtx,
+      @NonNull TransactionIntentLog log,
+      @NonNull IndexType indexType,
+      int indexNumber,
+      @Nullable CommitSnapshot pendingSnapshot) {
     
     Page page = cached.getModified();
     
@@ -325,9 +493,10 @@ public final class HOTTrieWriter {
       if (childIndex >= 0) {
         PageReference childRef = hotNode.getChildReference(childIndex);
         if (childRef != null) {
-          PageContainer childContainer = log.get(childRef);
+          // Use layered lookup for child container
+          PageContainer childContainer = getFromActiveOrPending(childRef, log, pendingSnapshot);
           if (childContainer != null) {
-            return navigateWithinCachedTree(childContainer, key, pageRtx, log, indexType, indexNumber);
+            return navigateWithinCachedTree(childContainer, key, pageRtx, log, indexType, indexNumber, pendingSnapshot);
           }
         }
       }
