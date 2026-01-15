@@ -1046,7 +1046,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
       final var leafPageReference =
           pageRtx.getLeafPageReference(pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);
-      return log.get(leafPageReference);
+      // Use layered lookup for async auto-commit support
+      return getFromActiveOrPending(leafPageReference);
     });
   }
 
@@ -1130,7 +1131,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                                                                      indexType,
                                                                      newRevisionRootPage);
 
-      var pageContainer = log.get(reference);
+      // Use layered lookup for async auto-commit support
+      var pageContainer = getFromActiveOrPending(reference);
 
       if (pageContainer != null) {
         return pageContainer;
@@ -1358,8 +1360,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return null;
     }
     
-    // Check transaction log for uncommitted pages (this is the key for write transactions!)
-    final PageContainer container = log.get(rootRef);
+    // Check transaction log for uncommitted pages - using layered lookup for async auto-commit
+    final PageContainer container = getFromActiveOrPending(rootRef);
     if (container != null) {
       // Try modified first (the one being written to), then complete
       Page modified = container.getModified();
@@ -1394,8 +1396,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return null;
     }
     
-    // Check transaction log first for uncommitted pages
-    final PageContainer container = log.get(reference);
+    // Check transaction log first for uncommitted pages - using layered lookup for async auto-commit
+    final PageContainer container = getFromActiveOrPending(reference);
     if (container != null) {
       Page modified = container.getModified();
       if (modified instanceof HOTLeafPage || modified instanceof HOTIndirectPage) {
@@ -1431,7 +1433,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public PageContainer getLogRecord(final PageReference reference) {
     requireNonNull(reference);
-    return log.get(reference);
+    // Use layered lookup for async auto-commit support
+    return getFromActiveOrPending(reference);
   }
 
   @Override
