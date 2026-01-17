@@ -2794,26 +2794,38 @@ final class JsonNodeTrxImpl extends
   @Override
   protected void serializeUpdateDiffs(final int revisionNumber) {
     if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
+      // Determine the old revision number for the diff:
+      // - After bulk insert with auto-commit, use the pre-bulk-insert revision
+      // - Otherwise, use the previous revision
+      final int oldRevisionNumber = beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
+          ? beforeBulkInsertionRevisionNumber
+          : revisionNumber - 1;
+
       final var diffSerializer = new JsonDiffSerializer(this.databaseName,
                                                         (JsonResourceSession) resourceSession,
-                                                        beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
-                                                            ? beforeBulkInsertionRevisionNumber
-                                                            : revisionNumber - 1,
+                                                        oldRevisionNumber,
                                                         revisionNumber,
                                                         storeDeweyIDs()
                                                             ? updateOperationsOrdered.values()
                                                             : updateOperationsUnordered.values());
       final var jsonDiff = diffSerializer.serialize(false);
 
+      // Use the same old revision number for the file name as for the diff content
       final Path diff = resourceSession.getResourceConfig()
                                        .getResource()
                                        .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                        .resolve(
-                                           "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber + ".json");
+                                           "diffFromRev" + oldRevisionNumber + "toRev" + revisionNumber + ".json");
       try {
         Files.writeString(diff, jsonDiff, CREATE);
       } catch (final IOException e) {
         throw new UncheckedIOException(e);
+      }
+
+      // Reset beforeBulkInsertionRevisionNumber after writing the diff file
+      // so that subsequent commits use the normal previous revision
+      if (beforeBulkInsertionRevisionNumber != 0) {
+        beforeBulkInsertionRevisionNumber = 0;
       }
 
       if (storeDeweyIDs()) {
