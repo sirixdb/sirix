@@ -2123,13 +2123,15 @@ class SirixVerticleJsonTest {
                 val revision1 = history.getJsonObject(history.size() - 1).getInteger("revision")
                 println("Initial revision: $revision1")
 
-                // Create revision 2 by updating something
-                val updateJson = """{"query":"let ${"$"}doc := jn:doc('historical-test','array-resource') return replace json value of sdb:select-item(${"$"}doc, 1) with {'data':[{'idx':100}]}"}"""
+                // Create revision 2 by updating a value within the array
+                // Using SirixDB JSONiq syntax: $array[index] for array access
+                val updateJson = """{"query":"let ${"$"}doc := jn:doc('historical-test','array-resource') return replace json value of ${"$"}doc.data[1].idx with 100"}"""
                 httpResponse = client.postAbs(server)
                     .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
                     .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
                     .sendBuffer(Buffer.buffer(updateJson)).await()
 
+                testContext.verify { assertEquals(200, httpResponse.statusCode()) }
                 println("Update response: ${httpResponse.statusCode()}")
 
                 // Get data array directly using nodeId=3 (1=root, 2=data key, 3=data array)
