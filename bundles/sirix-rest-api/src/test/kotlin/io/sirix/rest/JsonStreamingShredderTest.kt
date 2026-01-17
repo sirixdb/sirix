@@ -21,6 +21,7 @@ import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.Databases
 import io.sirix.access.ResourceConfiguration
 import io.sirix.service.json.serialize.JsonSerializer
+import io.sirix.service.json.serialize.JsonRecordSerializer
 import org.skyscreamer.jsonassert.JSONAssert
 import java.io.StringWriter
 import java.nio.file.Files
@@ -264,11 +265,296 @@ class JsonStreamingShredderTest {
     @Nested
     @DisplayName("Real-world JSON files")
     inner class RealWorldFiles {
-        
+
         @Test
         @DisplayName("Copperfield book JSON")
         fun testCopperfieldBook() {
             testString(Files.readString(json.resolve("copperfield-book.json")))
+        }
+    }
+
+    @Nested
+    @DisplayName("Parent node key verification")
+    inner class ParentNodeKeyTests {
+
+        @Test
+        @DisplayName("Array children should have correct parent key")
+        fun testArrayChildrenParentKey() {
+            // Structure similar to chicago dataset: root object with "data" array
+            val json = """{"meta":"info","data":[{"id":1},{"id":2},{"id":3}]}"""
+
+            Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
+            val database = Databases.openJsonDatabase(databaseDirectory)
+            database.use {
+                database.createResource(ResourceConfiguration.Builder("parent-key-test").build())
+                val manager = database.beginResourceSession("parent-key-test")
+
+                manager.use {
+                    val wtx = manager.beginNodeTrx()
+
+                    wtx.use {
+                        val parser = JsonParser.newParser()
+                        val shredder = KotlinJsonStreamingShredder(wtx, parser)
+                        shredder.call().result()
+                        parser.handle(Buffer.buffer(json))
+                        parser.end()
+                        wtx.commit()
+                    }
+
+                    // Now verify parent keys using read-only transaction
+                    val rtx = manager.beginNodeReadOnlyTrx()
+                    rtx.use {
+                        // Move to document root (nodeKey 0)
+                        rtx.moveToDocumentRoot()
+
+                        // Move to first child - the root object (nodeKey 1)
+                        rtx.moveToFirstChild()
+                        val rootObjectKey = rtx.nodeKey
+                        assertEquals(1L, rootObjectKey, "Root object should have nodeKey 1")
+
+                        // In SirixDB JSON: ObjectKey has its value as CHILD, not sibling
+                        // Structure: RootObject -> ObjectKey "meta" -> StringValue "info"
+                        //                       -> ObjectKey "data" (sibling of "meta") -> Array (child of "data")
+                        rtx.moveToFirstChild() // "meta" object key
+                        rtx.moveToRightSibling() // "data" object key (sibling of "meta" key)
+                        rtx.moveToFirstChild() // Array (child of "data" object key)
+
+                        val dataArrayKey = rtx.nodeKey
+                        println("Data array nodeKey: $dataArrayKey, kind: ${rtx.kind}")
+
+                        // Now check children of the array
+                        rtx.moveToFirstChild() // First object in array: {"id":1}
+                        val firstChildKey = rtx.nodeKey
+                        val firstChildParentKey = rtx.parentKey
+
+                        println("First array child nodeKey: $firstChildKey, parentKey: $firstChildParentKey, kind: ${rtx.kind}")
+                        assertEquals(dataArrayKey, firstChildParentKey,
+                            "First array child's parent key should be the data array, not document root")
+
+                        // Check second child
+                        val movedToSecond = rtx.moveToRightSibling()
+                        println("moveToRightSibling returned: $movedToSecond")
+                        val secondChildKey = rtx.nodeKey
+                        val secondChildParentKey = rtx.parentKey
+
+                        println("Second array child nodeKey: $secondChildKey, parentKey: $secondChildParentKey, kind: ${rtx.kind}")
+                        assertEquals(dataArrayKey, secondChildParentKey,
+                            "Second array child's parent key should be the data array")
+
+                        // Check third child
+                        val movedToThird = rtx.moveToRightSibling()
+                        println("moveToRightSibling returned: $movedToThird")
+                        val thirdChildKey = rtx.nodeKey
+                        val thirdChildParentKey = rtx.parentKey
+
+                        println("Third array child nodeKey: $thirdChildKey, parentKey: $thirdChildParentKey, kind: ${rtx.kind}")
+                        assertEquals(dataArrayKey, thirdChildParentKey,
+                            "Third array child's parent key should be the data array")
+
+                        // Verify moveToParent works correctly
+                        rtx.moveToParent()
+                        assertEquals(dataArrayKey, rtx.nodeKey,
+                            "moveToParent from array child should return to data array")
+                    }
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("Deeply nested array children should have correct parent keys")
+        fun testDeeplyNestedArrayParentKeys() {
+            val json = """{"level1":{"level2":{"items":[1,2,3]}}}"""
+
+            Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
+            val database = Databases.openJsonDatabase(databaseDirectory)
+            database.use {
+                database.createResource(ResourceConfiguration.Builder("deep-parent-test").build())
+                val manager = database.beginResourceSession("deep-parent-test")
+
+                manager.use {
+                    val wtx = manager.beginNodeTrx()
+
+                    wtx.use {
+                        val parser = JsonParser.newParser()
+                        val shredder = KotlinJsonStreamingShredder(wtx, parser)
+                        shredder.call().result()
+                        parser.handle(Buffer.buffer(json))
+                        parser.end()
+                        wtx.commit()
+                    }
+
+                    val rtx = manager.beginNodeReadOnlyTrx()
+                    rtx.use {
+                        // Navigate to the "items" array
+                        // Structure: RootObject -> ObjectKey "level1" -> Object
+                        //                                             -> ObjectKey "level2" -> Object
+                        //                                                                   -> ObjectKey "items" -> Array
+                        rtx.moveToDocumentRoot()
+                        rtx.moveToFirstChild() // root object
+                        rtx.moveToFirstChild() // "level1" key
+                        rtx.moveToFirstChild() // level1 object value (child of key)
+                        rtx.moveToFirstChild() // "level2" key
+                        rtx.moveToFirstChild() // level2 object value (child of key)
+                        rtx.moveToFirstChild() // "items" key
+                        rtx.moveToFirstChild() // items array (child of key)
+
+                        val itemsArrayKey = rtx.nodeKey
+                        println("Items array nodeKey: $itemsArrayKey, kind: ${rtx.kind}")
+
+                        // Check array children
+                        rtx.moveToFirstChild() // value 1
+                        println("Array element 1: nodeKey=${rtx.nodeKey}, parentKey=${rtx.parentKey}, kind=${rtx.kind}")
+                        assertEquals(itemsArrayKey, rtx.parentKey,
+                            "Array element 1's parent should be the items array")
+
+                        val moved2 = rtx.moveToRightSibling() // value 2
+                        println("moveToRightSibling returned: $moved2, nodeKey=${rtx.nodeKey}, parentKey=${rtx.parentKey}")
+                        assertEquals(itemsArrayKey, rtx.parentKey,
+                            "Array element 2's parent should be the items array")
+
+                        val moved3 = rtx.moveToRightSibling() // value 3
+                        println("moveToRightSibling returned: $moved3, nodeKey=${rtx.nodeKey}, parentKey=${rtx.parentKey}")
+                        assertEquals(itemsArrayKey, rtx.parentKey,
+                            "Array element 3's parent should be the items array")
+
+                        // Verify moveToParent chain
+                        rtx.moveToParent() // items array
+                        assertEquals(itemsArrayKey, rtx.nodeKey)
+                    }
+                }
+            }
+        }
+
+        @Test
+        @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+        @ExtendWith(VertxExtension::class)
+        @DisplayName("Array children should have correct parent key (async path)")
+        fun testArrayChildrenParentKeyAsync(vertx: Vertx, testContext: VertxTestContext) {
+            // Test the async path used by REST API
+            val json = """{"data":[{"id":1},{"id":2},{"id":3}]}"""
+            val asyncDbDir = Paths.get(System.getProperty("java.io.tmpdir"), "sirix", "json-async-parent-test-${System.currentTimeMillis()}")
+
+            GlobalScope.launch(vertx.dispatcher()) {
+                try {
+                    Databases.removeDatabase(asyncDbDir)
+                    Databases.createJsonDatabase(DatabaseConfiguration(asyncDbDir))
+                    val database = Databases.openJsonDatabase(asyncDbDir)
+                    database.use {
+                        database.createResource(ResourceConfiguration.Builder("async-parent-test").build())
+                        val manager = database.beginResourceSession("async-parent-test")
+
+                        manager.use {
+                            val wtx = manager.beginNodeTrx()
+
+                            wtx.use {
+                                val parser = JsonParser.newParser()
+                                // Use async path with real vertx
+                                val shredder = KotlinJsonStreamingShredder(wtx, parser, vertx)
+
+                                launch {
+                                    delay(10)
+                                    parser.handle(Buffer.buffer(json))
+                                    parser.end()
+                                }
+
+                                shredder.call().await()
+                                wtx.commit()
+                            }
+
+                            // Verify parent keys
+                            val rtx = manager.beginNodeReadOnlyTrx()
+                            rtx.use {
+                                rtx.moveToDocumentRoot()
+                                rtx.moveToFirstChild() // root object
+                                rtx.moveToFirstChild() // "data" key
+                                rtx.moveToFirstChild() // data array
+
+                                val dataArrayKey = rtx.nodeKey
+                                println("Async test - Data array nodeKey: $dataArrayKey, kind: ${rtx.kind}")
+
+                                rtx.moveToFirstChild() // first element
+                                println("Async test - First child: nodeKey=${rtx.nodeKey}, parentKey=${rtx.parentKey}")
+                                assertEquals(dataArrayKey, rtx.parentKey, "First child's parent should be the array")
+
+                                rtx.moveToRightSibling()
+                                println("Async test - Second child: nodeKey=${rtx.nodeKey}, parentKey=${rtx.parentKey}")
+                                assertEquals(dataArrayKey, rtx.parentKey, "Second child's parent should be the array")
+
+                                rtx.moveToRightSibling()
+                                println("Async test - Third child: nodeKey=${rtx.nodeKey}, parentKey=${rtx.parentKey}")
+                                assertEquals(dataArrayKey, rtx.parentKey, "Third child's parent should be the array")
+                            }
+                        }
+                    }
+                    Databases.removeDatabase(asyncDbDir)
+                    testContext.completeNow()
+                } catch (e: Throwable) {
+                    try { Databases.removeDatabase(asyncDbDir) } catch (_: Exception) {}
+                    testContext.failNow(e)
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("Large array children should all have correct parent key")
+        fun testLargeArrayParentKeys() {
+            // Create array with 100 children
+            val elements = (1..100).joinToString(",") { """{"idx":$it}""" }
+            val json = """{"data":[$elements]}"""
+
+            Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
+            val database = Databases.openJsonDatabase(databaseDirectory)
+            database.use {
+                database.createResource(ResourceConfiguration.Builder("large-array-test").build())
+                val manager = database.beginResourceSession("large-array-test")
+
+                manager.use {
+                    val wtx = manager.beginNodeTrx()
+
+                    wtx.use {
+                        val parser = JsonParser.newParser()
+                        val shredder = KotlinJsonStreamingShredder(wtx, parser)
+                        shredder.call().result()
+                        parser.handle(Buffer.buffer(json))
+                        parser.end()
+                        wtx.commit()
+                    }
+
+                    val rtx = manager.beginNodeReadOnlyTrx()
+                    rtx.use {
+                        // Navigate to the "data" array
+                        // Structure: RootObject -> ObjectKey "data" -> Array
+                        rtx.moveToDocumentRoot()
+                        rtx.moveToFirstChild() // root object
+                        rtx.moveToFirstChild() // "data" key
+                        rtx.moveToFirstChild() // data array (child of key)
+
+                        val dataArrayKey = rtx.nodeKey
+                        println("Data array nodeKey: $dataArrayKey, kind: ${rtx.kind}")
+
+                        // Check first child
+                        rtx.moveToFirstChild()
+                        var childCount = 1
+                        println("First child: nodeKey=${rtx.nodeKey}, parentKey=${rtx.parentKey}, kind=${rtx.kind}")
+                        assertEquals(dataArrayKey, rtx.parentKey,
+                            "Child $childCount's parent should be the data array")
+
+                        // Check all remaining children via right sibling traversal
+                        while (rtx.hasRightSibling()) {
+                            rtx.moveToRightSibling()
+                            childCount++
+                            if (childCount <= 3 || childCount == 100) {
+                                println("Child $childCount: nodeKey=${rtx.nodeKey}, parentKey=${rtx.parentKey}")
+                            }
+                            assertEquals(dataArrayKey, rtx.parentKey,
+                                "Child $childCount's parent should be the data array, not ${rtx.parentKey}")
+                        }
+
+                        assertEquals(100, childCount, "Should have exactly 100 children")
+                        println("Verified parent keys for $childCount array children")
+                    }
+                }
+            }
         }
     }
 
@@ -438,6 +724,246 @@ class JsonStreamingShredderTest {
         }
     }
 
+    /**
+     * Tests for JsonRecordSerializer pagination functionality.
+     * These tests verify that pagination returns correct siblings and parent metadata.
+     */
+    @Nested
+    @DisplayName("Pagination tests (JsonRecordSerializer)")
+    inner class PaginationTests {
+
+        @Test
+        @DisplayName("Pagination should return correct siblings after startNodeKey")
+        fun testPaginationReturnsSiblings() {
+            // Create array with 10 children
+            val elements = (1..10).joinToString(",") { """{"idx":$it}""" }
+            val json = """{"data":[$elements]}"""
+
+            Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
+            val database = Databases.openJsonDatabase(databaseDirectory)
+            database.use {
+                database.createResource(ResourceConfiguration.Builder("pagination-test").build())
+                val manager = database.beginResourceSession("pagination-test")
+
+                manager.use {
+                    val wtx = manager.beginNodeTrx()
+                    wtx.use {
+                        val parser = JsonParser.newParser()
+                        val shredder = KotlinJsonStreamingShredder(wtx, parser)
+                        shredder.call().result()
+                        parser.handle(Buffer.buffer(json))
+                        parser.end()
+                        wtx.commit()
+                    }
+
+                    // Find the data array and its children
+                    val rtx = manager.beginNodeReadOnlyTrx()
+                    rtx.use {
+                        rtx.moveToDocumentRoot()
+                        rtx.moveToFirstChild() // root object
+                        rtx.moveToFirstChild() // "data" key
+                        rtx.moveToFirstChild() // data array
+                        val dataArrayKey = rtx.nodeKey
+                        println("Data array nodeKey: $dataArrayKey, childCount: ${rtx.childCount}")
+
+                        // Get the 5th child's nodeKey (we'll paginate from here)
+                        rtx.moveToFirstChild()
+                        repeat(4) { rtx.moveToRightSibling() } // Move to 5th child (index 4)
+                        val fifthChildKey = rtx.nodeKey
+                        println("5th child nodeKey: $fifthChildKey")
+
+                        // Now use JsonRecordSerializer to get next 3 siblings after the 5th child
+                        val writer = StringWriter()
+                        val serializer = JsonRecordSerializer.newBuilder(manager, 3, writer)
+                            .revisions(intArrayOf(rtx.revisionNumber))
+                            .startNodeKey(fifthChildKey)
+                            .withNodeKeyAndChildCountMetaData(true)
+                            .build()
+                        serializer.call()
+
+                        val result = writer.toString()
+                        println("Pagination result: $result")
+
+                        // Parse and verify the result
+                        // Should contain parent metadata with dataArrayKey and 3 siblings (6th, 7th, 8th children)
+                        assert(result.contains("\"nodeKey\":$dataArrayKey")) {
+                            "Result should contain parent nodeKey $dataArrayKey but got: $result"
+                        }
+                        assert(result.contains("\"value\":[")) { "Result should contain value array" }
+
+                        // Count the number of children in the result (should be 3)
+                        // The structure is nested: {"key":"idx",...,"value":{"metadata":...,"value":6}}
+                        val valueArrayMatch = Regex(""""value":(\d+)\}""").findAll(result)
+                        val indices = valueArrayMatch.map { it.groupValues[1].toInt() }.toList()
+                        println("Found indices in result: $indices")
+                        assertEquals(listOf(6, 7, 8), indices, "Should return children 6, 7, 8 (indices after 5th)")
+                    }
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("Pagination parent metadata should point to correct parent (array)")
+        fun testPaginationParentMetadata() {
+            // This test specifically checks the bug where moveToParent() returns wrong parent
+            val elements = (1..20).joinToString(",") { """{"idx":$it}""" }
+            val json = """{"data":[$elements]}"""
+
+            Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
+            val database = Databases.openJsonDatabase(databaseDirectory)
+            database.use {
+                database.createResource(ResourceConfiguration.Builder("parent-metadata-test").build())
+                val manager = database.beginResourceSession("parent-metadata-test")
+
+                manager.use {
+                    val wtx = manager.beginNodeTrx()
+                    wtx.use {
+                        val parser = JsonParser.newParser()
+                        val shredder = KotlinJsonStreamingShredder(wtx, parser)
+                        shredder.call().result()
+                        parser.handle(Buffer.buffer(json))
+                        parser.end()
+                        wtx.commit()
+                    }
+
+                    val rtx = manager.beginNodeReadOnlyTrx()
+                    rtx.use {
+                        // Navigate to data array
+                        rtx.moveToDocumentRoot()
+                        rtx.moveToFirstChild() // root object
+                        val rootObjectKey = rtx.nodeKey
+                        rtx.moveToFirstChild() // "data" key
+                        rtx.moveToFirstChild() // data array
+                        val dataArrayKey = rtx.nodeKey
+                        val dataArrayChildCount = rtx.childCount
+
+                        println("Root object nodeKey: $rootObjectKey")
+                        println("Data array nodeKey: $dataArrayKey, childCount: $dataArrayChildCount")
+
+                        // Get 10th child
+                        rtx.moveToFirstChild()
+                        repeat(9) { rtx.moveToRightSibling() }
+                        val tenthChildKey = rtx.nodeKey
+                        println("10th child nodeKey: $tenthChildKey, parentKey: ${rtx.parentKey}")
+
+                        // Verify the stored parentKey is correct
+                        assertEquals(dataArrayKey, rtx.parentKey,
+                            "10th child's stored parentKey should be the data array")
+
+                        // Test pagination - the parent metadata should show the array, NOT the root object
+                        val writer = StringWriter()
+                        val serializer = JsonRecordSerializer.newBuilder(manager, 5, writer)
+                            .revisions(intArrayOf(rtx.revisionNumber))
+                            .startNodeKey(tenthChildKey)
+                            .withNodeKeyAndChildCountMetaData(true)
+                            .build()
+                        serializer.call()
+
+                        val result = writer.toString()
+                        println("Pagination result: $result")
+
+                        // The metadata should contain the data array's nodeKey, NOT the root object's
+                        assert(result.contains("\"nodeKey\":$dataArrayKey")) {
+                            "Parent metadata should show data array nodeKey ($dataArrayKey), not root object ($rootObjectKey). Result: $result"
+                        }
+                        assert(result.contains("\"childCount\":$dataArrayChildCount")) {
+                            "Parent metadata should show data array childCount ($dataArrayChildCount). Result: $result"
+                        }
+                        // Verify it does NOT contain root object as parent
+                        assert(!result.startsWith("{\"metadata\":{\"nodeKey\":$rootObjectKey")) {
+                            "Parent should NOT be root object ($rootObjectKey). Result: $result"
+                        }
+                    }
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("Pagination on historical revision should work correctly")
+        fun testPaginationOnHistoricalRevision() {
+            // Create initial data, commit, modify, commit again - then paginate on first revision
+            val elements = (1..10).joinToString(",") { """{"idx":$it}""" }
+            val json = """{"data":[$elements]}"""
+
+            Databases.createJsonDatabase(DatabaseConfiguration(databaseDirectory))
+            val database = Databases.openJsonDatabase(databaseDirectory)
+            database.use {
+                database.createResource(ResourceConfiguration.Builder("historical-pagination-test").build())
+                val manager = database.beginResourceSession("historical-pagination-test")
+
+                manager.use {
+                    // Create revision 1
+                    val wtx = manager.beginNodeTrx()
+                    wtx.use {
+                        val parser = JsonParser.newParser()
+                        val shredder = KotlinJsonStreamingShredder(wtx, parser)
+                        shredder.call().result()
+                        parser.handle(Buffer.buffer(json))
+                        parser.end()
+                        wtx.commit()
+                    }
+
+                    val revision1 = manager.mostRecentRevisionNumber
+                    println("Created revision $revision1")
+
+                    // Create revision 2 by modifying something
+                    val wtx2 = manager.beginNodeTrx()
+                    wtx2.use {
+                        wtx2.moveToDocumentRoot()
+                        wtx2.moveToFirstChild()
+                        // Just commit to create a new revision
+                        wtx2.commit()
+                    }
+
+                    val revision2 = manager.mostRecentRevisionNumber
+                    println("Created revision $revision2")
+
+                    // Now test pagination on revision 1 (historical)
+                    val rtx = manager.beginNodeReadOnlyTrx(revision1)
+                    rtx.use {
+                        // Navigate to data array
+                        rtx.moveToDocumentRoot()
+                        rtx.moveToFirstChild() // root object
+                        rtx.moveToFirstChild() // "data" key
+                        rtx.moveToFirstChild() // data array
+                        val dataArrayKey = rtx.nodeKey
+                        println("Historical rev $revision1 - Data array nodeKey: $dataArrayKey")
+
+                        // Get 3rd child
+                        rtx.moveToFirstChild()
+                        repeat(2) { rtx.moveToRightSibling() }
+                        val thirdChildKey = rtx.nodeKey
+                        println("3rd child nodeKey: $thirdChildKey, parentKey: ${rtx.parentKey}")
+
+                        // Test pagination on historical revision
+                        val writer = StringWriter()
+                        val serializer = JsonRecordSerializer.newBuilder(manager, 3, writer)
+                            .revisions(intArrayOf(revision1))
+                            .startNodeKey(thirdChildKey)
+                            .withNodeKeyAndChildCountMetaData(true)
+                            .build()
+                        serializer.call()
+
+                        val result = writer.toString()
+                        println("Historical pagination result: $result")
+
+                        // Parent should be the data array
+                        assert(result.contains("\"nodeKey\":$dataArrayKey")) {
+                            "Historical pagination parent should be data array ($dataArrayKey). Result: $result"
+                        }
+
+                        // Should contain children 4, 5, 6
+                        // The structure is nested: {"key":"idx",...,"value":{"metadata":...,"value":4}}
+                        val valueArrayMatch = Regex(""""value":(\d+)\}""").findAll(result)
+                        val indices = valueArrayMatch.map { it.groupValues[1].toInt() }.toList()
+                        println("Found indices in historical result: $indices")
+                        assertEquals(listOf(4, 5, 6), indices, "Should return children 4, 5, 6")
+                    }
+                }
+            }
+        }
+    }
+
     private fun testString(json: String) {
         Databases.createJsonDatabase(
             DatabaseConfiguration(
@@ -472,7 +998,7 @@ class JsonStreamingShredderTest {
                     serializer.call()
                 }
                 val actual = writer.toString()
-                
+
                 // JSONAssert doesn't support standalone primitives (true, false, null, numbers, strings)
                 // For these cases, do a simple string comparison
                 if (json.trim().let { it.startsWith("{") || it.startsWith("[") }) {

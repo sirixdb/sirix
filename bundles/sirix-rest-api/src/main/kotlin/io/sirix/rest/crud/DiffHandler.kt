@@ -63,17 +63,19 @@ class DiffHandler(private val location: Path) {
                         val startNodeKeyAsLong = startNodeKey?.let { startNodeKey.toLong() } ?: 0
                         val maxDepthAsLong = maxDepth?.let { maxDepth.toLong() } ?: Long.MAX_VALUE
 
-                        if (resourceManager.resourceConfig.areDeweyIDsStored && secondRevision.toInt() - 1 == firstRevision.toInt()) {
-                            if (startNodeKeyAsLong == 0L && maxDepthAsLong == 0L) {
-                                val diffPath = resourceManager.getResourceConfig()
-                                    .resource
-                                    .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.path)
-                                    .resolve("diffFromRev${firstRevision.toInt()}toRev${secondRevision.toInt()}.json")
+                        // For consecutive revisions without filtering, try to read pre-computed diff file
+                        if (secondRevision.toInt() - 1 == firstRevision.toInt() && startNodeKey == null && maxDepth == null) {
+                            val diffPath = resourceManager.getResourceConfig()
+                                .resource
+                                .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.path)
+                                .resolve("diffFromRev${firstRevision.toInt()}toRev${secondRevision.toInt()}.json")
 
+                            if (Files.exists(diffPath)) {
+                                logger.debug("Reading pre-computed diff from: $diffPath")
                                 diffString = Files.readString(diffPath)
-                            } else {
+                            } else if (resourceManager.resourceConfig.areDeweyIDsStored) {
+                                // Use update operations if DeweyIDs are stored but file doesn't exist
                                 val rtx = resourceManager.beginNodeReadOnlyTrx(secondRevision.toInt())
-
                                 rtx.use {
                                     diffString = useUpdateOperations(
                                         rtx,
@@ -85,8 +87,33 @@ class DiffHandler(private val location: Path) {
                                         maxDepthAsLong
                                     )
                                 }
+                            } else {
+                                // Fall back to computing diff
+                                diffString = BasicJsonDiff(databaseName).generateDiff(
+                                    resourceManager,
+                                    firstRevision.toInt(),
+                                    secondRevision.toInt(),
+                                    startNodeKeyAsLong,
+                                    maxDepthAsLong,
+                                    includeData
+                                )
+                            }
+                        } else if (resourceManager.resourceConfig.areDeweyIDsStored && secondRevision.toInt() - 1 == firstRevision.toInt()) {
+                            // Consecutive revisions with filtering - use update operations
+                            val rtx = resourceManager.beginNodeReadOnlyTrx(secondRevision.toInt())
+                            rtx.use {
+                                diffString = useUpdateOperations(
+                                    rtx,
+                                    startNodeKeyAsLong,
+                                    databaseName,
+                                    resourceName,
+                                    firstRevision,
+                                    secondRevision,
+                                    maxDepthAsLong
+                                )
                             }
                         } else {
+                            // Non-consecutive revisions or no DeweyIDs with filtering
                             diffString = BasicJsonDiff(databaseName).generateDiff(
                                 resourceManager,
                                 firstRevision.toInt(),

@@ -499,20 +499,13 @@ class SirixVerticleJsonTest {
     }
 
     @Test
-    @Disabled
-    @Timeout(value = 1000000, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("Testing the serialization of the first N-records")
+    @Timeout(value = 100, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing the serialization of the first N-records with pagination")
     fun testRecordSerializer(vertx: Vertx, testContext: VertxTestContext) {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
-                val json = """
-                 {
-                   "foo": ["bar", null, 2.33],
-                   "bar": { "hello": "world", "helloo": true },
-                   "baz": "hello",
-                   "tada": [{"foo":"bar"},{"baz":false},"boo",{},[]]
-                 }
-                """.trimIndent()
+                // Create a simple array with multiple elements for easier pagination testing
+                val json = """[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]""".trimIndent()
 
                 val credentials = json {
                     obj(
@@ -541,7 +534,8 @@ class SirixVerticleJsonTest {
                     assertEquals(200, httpPutResponseJson.statusCode())
                 }
 
-                var httpGetResponseJson = client.getAbs("$server/database/resource?nextTopLevelNodes=3").putHeader(
+                // First request: get first 5 elements with metadata
+                var httpGetResponseJson = client.getAbs("$server/database/resource?nodeId=1&maxChildren=5&maxLevel=2&withMetaData=nodeKeyAndChildCount").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
@@ -549,20 +543,30 @@ class SirixVerticleJsonTest {
                     .send().await()
 
                 testContext.verify {
-                    val expectedJson = """
-                         {"foo":["bar",null,2.33]},{"bar":{"hello":"world","helloo":true}},{"baz":"hello"}}
-                     """.trimIndent()
-
-                    JSONAssert.assertEquals(
-                        expectedJson,
-                        httpGetResponseJson.bodyAsString(),
-                        false
-                    )
                     assertEquals(200, httpGetResponseJson.statusCode())
+                    val responseJson = httpGetResponseJson.bodyAsJsonObject()
+
+                    // Should have metadata with nodeKey=1 (root array) and childCount=10
+                    val metadata = responseJson.getJsonObject("metadata")
+                    assertEquals(1, metadata.getInteger("nodeKey"))
+                    assertEquals(10, metadata.getInteger("childCount"))
+
+                    // Should have 5 children (limited by maxChildren)
+                    val value = responseJson.getJsonArray("value")
+                    assertEquals(5, value.size())
                 }
 
+                // Get the 5th element's nodeKey for pagination
+                val firstResponse = httpGetResponseJson.bodyAsJsonObject()
+                val firstBatchChildren = firstResponse.getJsonArray("value")
+                val fifthChild = firstBatchChildren.getJsonObject(4)
+                val fifthChildNodeKey = fifthChild.getJsonObject("metadata").getInteger("nodeKey")
+
+                println("5th child nodeKey: $fifthChildNodeKey")
+
+                // Second request: paginate from the 5th child to get remaining elements
                 httpGetResponseJson =
-                    client.getAbs("$server/database/resource?nextTopLevelNodes=3&lastTopLevelNodeKey=13").putHeader(
+                    client.getAbs("$server/database/resource?startNodeKey=$fifthChildNodeKey&nextTopLevelNodes=5&maxLevel=2&withMetaData=nodeKeyAndChildCount").putHeader(
                         HttpHeaders.AUTHORIZATION
                             .toString(), "Bearer $accessToken"
                     ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
@@ -570,16 +574,27 @@ class SirixVerticleJsonTest {
                         .send().await()
 
                 testContext.verify {
-                    val expectedJson = """
-                        {"tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
-                     """.trimIndent()
-
-                    JSONAssert.assertEquals(
-                        expectedJson,
-                        httpGetResponseJson.bodyAsString(),
-                        false
-                    )
                     assertEquals(200, httpGetResponseJson.statusCode())
+                    val responseJson = httpGetResponseJson.bodyAsJsonObject()
+
+                    println("Pagination response: ${responseJson.encode()}")
+
+                    // Pagination response should have parent metadata (the array, nodeKey=1)
+                    val metadata = responseJson.getJsonObject("metadata")
+                    assertEquals(1, metadata.getInteger("nodeKey"), "Parent should be root array (nodeKey=1)")
+                    assertEquals(10, metadata.getInteger("childCount"))
+
+                    // Should have remaining 5 children (6, 7, 8, 9, 10)
+                    val value = responseJson.getJsonArray("value")
+                    assertEquals(5, value.size(), "Should have 5 remaining children")
+
+                    // Verify the values are correct (6, 7, 8, 9, 10)
+                    for (i in 0 until 5) {
+                        val child = value.getJsonObject(i)
+                        val childValue = child.getInteger("value")
+                        assertEquals(i + 6, childValue, "Child $i should be ${i + 6}")
+                    }
+
                     testContext.completeNow()
                 }
             }
@@ -1949,6 +1964,213 @@ class SirixVerticleJsonTest {
                         false
                     )
                     assertEquals(200, response.statusCode())
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 100, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing pagination with nextTopLevelNodes returns correct parent metadata")
+    fun testPaginationParentMetadata(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                // Create JSON with array of 20 elements
+                val elements = (1..20).joinToString(",") { """{"idx":$it}""" }
+                val json = """{"data":[$elements]}"""
+
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJson(credentials).await()
+                testContext.verify { assertEquals(200, response.statusCode()) }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                // Create the resource
+                var httpResponse = client.putAbs("$server/pagination-test/array-resource")
+                    .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
+                    .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendBuffer(Buffer.buffer(json)).await()
+
+                testContext.verify { assertEquals(200, httpResponse.statusCode()) }
+
+                // First, get the data array directly with nodeId to find structure
+                // Get root first to find data array nodeKey
+                httpResponse = client.getAbs("$server/pagination-test/array-resource?maxLevel=3&withMetaData=nodeKeyAndChildCount")
+                    .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .send().await()
+
+                testContext.verify { assertEquals(200, httpResponse.statusCode()) }
+
+                val initialResult = httpResponse.bodyAsString()
+                println("Initial result (raw): ${initialResult.take(500)}...")
+
+                val initialJson = httpResponse.bodyAsJsonObject()
+                val rootMetadata = initialJson.getJsonObject("metadata")
+                val rootNodeKey = rootMetadata.getLong("nodeKey")
+                println("Root nodeKey: $rootNodeKey")
+
+                // Parse the structure to find data array nodeKey
+                // For withMetaData, structure is different - let's navigate carefully
+                val rootValue = initialJson.getValue("value")
+                println("Root value type: ${rootValue?.javaClass?.simpleName}")
+
+                // The root value should contain data key pointing to array
+                // Let's use a simpler approach: query nodeId=3 which should be the data array
+                // based on the structure: 1=root obj, 2=data key, 3=data array
+
+                // Get the data array directly (maxLevel=2 to include children)
+                httpResponse = client.getAbs("$server/pagination-test/array-resource?nodeId=3&maxLevel=2&maxChildren=10&withMetaData=nodeKeyAndChildCount")
+                    .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .send().await()
+
+                testContext.verify { assertEquals(200, httpResponse.statusCode()) }
+
+                val arrayResult = httpResponse.bodyAsJsonObject()
+                println("Array result: $arrayResult")
+
+                val arrayMetadata = arrayResult.getJsonObject("metadata")
+                val dataArrayNodeKey = arrayMetadata.getLong("nodeKey")
+                val dataArrayChildCount = arrayMetadata.getLong("childCount")
+                println("Data array nodeKey: $dataArrayNodeKey, childCount: $dataArrayChildCount")
+
+                // Get children from the array
+                val arrayValue = arrayResult.getJsonArray("value")
+                println("Array has ${arrayValue.size()} children in response")
+
+                // Get the 5th child's nodeKey
+                val fifthChild = arrayValue.getJsonObject(4)
+                val fifthChildNodeKey = fifthChild.getJsonObject("metadata").getLong("nodeKey")
+                println("5th child nodeKey: $fifthChildNodeKey")
+
+                // Now paginate using nextTopLevelNodes and startNodeKey
+                httpResponse = client.getAbs("$server/pagination-test/array-resource?nodeId=$dataArrayNodeKey&nextTopLevelNodes=5&startNodeKey=$fifthChildNodeKey&withMetaData=nodeKeyAndChildCount")
+                    .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .send().await()
+
+                testContext.verify { assertEquals(200, httpResponse.statusCode()) }
+
+                val paginationResult = httpResponse.bodyAsString()
+                println("Pagination result: $paginationResult")
+
+                // Parse the result
+                val paginationJson = httpResponse.bodyAsJsonObject()
+                val paginationMetadata = paginationJson.getJsonObject("metadata")
+                val paginationParentNodeKey = paginationMetadata.getLong("nodeKey")
+                val paginationParentChildCount = paginationMetadata.getLong("childCount")
+
+                println("Pagination parent nodeKey: $paginationParentNodeKey, childCount: $paginationParentChildCount")
+
+                // CRITICAL: The parent nodeKey should be the DATA ARRAY, not the root object!
+                testContext.verify {
+                    assertEquals(dataArrayNodeKey, paginationParentNodeKey,
+                        "Pagination parent should be data array ($dataArrayNodeKey), not root ($rootNodeKey)")
+                    assertEquals(dataArrayChildCount, paginationParentChildCount,
+                        "Pagination parent childCount should match data array childCount")
+                    testContext.completeNow()
+                }
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 100, timeUnit = TimeUnit.SECONDS)
+    @DisplayName("Testing pagination on historical revision")
+    fun testPaginationHistoricalRevision(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                // Create JSON with array of 10 elements
+                val elements = (1..10).joinToString(",") { """{"idx":$it}""" }
+                val json = """{"data":[$elements]}"""
+
+                val credentials = json {
+                    obj(
+                        "username" to "admin",
+                        "password" to "admin"
+                    )
+                }
+
+                val response = client.postAbs("$server/token").sendJson(credentials).await()
+                testContext.verify { assertEquals(200, response.statusCode()) }
+
+                val user = response.bodyAsJsonObject()
+                accessToken = user.getString("access_token")
+
+                // Create the resource (revision 1)
+                var httpResponse = client.putAbs("$server/historical-test/array-resource")
+                    .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
+                    .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendBuffer(Buffer.buffer(json)).await()
+
+                testContext.verify { assertEquals(200, httpResponse.statusCode()) }
+
+                // Get history to find revision number
+                httpResponse = client.getAbs("$server/historical-test/array-resource/history")
+                    .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
+                    .send().await()
+
+                val history = httpResponse.bodyAsJsonObject().getJsonArray("history")
+                val revision1 = history.getJsonObject(history.size() - 1).getInteger("revision")
+                println("Initial revision: $revision1")
+
+                // Create revision 2 by updating something
+                val updateJson = """{"query":"let ${"$"}doc := jn:doc('historical-test','array-resource') return replace json value of sdb:select-item(${"$"}doc, 1) with {'data':[{'idx':100}]}"}"""
+                httpResponse = client.postAbs(server)
+                    .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
+                    .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendBuffer(Buffer.buffer(updateJson)).await()
+
+                println("Update response: ${httpResponse.statusCode()}")
+
+                // Get data array directly using nodeId=3 (1=root, 2=data key, 3=data array)
+                // maxLevel=2 to include children
+                httpResponse = client.getAbs("$server/historical-test/array-resource?revision=$revision1&nodeId=3&maxLevel=2&maxChildren=5&withMetaData=nodeKeyAndChildCount")
+                    .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .send().await()
+
+                testContext.verify { assertEquals(200, httpResponse.statusCode()) }
+
+                val arrayResult = httpResponse.bodyAsJsonObject()
+                println("Historical revision $revision1 array result: $arrayResult")
+
+                val arrayMetadata = arrayResult.getJsonObject("metadata")
+                val dataArrayNodeKey = arrayMetadata.getLong("nodeKey")
+                val dataArrayChildCount = arrayMetadata.getLong("childCount")
+                println("Data array nodeKey: $dataArrayNodeKey, childCount: $dataArrayChildCount")
+
+                // Get 3rd child's nodeKey
+                val arrayValue = arrayResult.getJsonArray("value")
+                val thirdChildNodeKey = arrayValue.getJsonObject(2).getJsonObject("metadata").getLong("nodeKey")
+                println("3rd child nodeKey: $thirdChildNodeKey")
+
+                // Paginate on historical revision
+                httpResponse = client.getAbs("$server/historical-test/array-resource?revision=$revision1&nodeId=$dataArrayNodeKey&nextTopLevelNodes=3&startNodeKey=$thirdChildNodeKey&withMetaData=nodeKeyAndChildCount")
+                    .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
+                    .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
+                    .send().await()
+
+                testContext.verify { assertEquals(200, httpResponse.statusCode()) }
+
+                val paginationResult = httpResponse.bodyAsJsonObject()
+                println("Historical pagination result: $paginationResult")
+
+                val paginationMetadata = paginationResult.getJsonObject("metadata")
+                val paginationParentNodeKey = paginationMetadata.getLong("nodeKey")
+
+                testContext.verify {
+                    assertEquals(dataArrayNodeKey, paginationParentNodeKey,
+                        "Historical pagination parent should be data array ($dataArrayNodeKey)")
                     testContext.completeNow()
                 }
             }
