@@ -27,6 +27,7 @@ import io.vertx.kotlin.core.http.httpServerOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
+import kotlin.coroutines.cancellation.CancellationException
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
 import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
@@ -369,15 +370,24 @@ class SirixVerticle : CoroutineVerticle() {
             val failure = failureRoutingContext.failure()
             val request = failureRoutingContext.request()
 
-            // Log the exception with full stack trace
+            // Log the exception - use DEBUG for cancellation (expected during shutdown)
             if (failure != null) {
-                logger.error(
-                    "Request failed: {} {} (statusCode={})",
-                    request.method(),
-                    request.uri(),
-                    statusCode,
-                    failure
-                )
+                if (failure is CancellationException) {
+                    logger.debug(
+                        "Request cancelled (shutdown): {} {} (statusCode={})",
+                        request.method(),
+                        request.uri(),
+                        statusCode
+                    )
+                } else {
+                    logger.error(
+                        "Request failed: {} {} (statusCode={})",
+                        request.method(),
+                        request.uri(),
+                        statusCode,
+                        failure
+                    )
+                }
             } else {
                 logger.error(
                     "Request failed: {} {} (statusCode={}, no exception)",
