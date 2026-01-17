@@ -35,7 +35,7 @@ class GetHandler(
             jsonBody?.getString("query")
         }
 
-        val acceptHeader = ctx.request().getHeader(HttpHeaders.ACCEPT)
+        val acceptHeader = ctx.request().getHeader(HttpHeaders.ACCEPT) ?: "application/json"
 
         if (databaseName == null && resourceName == null) {
             if (query.isNullOrEmpty()) {

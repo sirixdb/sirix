@@ -266,7 +266,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
       return this;
     }
 
-
     /**
      * Specify the maximum of nodes.
      *
@@ -433,15 +432,15 @@ public final class JsonRecordSerializer implements Callable<Void> {
       return;
     }
 
+    // Pre-compute metadata flag for efficiency
+    final boolean hasMetadata = withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData;
+
     // Emit parent metadata wrapper
     if (rtx.hasParent()) {
       rtx.moveToParent();
-      
-      final boolean hasMetadata = withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData;
       if (hasMetadata) {
         emitParentMetadata(rtx);
       } else {
-        // No metadata mode - just emit value wrapper for consistency
         out.append("{\"value\":[");
       }
       
@@ -457,9 +456,6 @@ public final class JsonRecordSerializer implements Callable<Void> {
       return;
     }
     rtx.moveToRightSibling();
-
-    // Pre-compute metadata flag for efficiency
-    final boolean hasMetadata = withMetaData || withNodeKeyAndChildNodeKeyMetaData || withNodeKeyMetaData;
 
     // Create builder ONCE with all common settings - only startNodeKey changes per sibling
     final JsonSerializer.Builder builder = new JsonSerializer.Builder(rtx.getResourceSession(), out, revisions)

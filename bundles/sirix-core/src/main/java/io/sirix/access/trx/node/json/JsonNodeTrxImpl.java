@@ -50,7 +50,10 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
 import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
+import io.sirix.node.interfaces.BooleanValueNode;
+import io.sirix.node.interfaces.NumericValueNode;
 import io.sirix.node.interfaces.StructNode;
+import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
@@ -2557,7 +2560,7 @@ final class JsonNodeTrxImpl extends
       final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
       final byte[] byteVal = getBytes(value);
 
-      final StringNode node =
+      final ValueNode node =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
       node.setRawValue(byteVal);
       node.setPreviousRevision(node.getLastModifiedRevisionNumber());
@@ -2606,35 +2609,22 @@ final class JsonNodeTrxImpl extends
 
       final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
 
-      final var modifiedNode =
+      final BooleanValueNode node =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
+      node.setValue(value);
+      node.setPreviousRevision(node.getLastModifiedRevisionNumber());
+      node.setLastModifiedRevision(pageTrx.getRevisionNumber());
 
-      // Handle both BooleanNode and ObjectBooleanNode
-      final ImmutableNode updatedNode;
-      if (modifiedNode instanceof BooleanNode boolNode) {
-        boolNode.setValue(value);
-        boolNode.setPreviousRevision(boolNode.getLastModifiedRevisionNumber());
-        boolNode.setLastModifiedRevision(pageTrx.getRevisionNumber());
-        nodeReadOnlyTrx.setCurrentNode(boolNode);
-        updatedNode = boolNode;
-      } else if (modifiedNode instanceof ObjectBooleanNode objBoolNode) {
-        objBoolNode.setValue(value);
-        objBoolNode.setPreviousRevision(objBoolNode.getLastModifiedRevisionNumber());
-        objBoolNode.setLastModifiedRevision(pageTrx.getRevisionNumber());
-        nodeReadOnlyTrx.setCurrentNode(objBoolNode);
-        updatedNode = objBoolNode;
-      } else {
-        throw new IllegalStateException("Unexpected node type: " + modifiedNode.getClass());
-      }
+      nodeReadOnlyTrx.setCurrentNode(node);
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
       // Index new value.
       indexController.notifyChange(IndexController.ChangeType.INSERT, getNode(), pathNodeKey);
 
-      adaptUpdateOperationsForUpdate(updatedNode.getDeweyID(), updatedNode.getNodeKey());
+      adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(updatedNode.getNodeKey());
+        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
       }
 
       return this;
@@ -2669,7 +2659,7 @@ final class JsonNodeTrxImpl extends
 
       final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
 
-      final NumberNode node =
+      final NumericValueNode node =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
       node.setValue(value);
       node.setPreviousRevision(node.getLastModifiedRevisionNumber());
@@ -2794,26 +2784,38 @@ final class JsonNodeTrxImpl extends
   @Override
   protected void serializeUpdateDiffs(final int revisionNumber) {
     if (!nodeHashing.isBulkInsert() && revisionNumber - 1 > 0) {
+      // Determine the old revision number for the diff:
+      // - After bulk insert with auto-commit, use the pre-bulk-insert revision
+      // - Otherwise, use the previous revision
+      final int oldRevisionNumber = beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
+          ? beforeBulkInsertionRevisionNumber
+          : revisionNumber - 1;
+
       final var diffSerializer = new JsonDiffSerializer(this.databaseName,
                                                         (JsonResourceSession) resourceSession,
-                                                        beforeBulkInsertionRevisionNumber != 0 && isAutoCommitting
-                                                            ? beforeBulkInsertionRevisionNumber
-                                                            : revisionNumber - 1,
+                                                        oldRevisionNumber,
                                                         revisionNumber,
                                                         storeDeweyIDs()
                                                             ? updateOperationsOrdered.values()
                                                             : updateOperationsUnordered.values());
       final var jsonDiff = diffSerializer.serialize(false);
 
+      // Use the same old revision number for the file name as for the diff content
       final Path diff = resourceSession.getResourceConfig()
                                        .getResource()
                                        .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                        .resolve(
-                                           "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber + ".json");
+                                           "diffFromRev" + oldRevisionNumber + "toRev" + revisionNumber + ".json");
       try {
         Files.writeString(diff, jsonDiff, CREATE);
       } catch (final IOException e) {
         throw new UncheckedIOException(e);
+      }
+
+      // Reset beforeBulkInsertionRevisionNumber after writing the diff file
+      // so that subsequent commits use the normal previous revision
+      if (beforeBulkInsertionRevisionNumber != 0) {
+        beforeBulkInsertionRevisionNumber = 0;
       }
 
       if (storeDeweyIDs()) {

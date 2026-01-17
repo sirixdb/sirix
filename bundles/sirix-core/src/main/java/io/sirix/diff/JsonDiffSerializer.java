@@ -84,7 +84,8 @@ public final class JsonDiffSerializer {
             insertBasedOnNewRtx(newRtx, jsonInsertDiff);
 
             // Add path using PathSummary (always available by default)
-            addPathIfAvailable(jsonInsertDiff, newRtx, newRevisionNumber, false);
+            // Pass true to include parent path for value nodes (STRING_VALUE, etc.)
+            addPathIfAvailable(jsonInsertDiff, newRtx, newRevisionNumber, true);
 
             if (resourceManager.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
@@ -105,7 +106,8 @@ public final class JsonDiffSerializer {
             jsonDeletedDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
 
             // Add path using PathSummary (always available by default)
-            addPathIfAvailable(jsonDeletedDiff, oldRtx, oldRevisionNumber, false);
+            // Pass true to include parent path for value nodes (STRING_VALUE, etc.)
+            addPathIfAvailable(jsonDeletedDiff, oldRtx, oldRevisionNumber, true);
 
             if (resourceManager.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = oldRtx.getDeweyID();
@@ -146,8 +148,8 @@ public final class JsonDiffSerializer {
             jsonUpdateDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
 
             // Add path using PathSummary (always available by default)
-            // For UPDATE, only use node's own pathNodeKey (no parent path for values)
-            addPathIfAvailable(jsonUpdateDiff, newRtx, newRevisionNumber, false);
+            // Include parent path for value nodes under OBJECT_KEY
+            addPathIfAvailable(jsonUpdateDiff, newRtx, newRevisionNumber, true);
 
             if (resourceManager.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
@@ -268,15 +270,21 @@ public final class JsonDiffSerializer {
     if (pathNodeKey == nullNodeKey && rtx.hasParent()) {
       final NodeKind kind = rtx.getKind();
       final NodeKind parentKind = rtx.getParentKind();
-      
-      // For structural nodes (OBJECT, ARRAY) in arrays, always get path from parent array
-      // This gives paths like /[0], /[1] for array elements
+
+      // For structural nodes (OBJECT, ARRAY) in arrays, get path from parent array
+      // This gives paths like /foo/[0], /foo/[1] for array elements
       if ((kind == NodeKind.OBJECT || kind == NodeKind.ARRAY) && parentKind == NodeKind.ARRAY) {
         rtx.moveToParent();
         pathNodeKey = rtx.getPathNodeKey();
         rtx.moveTo(originalNodeKey);
       }
-      // For value nodes under OBJECT_KEY, only include parent path for REPLACE operations
+      // For value nodes in arrays, get path from parent array
+      else if (parentKind == NodeKind.ARRAY) {
+        rtx.moveToParent();
+        pathNodeKey = rtx.getPathNodeKey();
+        rtx.moveTo(originalNodeKey);
+      }
+      // For value nodes under OBJECT_KEY, include parent path
       else if (includeParentPathForValues && parentKind == NodeKind.OBJECT_KEY) {
         rtx.moveToParent();
         pathNodeKey = rtx.getPathNodeKey();

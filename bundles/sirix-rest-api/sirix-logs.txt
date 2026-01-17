@@ -1,9 +1,10 @@
+time="2026-01-17T14:26:14+01:00" level=warning msg="No services to build"
  Network sirix-test_auth-network Creating 
  Network sirix-test_auth-network Created 
  Container sirix-test-keycloak-1 Creating 
  Container sirix-test-keycloak-1 Created 
  Container sirix-test-keycloak-1 Starting 
-Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint sirix-test-keycloak-1 (d5ac3a1bee393fc3d1a28bb34f676409aaa4f5f142cb67147648f91324b63713): Bind for 0.0.0.0:8080 failed: port is already allocated
+ Container sirix-test-keycloak-1 Started 
  Container sirix-test-keycloak-1 Stopping 
  Container sirix-test-keycloak-1 Stopped 
  Container sirix-test-keycloak-1 Removing 
