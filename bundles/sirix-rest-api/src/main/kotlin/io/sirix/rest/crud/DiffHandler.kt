@@ -70,9 +70,24 @@ class DiffHandler(private val location: Path) {
                                 .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.path)
                                 .resolve("diffFromRev${firstRevision.toInt()}toRev${secondRevision.toInt()}.json")
 
-                            if (Files.exists(diffPath)) {
+                            if (Files.exists(diffPath) && !includeData) {
+                                // Fast path: read pre-computed diff file directly (no data for jsonFragments)
                                 logger.debug("Reading pre-computed diff from: $diffPath")
                                 diffString = Files.readString(diffPath)
+                            } else if (Files.exists(diffPath) && includeData && resourceManager.resourceConfig.areDeweyIDsStored) {
+                                // includeData=true: use update operations to lazily serialize jsonFragment data
+                                val rtx = resourceManager.beginNodeReadOnlyTrx(secondRevision.toInt())
+                                rtx.use {
+                                    diffString = useUpdateOperations(
+                                        rtx,
+                                        startNodeKeyAsLong,
+                                        databaseName,
+                                        resourceName,
+                                        firstRevision,
+                                        secondRevision,
+                                        maxDepthAsLong
+                                    )
+                                }
                             } else if (resourceManager.resourceConfig.areDeweyIDsStored) {
                                 // Use update operations if DeweyIDs are stored but file doesn't exist
                                 val rtx = resourceManager.beginNodeReadOnlyTrx(secondRevision.toInt())

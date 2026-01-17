@@ -417,13 +417,13 @@ class SirixVerticleJsonTest {
                     assertEquals(200, httpResponse.statusCode())
                 }
 
-                httpResponse = client.getAbs("$server$serverPath/diff?first-revision=1&second-revision=2").putHeader(
+                httpResponse = client.getAbs("$server$serverPath/diff?first-revision=1&second-revision=2&include-data=true").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").send().await()
 
                 val expectedDiffJsonString = """
-                    {"database":"database","resource":"json-resource","old-revision":1,"new-revision":2,"diffs":[{"insert":{"nodeKey":26,"insertPositionNodeKey":6,"insertPosition":"asRightSibling","path":"/foo/[3]","type":"jsonFragment"}}]}
+                    {"database":"database","resource":"json-resource","old-revision":1,"new-revision":2,"diffs":[{"insert":{"nodeKey":26,"insertPositionNodeKey":6,"insertPosition":"asRightSibling","path":"/foo/[3]","type":"jsonFragment","data":"{\"tadaaa\":true}"}}]}
                 """.trimIndent()
 
                 testContext.verify {
