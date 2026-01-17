@@ -13,6 +13,7 @@ import io.sirix.axis.filter.FilterAxis;
 import io.sirix.axis.filter.json.JsonNameFilter;
 import io.sirix.axis.temporal.*;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.node.NodeKind;
 import io.sirix.query.StructuredDBItem;
 import io.sirix.query.stream.json.SirixJsonStream;
 import io.sirix.query.stream.json.TemporalSirixJsonObjectStream;
@@ -327,18 +328,44 @@ public final class JsonDBObject extends AbstractItem
       return;
     }
 
+    // After findField(), trx is positioned at OBJECT_KEY
+    // Move to child value node to check if we can do in-place update
+    trx.moveToFirstChild();
+    final var currentKind = trx.getKind();
+
+    // Check if we can do an in-place update (same type) to preserve node identity
+    if (currentKind == NodeKind.OBJECT_STRING_VALUE && value instanceof Str str) {
+      trx.setStringValue(str.stringValue());
+      return;
+    }
+    if (currentKind == NodeKind.OBJECT_NUMBER_VALUE && value instanceof Numeric) {
+      setNumericValue(trx, value);
+      return;
+    }
+    if (currentKind == NodeKind.OBJECT_BOOLEAN_VALUE && value instanceof Bool bool) {
+      trx.setBooleanValue(bool.booleanValue());
+      return;
+    }
+    if (currentKind == NodeKind.OBJECT_NULL_VALUE && value instanceof Null) {
+      // Null to null - no change needed
+      return;
+    }
+
+    // Types differ - move back to parent OBJECT_KEY and do full replacement
+    trx.moveToParent();
+
     if (value instanceof Array) {
       trx.replaceObjectRecordValue(new ArrayValue());
       insertSubtree(value, trx);
     } else if (value instanceof Object) {
       trx.replaceObjectRecordValue(new ObjectValue());
       insertSubtree(value, trx);
-    } else if (value instanceof Str) {
-      trx.replaceObjectRecordValue(new StringValue(((Str) value).stringValue()));
+    } else if (value instanceof Str str) {
+      trx.replaceObjectRecordValue(new StringValue(str.stringValue()));
     } else if (value instanceof Null) {
       trx.replaceObjectRecordValue(new NullValue());
-    } else if (value instanceof Bool) {
-      trx.replaceObjectRecordValue(new BooleanValue(value.booleanValue()));
+    } else if (value instanceof Bool bool) {
+      trx.replaceObjectRecordValue(new BooleanValue(bool.booleanValue()));
     } else if (value instanceof Numeric) {
       switch (value) {
         case Int anInt -> trx.replaceObjectRecordValue(new NumberValue(anInt.intValue()));
@@ -349,6 +376,19 @@ public final class JsonDBObject extends AbstractItem
         case Dec dec -> trx.replaceObjectRecordValue(new NumberValue(dec.decimalValue()));
         default -> {
         }
+      }
+    }
+  }
+
+  private void setNumericValue(JsonNodeTrx trx, Sequence value) {
+    switch (value) {
+      case Int anInt -> trx.setNumberValue(anInt.intValue());
+      case Int32 int32 -> trx.setNumberValue(int32.intValue());
+      case Int64 int64 -> trx.setNumberValue(int64.longValue());
+      case Flt flt -> trx.setNumberValue(flt.floatValue());
+      case Dbl dbl -> trx.setNumberValue(dbl.doubleValue());
+      case Dec dec -> trx.setNumberValue(dec.decimalValue());
+      default -> {
       }
     }
   }

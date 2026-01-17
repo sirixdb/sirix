@@ -2557,22 +2557,35 @@ final class JsonNodeTrxImpl extends
       final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
       final byte[] byteVal = getBytes(value);
 
-      final StringNode node =
+      final var modifiedNode =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-      node.setRawValue(byteVal);
-      node.setPreviousRevision(node.getLastModifiedRevisionNumber());
-      node.setLastModifiedRevision(pageTrx.getRevisionNumber());
 
-      nodeReadOnlyTrx.setCurrentNode(node);
+      // Handle both StringNode and ObjectStringNode
+      final ImmutableNode updatedNode;
+      if (modifiedNode instanceof StringNode stringNode) {
+        stringNode.setRawValue(byteVal);
+        stringNode.setPreviousRevision(stringNode.getLastModifiedRevisionNumber());
+        stringNode.setLastModifiedRevision(pageTrx.getRevisionNumber());
+        nodeReadOnlyTrx.setCurrentNode(stringNode);
+        updatedNode = stringNode;
+      } else if (modifiedNode instanceof ObjectStringNode objStringNode) {
+        objStringNode.setRawValue(byteVal);
+        objStringNode.setPreviousRevision(objStringNode.getLastModifiedRevisionNumber());
+        objStringNode.setLastModifiedRevision(pageTrx.getRevisionNumber());
+        nodeReadOnlyTrx.setCurrentNode(objStringNode);
+        updatedNode = objStringNode;
+      } else {
+        throw new IllegalStateException("Unexpected node type: " + modifiedNode.getClass());
+      }
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
       // Index new value.
       indexController.notifyChange(IndexController.ChangeType.INSERT, getNode(), pathNodeKey);
 
-      adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
+      adaptUpdateOperationsForUpdate(updatedNode.getDeweyID(), updatedNode.getNodeKey());
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(updatedNode.getNodeKey());
       }
 
       return this;
@@ -2669,22 +2682,35 @@ final class JsonNodeTrxImpl extends
 
       final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
 
-      final NumberNode node =
+      final var modifiedNode =
           pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-      node.setValue(value);
-      node.setPreviousRevision(node.getLastModifiedRevisionNumber());
-      node.setLastModifiedRevision(pageTrx.getRevisionNumber());
 
-      nodeReadOnlyTrx.setCurrentNode(node);
+      // Handle both NumberNode and ObjectNumberNode
+      final ImmutableNode updatedNode;
+      if (modifiedNode instanceof NumberNode numberNode) {
+        numberNode.setValue(value);
+        numberNode.setPreviousRevision(numberNode.getLastModifiedRevisionNumber());
+        numberNode.setLastModifiedRevision(pageTrx.getRevisionNumber());
+        nodeReadOnlyTrx.setCurrentNode(numberNode);
+        updatedNode = numberNode;
+      } else if (modifiedNode instanceof ObjectNumberNode objNumberNode) {
+        objNumberNode.setValue(value);
+        objNumberNode.setPreviousRevision(objNumberNode.getLastModifiedRevisionNumber());
+        objNumberNode.setLastModifiedRevision(pageTrx.getRevisionNumber());
+        nodeReadOnlyTrx.setCurrentNode(objNumberNode);
+        updatedNode = objNumberNode;
+      } else {
+        throw new IllegalStateException("Unexpected node type: " + modifiedNode.getClass());
+      }
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
       // Index new value.
       indexController.notifyChange(IndexController.ChangeType.INSERT, getNode(), pathNodeKey);
 
-      adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
+      adaptUpdateOperationsForUpdate(updatedNode.getDeweyID(), updatedNode.getNodeKey());
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(updatedNode.getNodeKey());
       }
 
       return this;
