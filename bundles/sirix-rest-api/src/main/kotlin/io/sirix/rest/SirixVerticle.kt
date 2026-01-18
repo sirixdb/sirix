@@ -27,11 +27,13 @@ import io.vertx.kotlin.core.http.httpServerOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
+import kotlin.coroutines.cancellation.CancellationException
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
 import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
 import io.sirix.rest.crud.*
 import io.sirix.rest.crud.json.JsonCreate
+import org.slf4j.LoggerFactory
 import io.sirix.rest.crud.json.JsonHead
 import io.sirix.rest.crud.json.JsonUpdate
 import io.sirix.rest.crud.xml.XmlCreate
@@ -44,6 +46,10 @@ import java.nio.file.Paths
 import java.util.UUID
 
 class SirixVerticle : CoroutineVerticle() {
+    companion object {
+        private val logger = LoggerFactory.getLogger(SirixVerticle::class.java)
+    }
+
     /** User home directory. */
     private val userHome = System.getProperty("user.home")
 
@@ -362,6 +368,34 @@ class SirixVerticle : CoroutineVerticle() {
         route().failureHandler { failureRoutingContext ->
             val statusCode = failureRoutingContext.statusCode()
             val failure = failureRoutingContext.failure()
+            val request = failureRoutingContext.request()
+
+            // Log the exception - use DEBUG for cancellation (expected during shutdown)
+            if (failure != null) {
+                if (failure is CancellationException) {
+                    logger.debug(
+                        "Request cancelled (shutdown): {} {} (statusCode={})",
+                        request.method(),
+                        request.uri(),
+                        statusCode
+                    )
+                } else {
+                    logger.error(
+                        "Request failed: {} {} (statusCode={})",
+                        request.method(),
+                        request.uri(),
+                        statusCode,
+                        failure
+                    )
+                }
+            } else {
+                logger.error(
+                    "Request failed: {} {} (statusCode={}, no exception)",
+                    request.method(),
+                    request.uri(),
+                    statusCode
+                )
+            }
 
             val out = ByteArrayOutputStream()
             val printWriter = PrintWriter(out)

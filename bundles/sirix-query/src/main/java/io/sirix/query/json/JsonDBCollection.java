@@ -86,6 +86,15 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
     return this;
   }
 
+  /**
+   * Get the JsonDBStore for this collection.
+   *
+   * @return the JsonDBStore, or null if not set
+   */
+  public JsonDBStore getJsonDBStore() {
+    return jsonDbStore;
+  }
+
   @Override
   public boolean equals(final java.lang.Object other) {
     if (this == other) {

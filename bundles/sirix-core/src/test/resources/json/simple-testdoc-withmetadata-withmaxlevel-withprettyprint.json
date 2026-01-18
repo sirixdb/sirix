@@ -45,7 +45,27 @@
         "descendantCount": 4,
         "childCount": 1
       },
-      "value": {}
+      "value": [
+        {
+          "key": "body",
+          "metadata": {
+            "nodeKey": 12,
+            "hash": "0000000000000000",
+            "type": "OBJECT_KEY",
+            "descendantCount": 3
+          },
+          "value": {
+            "metadata": {
+              "nodeKey": 13,
+              "hash": "0000000000000000",
+              "type": "ARRAY",
+              "descendantCount": 2,
+              "childCount": 2
+            },
+            "value": []
+          }
+        }
+      ]
     }
   ]
 }

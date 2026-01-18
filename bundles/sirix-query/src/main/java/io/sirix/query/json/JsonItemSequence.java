@@ -145,19 +145,70 @@ final class JsonItemSequence {
         || kind == NodeKind.OBJECT_NULL_VALUE;
   }
 
+  /**
+   * Replace an object value node. If the new value has the same type as the current node,
+   * performs an in-place update to preserve node identity (important for bitemporal semantics).
+   * If types differ, navigates to the parent OBJECT_KEY and performs a full replacement.
+   */
   private static void replaceObjectValue(JsonNodeTrx wtx, Sequence newValue) {
+    final NodeKind currentKind = wtx.getKind();
+
+    // Check if we can do an in-place update (same type)
+    if (currentKind == NodeKind.OBJECT_STRING_VALUE && newValue instanceof Str str) {
+      wtx.setStringValue(str.stringValue());
+      return;
+    }
+    if (currentKind == NodeKind.OBJECT_NUMBER_VALUE && newValue instanceof Numeric) {
+      setNumericValue(wtx, newValue);
+      return;
+    }
+    if (currentKind == NodeKind.OBJECT_BOOLEAN_VALUE && newValue instanceof Bool bool) {
+      wtx.setBooleanValue(bool.booleanValue());
+      return;
+    }
+    if (currentKind == NodeKind.OBJECT_NULL_VALUE && newValue instanceof Null) {
+      // Null to null - no change needed
+      return;
+    }
+
+    // Types differ - need to navigate to parent OBJECT_KEY and do full replacement
+    wtx.moveToParent();
+    doReplaceObjectRecordValue(wtx, newValue);
+  }
+
+  /**
+   * Performs in-place update of a numeric value.
+   */
+  private static void setNumericValue(JsonNodeTrx wtx, Sequence newValue) {
+    switch (newValue) {
+      case Int anInt -> wtx.setNumberValue(anInt.intValue());
+      case Int32 int32 -> wtx.setNumberValue(int32.intValue());
+      case Int64 int64 -> wtx.setNumberValue(int64.longValue());
+      case Flt flt -> wtx.setNumberValue(flt.floatValue());
+      case Dbl dbl -> wtx.setNumberValue(dbl.doubleValue());
+      case Dec dec -> wtx.setNumberValue(dec.decimalValue());
+      default -> {
+      }
+    }
+  }
+
+  /**
+   * Performs a full object record value replacement (delete + insert).
+   * Must be positioned at OBJECT_KEY node.
+   */
+  private static void doReplaceObjectRecordValue(JsonNodeTrx wtx, Sequence newValue) {
     if (newValue instanceof Array) {
       wtx.replaceObjectRecordValue(new ArrayValue());
       insertSubtree(newValue, wtx);
     } else if (newValue instanceof Object) {
       wtx.replaceObjectRecordValue(new ObjectValue());
       insertSubtree(newValue, wtx);
-    } else if (newValue instanceof Str) {
-      wtx.replaceObjectRecordValue(new StringValue(((Str) newValue).stringValue()));
+    } else if (newValue instanceof Str str) {
+      wtx.replaceObjectRecordValue(new StringValue(str.stringValue()));
     } else if (newValue instanceof Null) {
       wtx.replaceObjectRecordValue(new NullValue());
-    } else if (newValue instanceof Bool) {
-      wtx.replaceObjectRecordValue(new BooleanValue(newValue.booleanValue()));
+    } else if (newValue instanceof Bool bool) {
+      wtx.replaceObjectRecordValue(new BooleanValue(bool.booleanValue()));
     } else if (newValue instanceof Numeric) {
       replaceWithNumeric(wtx, newValue);
     }
@@ -176,8 +227,33 @@ final class JsonItemSequence {
     }
   }
 
+  /**
+   * Replace an array element. If the new value has the same type as the current node,
+   * performs an in-place update to preserve node identity (important for bitemporal semantics).
+   * If types differ, deletes the old node and inserts a new one at the same position.
+   */
   private static void replaceArrayElement(JsonNodeTrx wtx, Sequence newValue) {
-    // Delete old and insert new at same position
+    final NodeKind currentKind = wtx.getKind();
+
+    // Check if we can do an in-place update (same type)
+    if (currentKind == NodeKind.STRING_VALUE && newValue instanceof Str str) {
+      wtx.setStringValue(str.stringValue());
+      return;
+    }
+    if (currentKind == NodeKind.NUMBER_VALUE && newValue instanceof Numeric) {
+      setNumericValue(wtx, newValue);
+      return;
+    }
+    if (currentKind == NodeKind.BOOLEAN_VALUE && newValue instanceof Bool bool) {
+      wtx.setBooleanValue(bool.booleanValue());
+      return;
+    }
+    if (currentKind == NodeKind.NULL_VALUE && newValue instanceof Null) {
+      // Null to null - no change needed
+      return;
+    }
+
+    // Types differ - delete old and insert new at same position
     final long leftSiblingKey = wtx.getLeftSiblingKey();
     final long parentKey = wtx.getParentKey();
 

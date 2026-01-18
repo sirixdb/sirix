@@ -318,7 +318,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       // Reinstantiate everything.
       if (afterCommitState == AfterCommitState.KEEP_OPEN) {
-        reInstantiate(getId(), preCommitRevision);
+        // Use the newly committed revision number, not the pre-commit revision.
+        // After commit, uberPage represents the new revision, and we need to
+        // create a page transaction that will prepare the NEXT revision.
+        final int newlyCommittedRevision = uberPage.getRevisionNumber();
+        reInstantiate(getId(), newlyCommittedRevision);
         state = State.RUNNING;
       } else {
         state = State.COMMITTED;

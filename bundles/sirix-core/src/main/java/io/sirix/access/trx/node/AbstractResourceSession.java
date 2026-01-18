@@ -475,6 +475,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     requireNonNull(timeUnit);
 
     // Make sure not to exceed available number of write transactions.
+    // The writeLock is shared across ALL ResourceSession instances for the same resource
+    // (via WriteLocksRegistry), so we cannot detect orphaned locks by checking only this
+    // session's transaction maps - another session may legitimately hold the lock.
     try {
       if (!writeLock.tryAcquire(5, TimeUnit.SECONDS)) {
         throw new SirixUsageException(
