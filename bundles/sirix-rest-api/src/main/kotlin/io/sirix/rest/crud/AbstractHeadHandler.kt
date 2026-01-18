@@ -32,6 +32,12 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
         return ctx.currentRoute()
     }
     fun head(databaseName: String, ctx: RoutingContext, resource: String) {
+        // Check if database exists first
+        val dbPath = location.resolve(databaseName)
+        if (!Databases.existsDatabase(dbPath)) {
+            ctx.response().setStatusCode(404).end()
+            return
+        }
         val revision = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp = ctx.queryParam("revision-timestamp").getOrNull(0)
 
@@ -40,6 +46,12 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
         val database = openDatabase(location.resolve(databaseName))
 
         database.use {
+            // Check if resource exists - return 404 if not
+            if (!database.existsResource(resource)) {
+                ctx.response().setStatusCode(404).end()
+                return
+            }
+
             val manager = database.beginResourceSession(resource)
 
             manager.use {
