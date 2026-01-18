@@ -120,9 +120,14 @@ class GetHandler(
                 }
             }
         } else if (databaseName != null && resourceName == null) {
+            val databasePath = location.resolve(databaseName)
+            // Check if database exists first
+            if (!Databases.existsDatabase(databasePath)) {
+                ctx.response().setStatusCode(404).end()
+                return ctx.currentRoute()
+            }
             val buffer = StringBuilder()
             buffer.append("{")
-            val databasePath = location.resolve(databaseName)
             val databaseType = Databases.getDatabaseType(databasePath.toAbsolutePath()).stringType
             emitResourcesOfDatabase(buffer, databasePath, databaseType)
 

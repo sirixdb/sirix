@@ -65,7 +65,8 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
                     rtx.use {
                         if (nodeId != null) {
                             if (!rtx.moveTo(nodeId.toLong())) {
-                                throw IllegalStateException("Node with ID $nodeId doesn't exist.")
+                                ctx.response().setStatusCode(404).end()
+                                return
                             }
                         } else if (rtx.isDocumentRoot) {
                             (rtx as NodeCursor).moveToFirstChild()
