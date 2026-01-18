@@ -41,6 +41,11 @@ class DeleteHandler(private val location: Path, private val authz: Authorization
             if (databaseName == null) {
                 throw IllegalStateException("No database name given.")
             } else {
+                val databasePath = location.resolve(databaseName)
+                if (!Databases.existsDatabase(databasePath)) {
+                    ctx.response().setStatusCode(404).end()
+                    return ctx.currentRoute()
+                }
                 removeDatabase(databaseName, ctx)
             }
         }
@@ -53,7 +58,8 @@ class DeleteHandler(private val location: Path, private val authz: Authorization
         databaseName: String,
         ctx: RoutingContext
     ) {
-        val databaseType = Databases.getDatabaseType(location.resolve(databaseName).toAbsolutePath())
+        val databasePath = location.resolve(databaseName)
+        val databaseType = Databases.getDatabaseType(databasePath.toAbsolutePath())
 
         @Suppress("WHEN_ENUM_CAN_BE_NULL_IN_JAVA") when (databaseType) {
             DatabaseType.JSON -> JsonDelete(location, authz).handle(ctx)
