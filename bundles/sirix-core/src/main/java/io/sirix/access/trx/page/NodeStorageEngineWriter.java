@@ -468,10 +468,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       storagePageReaderWriter.forceAll();
 
     } finally {
-      // Clear pending snapshot if this was it
-      if (this.pendingSnapshot == snapshot) {
-        this.pendingSnapshot = null;
-      }
+      // NOTE: Do NOT clear pendingSnapshot here!
+      // The snapshot must persist for lazy disk offset propagation to original PageReferences.
+      // The insert thread's refs still have key=NULL_ID_LONG and need the snapshot's
+      // disk offset mapping to resolve correctly via getFromSnapshot().
+      // The snapshot will be replaced by the next rotation or cleared on transaction close.
 
       // Release permit for next commit
       commitPermit.release();
@@ -800,7 +801,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       
       // Clear TransactionIntentLog - closes all modified pages
       log.clear();
-      
+
+      // Clear any pending snapshot from previous async commits
+      pendingSnapshot = null;
+
       // Clear local cache (pages are already handled by log.clear())
       pageContainerCache.clear();
       
@@ -972,7 +976,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       mostRecentPageContainer = null;
       secondMostRecentPageContainer = null;
       mostRecentPathSummaryPageContainer = null;
-      
+
+      // Clear pending snapshot to release memory
+      pendingSnapshot = null;
+
       isClosed = true;
     }
   }
