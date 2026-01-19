@@ -6,6 +6,7 @@ buildscript {
     dependencies {
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.20"
         classpath "com.avast.gradle:gradle-docker-compose-plugin:0.17.12"
+        classpath "org.graalvm.buildtools:native-gradle-plugin:0.10.4"
         //classpath "org.jetbrains.dokka:dokka-gradle-plugin:0.10.0"
     }
 }
@@ -18,6 +19,7 @@ apply plugin: 'kotlin'
 apply plugin: 'com.gradleup.shadow'
 //apply plugin: 'org.jetbrains.dokka'
 apply plugin: 'docker-compose'
+apply plugin: 'org.graalvm.buildtools.native'
 
 dependencies {
     implementation project(':sirix-core')
@@ -113,4 +115,64 @@ dockerCompose {
     containerLogToDir = project.file('logs') // directory where composeLogs task stores output of the containers; default: build/containers-logs
 
     projectName = 'sirix-test'
+}
+
+// GraalVM Native Image Configuration
+graalvmNative {
+    binaries {
+        main {
+            imageName = 'sirix-rest-api'
+            mainClass = 'io.vertx.core.Launcher'
+            // Build executable, not shared library
+            sharedLibrary = false
+            buildArgs.add('--enable-native-access=ALL-UNNAMED')
+            buildArgs.add('--add-modules=jdk.incubator.vector')
+            buildArgs.add('-H:+ForeignAPISupport')
+            buildArgs.add('-H:+UnlockExperimentalVMOptions')
+            buildArgs.add('--no-fallback')
+            // Exclude problematic GraalVM library-support substitutions
+            buildArgs.add('--exclude-config')
+            buildArgs.add('library-support.jar')
+            buildArgs.add('META-INF/native-image/.*')
+            // Vert.x main verticle
+            buildArgs.add('-Dvertx.main=io.sirix.rest.SirixVerticle')
+            // Include config files from classpath
+            buildArgs.add('-H:IncludeResources=.*\\.properties$')
+            buildArgs.add('-H:IncludeResources=.*\\.xml$')
+            buildArgs.add('-H:IncludeResources=.*\\.json$')
+            buildArgs.add('-H:IncludeResources=.*\\.pem$')
+            // Logging frameworks - build time
+            buildArgs.add('--initialize-at-build-time=org.slf4j')
+            buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
+            // Netty - minimal build time (avoid network-related classes)
+            buildArgs.add('--initialize-at-build-time=io.netty.util.internal.logging')
+            buildArgs.add('--initialize-at-build-time=io.netty.util.internal.shaded')
+            // Netty runtime initialization
+            buildArgs.add('--initialize-at-run-time=io.netty.util.NetUtil')
+            buildArgs.add('--initialize-at-run-time=io.netty.util.internal.PlatformDependent')
+            buildArgs.add('--initialize-at-run-time=io.netty.handler.ssl.BouncyCastleAlpnSslUtils')
+            buildArgs.add('--initialize-at-run-time=io.netty.handler.ssl.ReferenceCountedOpenSslEngine')
+            buildArgs.add('--initialize-at-run-time=io.netty.handler.ssl.JdkNpnApplicationProtocolNegotiator')
+            buildArgs.add('--initialize-at-run-time=io.netty.channel.epoll')
+            buildArgs.add('--initialize-at-run-time=io.netty.channel.kqueue')
+            buildArgs.add('--initialize-at-run-time=io.netty.channel.unix')
+            buildArgs.add('--initialize-at-run-time=io.netty.incubator.channel.uring')
+            buildArgs.add('--initialize-at-run-time=io.netty.resolver')
+            buildArgs.add('--initialize-at-run-time=io.netty.bootstrap')
+            buildArgs.add('--initialize-at-run-time=io.netty.buffer')
+            // Sirix FFI components
+            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
+            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
+            buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
+            // Vert.x DNS resolver (contains InetAddress references)
+            buildArgs.add('--initialize-at-run-time=io.vertx.core.impl.resolver')
+            buildArgs.add('--initialize-at-run-time=io.vertx.core.dns')
+            // Enable verbose output for debugging
+            verbose = true
+            // Quick build for development (remove for production)
+            quickBuild = false
+        }
+    }
+    toolchainDetection = false
 }
