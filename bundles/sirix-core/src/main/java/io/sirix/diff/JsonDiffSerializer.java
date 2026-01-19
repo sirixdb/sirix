@@ -348,8 +348,18 @@ public final class JsonDiffSerializer {
         final var step = steps.get(i);
 
         if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
-          positions.addFirst(getArrayPosition(rtx));
-          rtx.moveToParent();
+          // For CHILD_ARRAY steps, we need to get the position of the node within the array.
+          // If our parent is the array, we're already at the array element.
+          // If not, we're deeper inside the structure and need to move up first.
+          if (rtx.getParentKind() == NodeKind.ARRAY) {
+            // We're directly inside the array, get position then move up
+            positions.addFirst(getArrayPosition(rtx));
+            rtx.moveToParent();
+          } else {
+            // We're inside a nested structure, move up to the array element first
+            rtx.moveToParent();
+            positions.addFirst(getArrayPosition(rtx));
+          }
         } else {
           rtx.moveToParent();
         }
@@ -385,11 +395,13 @@ public final class JsonDiffSerializer {
       return -1;
     }
 
+    final long originalNodeKey = rtx.getNodeKey();
     int index = 0;
     while (rtx.hasLeftSibling()) {
       rtx.moveToLeftSibling();
       index++;
     }
+    rtx.moveTo(originalNodeKey);
     return index;
   }
 
