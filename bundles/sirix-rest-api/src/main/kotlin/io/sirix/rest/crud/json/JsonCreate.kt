@@ -2,7 +2,7 @@ package io.sirix.rest.crud.json
 
 import io.vertx.core.parsetools.JsonParser
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -155,7 +155,7 @@ class JsonCreate(
                 // Resume request AFTER handlers are attached
                 ctx.request().resume()
                 // Await the future (suspends until processing is complete)
-                future.await()
+                future.coAwait()
             }
             // #region debug trace
             debugLog("shredder_completed")

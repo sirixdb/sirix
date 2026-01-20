@@ -1,14 +1,13 @@
 package io.sirix.rest.crud
 
 import io.vertx.core.Context
-import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.Databases
 import io.sirix.api.Database
 import io.sirix.api.json.JsonResourceSession
@@ -157,7 +156,7 @@ class GetHandler(
     }
 
     private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
-        context.executeBlocking { _: Promise<Unit> ->
+        context.executeBlocking {
             val databases = Files.list(location)
 
             val buffer = StringBuilder()
@@ -199,7 +198,7 @@ class GetHandler(
             ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .end(content)
-        }.await()
+        }.coAwait()
     }
 
     private fun emitResourcesOfDatabase(

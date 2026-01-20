@@ -5,7 +5,7 @@ import com.google.gson.JsonObject
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.DatabaseType
 import io.sirix.access.Databases.*
 import io.sirix.access.DatabasesInternals
@@ -40,7 +40,7 @@ class DiffHandler(private val location: Path) {
         
         val database = openDatabase(databaseName)
 
-        val diff = context.executeBlocking<String> { resultPromise ->
+        val diff = context.executeBlocking {
             var diffString: String? = null
             database.use {
                 val resourceManager = database.beginResourceSession(resourceName)
@@ -142,8 +142,8 @@ class DiffHandler(private val location: Path) {
                 }
             }
 
-            resultPromise.complete(diffString)
-        }.await()
+            diffString
+        }.coAwait()
 
         logger.debug("Open databases after: ${DatabasesInternals.getOpenDatabases()}")
 

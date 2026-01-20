@@ -2,11 +2,10 @@ package io.sirix.rest.crud
 
 import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.Context
-import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.HttpException
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -40,7 +39,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         // Initialize queryResource context and store.
         val dbStore = createStore(ctx)
 
-        ctx.vertx().executeBlocking { promise: Promise<Unit> ->
+        ctx.vertx().executeBlocking {
             val databases = Files.list(location)
 
             databases.use {
@@ -49,9 +48,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                         dbStore.drop(it.fileName.toString())
                     }
             }
-
-            promise.complete()
-        }.await()
+        }.coAwait()
     }
 
     abstract fun createStore(ctx: RoutingContext): StructuredItemStore
@@ -119,7 +116,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         ctx: Context,
         routingCtx: RoutingContext
     ) {
-        ctx.executeBlocking { promise: Promise<Unit> ->
+        ctx.executeBlocking {
             val manager = database.beginResourceSession(resPathName)
             manager.use {
                 val wtx = manager.beginNodeTrx()
@@ -140,9 +137,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
                     }
                 }
             }
-
-            promise.complete()
-        }.await()
+        }.coAwait()
     }
 
     protected abstract fun hashType(manager: ResourceSession<*, *>): HashType
