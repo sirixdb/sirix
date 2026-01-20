@@ -7,6 +7,7 @@ buildscript {
         maven {
             url "https://plugins.gradle.org/m2/"
         }
+        mavenCentral()
     }
     dependencies {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.2"
@@ -15,6 +16,7 @@ buildscript {
         classpath "com.gradleup.shadow:shadow-gradle-plugin:8.3.3"
         classpath "com.diffplug.spotless:spotless-plugin-gradle:7.2.1"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath "org.graalvm.buildtools:native-gradle-plugin:0.10.4"
     }
 }
 

@@ -4,10 +4,7 @@ buildscript {
     }
 
     dependencies {
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.20"
         classpath "com.avast.gradle:gradle-docker-compose-plugin:0.17.12"
-        classpath "org.graalvm.buildtools:native-gradle-plugin:0.10.4"
-        //classpath "org.jetbrains.dokka:dokka-gradle-plugin:0.10.0"
     }
 }
 
@@ -123,7 +120,7 @@ graalvmNative {
     binaries {
         main {
             imageName = 'sirix-rest-api'
-            mainClass = 'io.vertx.core.Launcher'
+            mainClass = 'io.vertx.launcher.application.VertxApplication'
             // Build executable, not shared library
             sharedLibrary = false
             buildArgs.add('--enable-native-access=ALL-UNNAMED')
@@ -155,10 +152,16 @@ graalvmNative {
             // Vert.x DNS resolver (contains InetAddress references)
             buildArgs.add('--initialize-at-run-time=io.vertx.core.impl.resolver')
             buildArgs.add('--initialize-at-run-time=io.vertx.core.dns')
+            // Use G1 GC for better latency and throughput at runtime
+            buildArgs.add('--gc=G1')
+            // Set max heap for the native image runtime
+            buildArgs.add('-R:MaxHeapSize=4g')
             // Enable verbose output for debugging
             verbose = true
-            // Quick build for development (remove for production)
-            quickBuild = false
+            // Quick build uses less memory and is faster (disable for production)
+            quickBuild = project.hasProperty('quick-build') ? true : false
+            // Allocate more memory to the native-image compiler (use 80% of available RAM)
+            jvmArgs.add('-XX:MaxRAMPercentage=80')
         }
     }
     toolchainDetection = false

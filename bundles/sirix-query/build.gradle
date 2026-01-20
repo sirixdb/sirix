@@ -1,13 +1,3 @@
-buildscript {
-    repositories {
-        mavenCentral()
-    }
-
-    dependencies {
-        classpath "org.graalvm.buildtools:native-gradle-plugin:0.10.4"
-    }
-}
-
 plugins {
     id "application"
 }
@@ -150,9 +140,15 @@ graalvmNative {
             buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
             // JLine terminal providers - run time (they detect terminal at runtime)
             buildArgs.add('--initialize-at-run-time=org.jline.terminal.impl')
+            // Use G1 GC for better latency and throughput at runtime
+            buildArgs.add('--gc=G1')
+            // Set max heap for the native image runtime
+            buildArgs.add('-R:MaxHeapSize=4g')
             // Enable verbose output for debugging
             verbose = true
             quickBuild = false
+            // Allocate more memory to the native-image compiler (use 80% of available RAM)
+            jvmArgs.add('-XX:MaxRAMPercentage=80')
         }
     }
     toolchainDetection = false
