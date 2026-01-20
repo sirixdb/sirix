@@ -3,7 +3,7 @@ package io.sirix.rest.crud
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.DatabaseType
 import io.sirix.access.Databases.*
 import io.sirix.api.Database
@@ -23,7 +23,7 @@ class PathSummaryHandler(private val location: Path) {
                 DatabaseType.XML -> openXmlDatabase(location.resolve(databaseName))
             }
 
-        context.executeBlocking<String> {
+        context.executeBlocking {
             val buffer = StringBuilder()
             database.use {
                 val manager = database.beginResourceSession(resourceName)
@@ -68,12 +68,11 @@ class PathSummaryHandler(private val location: Path) {
 
             val content = buffer.toString()
 
-            val res = ctx.response().setStatusCode(200)
+            ctx.response().setStatusCode(200)
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-            res.write(content)
-            res.end()
-        }.await()
+                .end(content)
+        }.coAwait()
 
         return ctx.currentRoute()
     }

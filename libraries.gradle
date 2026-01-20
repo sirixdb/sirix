@@ -33,6 +33,7 @@ implLibraries = [
         vertxAuthOauth2             : "io.vertx:vertx-auth-oauth2:$vertxVersion",
         vertxWebClient              : "io.vertx:vertx-web-client:$vertxVersion",
         vertxConfig                 : "io.vertx:vertx-config:$vertxVersion",
+        vertxLauncher               : "io.vertx:vertx-launcher-application:$vertxVersion",
         kotlinStdlibJdk8            : 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.20',
         jsoup                       : 'org.jsoup:jsoup:1.11.3',
         kotlinxCli                  : 'org.jetbrains.kotlinx:kotlinx-cli:0.2.1',

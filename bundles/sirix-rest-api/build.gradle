@@ -33,6 +33,7 @@ dependencies {
     implementation implLibraries.vertxAuthOauth2
     implementation implLibraries.vertxWebClient
     implementation implLibraries.vertxConfig
+    implementation implLibraries.vertxLauncher
     implementation implLibraries.kotlinStdlibJdk8
     implementation implLibraries.jsoup
     testImplementation testLibraries.kotlinTestJunit
@@ -64,7 +65,7 @@ shadowJar {
 jar {
 	manifest {
 		attributes('Main-Verticle': 'io.sirix.rest.SirixVerticle',
-				   'Main-Class': 'io.vertx.core.Launcher')
+				   'Main-Class': 'io.vertx.launcher.application.VertxApplication')
 	}
     finalizedBy shadowJar
 }

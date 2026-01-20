@@ -1,12 +1,10 @@
 package io.sirix.rest.crud
 
 import io.vertx.core.Context
-import io.vertx.core.Promise
-import io.vertx.core.file.impl.FileResolverImpl
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -54,16 +52,15 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
     }
 
     suspend fun prepareDatabasePath(dbFile: Path, context: Context): DatabaseConfiguration? {
-        return context.executeBlocking { promise: Promise<DatabaseConfiguration> ->
+        return context.executeBlocking {
             val dbExists = Files.exists(dbFile)
 
             if (!dbExists) {
                 Files.createDirectories(dbFile.parent)
             }
 
-            val dbConfig = DatabaseConfiguration(dbFile)
-            promise.complete(dbConfig)
-        }.await()
+            DatabaseConfiguration(dbFile)
+        }.coAwait()
     }
 
     suspend fun createOrRemoveAndCreateResource(
@@ -103,7 +100,6 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
             val database = openDatabase(dbFile, sirixDBUser)
             database.use {
                 BodyHandler.create().handle(ctx)
-                val fileResolver = FileResolverImpl()
                 val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
                 val useDeweyIDs = ctx.queryParam("useDeweyIDs").getOrNull(0)?.toBoolean() ?: false
                 ctx.fileUploads().forEach { fileUpload ->
@@ -117,7 +113,7 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
                     manager.use {
                         insertResourceSubtreeAsFirstChild(
                             manager,
-                            fileResolver.resolveFile(fileUpload.uploadedFileName()).toPath(),
+                            Path.of(fileUpload.uploadedFileName()),
                             ctx
                         )
                     }
@@ -133,12 +129,12 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         context: Context
     ): DatabaseConfiguration? {
         val dbConfig = prepareDatabasePath(dbFile, context)
-        return context.executeBlocking { promise: Promise<DatabaseConfiguration> ->
+        return context.executeBlocking {
             if (dbConfig != null && !Databases.existsDatabase(dbFile)) {
                 createDatabase(dbConfig)
             }
-            promise.complete(dbConfig)
-        }.await()
+            dbConfig
+        }.coAwait()
     }
 
     abstract suspend fun insertResource(dbFile: Path?, resPathName: String, ctx: RoutingContext)

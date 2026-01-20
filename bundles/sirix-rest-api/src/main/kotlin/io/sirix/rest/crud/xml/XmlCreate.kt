@@ -1,9 +1,8 @@
 package io.sirix.rest.crud.xml
 
 import io.vertx.core.file.OpenOptions
-import io.vertx.core.file.impl.FileResolverImpl
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,18 +35,17 @@ class XmlCreate(
     ) {
         val dispatcher = ctx.vertx().dispatcher()
         ctx.request().pause()
-        val fileResolver = FileResolverImpl()
 
-        val filePath = withContext(Dispatchers.IO) {
-            fileResolver.resolveFile(Files.createTempFile(UUID.randomUUID().toString(), null).toString())
+        val tempFilePath = withContext(Dispatchers.IO) {
+            Files.createTempFile(UUID.randomUUID().toString(), null)
         }
 
         val file = ctx.vertx().fileSystem().open(
-            filePath.toString(),
+            tempFilePath.toString(),
             OpenOptions()
-        ).await()
+        ).coAwait()
         ctx.request().resume()
-        ctx.request().pipeTo(file).await()
+        ctx.request().pipeTo(file).coAwait()
 
         withContext(Dispatchers.IO) {
             var body: String? = null
@@ -68,10 +66,9 @@ class XmlCreate(
                 val manager = database.beginResourceSession(resPathName)
 
                 manager.use {
-                    val pathToFile = filePath.toPath()
-                    val maxNodeKey = insertResourceSubtreeAsFirstChild(manager, pathToFile.toAbsolutePath(), ctx)
+                    val maxNodeKey = insertResourceSubtreeAsFirstChild(manager, tempFilePath.toAbsolutePath(), ctx)
 
-                    ctx.vertx().fileSystem().delete(filePath.toString()).await()
+                    ctx.vertx().fileSystem().delete(tempFilePath.toString()).coAwait()
 
                     if (maxNodeKey < MAX_NODES_TO_SERIALIZE) {
                         body = serializeResource(manager, ctx)

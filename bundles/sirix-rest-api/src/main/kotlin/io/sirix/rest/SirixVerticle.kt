@@ -25,7 +25,7 @@ import io.vertx.ext.web.handler.CorsHandler
 import io.vertx.ext.web.handler.HttpException
 import io.vertx.kotlin.core.http.httpServerOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlin.coroutines.cancellation.CancellationException
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
@@ -70,7 +70,7 @@ class SirixVerticle : CoroutineVerticle() {
                 httpServerOptionsOf()
                     .setSsl(true)
                     .setUseAlpn(true)
-                    .setPemKeyCertOptions(
+                    .setKeyCertOptions(
                         PemKeyCertOptions().setKeyPath(location.resolve("key.pem").toString())
                             .setCertPath(
                                 location.resolve("cert.pem").toString()
@@ -84,7 +84,7 @@ class SirixVerticle : CoroutineVerticle() {
 
     private suspend fun listen(server: HttpServer, router: Router) {
         server.requestHandler { router.handle(it) }
-            .listen(config.getInteger("port", 9443)).await()
+            .listen(config.getInteger("port", 9443)).coAwait()
     }
 
     private suspend fun createRouter() = Router.router(vertx).apply {
@@ -102,7 +102,7 @@ class SirixVerticle : CoroutineVerticle() {
                 )
             )
 
-        val keycloak = KeycloakAuth.discover(vertx, oauth2Config).await()
+        val keycloak = KeycloakAuth.discover(vertx, oauth2Config).coAwait()
 
         val authz = KeycloakAuthorization.create()
 
@@ -136,7 +136,7 @@ class SirixVerticle : CoroutineVerticle() {
 
         this.route().handler(
             CorsHandler.create()
-                .addRelativeOrigin(allowedOriginPattern)
+                .addOriginWithRegex(allowedOriginPattern)
                 .allowedHeaders(allowedHeaders)
                 .allowedMethods(allowedMethods)
                 .allowCredentials(
@@ -432,7 +432,7 @@ class SirixVerticle : CoroutineVerticle() {
     ) {
         val credentials = Oauth2Credentials(dataToAuthenticate)
             .setFlow(oAuth2FlowType)
-        val user = keycloak.authenticate(credentials).await()
+        val user = keycloak.authenticate(credentials).coAwait()
         rc.response().end(user.principal().toString())
     }
 
@@ -442,10 +442,10 @@ class SirixVerticle : CoroutineVerticle() {
         rc: RoutingContext
     ) {
         val user = UserImpl(dataToAuthenticate, JsonObject())
-        keycloak.refresh(user) {
-            if (it.succeeded()) {
-                rc.response().end(it.result().principal().toString())
-            }
+        keycloak.refresh(user).onSuccess { refreshedUser ->
+            rc.response().end(refreshedUser.principal().toString())
+        }.onFailure { err ->
+            rc.fail(err)
         }
     }
 

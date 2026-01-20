@@ -6,7 +6,7 @@ import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.auth.oauth2.OAuth2Auth
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import kotlinx.coroutines.runBlocking
 import io.brackit.query.ErrorCode
 import io.brackit.query.QueryContext
@@ -74,7 +74,7 @@ class PermissionCheckingQuery {
 
             // FIXME: Better way?
             runBlocking {
-                authz.getAuthorizations(user).await()
+                authz.getAuthorizations(user).coAwait()
                 if (!RoleBasedAuthorization.create(AuthRole.MODIFY.keycloakRole()).match(user)) {
                     throw IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to modify the database")
                 }
