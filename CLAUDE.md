@@ -2,3 +2,4 @@
 - Produce production-ready code, use best practices, create tests where appropriate, check input parameters to functions/methods,
   use common software engineering patterns where appropriate
 - Make sure the resulting code is correct and as we're a DBS we need extreme performant code
+- Do not mention Claude in commits or PRs - no Co-Authored-By lines or references to Claude/AI
