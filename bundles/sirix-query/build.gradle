@@ -63,6 +63,7 @@ test {
     def jfrOutput = System.getenv("JFR_OUTPUT") ?: "/tmp/sirix-query-flight.jfr"
     
     def baseArgs = [
+        "-Duser.home=${layout.buildDirectory.get()}",
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
         '--add-modules', 'jdk.incubator.vector',
