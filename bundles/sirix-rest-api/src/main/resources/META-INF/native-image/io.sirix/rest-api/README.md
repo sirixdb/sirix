@@ -11,6 +11,7 @@ This directory contains GraalVM native-image configuration for building SirixDB 
 - **Resource Config**: Native libraries (LZ4, JNA) and configuration files
 - **JNI Config**: JNA and native library support
 - **FFI Support**: Configuration for Sirix's FFI-based memory allocator and LZ4 compressor
+- **Simplified Netty Initialization**: All Netty classes initialized at run-time to avoid InetAddress issues
 
 ### Known Blocker
 
@@ -24,29 +25,21 @@ This is a known incompatibility between:
 - GraalVM's Netty optimization substitutions (BUILD_TIME)
 - JDK's network class requirements (RUN_TIME for JNI)
 
-### Workarounds Explored
+### Current Approach
 
-1. **Vert.x 5 Upgrade** (Tested):
-   - Vert.x 5.0 uses Netty 4.2 with better native-image support
-   - However, Vert.x 5 has significant API breaking changes:
-     - `io.vertx.core.Launcher` removed (CLI decoupled)
-     - `await` coroutines function moved
-     - `executeBlocking` API changed
-     - Various method signatures changed
-   - Requires dedicated migration effort before native-image can be tested
+We've simplified the Netty initialization to use a single run-time directive:
+```
+--initialize-at-run-time=io.netty
+```
 
-2. **Vert.x 4.5.x Upgrade** (Tested):
-   - Uses Netty 4.1.124+ with fixes for InetAddress issues
-   - Still has some API changes (`executeBlocking` overload ambiguity, `PlanStage` removed)
-   - Smaller migration than Vert.x 5 but still requires code changes
+This defers all Netty initialization to run-time, which should avoid the InetAddress image heap issue. If this doesn't work, alternative approaches include:
 
-3. **Custom GraalVM Feature**: Create a feature to disable problematic substitutions
+1. **Vert.x 5 Upgrade**: Vert.x 5.0 uses Netty 4.2 with better native-image support
+2. **Custom GraalVM Feature**: Create a feature to disable problematic substitutions
+3. **Wait for GraalVM Fix**: Oracle may fix NetUtilSubstitutions in a future release
+4. **Use native-image-agent**: Generate accurate config through runtime tracing
 
-4. **Wait for GraalVM Fix**: Oracle may fix NetUtilSubstitutions in a future release
-
-5. **Use native-image-agent**: Generate accurate config through runtime tracing
-
-### Building (Once Blocker is Resolved)
+### Building
 
 ```bash
 # Build native image

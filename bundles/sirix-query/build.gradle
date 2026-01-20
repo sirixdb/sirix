@@ -1,6 +1,19 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath "org.graalvm.buildtools:native-gradle-plugin:0.10.4"
+    }
+}
+
 plugins {
     id "application"
 }
+
+apply plugin: 'com.gradleup.shadow'
+apply plugin: 'org.graalvm.buildtools.native'
 
 dependencies {
     implementation project(':sirix-core')
@@ -40,15 +53,15 @@ tasks.withType(JavaCompile).configureEach {
 
 description = 'Sirix/Brackit binding.'
 
-//shadowJar {
-//    archiveClassifier.set('jar-with-dependencies')
-//    manifest {
-//        inheritFrom project.tasks.jar.manifest
-//    }
-//    mergeServiceFiles()
-//}
-//
-//publishing.publications.maven.artifact(shadowJar)
+shadowJar {
+    archiveClassifier = 'all'
+    manifest {
+        attributes(
+            'Main-Class': 'io.sirix.query.Main'
+        )
+    }
+    mergeServiceFiles()
+}
 
 jar {
     manifest {
@@ -90,4 +103,57 @@ test {
     }
     
     jvmArgs = baseArgs
+}
+
+// GraalVM Native Image Configuration
+graalvmNative {
+    binaries {
+        main {
+            imageName = 'sirix-shell'
+            mainClass = 'io.sirix.query.Main'
+            sharedLibrary = false
+            // Preview features and vector API
+            buildArgs.add('--enable-preview')
+            buildArgs.add('--enable-native-access=ALL-UNNAMED')
+            buildArgs.add('--add-modules=jdk.incubator.vector')
+            buildArgs.add('-H:+ForeignAPISupport')
+            buildArgs.add('-H:+UnlockExperimentalVMOptions')
+            buildArgs.add('--no-fallback')
+            // Module exports for JNA/JNR/JNI
+            buildArgs.add('--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED')
+            buildArgs.add('--add-exports=java.base/sun.nio.ch=ALL-UNNAMED')
+            buildArgs.add('--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED')
+            buildArgs.add('--add-opens=java.base/java.lang=ALL-UNNAMED')
+            buildArgs.add('--add-opens=java.base/java.lang.reflect=ALL-UNNAMED')
+            buildArgs.add('--add-opens=java.base/java.io=ALL-UNNAMED')
+            buildArgs.add('--add-opens=java.base/java.util=ALL-UNNAMED')
+            // Resource includes
+            buildArgs.add('-H:IncludeResources=.*\\.properties$')
+            buildArgs.add('-H:IncludeResources=.*\\.xml$')
+            buildArgs.add('-H:IncludeResources=.*\\.json$')
+            buildArgs.add('-H:IncludeResources=org/jline/.*')
+            buildArgs.add('-H:IncludeResources=jni/.*')
+            buildArgs.add('-H:IncludeResources=com/sun/jna/.*')
+            buildArgs.add('-H:IncludeResources=net/jpountz/.*')
+            // Logging frameworks - build time
+            buildArgs.add('--initialize-at-build-time=org.slf4j')
+            buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            // Jackson - build time (used for JSON serialization in sirix-core)
+            buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
+            // Exclude problematic library-support.jar substitutions
+            buildArgs.add('--exclude-config')
+            buildArgs.add('library-support.jar')
+            buildArgs.add('META-INF/native-image/.*')
+            // Sirix FFI components - run time
+            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
+            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
+            buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
+            // JLine terminal providers - run time (they detect terminal at runtime)
+            buildArgs.add('--initialize-at-run-time=org.jline.terminal.impl')
+            // Enable verbose output for debugging
+            verbose = true
+            quickBuild = false
+        }
+    }
+    toolchainDetection = false
 }

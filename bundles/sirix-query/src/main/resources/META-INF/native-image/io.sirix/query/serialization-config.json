@@ -1,0 +1,28 @@
+{
+  "types": [
+    {"name": "java.lang.Boolean"},
+    {"name": "java.lang.Byte"},
+    {"name": "java.lang.Character"},
+    {"name": "java.lang.Double"},
+    {"name": "java.lang.Float"},
+    {"name": "java.lang.Integer"},
+    {"name": "java.lang.Long"},
+    {"name": "java.lang.Number"},
+    {"name": "java.lang.Short"},
+    {"name": "java.lang.String"},
+    {"name": "java.math.BigDecimal"},
+    {"name": "java.math.BigInteger"},
+    {"name": "java.util.ArrayList"},
+    {"name": "java.util.HashMap"},
+    {"name": "java.util.HashSet"},
+    {"name": "java.util.LinkedHashMap"},
+    {"name": "java.util.LinkedHashSet"},
+    {"name": "java.util.LinkedList"},
+    {"name": "java.util.TreeMap"},
+    {"name": "java.util.TreeSet"}
+  ],
+  "lambdaCapturingTypes": [
+  ],
+  "proxies": [
+  ]
+}
