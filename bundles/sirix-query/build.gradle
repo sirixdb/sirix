@@ -2,7 +2,6 @@ plugins {
     id "application"
 }
 
-apply plugin: 'com.gradleup.shadow'
 apply plugin: 'org.graalvm.buildtools.native'
 
 dependencies {
@@ -42,16 +41,6 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 description = 'Sirix/Brackit binding.'
-
-shadowJar {
-    archiveClassifier = 'all'
-    manifest {
-        attributes(
-            'Main-Class': 'io.sirix.query.Main'
-        )
-    }
-    mergeServiceFiles()
-}
 
 jar {
     manifest {
