@@ -167,6 +167,18 @@ graalvmNative {
             buildArgs.add('--gc=G1')
             // Set max heap for the native image runtime
             buildArgs.add('-R:MaxHeapSize=4g')
+
+            // Profile-Guided Optimization (PGO) support
+            // Step 1: Build instrumented binary: ./gradlew :sirix-query:nativeCompile -Ppgo-instrument
+            // Step 2: Run workload to collect profile: ./sirix-shell < workload.xq (generates default.iprof)
+            // Step 3: Build optimized binary: ./gradlew :sirix-query:nativeCompile -Ppgo=default.iprof
+            if (project.hasProperty('pgo-instrument')) {
+                buildArgs.add('--pgo-instrument')
+            }
+            if (project.hasProperty('pgo')) {
+                buildArgs.add("--pgo=${project.findProperty('pgo')}")
+            }
+
             // Enable verbose output for debugging
             verbose = true
             quickBuild = false
