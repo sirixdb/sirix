@@ -32,6 +32,10 @@ class PermissionCheckingQuery {
     val user: User
     val authz: AuthorizationProvider
 
+    /** The compile chain used to compile this query, stored for plan retrieval */
+    var compileChain: CompileChain? = null
+        private set
+
     constructor(module: Module, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
         this.module = module
         this.keycloak = keycloak
@@ -40,7 +44,9 @@ class PermissionCheckingQuery {
     }
 
     constructor(query: String, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
-        this.module = CompileChain().compile(query)
+        val chain = CompileChain()
+        this.module = chain.compile(query)
+        this.compileChain = chain
         this.keycloak = keycloak
         this.user = user
         this.authz = authz
@@ -48,6 +54,7 @@ class PermissionCheckingQuery {
 
     constructor(chain: CompileChain, query: String, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
         this.module = chain.compile(query)
+        this.compileChain = chain
         this.keycloak = keycloak
         this.user = user
         this.authz = authz

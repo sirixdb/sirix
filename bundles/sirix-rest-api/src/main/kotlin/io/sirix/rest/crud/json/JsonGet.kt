@@ -19,6 +19,7 @@ import io.sirix.rest.crud.OutputWrapper
 import io.sirix.query.SirixQueryContext
 import io.sirix.query.json.*
 import io.vertx.core.http.HttpHeaders
+import io.brackit.query.compiler.CompileChain
 import java.io.StringWriter
 import java.nio.file.Path
 
@@ -36,16 +37,29 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         endResultSeqIndex: Long?
     ): String {
         val stringBuilder = (out as OutputWrapper.StringBuilderWrapper).sb
+
+        // Parse plan parameters from request
+        val jsonBody = routingContext.body().asJsonObject()
+        val includePlan = routingContext.queryParam("plan").firstOrNull()?.toBoolean()
+            ?: jsonBody?.getBoolean("plan")
+            ?: false
+        val planStageStr = routingContext.queryParam("planStage").firstOrNull()
+            ?: jsonBody?.getString("planStage")
+            ?: "optimized"
+
+        var permissionCheckingQuery: PermissionCheckingQuery? = null
+
         SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
             if (startResultSeqIndex == null) {
                 val serializer = JsonDBSerializer(stringBuilder, false)
-                PermissionCheckingQuery(
+                permissionCheckingQuery = PermissionCheckingQuery(
                     sirixCompileChain,
                     query,
                     keycloak,
                     routingContext.get("user"),
                     authz
-                ).prettyPrint().serialize(queryCtx, serializer)
+                )
+                permissionCheckingQuery!!.prettyPrint().serialize(queryCtx, serializer)
             } else {
                 QuerySerializer.serializePaginated(
                     sirixCompileChain,
@@ -60,8 +74,31 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
                 ) { serializer, startItem -> serializer.serialize(startItem) }
             }
         }
+
         routingContext.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+
+        // If plan is requested, wrap results with plan information
+        if (includePlan && permissionCheckingQuery != null) {
+            val compileChain = permissionCheckingQuery!!.compileChain
+            if (compileChain != null) {
+                val planStage = when (planStageStr.lowercase()) {
+                    "parsed" -> CompileChain.PlanStage.PARSED
+                    "both" -> CompileChain.PlanStage.BOTH
+                    else -> CompileChain.PlanStage.OPTIMIZED
+                }
+                val planJson = compileChain.getPlanAsJSON(planStage)
+
+                val resultBuilder = StringBuilder()
+                resultBuilder.append("{\"results\":")
+                resultBuilder.append(stringBuilder.toString())
+                resultBuilder.append(",\"plan\":")
+                resultBuilder.append(planJson ?: "null")
+                resultBuilder.append("}")
+                return resultBuilder.toString()
+            }
+        }
+
         return stringBuilder.toString()
     }
 
