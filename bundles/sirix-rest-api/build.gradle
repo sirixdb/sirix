@@ -118,6 +118,32 @@ dockerCompose {
 // GraalVM Native Image Configuration
 graalvmNative {
     binaries {
+        // Test binary configuration for nativeTest task
+        test {
+            buildArgs.add('--enable-native-access=ALL-UNNAMED')
+            buildArgs.add('--add-modules=jdk.incubator.vector')
+            buildArgs.add('-H:+ForeignAPISupport')
+            buildArgs.add('-H:+UnlockExperimentalVMOptions')
+            // Logging frameworks - build time
+            buildArgs.add('--initialize-at-build-time=org.slf4j')
+            buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
+            // Netty - all run time
+            buildArgs.add('--initialize-at-run-time=io.netty')
+            // Sirix FFI components - run time
+            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
+            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
+            buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
+            // Vert.x components - run time
+            buildArgs.add('--initialize-at-run-time=io.vertx.core.impl.resolver')
+            buildArgs.add('--initialize-at-run-time=io.vertx.core.dns')
+            // Use G1 GC
+            buildArgs.add('--gc=G1')
+            // Quick build for faster test compilation
+            quickBuild = true
+            // Allocate memory to the native-image compiler
+            jvmArgs.add('-XX:MaxRAMPercentage=80')
+        }
         main {
             imageName = 'sirix-rest-api'
             mainClass = 'io.vertx.launcher.application.VertxApplication'
@@ -165,4 +191,23 @@ graalvmNative {
         }
     }
     toolchainDetection = false
+    testSupport = true
+}
+
+// Task to run only native-image smoke tests on JVM (for validation before native compilation)
+// This task does NOT require Docker/Keycloak
+tasks.register('nativeImageSmokeTest', Test) {
+    description = 'Run native-image smoke tests on JVM (no Docker required)'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'native-image'
+    }
+    jvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED'
+    ]
 }
