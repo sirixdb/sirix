@@ -35,6 +35,8 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.function.json.JSONFun;
+import io.brackit.query.function.json.JSONParser;
+import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
@@ -45,7 +47,6 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.service.json.BasicJsonDiff;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.json.JsonDBCollection;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * <p>
@@ -110,12 +111,12 @@ public final class Diff extends AbstractFunction {
     }
 
     final JsonDiff jsonDiff = new BasicJsonDiff(collection.getDatabase().getName());
+    final String diffJson = jsonDiff.generateDiff(document.getResourceSession(), oldRevision, newRevision, startNodeKey, maxLevel);
 
-    return new Str(jsonDiff.generateDiff(document.getResourceSession(), oldRevision, newRevision, startNodeKey, maxLevel));
+    return parseJsonToBrackitItem(diffJson);
   }
 
-  @NonNull
-  private Str readDiffFromFileAndCalculateViaDeweyIDs(String databaseName, String resourceName, int oldRevision,
+  private Item readDiffFromFileAndCalculateViaDeweyIDs(String databaseName, String resourceName, int oldRevision,
       int newRevision, int startNodeKey, int maxLevel, JsonResourceSession resourceSession) {
     // Fast track... just read the info from a file and use dewey IDs to determine changes in the desired subtree.
     try (final var rtx = resourceSession.beginNodeReadOnlyTrx(newRevision)) {
@@ -126,8 +127,18 @@ public final class Diff extends AbstractFunction {
       final var updateOperations = rtx.getUpdateOperationsInSubtreeOfNode(rtx.getDeweyID(), maxLevel);
       updateOperations.forEach(diffs::add);
 
-      return new Str(metaInfo.toString());
+      return parseJsonToBrackitItem(metaInfo.toString());
     }
+  }
+
+  /**
+   * Parse a JSON string into a brackit Item for proper serialization.
+   *
+   * @param json the JSON string to parse
+   * @return the parsed brackit Item
+   */
+  private Item parseJsonToBrackitItem(String json) {
+    return new JSONParser(json).parse();
   }
 
   private JsonObject createMetaInfo(String databaseName, String resourceName, int oldRevision, int newRevision) {
