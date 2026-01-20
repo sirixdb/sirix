@@ -5,7 +5,7 @@ import io.vertx.core.buffer.Buffer
 import io.vertx.core.parsetools.JsonParser
 import io.vertx.junit5.VertxExtension
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
@@ -457,7 +457,7 @@ class JsonStreamingShredderTest {
                                     parser.end()
                                 }
 
-                                shredder.call().await()
+                                shredder.call().coAwait()
                                 wtx.commit()
                             }
 
@@ -694,7 +694,7 @@ class JsonStreamingShredderTest {
                                 }
                                 
                                 // call() sets up handlers synchronously, returns Future
-                                shredder.call().await()
+                                shredder.call().coAwait()
                                 wtx.commit()
                             }
 

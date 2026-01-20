@@ -10,7 +10,7 @@ import io.sirix.api.json.JsonResourceSession
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -27,7 +27,7 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
 
         ctx.vertx().executeBlocking<Unit> {
             head(databaseName, ctx, resource)
-        }.await()
+        }.coAwait()
 
         return ctx.currentRoute()
     }

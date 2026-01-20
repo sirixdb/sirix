@@ -9,14 +9,13 @@ import io.sirix.query.node.BasicXmlDBStore
 import io.sirix.rest.crud.json.JsonSessionDBStore
 import io.sirix.rest.crud.xml.XmlSessionDBStore
 import io.vertx.core.Context
-import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.core.json.JsonObject
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -120,7 +119,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?, jsonBody: JsonObject?
     ): String? {
-        return vertxContext.executeBlocking { promise: Promise<String> ->
+        return vertxContext.executeBlocking {
             // Initialize queryResource context and store.
             val jsonDBStore = JsonSessionDBStore(
                 routingContext,
@@ -149,7 +148,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                 commitMessage,
                 commitTimestamp
             )
-            var body: String?
+            var body: String? = null
             queryCtx.use {
                 if (manager != null && dbCollection != null && revisionNumber != null) {
                     @Suppress("UNCHECKED_CAST") val rtx = manager.beginNodeReadOnlyTrx(revisionNumber[0]) as R
@@ -187,8 +186,8 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                     )
                 }
             }
-            promise.complete(body)
-        }.await()
+            body
+        }.coAwait()
     }
 
     private suspend fun serializeResource(
@@ -198,12 +197,12 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         ctx: RoutingContext,
         vertxContext: Context
     ): String {
-        return vertxContext.executeBlocking { promise: Promise<String> ->
-            val serializedString = getSerializedString(manager, revisions, nodeId, ctx)
-            promise.complete(serializedString)
-        }.await()
+        val result = vertxContext.executeBlocking {
+            getSerializedString(manager, revisions, nodeId, ctx)
+        }.coAwait()
         ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+        return result
     }
 
     abstract suspend fun openDatabase(dbFile: Path): Database<T>
