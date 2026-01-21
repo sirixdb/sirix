@@ -1570,6 +1570,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
 
   private static String createStackTraceMessage(String message) {
+    // Only capture stack trace when diagnostics enabled to avoid overhead in production
+    if (!DEBUG_MEMORY_LEAKS) {
+      return message;
+    }
     StringBuilder stackTraceBuilder = new StringBuilder(message + "\n");
     for (StackTraceElement element : Thread.currentThread().getStackTrace()) {
       stackTraceBuilder.append("\t").append(element).append("\n");
