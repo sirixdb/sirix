@@ -82,6 +82,8 @@ jobs:
         run: chmod +x gradlew
       - name: Run sirix-query native image smoke tests
         run: ./gradlew :sirix-query:nativeImageSmokeTest --info
+      - name: Run sirix-kotlin-cli native image smoke tests
+        run: ./gradlew :sirix-kotlin-cli:nativeImageSmokeTest --info
       - name: Run sirix-rest-api native image smoke tests
         run: ./gradlew :sirix-rest-api:nativeImageSmokeTest --info
 
@@ -112,6 +114,11 @@ jobs:
       - name: Test sirix-query native image
         run: |
           echo '1 + 1' | ./bundles/sirix-query/build/native/nativeCompile/sirix-shell || true
+      - name: Build sirix-kotlin-cli native image
+        run: ./gradlew :sirix-kotlin-cli:nativeCompile --info
+      - name: Test sirix-kotlin-cli native image
+        run: |
+          ./bundles/sirix-kotlin-cli/build/native/nativeCompile/sirix-cli --help || true
       - name: Build sirix-rest-api native image (quick-build)
         run: ./gradlew :sirix-rest-api:nativeCompile -Pquick-build --info
       - name: Verify sirix-rest-api native image
