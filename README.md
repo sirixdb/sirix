@@ -257,8 +257,8 @@ gradle build -x test
 ```
 
 **Requirements:**
-- Java 22+
-- Gradle 8.5+ (or use system Gradle)
+- Java 25+
+- Gradle 9.1+ (or use included wrapper)
 
 **JVM flags** (required for running):
 ```
