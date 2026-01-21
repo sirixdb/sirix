@@ -6,6 +6,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.Cache;
 import io.sirix.cache.RBIndexKey;
+import io.sirix.cache.RBIndexKeyLookup;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
@@ -37,6 +38,12 @@ import static java.util.Objects.requireNonNull;
  */
 @SuppressWarnings({ "ConstantConditions", "unchecked" })
 public final class RBTreeReader<K extends Comparable<? super K>, V extends References> implements NodeCursor {
+
+  /**
+   * ThreadLocal reusable lookup key for zero-allocation cache lookups during tree traversal.
+   * The lookup key is hashCode/equals compatible with RBIndexKey but can be reused.
+   */
+  private static final ThreadLocal<RBIndexKeyLookup> LOOKUP_KEY = ThreadLocal.withInitial(RBIndexKeyLookup::new);
 
   /**
    * Cache.
@@ -247,6 +254,12 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
 
   @NonNull
   private Optional<V> getNode(K key, SearchMode mode, RBNodeKey<K> node) {
+    // Get reusable lookup key for zero-allocation cache lookups
+    final RBIndexKeyLookup lookupKey = LOOKUP_KEY.get();
+    final long databaseId = pageReadOnlyTrx.getDatabaseId();
+    final long resourceId = pageReadOnlyTrx.getResourceId();
+    final boolean isWriter = pageReadOnlyTrx instanceof StorageEngineWriter;
+
     while (true) {
       final int c = mode.compare(key, node.getKey());
       if (c == 0) {
@@ -265,15 +278,12 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
           currentNode = node;
           moved = true;
         } else if (node.hasLeftChild()) {
-          node = pageReadOnlyTrx instanceof StorageEngineWriter
+          // Reuse lookup key - only update nodeKey since other fields are constant
+          lookupKey.setAll(databaseId, resourceId, node.getLeftChildKey(),
+              revisionNumber, indexType, indexNumber);
+          node = isWriter
               ? null
-              : (RBNodeKey<K>) cache.get(new RBIndexKey(
-                  pageReadOnlyTrx.getDatabaseId(),
-                  pageReadOnlyTrx.getResourceId(),
-                  node.getLeftChildKey(),
-                  revisionNumber,
-                  indexType,
-                  indexNumber));
+              : (RBNodeKey<K>) cache.lookup(lookupKey);
 
           if (node == null) {
             moved = moveToFirstChild();
@@ -293,15 +303,12 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
           currentNode = node;
           moved = true;
         } else if (node.hasRightChild()) {
-          node = pageReadOnlyTrx instanceof StorageEngineWriter
+          // Reuse lookup key - only update nodeKey since other fields are constant
+          lookupKey.setAll(databaseId, resourceId, node.getRightChildKey(),
+              revisionNumber, indexType, indexNumber);
+          node = isWriter
               ? null
-              : (RBNodeKey<K>) cache.get(new RBIndexKey(
-                  pageReadOnlyTrx.getDatabaseId(),
-                  pageReadOnlyTrx.getResourceId(),
-                  node.getRightChildKey(),
-                  revisionNumber,
-                  indexType,
-                  indexNumber));
+              : (RBNodeKey<K>) cache.lookup(lookupKey);
 
           if (node == null) {
             moved = moveToLastChild();

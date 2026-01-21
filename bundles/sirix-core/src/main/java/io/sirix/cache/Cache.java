@@ -75,6 +75,23 @@ public interface Cache<K, V> {
   V get(K key);
 
   /**
+   * Lookup a value by key, accepting any object with compatible hashCode/equals.
+   * This follows the Java Collections pattern where Map.get() accepts Object,
+   * enabling zero-allocation lookups with mutable lookup key objects.
+   * <p>
+   * The default implementation casts to K and delegates to {@link #get(Object)}.
+   * Implementations backed by Caffeine or ConcurrentHashMap should override
+   * to directly call getIfPresent(Object) or get(Object) for efficiency.
+   *
+   * @param key the key for lookup (must have compatible hashCode/equals with K)
+   * @return the value, or null if not present
+   */
+  @SuppressWarnings("unchecked")
+  default V lookup(Object key) {
+    return get((K) key);
+  }
+
+  /**
    * Putting a key/value into the cache.
    *
    * @param key for putting the page in the cache
