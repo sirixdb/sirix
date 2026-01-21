@@ -1,5 +1,12 @@
 #!/bin/bash
 #
+# DEPRECATED: This script is deprecated and kept for reference only.
+# Use the Gradle native-image plugin instead:
+#   ./gradlew :sirix-query:nativeCompile
+#
+# The native binary will be created at:
+#   bundles/sirix-query/build/native/nativeCompile/sirix-shell
+#
 #  Copyright 2023 The original authors
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");

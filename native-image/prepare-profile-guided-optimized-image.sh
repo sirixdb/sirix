@@ -1,3 +1,16 @@
+#!/bin/bash
+#
+# DEPRECATED: This script is deprecated and kept for reference only.
+# Use the Gradle native-image plugin instead:
+#   ./gradlew :sirix-query:nativeCompile
+#
+# For profile-guided optimization (PGO), configure the graalvmNative block
+# in bundles/sirix-query/build.gradle with appropriate PGO flags.
+#
+# The native binary will be created at:
+#   bundles/sirix-query/build/native/nativeCompile/sirix-shell
+#
+
 source "$HOME/.sdkman/bin/sdkman-init.sh"
 sdk use java 21.0.2-graal 1>&2
 
