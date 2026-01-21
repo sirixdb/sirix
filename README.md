@@ -304,7 +304,7 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 SirixDB is maintained by Johannes Lichtenberger and the open source community.
 
-The project originated from Treetank, a university research project by Marc Kramis (concept) and Sebastian Graf (implementation).
+The project originated from Treetank, a university research project by Dr. Marc Kramis, Dr. Sebastian Graf and many students.
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
