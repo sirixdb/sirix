@@ -1,17 +1,13 @@
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/Circuit Technology Logo.png"/></p>
 
 <h1 align="center">SirixDB</h1>
-<h3 align="center">The database that remembers everything</h3>
+<h3 align="center">Temporal JSON/XML database with efficient versioning</h3>
 
 <p align="center">
-Every commit creates an efficient snapshot. Query any point in time. Diff any two revisions. Built for auditability.
-</p>
-
-<p align="center">
-    <a href="https://github.com/sirixdb/sirix/actions"><img src="https://github.com/sirixdb/sirix/workflows/Java%20CI%20with%20Gradle/badge.svg" alt="CI Build Status"/></a>
-    <a href="https://search.maven.org/search?q=g:io.sirix"><img src="https://img.shields.io/maven-central/v/io.sirix/sirix-core.svg" alt="Maven Central"/></a>
-    <a href="http://makeapullrequest.com"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome"/></a>
-    <a href="#contributors-"><img src="https://img.shields.io/badge/all_contributors-23-orange.svg?style=flat-square" alt="All Contributors"/></a>
+<a href="https://github.com/sirixdb/sirix/actions"><img src="https://github.com/sirixdb/sirix/workflows/Java%20CI%20with%20Gradle/badge.svg" alt="CI Build Status"/></a>
+<a href="https://search.maven.org/search?q=g:io.sirix"><img src="https://img.shields.io/maven-central/v/io.sirix/sirix-core.svg" alt="Maven Central"/></a>
+<a href="http://makeapullrequest.com"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome"/></a>
+<a href="#contributors-"><img src="https://img.shields.io/badge/all_contributors-23-orange.svg?style=flat-square" alt="All Contributors"/></a>
 </p>
 
 <p align="center">
@@ -20,18 +16,45 @@ Every commit creates an efficient snapshot. Query any point in time. Diff any tw
 
 ---
 
-## Why SirixDB?
+## What is SirixDB?
 
-Most databases overwrite your data. When you update a record, the old value is gone. SirixDB takes a different approach: **every change creates a new revision**, and old revisions remain queryable forever.
+SirixDB is an embeddable, temporal, append-only database system for JSON and XML documents. Every commit creates a new revision. Past revisions remain accessible and immutable.
 
-This isn't just version control for your data—it's a fundamental rethinking of how databases should work:
+**Core properties:**
 
-- **Time-travel queries**: Query your data as it existed at any point in time
-- **Efficient storage**: Revisions share unchanged data through copy-on-write semantics
-- **Built-in audit trail**: Know exactly what changed, when, and reconstruct any historical state
-- **Cryptographic integrity**: Merkle hash trees let you verify data hasn't been tampered with
+- **Append-only storage**: Data is never overwritten. New revisions write to new locations.
+- **Structural sharing**: Unchanged pages and nodes are referenced between revisions via copy-on-write.
+- **Bitemporal**: Tracks both transaction time (when data was committed) and optionally valid time (when data was true in the real world).
+- **Snapshot isolation**: Readers see a consistent view; one writer per resource.
 
-<!-- TODO: Add architecture diagram showing how revisions share data -->
+## How Versioning Works
+
+SirixDB stores data in a persistent tree structure where revisions share unchanged pages and nodes. Traditional databases overwrite data in place and use write-ahead logs for recovery. SirixDB takes a different approach:
+
+```
+Revision 1:  [Page A] ─── [Page B] ─── [Page C]
+                  │            │
+Revision 2:  [Page A] ─── [Page B'] ── [Page C]
+                  │            │            │
+Revision 3:  [Page A'] ── [Page B'] ── [Page C]
+```
+
+When you modify data:
+1. Only the affected pages are copied and modified (copy-on-write)
+2. Unchanged pages are referenced from the new revision
+3. The old revision remains intact and queryable
+
+**Storage cost**: O(changed nodes) per revision, not O(total size).
+
+**Read performance**: Any revision accessible in O(log R) where R = number of revisions, using a sliding snapshot algorithm that periodically writes full page snapshots to bound reconstruction cost.
+
+### Sliding Snapshot Algorithm
+
+To avoid unbounded page reconstruction chains, SirixDB uses a sliding snapshot window:
+
+- Every N revisions (configurable), full page images are written
+- Reading a page requires reconstructing at most N page deltas
+- Balances storage efficiency against read amplification
 
 ## Quick Start
 
@@ -130,130 +153,227 @@ Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
 try (var database = Databases.openJsonDatabase(dbPath)) {
     database.createResource(ResourceConfiguration.newBuilder("myresource").build());
 
-    // Insert JSON data
+    // Insert JSON data (creates revision 1)
     try (var session = database.beginResourceSession("myresource");
          var wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"key\": \"value\"}"));
-        wtx.commit();  // Creates revision 1
+        wtx.commit();
     }
 
-    // Update and create revision 2
+    // Update creates revision 2 (revision 1 remains unchanged)
     try (var session = database.beginResourceSession("myresource");
          var wtx = session.beginNodeTrx()) {
         wtx.moveTo(2);  // Move to the "key" node
         wtx.setStringValue("updated value");
-        wtx.commit();  // Creates revision 2
+        wtx.commit();
     }
 
-    // Read from revision 1
+    // Read from revision 1 - still accessible
     try (var session = database.beginResourceSession("myresource");
-         var rtx = session.beginNodeReadOnlyTrx(1)) {  // Open revision 1
+         var rtx = session.beginNodeReadOnlyTrx(1)) {
         rtx.moveTo(2);
         System.out.println(rtx.getValue());  // Prints: value
     }
 }
 ```
 
-## Time-Travel Queries with JSONiq
+## Time-Travel Queries
 
-SirixDB uses [Brackit](https://github.com/sirixdb/brackit), a powerful JSONiq/XQuery processor with temporal extensions.
+SirixDB extends JSONiq/XQuery (via [Brackit](https://github.com/sirixdb/brackit)) with temporal axis and functions.
 
-**Open a resource at a specific point in time:**
+### Access by Revision Number or Timestamp
+
 ```xquery
-jn:open('mydatabase','myresource', xs:dateTime('2024-01-15T10:30:00Z'))
+(: Open specific revision :)
+jn:doc('mydb','myresource', 5)
+
+(: Open by timestamp - returns revision valid at that instant :)
+jn:open('mydb','myresource', xs:dateTime('2024-01-15T10:30:00Z'))
 ```
 
-**Find all changes to a node across revisions:**
+### Temporal Axis Functions
+
+Navigate a node's history across revisions:
+
 ```xquery
-let $node := jn:doc('mydb','myresource').users[0]
-for $version in jn:all-times($node)
-where sdb:hash($version) ne sdb:hash(jn:previous($version))
-return {"revision": sdb:revision($version), "data": $version}
+(: Single-step navigation :)
+jn:previous($node)       (: same node in the previous revision :)
+jn:next($node)           (: same node in the next revision :)
+
+(: Boundary access :)
+jn:first($node)          (: node in the first revision :)
+jn:last($node)           (: node in the most recent revision :)
+jn:first-existing($node) (: revision where this node first appeared :)
+jn:last-existing($node)  (: revision where this node last existed :)
+
+(: Range navigation - returns sequences :)
+jn:past($node)           (: node in all past revisions :)
+jn:future($node)         (: node in all future revisions :)
+jn:all-times($node)      (: node across all revisions :)
+
+(: With includeSelf parameter :)
+jn:past($node, true())   (: include current revision :)
+jn:future($node, true()) (: include current revision :)
 ```
 
-**Diff between any two revisions:**
+Example: iterate through all versions of a node:
 ```xquery
+for $version in jn:all-times(jn:doc('mydb','myresource').users[0])
+return {"rev": sdb:revision($version), "data": $version}
+```
+
+### Diff Between Revisions
+
+```xquery
+(: Structured diff between any two revisions :)
 jn:diff('mydb','myresource', 1, 5)
+
+(: Diff with optional parameters: startNodeKey, maxLevel :)
+jn:diff('mydb','myresource', 1, 5, $nodeKey, 3)
 ```
 
-**Verify data integrity with Merkle hashes:**
+For adjacent revisions, `jn:diff` reads directly from stored change tracking files. For non-adjacent revisions it computes the diff.
+
+If hashes are enabled, you can also detect changes via hash comparison:
 ```xquery
-sdb:hash(jn:doc('mydb','myresource'))
+(: Find which revisions changed a specific node - requires hashes enabled :)
+let $node := jn:doc('mydb','myresource').config
+for $v in jn:all-times($node)
+let $prev := jn:previous($v)
+where empty($prev) or sdb:hash($v) ne sdb:hash($prev)
+return sdb:revision($v)
 ```
 
-See [Query documentation](https://sirix.io/docs/jsoniq.html) for the full JSONiq API.
+### Bitemporal Data
+
+SirixDB supports bitemporal data through two independent time dimensions:
+
+- **Transaction time**: System-managed. Each revision records when data was committed. Query via `jn:open` with a timestamp or `sdb:timestamp` to retrieve it.
+- **Valid time**: User-managed. Store validity periods in your data model and filter in queries.
+
+Why does this matter? Consider a correction scenario:
+
+```
+On Jan 15, you record: "Price is $100" (valid from Jan 1)
+On Jan 20, you discover the price was actually $95 on Jan 1
+
+After correction:
+- Query "what did we KNOW on Jan 16?" → $100 (transaction time via revision)
+- Query "what WAS the price on Jan 1?" → $95 (valid time via your data fields)
+```
+
+Both answers are correct for different questions. Without bitemporality, the correction would destroy the audit trail.
+
+```xquery
+(: Transaction time: open resource as it existed at a point in time :)
+jn:open('mydb','myresource', xs:dateTime('2024-01-15T10:30:00Z'))
+
+(: Get the commit timestamp of current revision :)
+sdb:timestamp(jn:doc('mydb','myresource'))
+
+(: Open all revisions within a transaction time range :)
+jn:open-revisions('mydb','myresource',
+        xs:dateTime('2024-01-01T00:00:00Z'),
+        xs:dateTime('2024-06-01T00:00:00Z'))
+
+(: Valid time: filter on user-defined fields :)
+jn:doc('mydb','myresource').prices[.valid_from le $queryDate and .valid_to ge $queryDate]
+```
+
+### Revision Metadata Functions
+
+```xquery
+(: Get revision number and timestamp :)
+sdb:revision($node)              (: revision number of this node :)
+sdb:timestamp($node)             (: commit timestamp as xs:dateTime :)
+sdb:most-recent-revision($node)  (: latest revision number in resource :)
+
+(: Get history of changes to a specific node :)
+sdb:item-history($node)          (: all revisions where this node changed :)
+sdb:is-deleted($node)            (: true if node was deleted in a later revision :)
+
+(: Author tracking (if set during commit) :)
+sdb:author-name($node)
+sdb:author-id($node)
+
+(: Commit with metadata :)
+sdb:commit($doc)
+sdb:commit($doc, "commit message")
+sdb:commit($doc, "commit message", xs:dateTime('2024-01-15T10:30:00Z'))
+```
+
+### Merkle Hash Verification (Optional)
+
+When enabled in resource configuration, SirixDB stores a hash for each node computed from its content and descendants. Use this for:
+- Tamper detection
+- Efficient change detection (compare subtree hashes instead of traversing)
+- Data integrity verification
+
+```xquery
+sdb:hash(jn:doc('mydb','myresource'))           (: root hash :)
+sdb:hash(jn:doc('mydb','myresource').users[0])  (: subtree hash :)
+```
+
+See [Query documentation](https://sirix.io/docs/jsoniq.html) for the full API.
 
 ## Web Interface
 
-<!-- TODO: Add screenshot of the web UI showing revision history and diff viewer -->
+The [SirixDB Web GUI](https://github.com/sirixdb/sirixdb-web-gui) provides visualization of revision history and diffs:
 
-The [SirixDB Web GUI](https://github.com/sirixdb/sirixdb-web-gui) provides:
-- **Database Explorer**: Browse databases, resources, and navigate JSON/XML document trees
-- **Query Editor**: Write and execute XQuery/JSONiq with Monaco Editor and syntax highlighting
-- **Revision History**: Interactive timeline with diff viewer to explore version history
-- **Modern Dark UI**: IDE-inspired interface designed for developers
-
-**Try it locally:**
 ```bash
 git clone https://github.com/sirixdb/sirixdb-web-gui.git
 cd sirixdb-web-gui
 docker compose -f docker-compose.demo.yml up
 ```
-Then open `http://localhost:3000` (login: `admin`/`admin`)
 
-Built with SolidJS, TypeScript, Tailwind CSS, and Monaco Editor.
+Open `http://localhost:3000` (login: `admin`/`admin`)
 
-## How It Works
+## Architecture
 
-SirixDB stores data in a persistent tree structure where revisions share unchanged nodes:
+### Storage Model
 
-<!-- TODO: Add diagram showing copy-on-write and page sharing between revisions -->
+```
+Database (directory)
+└── Resource (single JSON or XML document with revision history)
+    └── Revisions (numbered 1, 2, 3, ...)
+        └── Pages (variable-size blocks containing node data)
+```
 
-**Key concepts:**
+- **Database**: Directory containing multiple resources
+- **Resource**: One logical document with its complete revision history
+- **Page**: Unit of I/O and versioning. Variable-size, immutable once written.
 
-- **Copy-on-write**: Modified pages are written to new locations; unchanged pages are shared
-- **No WAL needed**: Append-only writes ensure consistency without write-ahead logging
-- **Page-level versioning**: Only changed page fragments are stored, not entire pages
-- **Sliding snapshot algorithm**: Balances read performance with storage efficiency
+### Key Design Decisions
 
-This design means:
-- Creating a new revision is O(changed nodes), not O(total nodes)
-- Storage grows with changes, not with time
-- Any revision can be read in O(log revisions) time
+| Aspect | Design | Trade-off |
+|--------|--------|-----------|
+| Write pattern | Append-only | No in-place updates; simpler recovery; larger storage footprint |
+| Consistency | Single writer per resource | No write conflicts; readers never blocked |
+| Index updates | Synchronous | Queries always see current indexes |
+| Node IDs | Stable across revisions | Enables tracking node identity through time |
 
-## Features
+### Indexes
 
-| Feature | Description |
-|---------|-------------|
-| **Bitemporal** | Track both valid time and transaction time |
-| **Embeddable** | Use as a library (like SQLite) or via REST API |
-| **JSON & XML** | Native support for both semi-structured formats |
-| **Secondary indexes** | Path indexes, CAS indexes, name indexes |
-| **Concurrent** | Multiple readers, single writer per resource |
-| **Cryptographic hashes** | Merkle trees for tamper detection |
-| **GraalVM native** | Compile to native binaries for instant startup |
+- **Path index**: Index specific JSON paths for faster navigation
+- **CAS index** (Content-and-Structure): Index values with type awareness
+- **Name index**: Index object keys
 
-## Use Cases
+## Comparison with Alternatives
 
-- **Audit logs**: Regulatory compliance requiring full history
-- **Event sourcing**: Natural fit for append-only event stores
-- **Document versioning**: Track changes to JSON/XML documents
-- **Time-series with context**: Store data with full document history
-- **Undo/redo**: Instant rollback to any previous state
-
-## Documentation
-
-- [Getting Started Guide](https://sirix.io/docs/index.html)
-- [REST API Reference](https://sirix.io/docs/rest-api.html)
-- [JSONiq Query Language](https://sirix.io/docs/jsoniq.html)
-- [Architecture & Concepts](https://sirix.io/docs/concepts.html)
+| Feature | SirixDB | Git + JSON files | Event Store | Datomic |
+|---------|---------|------------------|-------------|---------|
+| Query language | JSONiq/XQuery | None (file-based) | Projections | Datalog |
+| Granularity | Node-level | File-level | Event-level | Fact-level |
+| Diff efficiency | O(changed nodes) | O(file size) | N/A | O(changed datoms) |
+| Embeddable | Yes | Yes | No | No (peer model) |
+| Bitemporal | Yes | No | No | Yes |
 
 ## Building from Source
 
 ```bash
 git clone https://github.com/sirixdb/sirix.git
 cd sirix
-gradle build -x test
+./gradlew build -x test
 ```
 
 **Requirements:**
@@ -283,12 +403,20 @@ gradle build -x test
 
 ```
 bundles/
-├── sirix-core/          # Core storage engine
-├── sirix-query/         # Brackit JSONiq/XQuery integration + interactive shell (sirix-shell)
+├── sirix-core/          # Core storage engine and versioning
+├── sirix-query/         # Brackit JSONiq/XQuery integration + sirix-shell
 ├── sirix-kotlin-cli/    # Command-line interface (sirix-cli)
 ├── sirix-rest-api/      # Vert.x REST server
 └── sirix-xquery/        # XQuery support for XML
 ```
+
+## Use Cases
+
+- **Audit trails**: Regulatory requirements for complete data history (finance, healthcare)
+- **Document versioning**: Track changes to configuration, contracts, or content
+- **Debugging**: Query production state at the time a bug occurred
+- **Temporal analytics**: Analyze how data evolved over time windows
+- **Undo/restore**: Revert to or query any historical state
 
 ## Community
 
