@@ -6,8 +6,6 @@ import io.sirix.page.PageReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -103,6 +101,10 @@ public final class ClockSweeper implements Runnable {
   /**
    * Perform one sweep cycle.
    * Scans a fraction of pages (e.g., 10%) per cycle to avoid long pauses.
+   * <p>
+   * Optimized to iterate directly over the map's entrySet instead of copying
+   * all keys to an ArrayList, eliminating allocation overhead on each cycle.
+   * </p>
    */
   private void sweep() {
     if (!shard.evictionLock.tryLock()) {
@@ -112,29 +114,35 @@ public final class ClockSweeper implements Runnable {
 
     try {
       int minActiveRev = epochTracker.minActiveRevision();
-      List<PageReference> keys = new ArrayList<>(shard.map.keySet());
-      
-      if (keys.isEmpty()) {
+      int mapSize = shard.map.size();
+
+      if (mapSize == 0) {
         return;
       }
 
       // Scan 10% of pages per cycle (or minimum 10 pages)
-      int pagesToScan = Math.max(10, keys.size() / 10);
-      
-      for (int i = 0; i < pagesToScan && i < keys.size(); i++) {
-        // CRITICAL FIX: Bound clockHand to current keys.size() to handle concurrent modifications
-        // The keys list is a snapshot, but the map can grow/shrink concurrently
-        if (keys.isEmpty()) {
-          break; // No more keys to scan
+      int pagesToScan = Math.max(10, mapSize / 10);
+      int position = 0;
+      int scanned = 0;
+      int startPosition = shard.clockHand % Math.max(1, mapSize);
+
+      // Iterate directly over entrySet - no ArrayList allocation
+      for (var entry : shard.map.entrySet()) {
+        // Skip entries until we reach clockHand position
+        if (position++ < startPosition) {
+          continue;
         }
-        int safeIndex = shard.clockHand % keys.size();
-        PageReference ref = keys.get(safeIndex);
+        if (scanned >= pagesToScan) {
+          break;
+        }
+
+        PageReference ref = entry.getKey();
         
         // Filter by resource if not global (databaseId=0 and resourceId=0 means GLOBAL)
         boolean isGlobalSweeper = (databaseId == 0 && resourceId == 0);
         if (!isGlobalSweeper && (ref.getDatabaseId() != databaseId || ref.getResourceId() != resourceId)) {
-          shard.clockHand++;
           pagesSkippedByOwnership.incrementAndGet();
+          scanned++; // Count towards scan limit even if skipped
           continue;
         }
         
@@ -195,9 +203,11 @@ public final class ClockSweeper implements Runnable {
           }
         });
 
-        // Move clock hand forward (will be bounded on next iteration)
-        shard.clockHand++;
+        scanned++;
       }
+
+      // Update clockHand for next cycle, wrapping around if needed
+      shard.clockHand = (startPosition + scanned) % Math.max(1, shard.map.size());
     } finally {
       shard.evictionLock.unlock();
     }
