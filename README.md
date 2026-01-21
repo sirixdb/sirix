@@ -35,47 +35,69 @@ This isn't just version control for your data—it's a fundamental rethinking of
 
 ## Quick Start
 
-### Using the CLI (Native Binary)
+### Using the CLI (Native Binaries)
 
-Download the native binary for your platform from [Releases](https://github.com/sirixdb/sirix/releases), or build it yourself with GraalVM:
+SirixDB provides two CLI tools, both available as instant-startup native binaries:
+
+| Binary | Module | Description |
+|--------|--------|-------------|
+| `sirix-cli` | sirix-kotlin-cli | Full-featured CLI for database operations |
+| `sirix-shell` | sirix-query | Interactive JSONiq/XQuery shell |
+
+Build native binaries with GraalVM:
 
 ```bash
-# Build native binary (requires GraalVM with native-image)
-./gradlew :sirix-kotlin-cli:nativeCompile
+# Build both CLIs as native binaries (requires GraalVM with native-image)
+./gradlew :sirix-kotlin-cli:nativeCompile  # produces: sirix-cli
+./gradlew :sirix-query:nativeCompile       # produces: sirix-shell
 
-# Or use the JAR
-./gradlew :sirix-kotlin-cli:build
-java -jar bundles/sirix-kotlin-cli/build/libs/sirix-kotlin-cli-*-all.jar
+# Or run via JAR
+./gradlew :sirix-kotlin-cli:run --args="-l /tmp/mydb create"
 ```
+
+#### sirix-cli: Database Operations
 
 **Create a database and store JSON:**
 ```bash
-sirix -l /tmp/mydb create json -r myresource -d '{"name": "Alice", "role": "admin"}'
+sirix-cli -l /tmp/mydb create json -r myresource -d '{"name": "Alice", "role": "admin"}'
 ```
 
 **Query your data:**
 ```bash
-sirix -l /tmp/mydb query -r myresource
+sirix-cli -l /tmp/mydb query -r myresource
 ```
 
 **Run a JSONiq query:**
 ```bash
-sirix -l /tmp/mydb query -r myresource 'jn:doc("mydb","myresource").name'
+sirix-cli -l /tmp/mydb query -r myresource 'jn:doc("mydb","myresource").name'
 ```
 
 **Update and create a new revision:**
 ```bash
-sirix -l /tmp/mydb update -r myresource '{"role": "superadmin"}' -im as-first-child
+sirix-cli -l /tmp/mydb update -r myresource '{"role": "superadmin"}' -im as-first-child
 ```
 
 **Query a previous revision:**
 ```bash
-sirix -l /tmp/mydb query -r myresource -rev 1
+sirix-cli -l /tmp/mydb query -r myresource -rev 1
 ```
 
 **View revision history:**
 ```bash
-sirix -l /tmp/mydb resource-history myresource
+sirix-cli -l /tmp/mydb resource-history myresource
+```
+
+#### sirix-shell: Interactive Query Shell
+
+The interactive shell provides a REPL for JSONiq/XQuery queries:
+
+```bash
+sirix-shell
+> 1 + 1
+2
+> jn:store('mydb','resource','{"key": "value"}')
+> jn:doc('mydb','resource').key
+"value"
 ```
 
 ### Using the REST API
@@ -252,8 +274,9 @@ gradle build -x test
 
 **Build native binaries** (requires GraalVM):
 ```bash
-gradle :sirix-kotlin-cli:nativeCompile
-gradle :sirix-rest-api:nativeCompile
+./gradlew :sirix-kotlin-cli:nativeCompile  # sirix-cli
+./gradlew :sirix-query:nativeCompile       # sirix-shell
+./gradlew :sirix-rest-api:nativeCompile    # REST API server
 ```
 
 ## Project Structure
@@ -261,8 +284,8 @@ gradle :sirix-rest-api:nativeCompile
 ```
 bundles/
 ├── sirix-core/          # Core storage engine
-├── sirix-query/         # Brackit JSONiq/XQuery integration
-├── sirix-kotlin-cli/    # Command-line interface
+├── sirix-query/         # Brackit JSONiq/XQuery integration + interactive shell (sirix-shell)
+├── sirix-kotlin-cli/    # Command-line interface (sirix-cli)
 ├── sirix-rest-api/      # Vert.x REST server
 └── sirix-xquery/        # XQuery support for XML
 ```
