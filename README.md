@@ -1,7 +1,8 @@
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/Circuit Technology Logo.png"/></p>
 
 <h1 align="center">SirixDB</h1>
-<h3 align="center">Temporal JSON/XML database with efficient versioning</h3>
+<h3 align="center">Bitemporal JSON database with efficient versioning</h3>
+<p align="center"><em>The database that remembers everything</em></p>
 
 <p align="center">
 <a href="https://github.com/sirixdb/sirix/actions"><img src="https://github.com/sirixdb/sirix/workflows/Java%20CI%20with%20Gradle/badge.svg" alt="CI Build Status"/></a>
