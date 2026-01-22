@@ -10,6 +10,7 @@ import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.Databases
 import io.sirix.access.ResourceConfiguration
 import io.sirix.access.User
+import io.sirix.access.ValidTimeConfig
 import io.sirix.access.trx.node.HashType
 import io.sirix.api.Database
 import io.sirix.api.json.JsonResourceSession
@@ -74,11 +75,28 @@ class JsonCreate(
                 val commitTimestampAsString = ctx.queryParam("commitTimestamp").getOrNull(0)
                 val hashType = ctx.queryParam("hashType").getOrNull(0) ?: "NONE"
                 val useDeweyIDs = ctx.queryParam("useDeweyIDs").getOrNull(0)?.toBoolean() ?: false
-                val resConfig =
-                    ResourceConfiguration.Builder(resPathName).useDeweyIDs(useDeweyIDs)
-                        .hashKind(HashType.valueOf(hashType.uppercase()))
-                        .customCommitTimestamps(commitTimestampAsString != null)
-                        .build()
+
+                // Valid time configuration for bitemporal queries
+                val validFromPath = ctx.queryParam("validFromPath").getOrNull(0)
+                val validToPath = ctx.queryParam("validToPath").getOrNull(0)
+                val useConventionalValidTime = ctx.queryParam("useConventionalValidTime").getOrNull(0)?.toBoolean() ?: false
+
+                val validTimeConfig = when {
+                    useConventionalValidTime -> ValidTimeConfig.withConventionalPaths()
+                    validFromPath != null && validToPath != null -> ValidTimeConfig.withPaths(validFromPath, validToPath)
+                    else -> null
+                }
+
+                val resConfigBuilder = ResourceConfiguration.Builder(resPathName)
+                    .useDeweyIDs(useDeweyIDs)
+                    .hashKind(HashType.valueOf(hashType.uppercase()))
+                    .customCommitTimestamps(commitTimestampAsString != null)
+
+                if (validTimeConfig != null) {
+                    resConfigBuilder.validTimeConfig(validTimeConfig)
+                }
+
+                val resConfig = resConfigBuilder.build()
 
                 createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
 

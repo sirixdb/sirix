@@ -27,6 +27,7 @@ import com.google.gson.stream.JsonToken;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Item;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.*;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.api.StorageEngineWriter;
@@ -41,6 +42,7 @@ import io.sirix.diff.JsonDiffSerializer;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.index.path.summary.PathSummaryWriter.OPType;
@@ -75,6 +77,8 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Predicate;
@@ -211,6 +215,75 @@ final class JsonNodeTrxImpl extends
     if (!existingIndexDefs.isEmpty()) {
       indexController.createIndexListeners(existingIndexDefs, this);
     }
+
+    // Auto-create CAS indexes for valid time paths on bootstrap
+    createValidTimeIndexesIfNeeded(resourceManager.getResourceConfig());
+  }
+
+  /**
+   * Creates CAS indexes for valid time paths if configured and this is a new resource.
+   *
+   * <p>This is called during the first write transaction on a new resource to ensure
+   * that bitemporal queries can use optimized index-based lookups for valid time.</p>
+   *
+   * @param resourceConfig the resource configuration
+   */
+  private void createValidTimeIndexesIfNeeded(ResourceConfiguration resourceConfig) {
+    // Only create indexes on bootstrap (revision 0)
+    if (nodeReadOnlyTrx.getRevisionNumber() != 0) {
+      return;
+    }
+
+    // Check if valid time configuration exists
+    final var validTimeConfig = resourceConfig.getValidTimeConfig();
+    if (validTimeConfig == null) {
+      return;
+    }
+
+    // Check if indexes already exist
+    final var existingIndexes = indexController.getIndexes().getIndexDefs();
+    if (!existingIndexes.isEmpty()) {
+      return;
+    }
+
+    // Create CAS indexes for validFrom and validTo paths
+    final var indexDefs = createValidTimeIndexDefs(validTimeConfig);
+    if (!indexDefs.isEmpty()) {
+      // Note: we just register the index definitions here, they will be populated
+      // when data is inserted. For bootstrap with no data yet, this just sets up
+      // the index listeners for future insertions.
+      for (IndexDef indexDef : indexDefs) {
+        indexController.getIndexes().add(indexDef);
+      }
+      indexController.createIndexListeners(indexDefs, this);
+    }
+  }
+
+  /**
+   * Creates index definitions for valid time paths.
+   *
+   * @param validTimeConfig the valid time configuration
+   * @return set of index definitions for validFrom and validTo paths
+   */
+  private Set<IndexDef> createValidTimeIndexDefs(io.sirix.access.ValidTimeConfig validTimeConfig) {
+    final Set<IndexDef> indexDefs = new HashSet<>();
+
+    // Use xs:dateTime type for the CAS indexes since valid time values are typically timestamps
+    final var dateTimeType = io.brackit.query.jdm.Type.DATI;
+
+    // Create index for validFrom path
+    final var validFromPath = validTimeConfig.getNormalizedValidFromPath();
+    final var validFromPaths = Set.of(io.brackit.query.util.path.Path.<io.brackit.query.atomic.QNm>parse(validFromPath,
+        io.brackit.query.util.path.PathParser.Type.JSON));
+    indexDefs.add(io.sirix.index.IndexDefs.createCASIdxDef(false, dateTimeType, validFromPaths, 0, IndexDef.DbType.JSON));
+
+    // Create index for validTo path
+    final var validToPath = validTimeConfig.getNormalizedValidToPath();
+    final var validToPaths = Set.of(io.brackit.query.util.path.Path.<io.brackit.query.atomic.QNm>parse(validToPath,
+        io.brackit.query.util.path.PathParser.Type.JSON));
+    indexDefs.add(io.sirix.index.IndexDefs.createCASIdxDef(false, dateTimeType, validToPaths, 1, IndexDef.DbType.JSON));
+
+    return indexDefs;
   }
 
   @Override
