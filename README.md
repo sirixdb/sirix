@@ -250,7 +250,7 @@ return sdb:revision($v)
 SirixDB supports bitemporal data through two independent time dimensions:
 
 - **Transaction time**: System-managed. Each revision records when data was committed. Query via `jn:open` with a timestamp or `sdb:timestamp` to retrieve it.
-- **Valid time**: User-managed. Store validity periods in your data model and filter in queries.
+- **Valid time**: User-managed. Store validity periods in your data model. SirixDB provides first-class support for querying valid time.
 
 Why does this matter? Consider a correction scenario:
 
@@ -265,6 +265,63 @@ After correction:
 
 Both answers are correct for different questions. Without bitemporality, the correction would destroy the audit trail.
 
+#### Configuring Valid Time Support
+
+Configure a resource with valid time paths to enable automatic indexing and dedicated query functions:
+
+```java
+// Configure resource with valid time paths
+var resourceConfig = ResourceConfiguration.newBuilder("employees")
+    .validTimePaths("validFrom", "validTo")  // specify your JSON field names
+    .buildPathSummary(true)
+    .build();
+
+database.createResource(resourceConfig);
+
+// Or use conventional field names (_validFrom, _validTo)
+var resourceConfig = ResourceConfiguration.newBuilder("employees")
+    .useConventionalValidTimePaths()
+    .build();
+```
+
+Via REST API, use query parameters when creating a resource:
+
+```bash
+# Custom valid time field names
+curl -X PUT "https://localhost:9443/database/resource?validFromPath=validFrom&validToPath=validTo" \
+  -H "Content-Type: application/json" \
+  -d '[{"name": "Alice", "validFrom": "2024-01-01T00:00:00Z", "validTo": "2024-12-31T23:59:59Z"}]'
+
+# Use conventional _validFrom/_validTo fields
+curl -X PUT "https://localhost:9443/database/resource?useConventionalValidTime=true" \
+  -H "Content-Type: application/json" \
+  -d '[{"name": "Bob", "_validFrom": "2024-01-01T00:00:00Z", "_validTo": "2024-12-31T23:59:59Z"}]'
+```
+
+When valid time paths are configured, SirixDB automatically creates CAS indexes on the valid time fields for optimal query performance.
+
+#### Valid Time Query Functions
+
+```xquery
+(: Get records valid at a specific point in time :)
+jn:valid-at('mydb','myresource', xs:dateTime('2024-07-15T12:00:00Z'))
+
+(: True bitemporal query: combine transaction time and valid time :)
+(: "What records were known on Jan 20 and valid on July 15?" :)
+jn:open-bitemporal('mydb','myresource',
+    xs:dateTime('2024-07-15T12:00:00Z'),   (: valid time :)
+    xs:dateTime('2024-01-20T10:00:00Z'))   (: transaction time :)
+
+(: Extract valid time bounds from a node :)
+let $record := jn:doc('mydb','myresource')[0]
+return {
+  "validFrom": sdb:valid-from($record),
+  "validTo": sdb:valid-to($record)
+}
+```
+
+#### Transaction Time Functions
+
 ```xquery
 (: Transaction time: open resource as it existed at a point in time :)
 jn:open('mydb','myresource', xs:dateTime('2024-01-15T10:30:00Z'))
@@ -276,9 +333,6 @@ sdb:timestamp(jn:doc('mydb','myresource'))
 jn:open-revisions('mydb','myresource',
         xs:dateTime('2024-01-01T00:00:00Z'),
         xs:dateTime('2024-06-01T00:00:00Z'))
-
-(: Valid time: filter on user-defined fields :)
-jn:doc('mydb','myresource').prices[.valid_from le $queryDate and .valid_to ge $queryDate]
 ```
 
 ### Revision Metadata Functions
