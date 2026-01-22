@@ -20,6 +20,7 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.access.trx.node.IndexController;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
@@ -342,6 +343,445 @@ public final class BitemporalIndexStressTest {
         }
       }
     }
+  }
+
+  @Nested
+  @DisplayName("Exact Index Verification Tests")
+  class ExactIndexVerificationTests {
+
+    @Test
+    @DisplayName("Verify exact count and nodeKeys for 100 records with known timestamps")
+    void testExactCountAndNodeKeys100Records() throws IOException {
+      final var dbPath = sirixPath.resolve(DB_NAME);
+      Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+        final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .validTimePaths("validFrom", "validTo")
+            .versioningApproach(VersioningType.FULL)
+            .buildPathSummary(true)
+            .build();
+
+        database.createResource(resourceConfig);
+
+        // Track expected nodeKeys for each timestamp
+        List<Long> allValidFromNodeKeys = new ArrayList<>();
+        List<Long> allValidToNodeKeys = new ArrayList<>();
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+          // Create CAS indexes
+          var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+
+          final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
+          final var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
+              Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+
+          final var validToPath = parse("/[]/validTo", io.brackit.query.util.path.PathParser.Type.JSON);
+          final var validToIndex = IndexDefs.createCASIdxDef(false, Type.STR,
+              Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
+
+          indexController.createIndexes(Set.of(validFromIndex, validToIndex), wtx);
+
+          // Create exactly 100 records with known timestamps
+          StringBuilder json = new StringBuilder("[");
+          for (int i = 0; i < 100; i++) {
+            if (i > 0) json.append(",");
+            LocalDate date = LocalDate.of(2020, 1, 1).plusDays(i);
+            String validFrom = date.atStartOfDay().toInstant(ZoneOffset.UTC).toString();
+            String validTo = date.plusDays(30).atStartOfDay().toInstant(ZoneOffset.UTC).toString();
+            json.append("{\"id\": ").append(i)
+                .append(", \"validFrom\": \"").append(validFrom).append("\"")
+                .append(", \"validTo\": \"").append(validTo).append("\"")
+                .append("}");
+          }
+          json.append("]");
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+
+          // Collect all validFrom and validTo nodeKeys by traversing the document
+          wtx.moveToDocumentRoot();
+          wtx.moveToFirstChild();  // array
+          if (wtx.hasFirstChild()) {
+            wtx.moveToFirstChild();  // first object
+            do {
+              // Each object has: id, validFrom, validTo
+              if (wtx.hasFirstChild()) {
+                wtx.moveToFirstChild();  // first key (id)
+                // Move to validFrom key
+                while (wtx.hasRightSibling()) {
+                  wtx.moveToRightSibling();
+                  if (wtx.isObjectKey() && "validFrom".equals(wtx.getName().getLocalName())) {
+                    if (wtx.hasFirstChild()) {
+                      wtx.moveToFirstChild();
+                      allValidFromNodeKeys.add(wtx.getNodeKey());
+                      wtx.moveToParent();
+                    }
+                  } else if (wtx.isObjectKey() && "validTo".equals(wtx.getName().getLocalName())) {
+                    if (wtx.hasFirstChild()) {
+                      wtx.moveToFirstChild();
+                      allValidToNodeKeys.add(wtx.getNodeKey());
+                      wtx.moveToParent();
+                    }
+                  }
+                }
+                wtx.moveToParent();  // back to object
+              }
+            } while (wtx.moveToRightSibling());
+          }
+
+          // Verify we found exactly 100 validFrom and 100 validTo nodeKeys
+          assertEquals(100, allValidFromNodeKeys.size(), "Should have exactly 100 validFrom nodeKeys");
+          assertEquals(100, allValidToNodeKeys.size(), "Should have exactly 100 validTo nodeKeys");
+
+          // Query all indexed validFrom values and collect nodeKeys
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+              indexController.createCASFilter(
+                  Set.of("/[]/validFrom"),
+                  new Str("2020-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(wtx)));
+
+          List<Long> indexedValidFromNodeKeys = new ArrayList<>();
+          while (casIndex.hasNext()) {
+            var refs = casIndex.next();
+            refs.getNodeKeys().forEach(indexedValidFromNodeKeys::add);
+          }
+
+          // Verify exact count
+          assertEquals(100, indexedValidFromNodeKeys.size(),
+              "Index should contain exactly 100 validFrom entries");
+
+          // Verify all expected nodeKeys are in the index
+          for (Long expectedKey : allValidFromNodeKeys) {
+            assertTrue(indexedValidFromNodeKeys.contains(expectedKey),
+                "Index should contain nodeKey " + expectedKey);
+          }
+
+          // Query all indexed validTo values
+          var casIndexTo = indexController.openCASIndex(wtx.getPageTrx(), validToIndex,
+              indexController.createCASFilter(
+                  Set.of("/[]/validTo"),
+                  new Str("2020-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(wtx)));
+
+          List<Long> indexedValidToNodeKeys = new ArrayList<>();
+          while (casIndexTo.hasNext()) {
+            var refs = casIndexTo.next();
+            refs.getNodeKeys().forEach(indexedValidToNodeKeys::add);
+          }
+
+          assertEquals(100, indexedValidToNodeKeys.size(),
+              "Index should contain exactly 100 validTo entries");
+
+          for (Long expectedKey : allValidToNodeKeys) {
+            assertTrue(indexedValidToNodeKeys.contains(expectedKey),
+                "Index should contain nodeKey " + expectedKey);
+          }
+        }
+      }
+    }
+
+    @Test
+    @DisplayName("Verify exact count for range queries with 500 records")
+    void testExactRangeQueryCounts500Records() throws IOException {
+      final var dbPath = sirixPath.resolve(DB_NAME);
+      Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+        final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .validTimePaths("validFrom", "validTo")
+            .versioningApproach(VersioningType.FULL)
+            .buildPathSummary(true)
+            .build();
+
+        database.createResource(resourceConfig);
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+          var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+
+          final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
+          final var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
+              Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+
+          indexController.createIndexes(Set.of(validFromIndex), wtx);
+
+          // Create 500 records: 100 records for each year 2020-2024
+          StringBuilder json = new StringBuilder("[");
+          for (int year = 2020; year <= 2024; year++) {
+            for (int i = 0; i < 100; i++) {
+              if (year > 2020 || i > 0) json.append(",");
+              LocalDate date = LocalDate.of(year, 1, 1).plusDays(i);
+              String validFrom = date.atStartOfDay().toInstant(ZoneOffset.UTC).toString();
+              String validTo = date.plusMonths(6).atStartOfDay().toInstant(ZoneOffset.UTC).toString();
+              json.append("{\"id\": ").append((year - 2020) * 100 + i)
+                  .append(", \"year\": ").append(year)
+                  .append(", \"validFrom\": \"").append(validFrom).append("\"")
+                  .append(", \"validTo\": \"").append(validTo).append("\"")
+                  .append("}");
+            }
+          }
+          json.append("]");
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+
+          // Query for records >= 2022-01-01 (should be 300: 2022, 2023, 2024)
+          var casIndex2022 = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+              indexController.createCASFilter(
+                  Set.of("/[]/validFrom"),
+                  new Str("2022-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(wtx)));
+
+          long count2022 = 0;
+          while (casIndex2022.hasNext()) {
+            var refs = casIndex2022.next();
+            count2022 += refs.getNodeKeys().getLongCardinality();
+          }
+          assertEquals(300, count2022, "Should have exactly 300 records >= 2022-01-01");
+
+          // Query for records >= 2024-01-01 (should be 100: only 2024)
+          var casIndex2024 = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+              indexController.createCASFilter(
+                  Set.of("/[]/validFrom"),
+                  new Str("2024-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(wtx)));
+
+          long count2024 = 0;
+          while (casIndex2024.hasNext()) {
+            var refs = casIndex2024.next();
+            count2024 += refs.getNodeKeys().getLongCardinality();
+          }
+          assertEquals(100, count2024, "Should have exactly 100 records >= 2024-01-01");
+
+          // Query for all records (should be 500)
+          var casIndexAll = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+              indexController.createCASFilter(
+                  Set.of("/[]/validFrom"),
+                  new Str("2020-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(wtx)));
+
+          long countAll = 0;
+          while (casIndexAll.hasNext()) {
+            var refs = casIndexAll.next();
+            countAll += refs.getNodeKeys().getLongCardinality();
+          }
+          assertEquals(500, countAll, "Should have exactly 500 records total");
+        }
+      }
+    }
+
+    @Test
+    @DisplayName("Verify nodeKey consistency across revisions with 200 records")
+    void testNodeKeyConsistencyAcrossRevisions() throws IOException {
+      final var dbPath = sirixPath.resolve(DB_NAME);
+      Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+        final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .validTimePaths("validFrom", "validTo")
+            .versioningApproach(VersioningType.FULL)
+            .buildPathSummary(true)
+            .build();
+
+        database.createResource(resourceConfig);
+
+        IndexDef validFromIndex;
+        List<Long> rev1NodeKeys = new ArrayList<>();
+
+        // Revision 1: Insert 100 records
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+          var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+
+          final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
+          validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
+              Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+
+          indexController.createIndexes(Set.of(validFromIndex), wtx);
+
+          StringBuilder json = new StringBuilder("[");
+          for (int i = 0; i < 100; i++) {
+            if (i > 0) json.append(",");
+            LocalDate date = LocalDate.of(2020, 1, 1).plusDays(i);
+            String validFrom = date.atStartOfDay().toInstant(ZoneOffset.UTC).toString();
+            json.append("{\"id\": ").append(i)
+                .append(", \"validFrom\": \"").append(validFrom).append("\"")
+                .append("}");
+          }
+          json.append("]");
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+
+          // Collect nodeKeys from revision 1
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+              indexController.createCASFilter(
+                  Set.of("/[]/validFrom"),
+                  new Str("2020-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(wtx)));
+
+          while (casIndex.hasNext()) {
+            var refs = casIndex.next();
+            refs.getNodeKeys().forEach(rev1NodeKeys::add);
+          }
+
+          assertEquals(100, rev1NodeKeys.size(), "Revision 1 should have 100 indexed entries");
+        }
+
+        // Revision 2: Add 100 more records
+        List<Long> rev2NodeKeys = new ArrayList<>();
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+          wtx.moveToDocumentRoot();
+          wtx.moveToFirstChild();  // array
+          wtx.moveToLastChild();   // last object
+
+          for (int i = 100; i < 200; i++) {
+            LocalDate date = LocalDate.of(2021, 1, 1).plusDays(i - 100);
+            String validFrom = date.atStartOfDay().toInstant(ZoneOffset.UTC).toString();
+            String record = String.format("{\"id\": %d, \"validFrom\": \"%s\"}", i, validFrom);
+            wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(record));
+          }
+          wtx.commit();
+
+          // Collect all nodeKeys from revision 2
+          var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+              indexController.createCASFilter(
+                  Set.of("/[]/validFrom"),
+                  new Str("2020-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(wtx)));
+
+          while (casIndex.hasNext()) {
+            var refs = casIndex.next();
+            refs.getNodeKeys().forEach(rev2NodeKeys::add);
+          }
+
+          assertEquals(200, rev2NodeKeys.size(), "Revision 2 should have 200 indexed entries");
+
+          // Verify that all rev1 nodeKeys are still present in rev2
+          for (Long key : rev1NodeKeys) {
+            assertTrue(rev2NodeKeys.contains(key),
+                "NodeKey " + key + " from revision 1 should still be in revision 2 index");
+          }
+
+          // Verify that we have exactly 100 new nodeKeys (those that weren't in rev1)
+          List<Long> newNodeKeys = new ArrayList<>(rev2NodeKeys);
+          newNodeKeys.removeAll(rev1NodeKeys);
+          assertEquals(100, newNodeKeys.size(),
+              "Should have exactly 100 new nodeKeys in revision 2");
+        }
+      }
+    }
+
+    @Test
+    @DisplayName("Verify exact counts with 1000 records and multiple range queries")
+    void testExactCountsWithMultipleRanges1000Records() throws IOException {
+      final var dbPath = sirixPath.resolve(DB_NAME);
+      Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+        final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .validTimePaths("validFrom", "validTo")
+            .versioningApproach(VersioningType.FULL)
+            .buildPathSummary(true)
+            .build();
+
+        database.createResource(resourceConfig);
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+          var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+
+          final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
+          final var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
+              Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+
+          indexController.createIndexes(Set.of(validFromIndex), wtx);
+
+          // Create exactly 1000 records: one per day starting from 2020-01-01
+          StringBuilder json = new StringBuilder("[");
+          for (int i = 0; i < 1000; i++) {
+            if (i > 0) json.append(",");
+            LocalDate date = LocalDate.of(2020, 1, 1).plusDays(i);
+            String validFrom = date.atStartOfDay().toInstant(ZoneOffset.UTC).toString();
+            json.append("{\"id\": ").append(i)
+                .append(", \"validFrom\": \"").append(validFrom).append("\"")
+                .append("}");
+          }
+          json.append("]");
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+
+          // Test multiple range queries with exact expected counts
+          // 2020: days 0-365 = 366 days (leap year)
+          // 2021: days 366-730 = 365 days
+          // 2022: days 731-999 = 269 days (we only have 1000 total)
+
+          // Query >= 2020-01-01 should return all 1000
+          long countAll = countIndexEntries(indexController, wtx, validFromIndex, "2020-01-01T00:00:00Z");
+          assertEquals(1000, countAll, "Should have exactly 1000 records >= 2020-01-01");
+
+          // Query >= 2020-07-01 (day 182 in 2020)
+          // From day 182 to day 999 = 818 records
+          long countMid2020 = countIndexEntries(indexController, wtx, validFromIndex, "2020-07-01T00:00:00Z");
+          assertEquals(818, countMid2020, "Should have exactly 818 records >= 2020-07-01");
+
+          // Query >= 2021-01-01 (day 366, since 2020 is leap year)
+          // From day 366 to day 999 = 634 records
+          long count2021 = countIndexEntries(indexController, wtx, validFromIndex, "2021-01-01T00:00:00Z");
+          assertEquals(634, count2021, "Should have exactly 634 records >= 2021-01-01");
+
+          // Query >= 2022-01-01 (day 731)
+          // From day 731 to day 999 = 269 records
+          long count2022 = countIndexEntries(indexController, wtx, validFromIndex, "2022-01-01T00:00:00Z");
+          assertEquals(269, count2022, "Should have exactly 269 records >= 2022-01-01");
+
+          // Query >= 2022-09-27 (the last day, day 999)
+          LocalDate lastDay = LocalDate.of(2020, 1, 1).plusDays(999);
+          String lastDayStr = lastDay.atStartOfDay().toInstant(ZoneOffset.UTC).toString();
+          long countLastDay = countIndexEntries(indexController, wtx, validFromIndex, lastDayStr);
+          assertEquals(1, countLastDay, "Should have exactly 1 record on the last day");
+
+          // Query for a date after all records (should return 0)
+          long countNone = countIndexEntries(indexController, wtx, validFromIndex, "2023-01-01T00:00:00Z");
+          assertEquals(0, countNone, "Should have 0 records >= 2023-01-01");
+        }
+      }
+    }
+
+    private long countIndexEntries(IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController,
+                                   JsonNodeTrx wtx, IndexDef indexDef, String threshold) {
+      var casIndex = indexController.openCASIndex(wtx.getPageTrx(), indexDef,
+          indexController.createCASFilter(
+              Set.of("/[]/validFrom"),
+              new Str(threshold),
+              SearchMode.GREATER_OR_EQUAL,
+              new JsonPCRCollector(wtx)));
+
+      long count = 0;
+      while (casIndex.hasNext()) {
+        var refs = casIndex.next();
+        count += refs.getNodeKeys().getLongCardinality();
+      }
+      return count;
+    }
+
   }
 
   @Nested
