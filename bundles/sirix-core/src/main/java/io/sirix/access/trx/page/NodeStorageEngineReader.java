@@ -184,6 +184,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private RecordPage mostRecentDeweyIdPage;
 
   /**
+   * Reusable IndexLogKey to avoid allocations on every getRecord/lookupSlot call.
+   * Safe to reuse because this transaction is single-threaded (see class javadoc).
+   */
+  private final IndexLogKey reusableIndexLogKey = new IndexLogKey(null, 0, 0, 0);
+
+  /**
    * Standard constructor.
    *
    * @param trxId                 the transaction-ID.
@@ -323,11 +329,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     final long recordPageKey = pageKey(recordKey, indexType);
 
-    var indexLogKey = new IndexLogKey(indexType, recordPageKey, index, revisionNumber);
+    // OPTIMIZATION: Reuse IndexLogKey instance to avoid allocation on every getRecord call
+    reusableIndexLogKey.setIndexType(indexType)
+        .setRecordPageKey(recordPageKey)
+        .setIndexNumber(index)
+        .setRevisionNumber(revisionNumber);
 
     // $CASES-OMITTED$
     final PageReferenceToPage pageReferenceToPage = switch (indexType) {
-      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(indexLogKey);
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(reusableIndexLogKey);
       default -> throw new IllegalStateException();
     };
 
@@ -448,11 +458,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     final long recordPageKey = pageKey(recordKey, indexType);
-    var indexLogKey = new IndexLogKey(indexType, recordPageKey, index, revisionNumber);
+    // OPTIMIZATION: Reuse IndexLogKey instance to avoid allocation
+    reusableIndexLogKey.setIndexType(indexType)
+        .setRecordPageKey(recordPageKey)
+        .setIndexNumber(index)
+        .setRevisionNumber(revisionNumber);
 
     // Get the page reference (uses cache) - ONE lookup for both paths
     final PageReferenceToPage pageReferenceToPage = switch (indexType) {
-      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(indexLogKey);
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(reusableIndexLogKey);
       default -> null;
     };
 
@@ -542,11 +556,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     final long recordPageKey = pageKey(recordKey, indexType);
-    var indexLogKey = new IndexLogKey(indexType, recordPageKey, index, revisionNumber);
+    // OPTIMIZATION: Reuse IndexLogKey instance to avoid allocation
+    reusableIndexLogKey.setIndexType(indexType)
+        .setRecordPageKey(recordPageKey)
+        .setIndexNumber(index)
+        .setRevisionNumber(revisionNumber);
 
     // Get the page reference
     final PageReferenceToPage pageReferenceToPage = switch (indexType) {
-      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(indexLogKey);
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(reusableIndexLogKey);
       default -> throw new IllegalStateException("Unsupported index type: " + indexType);
     };
 

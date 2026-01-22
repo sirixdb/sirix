@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -49,15 +50,16 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   private final AtomicLong currentWeightBytes = new AtomicLong(0L);
   
   // ===== CACHE HIT/MISS INSTRUMENTATION =====
-  private static final AtomicLong CACHE_HITS = new AtomicLong();
-  private static final AtomicLong CACHE_MISSES = new AtomicLong();
-  
+  // Use LongAdder for high-contention counters (better scalability than AtomicLong)
+  private static final LongAdder CACHE_HITS = new LongAdder();
+  private static final LongAdder CACHE_MISSES = new LongAdder();
+
   /** Get cache hit count for diagnostics */
-  public static long getCacheHits() { return CACHE_HITS.get(); }
+  public static long getCacheHits() { return CACHE_HITS.sum(); }
   /** Get cache miss count for diagnostics */
-  public static long getCacheMisses() { return CACHE_MISSES.get(); }
+  public static long getCacheMisses() { return CACHE_MISSES.sum(); }
   /** Reset cache counters */
-  public static void resetCacheCounters() { CACHE_HITS.set(0); CACHE_MISSES.set(0); }
+  public static void resetCacheCounters() { CACHE_HITS.reset(); CACHE_MISSES.reset(); }
   // ===== END INSTRUMENTATION =====
 
   /**
@@ -132,13 +134,21 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
 
   @Override
   public KeyValueLeafPage get(PageReference key, BiFunction<? super PageReference, ? super KeyValueLeafPage, ? extends KeyValueLeafPage> mappingFunction) {
-    // Wrap mappingFunction to only execute on cache MISS
-    // The mappingFunction should only be called when value is null, not on every access!
-    // This prevents guards from being acquired repeatedly (guard leaks)
+    // OPTIMIZATION: Lock-free fast path for cache hits
+    // ConcurrentHashMap.get() is lock-free and scales better than compute() for reads
+    KeyValueLeafPage existing = map.get(key);
+    if (existing != null && !existing.isClosed()) {
+      // Cache HIT - mark as accessed (benign race with eviction is acceptable)
+      existing.markAccessed();
+      return existing;
+    }
+
+    // Cache MISS or closed entry - use compute() for atomic load-and-store
+    // This ensures only one thread loads the page on concurrent misses
     KeyValueLeafPage page = map.compute(key, (k, existingValue) -> {
+      // Double-check inside compute() - another thread may have loaded while we waited
       if (existingValue != null && !existingValue.isClosed()) {
-        // Cache HIT - mark as accessed and return existing without calling mappingFunction
-        existingValue.markAccessed(); // Set HOT bit atomically within compute()
+        existingValue.markAccessed();
         return existingValue;
       }
       // Cache MISS - call mappingFunction to load
@@ -157,7 +167,7 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
         if (newWeight > 0) {
           currentWeightBytes.addAndGet(newWeight);
         }
-        
+
         if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && newPage.getPageKey() == 0) {
           LOGGER.debug("[CACHE-COMPUTE] Page 0 computed and caching: {} rev={} instance={} guardCount={}",
               newPage.getIndexType(), newPage.getRevision(), System.identityHashCode(newPage), newPage.getGuardCount());
@@ -165,9 +175,9 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       }
       return newPage;
     });
-    
+
     evictIfOverBudget();
-    
+
     if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && page != null && page.getPageKey() == 0) {
       // Verify it's actually in cache
       KeyValueLeafPage cached = map.get(key);
@@ -176,14 +186,31 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
           page.getIndexType(), page.getRevision(), System.identityHashCode(page), inCache,
           cached != null ? System.identityHashCode(cached) : "null");
     }
-    
+
     return page;
   }
 
   @Override
   public KeyValueLeafPage getAndGuard(PageReference key) {
-    // ATOMIC: Get page and acquire guard atomically using compute()
-    // This prevents race where ClockSweeper evicts between get() and acquireGuard()
+    // OPTIMIZATION: Lock-free fast path for cache hits
+    // Strategy: get() -> acquireGuard() -> verify still valid
+    // If page was evicted between get() and acquireGuard(), we detect via isClosed()
+    KeyValueLeafPage existing = map.get(key);
+    if (existing != null && !existing.isClosed()) {
+      // Try to acquire guard on the page we found
+      existing.acquireGuard();
+      // Verify page is still valid after acquiring guard
+      // (another thread may have evicted it between get() and acquireGuard())
+      if (!existing.isClosed()) {
+        existing.markAccessed();
+        return existing;
+      }
+      // Race detected: page was closed after we acquired guard
+      // Release our guard (harmless since page is closed) and fall back to compute()
+      existing.releaseGuard();
+    }
+
+    // Cache miss or race condition - use compute() for guaranteed atomicity
     return map.compute(key, (k, existingValue) -> {
       if (existingValue != null && !existingValue.isClosed()) {
         // ATOMIC: mark accessed AND acquire guard while holding map lock for this key
@@ -198,28 +225,47 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
 
   @Override
   public KeyValueLeafPage getOrLoadAndGuard(PageReference key, Function<PageReference, KeyValueLeafPage> loader) {
-    // ATOMIC: Get page from cache or load via loader, acquiring guard atomically.
-    // This prevents race where ClockSweeper evicts between get() and acquireGuard().
-    // Also properly tracks weight for eviction (unlike direct asMap().compute() usage).
-    KeyValueLeafPage page = map.compute(key, (k, existing) -> {
-      if (existing != null && !existing.isClosed()) {
-        // Cache HIT - acquire guard atomically
-        CACHE_HITS.incrementAndGet();
+    // OPTIMIZATION: Lock-free fast path for cache hits (the common case)
+    // Strategy: get() -> acquireGuard() -> verify still valid
+    // This avoids compute() lock contention for reads, which dominate the workload
+    KeyValueLeafPage existing = map.get(key);
+    if (existing != null && !existing.isClosed()) {
+      // Try to acquire guard on the page we found
+      existing.acquireGuard();
+      // Verify page is still valid after acquiring guard
+      // (ClockSweeper may have evicted it between get() and acquireGuard())
+      if (!existing.isClosed()) {
         existing.markAccessed();
-        existing.acquireGuard();
+        CACHE_HITS.increment();
         return existing;
       }
+      // Race detected: page was closed after we acquired guard
+      // Release our guard (harmless since page is closed) and fall back to compute()
+      existing.releaseGuard();
+    }
+
+    // Cache miss or race condition - use compute() for atomic load-and-store
+    // This ensures only one thread loads the page on concurrent misses
+    KeyValueLeafPage page = map.compute(key, (k, existingInCompute) -> {
+      // Double-check inside compute() - another thread may have loaded while we waited
+      if (existingInCompute != null && !existingInCompute.isClosed()) {
+        // Cache HIT (loaded by another thread) - acquire guard atomically
+        CACHE_HITS.increment();
+        existingInCompute.markAccessed();
+        existingInCompute.acquireGuard();
+        return existingInCompute;
+      }
       // Cache MISS - load via loader
-      CACHE_MISSES.incrementAndGet();
+      CACHE_MISSES.increment();
       KeyValueLeafPage loaded = loader.apply(k);
       if (loaded != null && !loaded.isClosed()) {
         loaded.markAccessed();
         loaded.acquireGuard();
         // Track weight for eviction (fixes bypass bug from direct asMap().compute() usage)
         long newWeight = weightOf(loaded);
-        if (existing != null) {
+        if (existingInCompute != null) {
           // Replace closed entry - subtract old weight
-          currentWeightBytes.addAndGet(-weightOf(existing));
+          currentWeightBytes.addAndGet(-weightOf(existingInCompute));
         }
         if (newWeight > 0) {
           currentWeightBytes.addAndGet(newWeight);
