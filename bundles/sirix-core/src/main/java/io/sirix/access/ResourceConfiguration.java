@@ -334,12 +334,23 @@ public final class ResourceConfiguration {
 
   /**
    * The hash algorithm used for page checksums.
-   * 
+   *
    * <p>Default is {@link HashAlgorithm#XXH3}, which provides ~15 GB/s throughput.
    * The algorithm can be changed for future extensibility, though changing it
    * requires re-writing all pages.</p>
    */
   public final HashAlgorithm hashAlgorithm;
+
+  /**
+   * Configuration for valid time support in bitemporal queries.
+   *
+   * <p>When set, this enables first-class valid time support, allowing optimized
+   * bitemporal queries using functions like jn:valid-at() and jn:open-bitemporal().</p>
+   *
+   * <p>The configuration specifies which JSON paths hold the validFrom and validTo
+   * timestamps for valid time intervals.</p>
+   */
+  public final ValidTimeConfig validTimeConfig;
 
   // END MEMBERS FOR FIXED FIELDS
 
@@ -381,6 +392,7 @@ public final class ResourceConfiguration {
     indexBackendType = builder.indexBackendType;
     verifyChecksumsOnRead = builder.verifyChecksumsOnRead;
     hashAlgorithm = builder.hashAlgorithm;
+    validTimeConfig = builder.validTimeConfig;
   }
 
   public BinaryEncodingVersion getBinaryEncodingVersion() {
@@ -503,14 +515,32 @@ public final class ResourceConfiguration {
   }
 
   /**
+   * Get the valid time configuration.
+   *
+   * @return the valid time configuration, or null if not configured
+   */
+  public ValidTimeConfig getValidTimeConfig() {
+    return validTimeConfig;
+  }
+
+  /**
+   * Check if valid time support is enabled for this resource.
+   *
+   * @return true if valid time is configured, false otherwise
+   */
+  public boolean hasValidTimeSupport() {
+    return validTimeConfig != null;
+  }
+
+  /**
    * JSON names.
    */
   private static final String[] JSONNAMES =
       { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
           "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
           "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount",
-          "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance", "verifyChecksumsOnRead", 
-          "hashAlgorithm" };
+          "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance", "verifyChecksumsOnRead",
+          "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath" };
 
   /**
    * Serialize the configuration.
@@ -572,6 +602,14 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[20]).value(config.verifyChecksumsOnRead);
       // Hash algorithm for checksums.
       jsonWriter.name(JSONNAMES[21]).value(config.hashAlgorithm.name());
+      // Valid time configuration.
+      if (config.validTimeConfig != null) {
+        jsonWriter.name(JSONNAMES[22]);
+        jsonWriter.beginObject();
+        jsonWriter.name(JSONNAMES[23]).value(config.validTimeConfig.getValidFromPath());
+        jsonWriter.name(JSONNAMES[24]).value(config.validTimeConfig.getValidToPath());
+        jsonWriter.endObject();
+      }
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -714,6 +752,29 @@ public final class ResourceConfiguration {
         }
       }
 
+      // Valid time configuration (optional for backward compatibility with older configs)
+      ValidTimeConfig validTimeConfig = null;
+      if (jsonReader.hasNext()) {
+        name = jsonReader.nextName();
+        if (name.equals(JSONNAMES[22])) {
+          jsonReader.beginObject();
+          String validFromPath = null;
+          String validToPath = null;
+          while (jsonReader.hasNext()) {
+            String fieldName = jsonReader.nextName();
+            if (fieldName.equals(JSONNAMES[23])) {
+              validFromPath = jsonReader.nextString();
+            } else if (fieldName.equals(JSONNAMES[24])) {
+              validToPath = jsonReader.nextString();
+            }
+          }
+          jsonReader.endObject();
+          if (validFromPath != null && validToPath != null) {
+            validTimeConfig = new ValidTimeConfig(validFromPath, validToPath);
+          }
+        }
+      }
+
       jsonReader.endObject();
       jsonReader.close();
       fileReader.close();
@@ -741,7 +802,8 @@ public final class ResourceConfiguration {
              .indexBackendType(indexBackendType)
              .deweyIdSiblingDistance(deweyIdSiblingDistance)
              .verifyChecksumsOnRead(verifyChecksumsOnRead)
-             .hashAlgorithm(hashAlgorithm);
+             .hashAlgorithm(hashAlgorithm)
+             .validTimeConfig(validTimeConfig);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -868,6 +930,12 @@ public final class ResourceConfiguration {
      * Default is XXH3 for maximum performance.
      */
     private HashAlgorithm hashAlgorithm = HashAlgorithm.XXH3;
+
+    /**
+     * Configuration for valid time support in bitemporal queries.
+     * Default is null (no valid time support).
+     */
+    private ValidTimeConfig validTimeConfig = null;
 
     /**
      * Constructor, setting the mandatory fields.
@@ -1166,7 +1234,7 @@ public final class ResourceConfiguration {
 
     /**
      * Set the hash algorithm for page checksums.
-     * 
+     *
      * <p>Default is {@link HashAlgorithm#XXH3}. Changing the algorithm after
      * pages have been written requires re-writing all pages.</p>
      *
@@ -1175,6 +1243,57 @@ public final class ResourceConfiguration {
      */
     public Builder hashAlgorithm(HashAlgorithm algorithm) {
       this.hashAlgorithm = requireNonNull(algorithm);
+      return this;
+    }
+
+    /**
+     * Set the valid time configuration for bitemporal queries.
+     *
+     * <p>When set, this enables first-class valid time support with optimized
+     * bitemporal queries using functions like jn:valid-at() and jn:open-bitemporal().</p>
+     *
+     * <p>CAS indexes will be automatically created for the specified paths when
+     * the resource is opened for writing.</p>
+     *
+     * @param validTimeConfig the valid time configuration, or null to disable
+     * @return reference to the builder object
+     */
+    public Builder validTimeConfig(ValidTimeConfig validTimeConfig) {
+      this.validTimeConfig = validTimeConfig;
+      return this;
+    }
+
+    /**
+     * Set the valid time paths for bitemporal queries.
+     *
+     * <p>This is a convenience method equivalent to calling
+     * {@code validTimeConfig(new ValidTimeConfig(validFromPath, validToPath))}.</p>
+     *
+     * <p>When set, CAS indexes will be automatically created for these paths
+     * to enable optimized bitemporal queries.</p>
+     *
+     * @param validFromPath JSON path to the validFrom field (e.g., "$.validFrom" or "validFrom")
+     * @param validToPath   JSON path to the validTo field (e.g., "$.validTo" or "validTo")
+     * @return reference to the builder object
+     * @throws NullPointerException if any argument is null
+     */
+    public Builder validTimePaths(String validFromPath, String validToPath) {
+      this.validTimeConfig = new ValidTimeConfig(validFromPath, validToPath);
+      return this;
+    }
+
+    /**
+     * Enable valid time support using convention-based field names.
+     *
+     * <p>This uses the standard field names "_validFrom" and "_validTo".</p>
+     *
+     * <p>This is a convenience method equivalent to calling
+     * {@code validTimeConfig(ValidTimeConfig.withConventionalPaths())}.</p>
+     *
+     * @return reference to the builder object
+     */
+    public Builder useConventionalValidTimePaths() {
+      this.validTimeConfig = ValidTimeConfig.withConventionalPaths();
       return this;
     }
 
@@ -1197,6 +1316,7 @@ public final class ResourceConfiguration {
                         .add("Byte handler pipeline", byteHandler)
                         .add("Index backend type", indexBackendType)
                         .add("Verify checksums on read", verifyChecksumsOnRead)
+                        .add("Valid time config", validTimeConfig)
                         .toString();
     }
 
