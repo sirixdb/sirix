@@ -16,7 +16,7 @@ buildscript {
         classpath "com.gradleup.shadow:shadow-gradle-plugin:8.3.3"
         classpath "com.diffplug.spotless:spotless-plugin-gradle:7.2.1"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-        classpath "org.graalvm.buildtools:native-gradle-plugin:0.10.4"
+        classpath "org.graalvm.buildtools:native-gradle-plugin:0.11.4"
     }
 }
 
