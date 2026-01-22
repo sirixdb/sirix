@@ -83,7 +83,7 @@ All data is written sequentially to an append-only log. Nothing is ever overwrit
 ```
 Physical Log (append-only, sequential writes)
 ┌────────────────────────────────────────────────────────────────────────┐
-│ [R1:Root] [R1:P1] [R1:P2] [R2:Root] [R2:P1'] [R3:Root] [R3:P2'] ...   │
+│ [R1:Root] [R1:P1] [R1:P2] [R2:Root] [R2:P1'] [R3:Root] [R3:P2'] ...    │
 └────────────────────────────────────────────────────────────────────────┘
      t=0      t=1     t=2      t=3      t=4       t=5       t=6    → time
 ```
@@ -106,15 +106,15 @@ Revision Roots                    Page Trie (persistent, copy-on-write)
            [Root₁][Root₂][Root₃]          [Pages...]
               │      │      │
               ▼      ▼      ▼
-            ┌────────────────────────────────────────┐
-            │           Shared Page Pool             │
+            ┌───────────────────────────────────────┐
+            │           Shared Page Pool            │
             │  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐      │
             │  │ P1  │ │ P1' │ │ P2  │ │ P2' │ ...  │
             │  └──▲──┘ └──▲──┘ └──▲──┘ └──▲──┘      │
             │     │      │       │       │          │
             │   R1,R2    R3    R1,R3    R2          │
             │  (shared)       (shared)              │
-            └────────────────────────────────────────┘
+            └───────────────────────────────────────┘
 ```
 
 ### Page Versioning Strategies
