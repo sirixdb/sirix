@@ -309,8 +309,8 @@ jn:valid-at('mydb','myresource', xs:dateTime('2024-07-15T12:00:00Z'))
 (: True bitemporal query: combine transaction time and valid time :)
 (: "What records were known on Jan 20 and valid on July 15?" :)
 jn:open-bitemporal('mydb','myresource',
-    xs:dateTime('2024-07-15T12:00:00Z'),   (: valid time :)
-    xs:dateTime('2024-01-20T10:00:00Z'))   (: transaction time :)
+    xs:dateTime('2024-01-20T10:00:00Z'),   (: transaction time - opens revision :)
+    xs:dateTime('2024-07-15T12:00:00Z'))   (: valid time - filters via index :)
 
 (: Extract valid time bounds from a node :)
 let $record := jn:doc('mydb','myresource')[0]

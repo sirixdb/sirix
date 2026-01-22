@@ -31,7 +31,7 @@ import java.time.Instant;
  * </p>
  * <ul>
  * <li><code>jn:open-bitemporal($coll as xs:string, $res as xs:string,
- *     $validTime as xs:dateTime, $transactionTime as xs:dateTime) as json-item()*</code></li>
+ *     $transactionTime as xs:dateTime, $validTime as xs:dateTime) as json-item()*</code></li>
  * </ul>
  *
  * <p>This function enables true bitemporal queries by combining:</p>
@@ -67,7 +67,7 @@ public final class OpenBitemporal extends AbstractFunction {
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     if (args.length != 4) {
-      throw new QueryException(new QNm("Expected 4 arguments: collection, resource, validTime, transactionTime"));
+      throw new QueryException(new QNm("Expected 4 arguments: collection, resource, transactionTime, validTime"));
     }
 
     final JsonDBCollection collection = (JsonDBCollection) ctx.getJsonItemStore()
@@ -78,11 +78,11 @@ public final class OpenBitemporal extends AbstractFunction {
     }
 
     final String resourceName = ((Str) args[1]).stringValue();
-    final DateTime validDateTime = (DateTime) args[2];
-    final DateTime transactionDateTime = (DateTime) args[3];
+    final DateTime transactionDateTime = (DateTime) args[2];
+    final DateTime validDateTime = (DateTime) args[3];
 
-    final Instant validTime = dateTimeToInstant.convert(validDateTime);
     final Instant transactionTime = dateTimeToInstant.convert(transactionDateTime);
+    final Instant validTime = dateTimeToInstant.convert(validDateTime);
 
     // Open the document at the specified transaction time (point in time)
     final JsonDBItem document = collection.getDocument(resourceName, transactionTime);
