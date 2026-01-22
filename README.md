@@ -1,6 +1,6 @@
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/Circuit Technology Logo.png"/></p>
 
-<h1 align="center">SirixDB</h1>
+<h1 align="center">SirixDB - The Bitemporal Database System</h1>
 <h3 align="center">Query any revision as fast as the latest</h3>
 
 <p align="center">
