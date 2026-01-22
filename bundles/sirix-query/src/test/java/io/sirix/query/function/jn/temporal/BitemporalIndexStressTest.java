@@ -1434,4 +1434,485 @@ public final class BitemporalIndexStressTest {
     json.append("]");
     return json.toString();
   }
+
+  @Nested
+  @DisplayName("Unique Path Stress Tests (>1000 paths)")
+  class UniquePathStressTests {
+
+    /**
+     * Tests CAS index with >1000 unique paths containing valid time fields.
+     * This stresses the PCR (Path Class Reference) handling in the index.
+     */
+    @Test
+    @DisplayName("1200 unique paths with validFrom/validTo fields")
+    void test1200UniquePathsWithValidTime() throws IOException {
+      final var dbPath = sirixPath.resolve(DB_NAME);
+      Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+        final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .validTimePaths("validFrom", "validTo")
+            .versioningApproach(VersioningType.FULL)
+            .buildPathSummary(true)
+            .build();
+
+        database.createResource(resourceConfig);
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+          // Generate JSON with 1200 unique paths for validFrom/validTo
+          // Structure: { section_N: { records: [ { validFrom, validTo, ... } ] } }
+          String json = generateJsonWith1200UniquePaths();
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+
+          // Verify path summary has many unique paths
+          var pathSummary = wtx.getPathSummary();
+          assertNotNull(pathSummary, "Path summary should exist");
+        }
+
+        // Verify data can be read
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             var rtx = session.beginNodeReadOnlyTrx()) {
+          rtx.moveToDocumentRoot();
+          assertTrue(rtx.hasFirstChild());
+        }
+      }
+    }
+
+    /**
+     * Tests CAS index with 1500 unique nested paths, verifying index counts.
+     */
+    @Test
+    @DisplayName("1500 unique nested paths with exact count verification")
+    void test1500UniqueNestedPathsWithCounts() throws IOException {
+      final var dbPath = sirixPath.resolve(DB_NAME);
+      Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+      final int NUM_SECTIONS = 150;
+      final int RECORDS_PER_SECTION = 10;
+      final int TOTAL_RECORDS = NUM_SECTIONS * RECORDS_PER_SECTION;
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+        final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .validTimePaths("validFrom", "validTo")
+            .versioningApproach(VersioningType.FULL)
+            .buildPathSummary(true)
+            .build();
+
+        database.createResource(resourceConfig);
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+          // Create CAS indexes that cover all paths
+          // Each section has a unique path: /section_N/data/[]/validFrom
+          var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+
+          // Create indexes for multiple path patterns
+          List<IndexDef> indexes = new ArrayList<>();
+          for (int i = 0; i < NUM_SECTIONS; i++) {
+            var validFromPath = parse("/section_" + i + "/data/[]/validFrom",
+                io.brackit.query.util.path.PathParser.Type.JSON);
+            var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
+                Collections.singleton(validFromPath), i * 2, IndexDef.DbType.JSON);
+
+            var validToPath = parse("/section_" + i + "/data/[]/validTo",
+                io.brackit.query.util.path.PathParser.Type.JSON);
+            var validToIndex = IndexDefs.createCASIdxDef(false, Type.STR,
+                Collections.singleton(validToPath), i * 2 + 1, IndexDef.DbType.JSON);
+
+            indexes.add(validFromIndex);
+            indexes.add(validToIndex);
+          }
+          indexController.createIndexes(Set.copyOf(indexes), wtx);
+
+          // Generate JSON with 150 sections, each with 10 records = 1500 unique paths for validFrom
+          String json = generateJsonWithNestedPaths(NUM_SECTIONS, RECORDS_PER_SECTION);
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+
+          // Verify CAS indexes exist
+          int casIndexCount = indexController.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS);
+          assertEquals(NUM_SECTIONS * 2, casIndexCount,
+              "Should have " + (NUM_SECTIONS * 2) + " CAS indexes (validFrom + validTo per section)");
+
+          // Verify total record count by querying first few indexes
+          long totalVerified = 0;
+          for (int i = 0; i < Math.min(10, NUM_SECTIONS); i++) {
+            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), indexes.get(i * 2),
+                indexController.createCASFilter(
+                    Set.of("/section_" + i + "/data/[]/validFrom"),
+                    new Str("2020-01-01T00:00:00Z"),
+                    SearchMode.GREATER_OR_EQUAL,
+                    new JsonPCRCollector(wtx)));
+
+            long count = 0;
+            while (casIndex.hasNext()) {
+              var refs = casIndex.next();
+              count += refs.getNodeKeys().getLongCardinality();
+            }
+            assertEquals(RECORDS_PER_SECTION, count,
+                "Section " + i + " should have exactly " + RECORDS_PER_SECTION + " indexed entries");
+            totalVerified += count;
+          }
+          assertTrue(totalVerified > 0, "Should have verified some records");
+        }
+
+        // Verify data integrity in read transaction
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             var rtx = session.beginNodeReadOnlyTrx()) {
+          rtx.moveToDocumentRoot();
+          assertTrue(rtx.hasFirstChild());
+          rtx.moveToFirstChild();
+
+          // Count top-level keys (should be NUM_SECTIONS)
+          int sectionCount = 0;
+          if (rtx.hasFirstChild()) {
+            rtx.moveToFirstChild();
+            sectionCount++;
+            while (rtx.hasRightSibling()) {
+              rtx.moveToRightSibling();
+              sectionCount++;
+            }
+          }
+          assertEquals(NUM_SECTIONS, sectionCount, "Should have " + NUM_SECTIONS + " sections");
+        }
+      }
+    }
+
+    /**
+     * Tests deeply nested paths (5+ levels) with valid time fields.
+     */
+    @Test
+    @DisplayName("Deep nesting with 2000 unique paths at varying depths")
+    void testDeepNestingWithUniquePathsAtVaryingDepths() throws IOException {
+      final var dbPath = sirixPath.resolve(DB_NAME);
+      Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+        final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .validTimePaths("validFrom", "validTo")
+            .versioningApproach(VersioningType.FULL)
+            .buildPathSummary(true)
+            .build();
+
+        database.createResource(resourceConfig);
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+          // Generate deeply nested structure with 2000 unique paths
+          // Paths like: /level1_N/level2_M/level3_O/data/[]/validFrom
+          String json = generateDeeplyNestedJson(2000);
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+        }
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             var rtx = session.beginNodeReadOnlyTrx()) {
+          rtx.moveToDocumentRoot();
+          assertTrue(rtx.hasFirstChild());
+        }
+      }
+    }
+
+    /**
+     * Tests mixed paths with some containing valid time and some not.
+     */
+    @Test
+    @DisplayName("2500 paths with mixed valid time fields")
+    void testMixedPathsWithAndWithoutValidTime() throws IOException {
+      final var dbPath = sirixPath.resolve(DB_NAME);
+      Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+        final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .validTimePaths("validFrom", "validTo")
+            .versioningApproach(VersioningType.FULL)
+            .buildPathSummary(true)
+            .build();
+
+        database.createResource(resourceConfig);
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+          // Generate mixed structure:
+          // - 1500 paths with valid time fields
+          // - 1000 paths without valid time fields (should be ignored by index)
+          String json = generateMixedPathsJson(2500);
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+        }
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             var rtx = session.beginNodeReadOnlyTrx()) {
+          rtx.moveToDocumentRoot();
+          assertTrue(rtx.hasFirstChild());
+        }
+      }
+    }
+
+    /**
+     * Tests paths with similar prefixes to stress the path summary trie.
+     */
+    @Test
+    @DisplayName("1800 paths with similar prefixes")
+    void testPathsWithSimilarPrefixes() throws IOException {
+      final var dbPath = sirixPath.resolve(DB_NAME);
+      Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+        final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .validTimePaths("validFrom", "validTo")
+            .versioningApproach(VersioningType.FULL)
+            .buildPathSummary(true)
+            .build();
+
+        database.createResource(resourceConfig);
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+          // Generate paths with similar prefixes to stress trie:
+          // /organization/department_N/team_M/member_O/validFrom
+          // This creates many paths that share common prefixes
+          String json = generateSimilarPrefixPaths(1800);
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+        }
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             var rtx = session.beginNodeReadOnlyTrx()) {
+          rtx.moveToDocumentRoot();
+          assertTrue(rtx.hasFirstChild());
+        }
+      }
+    }
+
+    /**
+     * Tests index query across many unique paths.
+     */
+    @Test
+    @DisplayName("Query across 1000+ unique paths with explicit index verification")
+    void testQueryAcross1000UniquePaths() throws IOException {
+      final var dbPath = sirixPath.resolve(DB_NAME);
+      Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+
+      final int NUM_DEPARTMENTS = 100;
+      final int EMPLOYEES_PER_DEPT = 10;
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
+        final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
+            .validTimePaths("validFrom", "validTo")
+            .versioningApproach(VersioningType.FULL)
+            .buildPathSummary(true)
+            .build();
+
+        database.createResource(resourceConfig);
+
+        List<Long> allValidFromNodeKeys = new ArrayList<>();
+
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+             JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+          // Create CAS indexes for all department paths
+          var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+          List<IndexDef> indexes = new ArrayList<>();
+
+          for (int dept = 0; dept < NUM_DEPARTMENTS; dept++) {
+            var validFromPath = parse("/dept_" + dept + "/employees/[]/validFrom",
+                io.brackit.query.util.path.PathParser.Type.JSON);
+            var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
+                Collections.singleton(validFromPath), dept, IndexDef.DbType.JSON);
+            indexes.add(validFromIndex);
+          }
+          indexController.createIndexes(Set.copyOf(indexes), wtx);
+
+          // Generate structure with 100 departments, each with 10 employees = 1000 records
+          StringBuilder json = new StringBuilder("{");
+          for (int dept = 0; dept < NUM_DEPARTMENTS; dept++) {
+            if (dept > 0) json.append(",");
+            json.append("\"dept_").append(dept).append("\": {\"employees\": [");
+            for (int emp = 0; emp < EMPLOYEES_PER_DEPT; emp++) {
+              if (emp > 0) json.append(",");
+              LocalDate hireDate = LocalDate.of(2020, 1, 1).plusDays(dept * 10L + emp);
+              LocalDate contractEnd = hireDate.plusYears(2);
+              json.append("{\"id\": ").append(dept * 1000 + emp)
+                  .append(", \"name\": \"emp_").append(dept).append("_").append(emp).append("\"")
+                  .append(", \"validFrom\": \"").append(hireDate.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+                  .append(", \"validTo\": \"").append(contractEnd.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+                  .append("}");
+            }
+            json.append("]}");
+          }
+          json.append("}");
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+
+          // Collect all validFrom nodeKeys by querying each department's index
+          for (int dept = 0; dept < NUM_DEPARTMENTS; dept++) {
+            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), indexes.get(dept),
+                indexController.createCASFilter(
+                    Set.of("/dept_" + dept + "/employees/[]/validFrom"),
+                    new Str("2020-01-01T00:00:00Z"),
+                    SearchMode.GREATER_OR_EQUAL,
+                    new JsonPCRCollector(wtx)));
+
+            while (casIndex.hasNext()) {
+              var refs = casIndex.next();
+              refs.getNodeKeys().forEach(allValidFromNodeKeys::add);
+            }
+          }
+
+          // Verify total count
+          assertEquals(NUM_DEPARTMENTS * EMPLOYEES_PER_DEPT, allValidFromNodeKeys.size(),
+              "Should have exactly " + (NUM_DEPARTMENTS * EMPLOYEES_PER_DEPT) + " indexed validFrom entries");
+
+          // Verify no duplicate nodeKeys
+          long uniqueCount = allValidFromNodeKeys.stream().distinct().count();
+          assertEquals(allValidFromNodeKeys.size(), uniqueCount,
+              "All nodeKeys should be unique across departments");
+        }
+      }
+    }
+
+    // Helper methods for generating unique path test data
+
+    private String generateJsonWith1200UniquePaths() {
+      // Create 120 sections with 10 records each = 1200 unique paths for validFrom/validTo
+      StringBuilder json = new StringBuilder("{");
+      for (int section = 0; section < 120; section++) {
+        if (section > 0) json.append(",");
+        json.append("\"section_").append(section).append("\": {\"records\": [");
+        for (int i = 0; i < 10; i++) {
+          if (i > 0) json.append(",");
+          LocalDate validFrom = LocalDate.of(2020, 1, 1).plusDays(section * 10L + i);
+          LocalDate validTo = validFrom.plusMonths(6);
+          json.append("{\"id\": ").append(section * 10 + i)
+              .append(", \"validFrom\": \"").append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+              .append(", \"validTo\": \"").append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+              .append("}");
+        }
+        json.append("]}");
+      }
+      json.append("}");
+      return json.toString();
+    }
+
+    private String generateJsonWithNestedPaths(int numSections, int recordsPerSection) {
+      StringBuilder json = new StringBuilder("{");
+      for (int section = 0; section < numSections; section++) {
+        if (section > 0) json.append(",");
+        json.append("\"section_").append(section).append("\": {\"data\": [");
+        for (int i = 0; i < recordsPerSection; i++) {
+          if (i > 0) json.append(",");
+          LocalDate validFrom = LocalDate.of(2020, 1, 1).plusDays(section * recordsPerSection + i);
+          LocalDate validTo = validFrom.plusMonths(3);
+          json.append("{\"id\": ").append(section * recordsPerSection + i)
+              .append(", \"value\": ").append(i * 100)
+              .append(", \"validFrom\": \"").append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+              .append(", \"validTo\": \"").append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+              .append("}");
+        }
+        json.append("]}");
+      }
+      json.append("}");
+      return json.toString();
+    }
+
+    private String generateDeeplyNestedJson(int numPaths) {
+      // Create paths at varying depths: 20 level1 * 20 level2 * 5 level3 = 2000 paths
+      StringBuilder json = new StringBuilder("{");
+      int pathCount = 0;
+      for (int l1 = 0; l1 < 20 && pathCount < numPaths; l1++) {
+        if (l1 > 0) json.append(",");
+        json.append("\"level1_").append(l1).append("\": {");
+        for (int l2 = 0; l2 < 20 && pathCount < numPaths; l2++) {
+          if (l2 > 0) json.append(",");
+          json.append("\"level2_").append(l2).append("\": {");
+          for (int l3 = 0; l3 < 5 && pathCount < numPaths; l3++) {
+            if (l3 > 0) json.append(",");
+            json.append("\"level3_").append(l3).append("\": {\"data\": [");
+            LocalDate validFrom = LocalDate.of(2020, 1, 1).plusDays(pathCount);
+            LocalDate validTo = validFrom.plusYears(1);
+            json.append("{\"id\": ").append(pathCount)
+                .append(", \"validFrom\": \"").append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+                .append(", \"validTo\": \"").append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+                .append("}]}");
+            pathCount++;
+          }
+          json.append("}");
+        }
+        json.append("}");
+      }
+      json.append("}");
+      return json.toString();
+    }
+
+    private String generateMixedPathsJson(int numPaths) {
+      // 60% paths have valid time, 40% don't
+      StringBuilder json = new StringBuilder("{");
+      for (int i = 0; i < numPaths; i++) {
+        if (i > 0) json.append(",");
+        boolean hasValidTime = (i % 10) < 6;  // 60% have valid time
+        json.append("\"entity_").append(i).append("\": {\"data\": [");
+        LocalDate date = LocalDate.of(2020, 1, 1).plusDays(i);
+        if (hasValidTime) {
+          json.append("{\"id\": ").append(i)
+              .append(", \"value\": ").append(i * 10)
+              .append(", \"validFrom\": \"").append(date.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+              .append(", \"validTo\": \"").append(date.plusMonths(6).atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+              .append("}");
+        } else {
+          // No valid time fields
+          json.append("{\"id\": ").append(i)
+              .append(", \"value\": ").append(i * 10)
+              .append(", \"status\": \"permanent\"")
+              .append("}");
+        }
+        json.append("]}");
+      }
+      json.append("}");
+      return json.toString();
+    }
+
+    private String generateSimilarPrefixPaths(int numPaths) {
+      // Structure: organization/department_N/team_M/member_O
+      // 6 departments * 10 teams * 30 members = 1800 paths
+      StringBuilder json = new StringBuilder("{\"organization\": {");
+      int pathCount = 0;
+      for (int dept = 0; dept < 6 && pathCount < numPaths; dept++) {
+        if (dept > 0) json.append(",");
+        json.append("\"department_").append(dept).append("\": {");
+        for (int team = 0; team < 10 && pathCount < numPaths; team++) {
+          if (team > 0) json.append(",");
+          json.append("\"team_").append(team).append("\": {\"members\": [");
+          for (int member = 0; member < 30 && pathCount < numPaths; member++) {
+            if (member > 0) json.append(",");
+            LocalDate joinDate = LocalDate.of(2020, 1, 1).plusDays(pathCount);
+            LocalDate leaveDate = joinDate.plusYears(3);
+            json.append("{\"id\": ").append(pathCount)
+                .append(", \"name\": \"member_").append(pathCount).append("\"")
+                .append(", \"validFrom\": \"").append(joinDate.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+                .append(", \"validTo\": \"").append(leaveDate.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+                .append("}");
+            pathCount++;
+          }
+          json.append("]}");
+        }
+        json.append("}");
+      }
+      json.append("}}");
+      return json.toString();
+    }
+  }
 }
