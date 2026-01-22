@@ -1,8 +1,7 @@
 <p align="center"><img src="https://raw.githubusercontent.com/sirixdb/sirix/master/Circuit Technology Logo.png"/></p>
 
 <h1 align="center">SirixDB</h1>
-<h3 align="center">Bitemporal JSON database with efficient versioning</h3>
-<p align="center"><em>The database that remembers everything</em></p>
+<h3 align="center">Query any revision as fast as the latest</h3>
 
 <p align="center">
 <a href="https://github.com/sirixdb/sirix/actions"><img src="https://github.com/sirixdb/sirix/workflows/Java%20CI%20with%20Gradle/badge.svg" alt="CI Build Status"/></a>
@@ -17,27 +16,147 @@
 
 ---
 
-## What is SirixDB?
+## The Problem
 
-SirixDB is an embeddable, temporal, append-only database system for JSON and XML documents. Every commit creates a new revision. Past revisions remain accessible and immutable.
+You update a row in your database. The old value is gone.
 
-**Core properties:**
+To get history, you bolt on audit tables, change-data-capture, or event sourcing. Now you have two systems: one for current state, one for history. Querying the past means replaying events or scanning logs. Your "simple" audit requirement just became an infrastructure project.
+
+Git solves this for files—but you can't query a Git repository. Event sourcing preserves history—but reconstructing past state means replaying from the beginning.
+
+## The Solution
+
+SirixDB is a database where **every revision is a first-class citizen**. Not an afterthought. Not a log you replay.
+
+```java
+// Query revision 1 - instant, not reconstructed
+session.beginNodeReadOnlyTrx(1)
+
+// Query by timestamp - which revision was current at 3am last Tuesday?
+session.beginNodeReadOnlyTrx(Instant.parse("2024-01-15T03:00:00Z"))
+
+// Both return the same thing: a readable snapshot, as fast as querying "now"
+```
+
+This works because SirixDB uses **structural sharing**: when you modify data, only changed pages are written. Unchanged data is shared between revisions via copy-on-write. Revision 1000 doesn't store 1000 copies—it stores the current state plus pointers to shared history.
+
+**The result:**
+- Storage: O(changes per revision), not O(total size × revisions)
+- Read any page from any revision: O(N) page fragment reads, where N is the configurable snapshot window (typically 10-100)
+- No event replay, no log scanning—direct page access
+
+## Bitemporal: Two Kinds of Time
+
+Most databases (if they version at all) track one timeline: when data was written. SirixDB tracks two:
+
+- **Transaction time**: When was this committed? (system-managed)
+- **Valid time**: When was this true in the real world? (user-managed)
+
+Why does this matter?
+
+```
+January 15: You record "Price = $100, valid from January 1"
+January 20: You discover the price was actually $95 on January 1
+
+After correction, you can ask:
+  "What did we THINK the price was on Jan 16?"  →  $100 (transaction time)
+  "What WAS the price on Jan 1?"                →  $95  (valid time)
+```
+
+Both questions have correct, different answers. Without bitemporal support, the correction destroys the audit trail.
+
+## Core Properties
 
 - **Append-only storage**: Data is never overwritten. New revisions write to new locations.
 - **Structural sharing**: Unchanged pages and nodes are referenced between revisions via copy-on-write.
-- **Bitemporal**: Tracks both transaction time (when data was committed) and optionally valid time (when data was true in the real world).
 - **Snapshot isolation**: Readers see a consistent view; one writer per resource.
+- **Embeddable**: Single JAR, no external dependencies. Or run as REST server.
 
 ## How Versioning Works
 
 SirixDB stores data in a persistent tree structure where revisions share unchanged pages and nodes. Traditional databases overwrite data in place and use write-ahead logs for recovery. SirixDB takes a different approach:
 
+### Physical Storage: Append-Only Log
+
+All data is written sequentially to an append-only log. Nothing is ever overwritten.
+
 ```
-Revision 1:  [Page A] ─── [Page B] ─── [Page C]
-                  │            │
-Revision 2:  [Page A] ─── [Page B'] ── [Page C]
-                  │            │            │
-Revision 3:  [Page A'] ── [Page B'] ── [Page C]
+Physical Log (append-only, sequential writes)
+┌────────────────────────────────────────────────────────────────────────┐
+│ [R1:Root] [R1:P1] [R1:P2] [R2:Root] [R2:P1'] [R3:Root] [R3:P2'] ...   │
+└────────────────────────────────────────────────────────────────────────┘
+     t=0      t=1     t=2      t=3      t=4       t=5       t=6    → time
+```
+
+### Logical Structure: Persistent Trie
+
+Each revision has a root node in a trie. Unchanged pages are shared via references.
+
+```
+Revision Roots                    Page Trie (persistent, copy-on-write)
+      │
+      ▼
+   [Rev 3] ─────────────────┬─────────────────┐
+      │                     │                 │
+   [Rev 2] ────────┬────────┤                 │
+      │            │        │                 │
+   [Rev 1] ───┐    │        │                 │
+              │    │        │                 │
+              ▼    ▼        ▼                 ▼
+           [Root₁][Root₂][Root₃]          [Pages...]
+              │      │      │
+              ▼      ▼      ▼
+            ┌────────────────────────────────────────┐
+            │           Shared Page Pool             │
+            │  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐      │
+            │  │ P1  │ │ P1' │ │ P2  │ │ P2' │ ...  │
+            │  └──▲──┘ └──▲──┘ └──▲──┘ └──▲──┘      │
+            │     │      │       │       │          │
+            │   R1,R2    R3    R1,R3    R2          │
+            │  (shared)       (shared)              │
+            └────────────────────────────────────────┘
+```
+
+### Page Versioning Strategies
+
+SirixDB supports multiple strategies for storing page versions, configurable per resource:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ FULL: Each page stores complete data                                    │
+│                                                                         │
+│   Rev1: [████████]  Rev2: [████████]  Rev3: [████████]                 │
+│         (full)            (full)            (full)                      │
+│                                                                         │
+│   + Fast reads (no reconstruction)                                      │
+│   - High storage cost                                                   │
+├─────────────────────────────────────────────────────────────────────────┤
+│ INCREMENTAL: Each page stores diff from previous revision               │
+│                                                                         │
+│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←2]  Rev4: [Δ←3]              │
+│         (full)       (diff)       (diff)       (diff)                   │
+│                                                                         │
+│   + Minimal storage                                                     │
+│   - Read cost grows: Rev4 = apply(Δ3, apply(Δ2, apply(Δ1, Rev1)))      │
+├─────────────────────────────────────────────────────────────────────────┤
+│ DIFFERENTIAL: Each page stores diff from a reference snapshot           │
+│                                                                         │
+│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←1]  Rev4: [Δ←1]              │
+│         (full)       (diff)       (diff)       (diff)                   │
+│                                                                         │
+│   + Bounded read cost (max 1 diff to apply)                             │
+│   - Diffs grow larger over time                                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│ SLIDING SNAPSHOT: Periodic full snapshots + incremental diffs           │
+│                                                                         │
+│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←2]  Rev4: [████████]  Rev5:  │
+│         (full)       (diff)       (diff)       (full)           [Δ←4]  │
+│         ◄──────── window N=3 ────────►        ◄──── window ────►       │
+│                                                                         │
+│   + Bounded read cost (max N diffs)                                     │
+│   + Bounded diff size (reset at each snapshot)                          │
+│   = Best balance of storage vs read performance                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 When you modify data:
@@ -45,17 +164,9 @@ When you modify data:
 2. Unchanged pages are referenced from the new revision
 3. The old revision remains intact and queryable
 
-**Storage cost**: O(changed nodes) per revision, not O(total size).
+**Storage cost**: O(changed pages) per revision, not O(total document size).
 
-**Read performance**: Any revision accessible in O(log R) where R = number of revisions, using a sliding snapshot algorithm that periodically writes full page snapshots to bound reconstruction cost.
-
-### Sliding Snapshot Algorithm
-
-To avoid unbounded page reconstruction chains, SirixDB uses a sliding snapshot window:
-
-- Every N revisions (configurable), full page images are written
-- Reading a page requires reconstructing at most N page deltas
-- Balances storage efficiency against read amplification
+**Read performance**: Opening a revision is O(1) by revision number or O(log R) by timestamp (binary search over R revisions). Each page read requires combining at most N page fragments, where N is the snapshot window size (configurable, default 10). Tree traversal to locate a node is O(log nodes), same as querying the latest revision.
 
 ## Quick Start
 
@@ -81,6 +192,8 @@ Build native binaries with GraalVM:
 
 #### sirix-cli: Database Operations
 
+The `-l` option specifies the database path. Each database can contain multiple resources.
+
 **Create a database and store JSON:**
 ```bash
 sirix-cli -l /tmp/mydb create json -r myresource -d '{"name": "Alice", "role": "admin"}'
@@ -93,7 +206,8 @@ sirix-cli -l /tmp/mydb query -r myresource
 
 **Run a JSONiq query:**
 ```bash
-sirix-cli -l /tmp/mydb query -r myresource 'jn:doc("mydb","myresource").name'
+# The context is set to the document root, so access fields directly
+sirix-cli -l /tmp/mydb query -r myresource '.name'
 ```
 
 **Update and create a new revision:**
@@ -245,25 +359,9 @@ where empty($prev) or sdb:hash($v) ne sdb:hash($prev)
 return sdb:revision($v)
 ```
 
-### Bitemporal Data
+### Bitemporal Queries
 
-SirixDB supports bitemporal data through two independent time dimensions:
-
-- **Transaction time**: System-managed. Each revision records when data was committed. Query via `jn:open` with a timestamp or `sdb:timestamp` to retrieve it.
-- **Valid time**: User-managed. Store validity periods in your data model. SirixDB provides first-class support for querying valid time.
-
-Why does this matter? Consider a correction scenario:
-
-```
-On Jan 15, you record: "Price is $100" (valid from Jan 1)
-On Jan 20, you discover the price was actually $95 on Jan 1
-
-After correction:
-- Query "what did we KNOW on Jan 16?" → $100 (transaction time via revision)
-- Query "what WAS the price on Jan 1?" → $95 (valid time via your data fields)
-```
-
-Both answers are correct for different questions. Without bitemporality, the correction would destroy the audit trail.
+Query both time dimensions (see [Bitemporal: Two Kinds of Time](#bitemporal-two-kinds-of-time) above for why this matters).
 
 #### Configuring Valid Time Support
 
@@ -323,7 +421,7 @@ return {
 #### Transaction Time Functions
 
 ```xquery
-(: Transaction time: open resource as it existed at a point in time :)
+(: Transaction time: what did the database look like at a point in time? :)
 jn:open('mydb','myresource', xs:dateTime('2024-01-15T10:30:00Z'))
 
 (: Get the commit timestamp of current revision :)
@@ -415,13 +513,14 @@ Database (directory)
 
 ## Comparison with Alternatives
 
-| Feature | SirixDB | Git + JSON files | Event Store | Datomic |
-|---------|---------|------------------|-------------|---------|
-| Query language | JSONiq/XQuery | None (file-based) | Projections | Datalog |
-| Granularity | Node-level | File-level | Event-level | Fact-level |
-| Diff efficiency | O(changed nodes) | O(file size) | N/A | O(changed datoms) |
-| Embeddable | Yes | Yes | No | No (peer model) |
-| Bitemporal | Yes | No | No | Yes |
+| Feature | SirixDB | Postgres + Audit | Git + JSON | Event Sourcing | Datomic |
+|---------|---------|------------------|------------|----------------|---------|
+| Query past state | Direct page access | Scan audit log | Checkout + parse | Replay events | Direct segment access |
+| Storage overhead | O(changes) | O(all writes) | O(file × revs) | O(all events) | O(changes) |
+| Granularity | Node-level | Row-level | File-level | Event-level | Fact-level |
+| Bitemporal | Built-in | Manual | No | Manual | Built-in |
+| Embeddable | Yes | No | Yes | Varies | No |
+| Query language | JSONiq/XQuery | SQL | None | Varies | Datalog |
 
 ## Building from Source
 
