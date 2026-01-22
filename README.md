@@ -125,7 +125,7 @@ SirixDB supports multiple strategies for storing page versions, configurable per
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ FULL: Each page stores complete data                                    │
 │                                                                         │
-│   Rev1: [████████]  Rev2: [████████]  Rev3: [████████]                 │
+│   Rev1: [████████]  Rev2: [████████]  Rev3: [████████]                  │
 │         (full)            (full)            (full)                      │
 │                                                                         │
 │   + Fast reads (no reconstruction)                                      │
@@ -133,15 +133,15 @@ SirixDB supports multiple strategies for storing page versions, configurable per
 ├─────────────────────────────────────────────────────────────────────────┤
 │ INCREMENTAL: Each page stores diff from previous revision               │
 │                                                                         │
-│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←2]  Rev4: [Δ←3]              │
+│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←2]  Rev4: [Δ←3]               │
 │         (full)       (diff)       (diff)       (diff)                   │
 │                                                                         │
 │   + Minimal storage                                                     │
-│   - Read cost grows: Rev4 = apply(Δ3, apply(Δ2, apply(Δ1, Rev1)))      │
+│   - Read cost grows: Rev4 = apply(Δ3, apply(Δ2, apply(Δ1, Rev1)))       │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ DIFFERENTIAL: Each page stores diff from a reference snapshot           │
 │                                                                         │
-│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←1]  Rev4: [Δ←1]              │
+│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←1]  Rev4: [Δ←1]               │
 │         (full)       (diff)       (diff)       (diff)                   │
 │                                                                         │
 │   + Bounded read cost (max 1 diff to apply)                             │
@@ -149,9 +149,9 @@ SirixDB supports multiple strategies for storing page versions, configurable per
 ├─────────────────────────────────────────────────────────────────────────┤
 │ SLIDING SNAPSHOT: Periodic full snapshots + incremental diffs           │
 │                                                                         │
-│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←2]  Rev4: [████████]  Rev5:  │
-│         (full)       (diff)       (diff)       (full)           [Δ←4]  │
-│         ◄──────── window N=3 ────────►        ◄──── window ────►       │
+│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←2]  Rev4: [████████]  Rev5:   │
+│         (full)       (diff)       (diff)       (full)           [Δ←4]   │
+│         ◄──────── window N=3 ────────►        ◄──── window ────►        │
 │                                                                         │
 │   + Bounded read cost (max N diffs)                                     │
 │   + Bounded diff size (reset at each snapshot)                          │
