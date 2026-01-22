@@ -42,7 +42,7 @@ This works because SirixDB uses **structural sharing**: when you modify data, on
 
 **The result:**
 - Storage: O(changes per revision), not O(total size × revisions)
-- Read any page from any revision: O(N) page fragment reads, where N is the configurable snapshot window (typically 10-100)
+- Read any page from any revision: O(N) page fragment reads, where N is the configurable snapshot window (default 3)
 - No event replay, no log scanning—direct page access
 
 ## Bitemporal: Two Kinds of Time
@@ -166,7 +166,7 @@ When you modify data:
 
 **Storage cost**: O(changed pages) per revision, not O(total document size).
 
-**Read performance**: Opening a revision is O(1) by revision number or O(log R) by timestamp (binary search over R revisions). Each page read requires combining at most N page fragments, where N is the snapshot window size (configurable, default 10). Tree traversal to locate a node is O(log nodes), same as querying the latest revision.
+**Read performance**: Opening a revision is O(1) by revision number or O(log R) by timestamp (binary search over R revisions). Each page read requires combining at most N page fragments, where N is the snapshot window size (configurable, default 3). Tree traversal to locate a node is O(log nodes), same as querying the latest revision.
 
 ## Quick Start
 
