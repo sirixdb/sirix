@@ -345,8 +345,28 @@ public final class Databases {
   }
 
   /**
+   * System property for record page cache size in bytes.
+   * Default scales with memory budget: 6.5MB per GB of budget.
+   * Example: -Dsirix.cache.recordPage=1073741824 (for 1GB cache)
+   */
+  public static final String PROP_RECORD_PAGE_CACHE = "sirix.cache.recordPage";
+
+  /**
+   * System property for record page fragment cache size in bytes.
+   * Default scales with memory budget: 3.25MB per GB of budget.
+   * Example: -Dsirix.cache.recordPageFragment=536870912 (for 512MB cache)
+   */
+  public static final String PROP_RECORD_PAGE_FRAGMENT_CACHE = "sirix.cache.recordPageFragment";
+
+  /**
    * Initialize the global BufferManager with sizes based on memory budget.
    * Called when the first database is opened.
+   * <p>
+   * Cache sizes can be overridden via system properties:
+   * <ul>
+   *   <li>{@code -Dsirix.cache.recordPage=<bytes>} - Record page cache size</li>
+   *   <li>{@code -Dsirix.cache.recordPageFragment=<bytes>} - Record page fragment cache size</li>
+   * </ul>
    *
    * @param maxSegmentAllocationSize the maximum memory budget for the allocator
    */
@@ -356,27 +376,37 @@ public final class Databases {
       // Other caches use fixed baseline sizes
       long budgetGB = maxSegmentAllocationSize / (1L << 30);
       int scaleFactor = (int) Math.max(1, budgetGB);
-      
-      // Scale with budget (these are the main memory consumers)
-      int maxRecordPageCacheWeight = 65_536 * 100 * scaleFactor;
-      int maxRecordPageFragmentCacheWeight = (65_536 * 100 * scaleFactor) / 2;
-      
+
+      // Calculate default sizes (scale with budget)
+      int defaultRecordPageCacheWeight = 65_536 * 100 * scaleFactor;
+      int defaultRecordPageFragmentCacheWeight = (65_536 * 100 * scaleFactor) / 2;
+
+      // Allow user override via system properties
+      int maxRecordPageCacheWeight = getSystemPropertyInt(
+          PROP_RECORD_PAGE_CACHE, defaultRecordPageCacheWeight);
+      int maxRecordPageFragmentCacheWeight = getSystemPropertyInt(
+          PROP_RECORD_PAGE_FRAGMENT_CACHE, defaultRecordPageFragmentCacheWeight);
+
       // Fixed sizes (don't scale with budget)
       int maxPageCacheWeight = 500_000;
       int maxRevisionRootPageCache = 5_000;
       int maxRBTreeNodeCache = 50_000;
       int maxNamesCacheSize = 500;
       int maxPathSummaryCacheSize = 20;
-      
+
       logger.info("Initializing global BufferManager with memory budget: {} GB", budgetGB);
-      logger.info("  - RecordPageCache weight: {} (scaled {}x)", maxRecordPageCacheWeight, scaleFactor);
-      logger.info("  - RecordPageFragmentCache weight: {} (scaled {}x)", maxRecordPageFragmentCacheWeight, scaleFactor);
+      logger.info("  - RecordPageCache weight: {} bytes ({} MB){}",
+          maxRecordPageCacheWeight, maxRecordPageCacheWeight / (1024 * 1024),
+          System.getProperty(PROP_RECORD_PAGE_CACHE) != null ? " (user-configured)" : " (default, scaled " + scaleFactor + "x)");
+      logger.info("  - RecordPageFragmentCache weight: {} bytes ({} MB){}",
+          maxRecordPageFragmentCacheWeight, maxRecordPageFragmentCacheWeight / (1024 * 1024),
+          System.getProperty(PROP_RECORD_PAGE_FRAGMENT_CACHE) != null ? " (user-configured)" : " (default, scaled " + scaleFactor + "x)");
       logger.info("  - PageCache weight: {} (fixed)", maxPageCacheWeight);
       logger.info("  - RevisionRootPageCache size: {} (fixed)", maxRevisionRootPageCache);
       logger.info("  - RBTreeNodeCache size: {} (fixed)", maxRBTreeNodeCache);
       logger.info("  - NamesCache size: {} (fixed)", maxNamesCacheSize);
       logger.info("  - PathSummaryCache size: {} (fixed)", maxPathSummaryCacheSize);
-      
+
       GLOBAL_BUFFER_MANAGER = new BufferManagerImpl(
           maxPageCacheWeight,
           maxRecordPageCacheWeight,
@@ -385,18 +415,50 @@ public final class Databases {
           maxRBTreeNodeCache,
           maxNamesCacheSize,
           maxPathSummaryCacheSize);
-      
+
       // Initialize global epoch tracker (large slot count for all databases/resources)
       GLOBAL_EPOCH_TRACKER = new RevisionEpochTracker(4096);
       GLOBAL_EPOCH_TRACKER.setLastCommittedRevision(0);
-      
+
       // Start GLOBAL ClockSweeper threads (PostgreSQL bgwriter pattern)
       // These run continuously until DBMS shutdown
       if (GLOBAL_BUFFER_MANAGER instanceof BufferManagerImpl bufferMgrImpl) {
         bufferMgrImpl.startClockSweepers(GLOBAL_EPOCH_TRACKER);
       }
-      
+
       logger.info("GLOBAL ClockSweeper threads started (PostgreSQL bgwriter pattern)");
+    }
+  }
+
+  /**
+   * Get an integer system property with a default value.
+   *
+   * @param property the property name
+   * @param defaultValue the default value if property is not set or invalid
+   * @return the property value or default
+   */
+  private static int getSystemPropertyInt(String property, int defaultValue) {
+    String value = System.getProperty(property);
+    if (value == null || value.isEmpty()) {
+      return defaultValue;
+    }
+    try {
+      long parsedValue = Long.parseLong(value);
+      if (parsedValue <= 0) {
+        logger.warn("Invalid value for {}: {} (must be positive), using default: {}",
+            property, value, defaultValue);
+        return defaultValue;
+      }
+      if (parsedValue > Integer.MAX_VALUE) {
+        logger.warn("Value for {} exceeds maximum ({}): {}, capping at max",
+            property, Integer.MAX_VALUE, value);
+        return Integer.MAX_VALUE;
+      }
+      return (int) parsedValue;
+    } catch (NumberFormatException e) {
+      logger.warn("Invalid value for {}: {} (not a number), using default: {}",
+          property, value, defaultValue);
+      return defaultValue;
     }
   }
 
@@ -417,7 +479,7 @@ public final class Databases {
    * Get the global RevisionEpochTracker instance.
    * All resource sessions register their active revisions with this global tracker.
    * This follows PostgreSQL pattern for MVCC snapshot tracking.
-   * 
+   *
    * @return the single global RevisionEpochTracker instance
    */
   public static RevisionEpochTracker getGlobalEpochTracker() {
@@ -427,5 +489,70 @@ public final class Databases {
       GLOBAL_EPOCH_TRACKER.setLastCommittedRevision(0);
     }
     return GLOBAL_EPOCH_TRACKER;
+  }
+
+  /**
+   * Reinitialize the global BufferManager with custom cache sizes.
+   * <p>
+   * <b>FOR TESTING ONLY!</b> This method is intended for benchmarking and performance testing.
+   * It should NOT be called in production code as it replaces the global buffer manager,
+   * which can cause issues with existing database connections.
+   * <p>
+   * Must be called BEFORE opening any database, or after all databases are closed.
+   *
+   * @param recordPageCacheBytes maximum weight in bytes for the record page cache
+   * @param recordPageFragmentCacheBytes maximum weight in bytes for the record page fragment cache
+   */
+  public static synchronized void reinitializeBufferManagerForTesting(
+      long recordPageCacheBytes,
+      long recordPageFragmentCacheBytes) {
+    if (!MANAGER.sessions().isEmpty()) {
+      throw new IllegalStateException("Cannot reinitialize BufferManager while databases are open");
+    }
+
+    // Shutdown existing buffer manager if present
+    if (GLOBAL_BUFFER_MANAGER != null) {
+      try {
+        GLOBAL_BUFFER_MANAGER.close();
+      } catch (Exception e) {
+        logger.warn("Error closing existing BufferManager: {}", e.getMessage());
+      }
+      GLOBAL_BUFFER_MANAGER = null;
+    }
+
+    // Fixed sizes (same as default initialization)
+    int maxPageCacheWeight = 500_000;
+    int maxRevisionRootPageCache = 5_000;
+    int maxRBTreeNodeCache = 50_000;
+    int maxNamesCacheSize = 500;
+    int maxPathSummaryCacheSize = 20;
+
+    logger.info("Reinitializing BufferManager for testing:");
+    logger.info("  - RecordPageCache: {} bytes ({} MB)",
+        recordPageCacheBytes, recordPageCacheBytes / (1024 * 1024));
+    logger.info("  - RecordPageFragmentCache: {} bytes ({} MB)",
+        recordPageFragmentCacheBytes, recordPageFragmentCacheBytes / (1024 * 1024));
+
+    GLOBAL_BUFFER_MANAGER = new BufferManagerImpl(
+        maxPageCacheWeight,
+        (int) Math.min(recordPageCacheBytes, Integer.MAX_VALUE),
+        (int) Math.min(recordPageFragmentCacheBytes, Integer.MAX_VALUE),
+        maxRevisionRootPageCache,
+        maxRBTreeNodeCache,
+        maxNamesCacheSize,
+        maxPathSummaryCacheSize);
+
+    // Initialize global epoch tracker
+    if (GLOBAL_EPOCH_TRACKER == null) {
+      GLOBAL_EPOCH_TRACKER = new RevisionEpochTracker(4096);
+      GLOBAL_EPOCH_TRACKER.setLastCommittedRevision(0);
+    }
+
+    // Start ClockSweeper threads
+    if (GLOBAL_BUFFER_MANAGER instanceof BufferManagerImpl bufferMgrImpl) {
+      bufferMgrImpl.startClockSweepers(GLOBAL_EPOCH_TRACKER);
+    }
+
+    logger.info("BufferManager reinitialized for testing");
   }
 }

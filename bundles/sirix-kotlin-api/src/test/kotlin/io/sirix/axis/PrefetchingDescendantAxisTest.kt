@@ -30,6 +30,7 @@ import org.slf4j.LoggerFactory
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.io.IOException
+import java.io.File
 
 /**
  * Tests for [PrefetchingDescendantAxis].
@@ -42,6 +43,96 @@ class PrefetchingDescendantAxisTest {
     
     companion object {
         private val JSON_RESOURCES: Path = Paths.get("src", "test", "resources", "json")
+
+        /**
+         * Track whether we've warned about OS cache clearing.
+         */
+        @Volatile
+        private var osCacheWarningShown = false
+    }
+
+    /**
+     * Attempt to drop OS file caches for truly cold cache benchmarks.
+     *
+     * On Linux, this requires root privileges:
+     * - sync: flush all pending I/O
+     * - echo 3 > /proc/sys/vm/drop_caches: drop page cache, dentries, and inodes
+     *
+     * If this fails (non-root), benchmarks will still run but OS cache may be warm.
+     *
+     * @return true if OS caches were successfully cleared, false otherwise
+     */
+    private fun dropOsFileCaches(): Boolean {
+        val osName = System.getProperty("os.name", "").lowercase()
+        if (!osName.contains("linux")) {
+            if (!osCacheWarningShown) {
+                logger.warn("OS cache clearing only supported on Linux (detected: $osName)")
+                osCacheWarningShown = true
+            }
+            return false
+        }
+
+        try {
+            // First sync to ensure pending writes are flushed
+            val syncProcess = ProcessBuilder("sync").start()
+            val syncExitCode = syncProcess.waitFor()
+            if (syncExitCode != 0) {
+                logger.warn("sync command failed with exit code $syncExitCode")
+            }
+
+            // Try to drop caches (requires root)
+            // Use sudo with -n (non-interactive) to fail fast if password is needed
+            val dropCachesFile = File("/proc/sys/vm/drop_caches")
+            if (!dropCachesFile.exists()) {
+                if (!osCacheWarningShown) {
+                    logger.warn("/proc/sys/vm/drop_caches not found")
+                    osCacheWarningShown = true
+                }
+                return false
+            }
+
+            // Try writing directly (if running as root)
+            try {
+                dropCachesFile.writeText("3")
+                logger.info("OS file caches cleared successfully (direct write)")
+                return true
+            } catch (_: Exception) {
+                // Direct write failed, try sudo
+            }
+
+            // Try with sudo -n (non-interactive)
+            val process = ProcessBuilder("sudo", "-n", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches")
+                .redirectErrorStream(true)
+                .start()
+
+            val exitCode = process.waitFor()
+            if (exitCode == 0) {
+                logger.info("OS file caches cleared successfully (via sudo)")
+                return true
+            } else {
+                if (!osCacheWarningShown) {
+                    logger.warn("Cannot drop OS caches (not running as root). For accurate cold-cache benchmarks, run with: sudo -E ./gradlew test --tests '*PrefetchingDescendantAxisTest*'")
+                    osCacheWarningShown = true
+                }
+                return false
+            }
+        } catch (e: Exception) {
+            if (!osCacheWarningShown) {
+                logger.warn("Failed to drop OS caches: ${e.message}. Benchmarks may use warm OS cache.")
+                osCacheWarningShown = true
+            }
+            return false
+        }
+    }
+
+    /**
+     * Clear all caches (both Sirix buffer cache and OS file cache).
+     *
+     * @return true if OS caches were also cleared (fully cold), false if only Sirix cache cleared
+     */
+    private fun clearAllCaches(): Boolean {
+        Databases.getGlobalBufferManager().clearAllCaches()
+        return dropOsFileCaches()
     }
     
     @Before
@@ -211,25 +302,31 @@ class PrefetchingDescendantAxisTest {
             println("Insufficient heap (${maxMem}MB), skipping Chicago test. Need at least 2GB.")
             return
         }
-        
+
         val chicagoPath = Paths.get("src/test/resources/json/cityofchicago.json")
-        
+
         // Check in sirix-core's resources
         val coreChicagoPath = Paths.get("../sirix-core/src/test/resources/json/cityofchicago.json")
         val pathToUse = if (coreChicagoPath.toFile().exists()) coreChicagoPath else chicagoPath
-        
+
         if (!pathToUse.toFile().exists()) {
             println("Chicago JSON file not found, skipping test")
             return
         }
-        
+
+        // Reinitialize buffer manager with a much larger cache for benchmarking
+        // Use 4GB for record page cache to allow aggressive prefetching
+        val cacheSizeBytes = 4L * 1024 * 1024 * 1024 // 4GB
+        Databases.reinitializeBufferManagerForTesting(cacheSizeBytes, cacheSizeBytes / 2)
+        logger.info("Reinitialized BufferManager with ${cacheSizeBytes / (1024 * 1024)}MB cache")
+
         try {
             createChicagoDatabase(pathToUse)
         } catch (e: OutOfMemoryError) {
             println("OutOfMemoryError during shredding, skipping test")
             return
         }
-        
+
         val database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.file)
         database.use { db ->
             val session = db.beginResourceSession(JsonTestHelper.RESOURCE)
@@ -238,33 +335,132 @@ class PrefetchingDescendantAxisTest {
                 val rtx = rs.beginNodeReadOnlyTrx()
                 rtx.use {
                     logger.info("Max node key: ${rtx.maxNodeKey}")
-                    
+
+                    // Track if we can get true cold caches
+                    var osCleared = false
+
                     // Single comparison run - COLD CACHE for each
                     // Run PrefetchingDescendantAxis FIRST (coldest OS cache)
-                    
-                    // 1. PrefetchingDescendantAxis with prefetch=4 - COLD CACHE (first run = coldest)
-                    Databases.getGlobalBufferManager().clearAllCaches()
-                    val prefetchTime = timePrefetchingAxis(rtx, prefetchAhead = 8)
-                    logger.info("Prefetching(4) (cold): in ${prefetchTime}ms")
-                    
-                    // 2. Regular DescendantAxis - COLD CACHE
-                    Databases.getGlobalBufferManager().clearAllCaches()
+
+                    // 1. Regular DescendantAxis - COLD CACHE (run first for fairest comparison)
+                    osCleared = clearAllCaches()
                     val regularTime = timeRegularDescendantAxis(rtx)
                     logger.info("Regular DescendantAxis (cold): in ${regularTime}ms")
-                    
-                    // 3. PrefetchingDescendantAxis with prefetch=0 - COLD CACHE
-                    Databases.getGlobalBufferManager().clearAllCaches()
+
+                    // 2. PrefetchingDescendantAxis with prefetch=0 - COLD CACHE (sanity check)
+                    osCleared = clearAllCaches()
                     val noPrefetchTime = timePrefetchingAxisNoPrefetch(rtx)
                     logger.info("Prefetching(0) (cold): in ${noPrefetchTime}ms")
-                    
-                    println("=== CHICAGO PERFORMANCE (COLD CACHE) ===")
-                    println("PrefetchingAxis (prefetch=4):   ${prefetchTime}ms (first run = coldest OS cache)")
-                    println("Regular DescendantAxis:         ${regularTime}ms")
-                    println("PrefetchingAxis (prefetch=0):   ${noPrefetchTime}ms")
-                    println("Speedup (prefetch=4): ${String.format("%.2f", regularTime.toDouble() / prefetchTime)}x")
-                    println("Speedup (prefetch=0): ${String.format("%.2f", regularTime.toDouble() / noPrefetchTime)}x")
+
+                    // 3. PrefetchingDescendantAxis with prefetch=4096 (found to work!)
+                    osCleared = clearAllCaches()
+                    val prefetch4096Time = timePrefetchingAxisWithReaders(rtx, prefetchAhead = 4096, parallelReaders = 8)
+                    logger.info("Prefetching(4096,readers=8) (cold): in ${prefetch4096Time}ms")
+
+                    // 4. PrefetchingDescendantAxis with prefetch=8192 (more aggressive)
+                    osCleared = clearAllCaches()
+                    val prefetch8192Time = timePrefetchingAxisWithReaders(rtx, prefetchAhead = 8192, parallelReaders = 8)
+                    logger.info("Prefetching(8192,readers=8) (cold): in ${prefetch8192Time}ms")
+
+                    // 5. PrefetchingDescendantAxis with prefetch=16384 (extreme)
+                    osCleared = clearAllCaches()
+                    val prefetch16384Time = timePrefetchingAxisWithReaders(rtx, prefetchAhead = 16384, parallelReaders = 8)
+                    logger.info("Prefetching(16384,readers=8) (cold): in ${prefetch16384Time}ms")
+
+                    val cacheStatus = if (osCleared) "OS+Sirix cache cleared" else "Sirix cache only (run as root for full cold)"
+                    println("=== CHICAGO PERFORMANCE ($cacheStatus, 4GB cache) ===")
+                    println("Regular DescendantAxis:                 ${regularTime}ms (baseline)")
+                    println("PrefetchingAxis (prefetch=0):           ${noPrefetchTime}ms (no prefetch)")
+                    println("PrefetchingAxis (prefetch=4096,rdr=8):  ${prefetch4096Time}ms")
+                    println("PrefetchingAxis (prefetch=8192,rdr=8):  ${prefetch8192Time}ms")
+                    println("PrefetchingAxis (prefetch=16384,rdr=8): ${prefetch16384Time}ms")
+                    println("Speedup (prefetch=0):     ${String.format("%.2f", regularTime.toDouble() / noPrefetchTime)}x")
+                    println("Speedup (prefetch=4096):  ${String.format("%.2f", regularTime.toDouble() / prefetch4096Time)}x")
+                    println("Speedup (prefetch=8192):  ${String.format("%.2f", regularTime.toDouble() / prefetch8192Time)}x")
+                    println("Speedup (prefetch=16384): ${String.format("%.2f", regularTime.toDouble() / prefetch16384Time)}x")
                 }
             }
+        }
+    }
+
+    /**
+     * Comprehensive benchmark comparing different prefetch configurations.
+     * Tests multiple prefetch depths to find optimal settings for the workload.
+     */
+    @Test
+    fun testBenchmarkTraversalStrategies() {
+        val maxMem = Runtime.getRuntime().maxMemory() / (1024 * 1024)
+        if (maxMem < 2000) {
+            println("Insufficient heap (${maxMem}MB), skipping benchmark. Need at least 2GB.")
+            return
+        }
+
+        val chicagoPath = Paths.get("src/test/resources/json/cityofchicago.json")
+        val coreChicagoPath = Paths.get("../sirix-core/src/test/resources/json/cityofchicago.json")
+        val pathToUse = if (coreChicagoPath.toFile().exists()) coreChicagoPath else chicagoPath
+
+        if (!pathToUse.toFile().exists()) {
+            println("Chicago JSON file not found, skipping benchmark")
+            return
+        }
+
+        // Reinitialize buffer manager with a much larger cache for benchmarking
+        // Use 4GB for record page cache to allow aggressive prefetching
+        val cacheSizeBytes = 4L * 1024 * 1024 * 1024 // 4GB
+        Databases.reinitializeBufferManagerForTesting(cacheSizeBytes, cacheSizeBytes / 2)
+        logger.info("Reinitialized BufferManager with ${cacheSizeBytes / (1024 * 1024)}MB cache")
+
+        try {
+            createChicagoDatabase(pathToUse)
+        } catch (e: OutOfMemoryError) {
+            println("OutOfMemoryError during shredding, skipping benchmark")
+            return
+        }
+
+        val results = mutableMapOf<String, Long>()
+        var osCleared = false
+
+        val database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.file)
+        database.use { db ->
+            val session = db.beginResourceSession(JsonTestHelper.RESOURCE)
+            session.use { rs ->
+                val rtx = rs.beginNodeReadOnlyTrx()
+                rtx.use {
+                    logger.info("Max node key: ${rtx.maxNodeKey}")
+
+                    // Test 1: DescendantAxis with COLD cache
+                    osCleared = clearAllCaches()
+                    results["DescendantAxis (cold)"] = timeRegularDescendantAxis(rtx)
+
+                    // Test 2: DescendantAxis with WARM cache
+                    results["DescendantAxis (warm)"] = timeRegularDescendantAxis(rtx)
+
+                    // Test 3: PrefetchingDescendantAxis with different depths (cold cache each)
+                    for (depth in listOf(0, 2, 4, 8, 16)) {
+                        osCleared = clearAllCaches()
+                        results["PrefetchingAxis($depth) cold"] = timePrefetchingAxis(rtx, depth)
+                    }
+
+                    // Test 4: PrefetchingDescendantAxis with warm cache (best case)
+                    results["PrefetchingAxis(4) warm"] = timePrefetchingAxis(rtx, 4)
+                }
+            }
+        }
+
+        val cacheStatus = if (osCleared) "OS+Sirix cache cleared" else "Sirix cache only"
+        println("\n=== TRAVERSAL BENCHMARK RESULTS ($cacheStatus) ===")
+        println(String.format("%-30s %10s", "Configuration", "Time (ms)"))
+        println("-".repeat(42))
+        results.forEach { (name, time) ->
+            println(String.format("%-30s %10d", name, time))
+        }
+
+        // Calculate speedups relative to regular DescendantAxis cold
+        val baseline = results["DescendantAxis (cold)"]!!
+        println("\n=== SPEEDUPS (vs DescendantAxis cold) ===")
+        results.forEach { (name, time) ->
+            val speedup = baseline.toDouble() / time
+            println(String.format("%-30s %10.2fx", name, speedup))
         }
     }
     
@@ -290,7 +486,33 @@ class PrefetchingDescendantAxisTest {
         val elapsed = System.currentTimeMillis() - startTime
         val cacheHits = io.sirix.cache.ShardedPageCache.getCacheHits()
         val cacheMisses = io.sirix.cache.ShardedPageCache.getCacheMisses()
-        logger.info("Prefetching($prefetchAhead): cache hits=$cacheHits, misses=$cacheMisses, hit%=${if (cacheHits + cacheMisses > 0) cacheHits * 100 / (cacheHits + cacheMisses) else 0}")
+        logger.info("Prefetching($prefetchAhead,offset=$prefetchOffsetPages): cache hits=$cacheHits, misses=$cacheMisses, hit%=${if (cacheHits + cacheMisses > 0) cacheHits * 100 / (cacheHits + cacheMisses) else 0}")
+        logger.info("${axis.getPrefetchStats()}")
+        return elapsed
+    }
+
+    /**
+     * Time PrefetchingDescendantAxis with custom parallel reader count.
+     */
+    private fun timePrefetchingAxisWithReaders(
+        rtx: io.sirix.api.json.JsonNodeReadOnlyTrx,
+        prefetchAhead: Int,
+        parallelReaders: Int,
+        prefetchOffsetPages: Int = 0
+    ): Long {
+        rtx.moveToDocumentRoot()
+        io.sirix.cache.ShardedPageCache.resetCacheCounters()
+        val startTime = System.currentTimeMillis()
+        val axis = PrefetchingDescendantAxis.create(rtx, IncludeSelf.NO, prefetchAhead, prefetchOffsetPages, parallelReaders)
+        var count = 0
+        while (axis.hasNext()) {
+            axis.nextLong()
+            count++
+        }
+        val elapsed = System.currentTimeMillis() - startTime
+        val cacheHits = io.sirix.cache.ShardedPageCache.getCacheHits()
+        val cacheMisses = io.sirix.cache.ShardedPageCache.getCacheMisses()
+        logger.info("Prefetching($prefetchAhead,readers=$parallelReaders): cache hits=$cacheHits, misses=$cacheMisses, hit%=${if (cacheHits + cacheMisses > 0) cacheHits * 100 / (cacheHits + cacheMisses) else 0}")
         logger.info("${axis.getPrefetchStats()}")
         return elapsed
     }
