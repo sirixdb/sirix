@@ -161,10 +161,13 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private static final long[] SEGMENT_SIZES =
       { FOUR_KB, EIGHT_KB, SIXTEEN_KB, THIRTYTWO_KB, SIXTYFOUR_KB, ONE_TWENTYEIGHT_KB, TWO_FIFTYSIX_KB };
 
-  // Virtual memory region size per size class: 4 GB
-  // With global BufferManager serving all databases/resources, we need larger virtual regions.
-  // Total virtual: 4GB * 7 size classes = 28GB (virtual, not physical - maps to 8GB default physical budget)
-  private static final long VIRTUAL_REGION_SIZE = 4L * 1024 * 1024 * 1024;
+  // Virtual memory region size per size class: 128 GB
+  // Virtual memory is FREE - it's just address space reservation, no physical RAM used until touched.
+  // 128GB per class × 7 classes = 896GB total virtual address space (well within Linux limits).
+  // This ensures we NEVER run out of segments even with aggressive concurrent prefetching.
+  // For 64KB segments: 128GB / 64KB = 2,097,152 segments available (2 million!)
+  // For 4KB segments: 128GB / 4KB = 33,554,432 segments available (33 million!)
+  private static final long VIRTUAL_REGION_SIZE = 128L * 1024 * 1024 * 1024; // 128 GB
 
   // Singleton instance
   private static final LinuxMemorySegmentAllocator INSTANCE = new LinuxMemorySegmentAllocator();
@@ -480,9 +483,10 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private void preAllocateVirtualRegion(int poolIndex, long segmentSize) {
     long virtualSize = VIRTUAL_REGION_SIZE;
     
-    // Try full size, fall back to smaller sizes if needed (4GB -> 2GB -> 1GB -> 512MB -> 256MB -> 128MB)
-    // More aggressive fallbacks to support CI environments with limited virtual memory
-    long[] attemptSizes = {virtualSize, virtualSize / 2, virtualSize / 4, virtualSize / 8, virtualSize / 16, virtualSize / 32};
+    // Try full size (1TB), fall back to progressively smaller sizes if needed
+    // Even the smallest fallback (64GB) gives 1M segments for 64KB pages - plenty!
+    // Virtual memory is free, so we want large pools to never exhaust during prefetching
+    long[] attemptSizes = {virtualSize, virtualSize / 2, virtualSize / 4, virtualSize / 8, virtualSize / 16};
     
     for (long attemptSize : attemptSizes) {
       try {

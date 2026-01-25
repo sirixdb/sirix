@@ -1194,7 +1194,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return null;
   }
 
-  PageReference getLeafPageReference(final @NonNegative long recordPageKey, final int indexNumber,
+  @Override
+  public PageReference getLeafPageReference(final @NonNegative long recordPageKey, final int indexNumber,
       final IndexType indexType) {
     final PageReference pageReferenceToSubtree = getPageReference(rootPage, indexType, indexNumber);
     return getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, indexType, rootPage);

@@ -157,11 +157,60 @@ public final class DatabaseConfiguration {
   private DatabaseType databaseType;
 
   /**
+   * System property to configure maximum segment allocation size.
+   * Value should be in bytes, e.g., "17179869184" for 16GB.
+   * Alternatively, use suffixes: "16G", "16GB", "16384M", "16384MB".
+   */
+  public static final String SEGMENT_ALLOCATION_SIZE_PROPERTY = "sirix.allocator.maxSize";
+
+  /**
+   * Default maximum segment allocation size: 16GB.
+   * Can be overridden via system property {@link #SEGMENT_ALLOCATION_SIZE_PROPERTY}.
+   */
+  private static final long DEFAULT_SEGMENT_ALLOCATION_SIZE = parseSegmentSize(
+      System.getProperty(SEGMENT_ALLOCATION_SIZE_PROPERTY, "16G"));
+
+  /**
+   * Parse segment size from string with optional suffix (G, GB, M, MB, K, KB).
+   */
+  private static long parseSegmentSize(String value) {
+    if (value == null || value.isEmpty()) {
+      return 16L * (1L << 30); // 16GB fallback
+    }
+    value = value.trim().toUpperCase();
+    long multiplier = 1;
+    if (value.endsWith("GB")) {
+      multiplier = 1L << 30;
+      value = value.substring(0, value.length() - 2);
+    } else if (value.endsWith("G")) {
+      multiplier = 1L << 30;
+      value = value.substring(0, value.length() - 1);
+    } else if (value.endsWith("MB")) {
+      multiplier = 1L << 20;
+      value = value.substring(0, value.length() - 2);
+    } else if (value.endsWith("M")) {
+      multiplier = 1L << 20;
+      value = value.substring(0, value.length() - 1);
+    } else if (value.endsWith("KB")) {
+      multiplier = 1L << 10;
+      value = value.substring(0, value.length() - 2);
+    } else if (value.endsWith("K")) {
+      multiplier = 1L << 10;
+      value = value.substring(0, value.length() - 1);
+    }
+    try {
+      return Long.parseLong(value.trim()) * multiplier;
+    } catch (NumberFormatException e) {
+      return 16L * (1L << 30); // 16GB fallback on parse error
+    }
+  }
+
+  /**
    * Maximum buffer size for memory segment allocation.
-   * Default is 8GB to support global BufferManager serving all databases and resources.
+   * Default is 16GB (configurable via -Dsirix.allocator.maxSize=XXG).
    * With global buffer pool, this budget is shared across all databases, so larger is better.
    */
-  private long maxSegmentAllocationSize = 8L * (1L << 30); // 8GB default
+  private long maxSegmentAllocationSize = DEFAULT_SEGMENT_ALLOCATION_SIZE;
 
   /**
    * Constructor with the path to be set.

@@ -156,10 +156,12 @@ public enum ByteHandlerKind {
     try {
       reader.nextNull();
       final Class<?> handlerClazz = Class.forName(className);
-      final Constructor<?> handlerCons = handlerClazz.getConstructors()[0];
+      // Use getDeclaredConstructor() to get the no-arg constructor specifically
+      final Constructor<?> handlerCons = handlerClazz.getDeclaredConstructor();
       return (ByteHandler) handlerCons.newInstance();
     } catch (ClassNotFoundException | InstantiationException | IllegalAccessException
-        | IllegalArgumentException | InvocationTargetException | IOException e) {
+        | IllegalArgumentException | InvocationTargetException | IOException
+        | NoSuchMethodException e) {
       throw new IllegalStateException(e);
     }
   }

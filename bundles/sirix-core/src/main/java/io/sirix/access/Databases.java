@@ -359,58 +359,77 @@ public final class Databases {
   public static final String PROP_RECORD_PAGE_FRAGMENT_CACHE = "sirix.cache.recordPageFragment";
 
   /**
+   * System property for page cache size (metadata pages).
+   * Default: 50MB. Can be increased for larger datasets.
+   * Example: -Dsirix.cache.page=104857600 (for 100MB cache)
+   */
+  public static final String PROP_PAGE_CACHE = "sirix.cache.page";
+
+  /**
    * Initialize the global BufferManager with sizes based on memory budget.
    * Called when the first database is opened.
    * <p>
    * Cache sizes can be overridden via system properties:
    * <ul>
-   *   <li>{@code -Dsirix.cache.recordPage=<bytes>} - Record page cache size</li>
-   *   <li>{@code -Dsirix.cache.recordPageFragment=<bytes>} - Record page fragment cache size</li>
+   *   <li>{@code -Dsirix.cache.recordPage=<bytes>} - Record page cache size (default: 25% of budget)</li>
+   *   <li>{@code -Dsirix.cache.recordPageFragment=<bytes>} - Record page fragment cache size (default: 12.5% of budget)</li>
+   *   <li>{@code -Dsirix.cache.page=<bytes>} - Metadata page cache size (default: 50MB)</li>
    * </ul>
    *
    * @param maxSegmentAllocationSize the maximum memory budget for the allocator
    */
   private static synchronized void initializeGlobalBufferManager(long maxSegmentAllocationSize) {
     if (GLOBAL_BUFFER_MANAGER == null) {
-      // Only scale record page caches with memory budget
-      // Other caches use fixed baseline sizes
+      // Scale caches based on memory budget
+      // Target: use ~40% of budget for caches (25% record + 12.5% fragment + 2.5% metadata)
       long budgetGB = maxSegmentAllocationSize / (1L << 30);
-      int scaleFactor = (int) Math.max(1, budgetGB);
+      long budgetBytes = maxSegmentAllocationSize;
 
-      // Calculate default sizes (scale with budget)
-      int defaultRecordPageCacheWeight = 65_536 * 100 * scaleFactor;
-      int defaultRecordPageFragmentCacheWeight = (65_536 * 100 * scaleFactor) / 2;
+      // AGGRESSIVE DEFAULT CACHE SIZES for high-performance workloads
+      // Target: use ~75% of memory budget for caching (24GB for 32GB budget)
+      // This follows database best practices (PostgreSQL shared_buffers = 25-40%, but we go higher
+      // since Sirix is the primary application and uses off-heap memory)
+      //
+      // RecordPageCache: 50% of budget (e.g., 16GB for 32GB budget) - main data cache
+      long defaultRecordPageCacheBytes = budgetBytes / 2;
+      // RecordPageFragmentCache: 18.75% of budget (e.g., 6GB for 32GB budget) - versioning
+      long defaultRecordPageFragmentCacheBytes = (budgetBytes * 3) / 16;
+      // PageCache (metadata): 6.25% of budget (e.g., 2GB for 32GB budget)
+      long defaultPageCacheBytes = Math.max(100L * 1024 * 1024, budgetBytes / 16);
 
-      // Allow user override via system properties
-      int maxRecordPageCacheWeight = getSystemPropertyInt(
-          PROP_RECORD_PAGE_CACHE, defaultRecordPageCacheWeight);
-      int maxRecordPageFragmentCacheWeight = getSystemPropertyInt(
-          PROP_RECORD_PAGE_FRAGMENT_CACHE, defaultRecordPageFragmentCacheWeight);
+      // Allow user override via system properties (support values > 2GB)
+      long maxRecordPageCacheBytes = getSystemPropertyLong(
+          PROP_RECORD_PAGE_CACHE, defaultRecordPageCacheBytes);
+      long maxRecordPageFragmentCacheBytes = getSystemPropertyLong(
+          PROP_RECORD_PAGE_FRAGMENT_CACHE, defaultRecordPageFragmentCacheBytes);
+      long maxPageCacheBytes = getSystemPropertyLong(
+          PROP_PAGE_CACHE, defaultPageCacheBytes);
 
       // Fixed sizes (don't scale with budget)
-      int maxPageCacheWeight = 500_000;
       int maxRevisionRootPageCache = 5_000;
       int maxRBTreeNodeCache = 50_000;
       int maxNamesCacheSize = 500;
       int maxPathSummaryCacheSize = 20;
 
       logger.info("Initializing global BufferManager with memory budget: {} GB", budgetGB);
-      logger.info("  - RecordPageCache weight: {} bytes ({} MB){}",
-          maxRecordPageCacheWeight, maxRecordPageCacheWeight / (1024 * 1024),
-          System.getProperty(PROP_RECORD_PAGE_CACHE) != null ? " (user-configured)" : " (default, scaled " + scaleFactor + "x)");
-      logger.info("  - RecordPageFragmentCache weight: {} bytes ({} MB){}",
-          maxRecordPageFragmentCacheWeight, maxRecordPageFragmentCacheWeight / (1024 * 1024),
-          System.getProperty(PROP_RECORD_PAGE_FRAGMENT_CACHE) != null ? " (user-configured)" : " (default, scaled " + scaleFactor + "x)");
-      logger.info("  - PageCache weight: {} (fixed)", maxPageCacheWeight);
+      logger.info("  - RecordPageCache: {} bytes ({} MB){}",
+          maxRecordPageCacheBytes, maxRecordPageCacheBytes / (1024 * 1024),
+          System.getProperty(PROP_RECORD_PAGE_CACHE) != null ? " (user-configured)" : " (default: 25% of budget)");
+      logger.info("  - RecordPageFragmentCache: {} bytes ({} MB){}",
+          maxRecordPageFragmentCacheBytes, maxRecordPageFragmentCacheBytes / (1024 * 1024),
+          System.getProperty(PROP_RECORD_PAGE_FRAGMENT_CACHE) != null ? " (user-configured)" : " (default: 12.5% of budget)");
+      logger.info("  - PageCache: {} bytes ({} MB){}",
+          maxPageCacheBytes, maxPageCacheBytes / (1024 * 1024),
+          System.getProperty(PROP_PAGE_CACHE) != null ? " (user-configured)" : " (default)");
       logger.info("  - RevisionRootPageCache size: {} (fixed)", maxRevisionRootPageCache);
       logger.info("  - RBTreeNodeCache size: {} (fixed)", maxRBTreeNodeCache);
       logger.info("  - NamesCache size: {} (fixed)", maxNamesCacheSize);
       logger.info("  - PathSummaryCache size: {} (fixed)", maxPathSummaryCacheSize);
 
       GLOBAL_BUFFER_MANAGER = new BufferManagerImpl(
-          maxPageCacheWeight,
-          maxRecordPageCacheWeight,
-          maxRecordPageFragmentCacheWeight,
+          maxPageCacheBytes,
+          maxRecordPageCacheBytes,
+          maxRecordPageFragmentCacheBytes,
           maxRevisionRootPageCache,
           maxRBTreeNodeCache,
           maxNamesCacheSize,
@@ -431,30 +450,40 @@ public final class Databases {
   }
 
   /**
-   * Get an integer system property with a default value.
+   * Get a long system property with a default value.
+   * Supports values > 2GB for large cache configurations.
    *
    * @param property the property name
    * @param defaultValue the default value if property is not set or invalid
    * @return the property value or default
    */
-  private static int getSystemPropertyInt(String property, int defaultValue) {
+  private static long getSystemPropertyLong(String property, long defaultValue) {
     String value = System.getProperty(property);
     if (value == null || value.isEmpty()) {
       return defaultValue;
     }
     try {
-      long parsedValue = Long.parseLong(value);
+      // Support suffixes: K, M, G for kilobytes, megabytes, gigabytes
+      long multiplier = 1;
+      String numericPart = value.trim();
+      if (numericPart.endsWith("G") || numericPart.endsWith("g")) {
+        multiplier = 1024L * 1024L * 1024L;
+        numericPart = numericPart.substring(0, numericPart.length() - 1);
+      } else if (numericPart.endsWith("M") || numericPart.endsWith("m")) {
+        multiplier = 1024L * 1024L;
+        numericPart = numericPart.substring(0, numericPart.length() - 1);
+      } else if (numericPart.endsWith("K") || numericPart.endsWith("k")) {
+        multiplier = 1024L;
+        numericPart = numericPart.substring(0, numericPart.length() - 1);
+      }
+
+      long parsedValue = Long.parseLong(numericPart.trim()) * multiplier;
       if (parsedValue <= 0) {
         logger.warn("Invalid value for {}: {} (must be positive), using default: {}",
             property, value, defaultValue);
         return defaultValue;
       }
-      if (parsedValue > Integer.MAX_VALUE) {
-        logger.warn("Value for {} exceeds maximum ({}): {}, capping at max",
-            property, Integer.MAX_VALUE, value);
-        return Integer.MAX_VALUE;
-      }
-      return (int) parsedValue;
+      return parsedValue;
     } catch (NumberFormatException e) {
       logger.warn("Invalid value for {}: {} (not a number), using default: {}",
           property, value, defaultValue);
@@ -506,6 +535,26 @@ public final class Databases {
   public static synchronized void reinitializeBufferManagerForTesting(
       long recordPageCacheBytes,
       long recordPageFragmentCacheBytes) {
+    reinitializeBufferManagerForTesting(recordPageCacheBytes, recordPageFragmentCacheBytes, 50L * 1024 * 1024);
+  }
+
+  /**
+   * Reinitialize the global BufferManager with custom cache sizes.
+   * <p>
+   * <b>FOR TESTING ONLY!</b> This method is intended for benchmarking and performance testing.
+   * It should NOT be called in production code as it replaces the global buffer manager,
+   * which can cause issues with existing database connections.
+   * <p>
+   * Must be called BEFORE opening any database, or after all databases are closed.
+   *
+   * @param recordPageCacheBytes maximum weight in bytes for the record page cache
+   * @param recordPageFragmentCacheBytes maximum weight in bytes for the record page fragment cache
+   * @param pageCacheBytes maximum weight in bytes for the metadata page cache
+   */
+  public static synchronized void reinitializeBufferManagerForTesting(
+      long recordPageCacheBytes,
+      long recordPageFragmentCacheBytes,
+      long pageCacheBytes) {
     if (!MANAGER.sessions().isEmpty()) {
       throw new IllegalStateException("Cannot reinitialize BufferManager while databases are open");
     }
@@ -521,7 +570,6 @@ public final class Databases {
     }
 
     // Fixed sizes (same as default initialization)
-    int maxPageCacheWeight = 500_000;
     int maxRevisionRootPageCache = 5_000;
     int maxRBTreeNodeCache = 50_000;
     int maxNamesCacheSize = 500;
@@ -532,11 +580,13 @@ public final class Databases {
         recordPageCacheBytes, recordPageCacheBytes / (1024 * 1024));
     logger.info("  - RecordPageFragmentCache: {} bytes ({} MB)",
         recordPageFragmentCacheBytes, recordPageFragmentCacheBytes / (1024 * 1024));
+    logger.info("  - PageCache: {} bytes ({} MB)",
+        pageCacheBytes, pageCacheBytes / (1024 * 1024));
 
     GLOBAL_BUFFER_MANAGER = new BufferManagerImpl(
-        maxPageCacheWeight,
-        (int) Math.min(recordPageCacheBytes, Integer.MAX_VALUE),
-        (int) Math.min(recordPageFragmentCacheBytes, Integer.MAX_VALUE),
+        pageCacheBytes,
+        recordPageCacheBytes,
+        recordPageFragmentCacheBytes,
         maxRevisionRootPageCache,
         maxRBTreeNodeCache,
         maxNamesCacheSize,

@@ -60,27 +60,43 @@ public final class BufferManagerImpl implements BufferManager {
   private final java.util.List<ClockSweeper> clockSweepers;
   private volatile boolean isShutdown = false;
 
-  public BufferManagerImpl(int maxPageCachWeight, int maxRecordPageCacheWeight,
-      int maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxRBTreeNodeCache, 
+  /**
+   * Create a BufferManagerImpl with specified cache sizes.
+   * <p>
+   * All cache sizes are in bytes. For large caches (> 2GB), use long values.
+   *
+   * @param maxPageCacheWeight maximum weight in bytes for the metadata page cache
+   * @param maxRecordPageCacheWeight maximum weight in bytes for the record page cache
+   * @param maxRecordPageFragmentCacheWeight maximum weight in bytes for the record page fragment cache
+   * @param maxRevisionRootPageCache maximum number of revision root pages to cache
+   * @param maxRBTreeNodeCache maximum number of RB-tree nodes to cache
+   * @param maxNamesCacheSize maximum number of name entries to cache
+   * @param maxPathSummaryCacheSize maximum number of path summary entries to cache
+   */
+  public BufferManagerImpl(long maxPageCacheWeight, long maxRecordPageCacheWeight,
+      long maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxRBTreeNodeCache,
       int maxNamesCacheSize, int maxPathSummaryCacheSize) {
     // Use simplified ShardedPageCache (single HashMap) for KeyValueLeafPage caches
-    recordPageCache = new ShardedPageCache(maxRecordPageCacheWeight);  // Simplified: no actual sharding
+    // ShardedPageCache uses long for maxWeightBytes - supports > 2GB caches
+    recordPageCache = new ShardedPageCache(maxRecordPageCacheWeight);
     recordPageFragmentCache = new ShardedPageCache(maxRecordPageFragmentCacheWeight);
-    
-    // Keep Caffeine PageCache for mixed page types (NamePage, UberPage, etc.)
-    pageCache = new PageCache(maxPageCachWeight);
-    
+
+    // PageCache uses Caffeine which internally uses long for weights
+    pageCache = new PageCache(maxPageCacheWeight);
+
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     redBlackTreeNodeCache = new RedBlackTreeNodeCache(maxRBTreeNodeCache);
     namesCache = new NamesCache(maxNamesCacheSize);
     pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
-    
+
     // Initialize ClockSweeper threads (GLOBAL, like PostgreSQL bgwriter)
     this.clockSweeperThreads = new java.util.ArrayList<>();
     this.clockSweepers = new java.util.ArrayList<>();
-    
-    LOGGER.info("BufferManagerImpl initialized: ShardedPageCache (simplified) for record/fragment caches, " +
-                "Caffeine PageCache for mixed page types");
+
+    LOGGER.info("BufferManagerImpl initialized with large cache support:");
+    LOGGER.info("  - RecordPageCache: {} MB", maxRecordPageCacheWeight / (1024 * 1024));
+    LOGGER.info("  - RecordPageFragmentCache: {} MB", maxRecordPageFragmentCacheWeight / (1024 * 1024));
+    LOGGER.info("  - PageCache: {} MB", maxPageCacheWeight / (1024 * 1024));
   }
 
   @Override

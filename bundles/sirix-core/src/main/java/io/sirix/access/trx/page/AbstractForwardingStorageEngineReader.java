@@ -182,5 +182,16 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
+  public io.sirix.page.interfaces.Page loadHOTPage(@NonNull PageReference reference) {
+    return delegate().loadHOTPage(reference);
+  }
+
+  @Override
+  public PageReference getLeafPageReference(@NonNegative long recordPageKey, int indexNumber,
+      @NonNull IndexType indexType) {
+    return delegate().getLeafPageReference(recordPageKey, indexNumber, indexType);
+  }
+
+  @Override
   protected abstract @NonNull StorageEngineReader delegate();
 }
