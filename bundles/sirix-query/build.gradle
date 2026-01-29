@@ -188,7 +188,9 @@ graalvmNative {
         }
     }
     toolchainDetection = false
-    testSupport = true
+    registerTestBinary("test") {
+        forTestTask(tasks.named("nativeImageSmokeTest"))
+    }
 }
 
 // Task to run only native-image smoke tests on JVM (for validation before native compilation)
