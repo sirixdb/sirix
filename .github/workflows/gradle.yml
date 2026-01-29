@@ -81,27 +81,21 @@ jobs:
             ${{ runner.os }}-gradle-native-
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
-      - name: Smoke tests (JVM)
+      - name: Smoke tests (JVM fast gate)
         run: |
           ./gradlew :sirix-query:nativeImageSmokeTest --info
           ./gradlew :sirix-kotlin-cli:nativeImageSmokeTest --info
           ./gradlew :sirix-rest-api:nativeImageSmokeTest --info
-      - name: Build sirix-query native image
-        run: ./gradlew :sirix-query:nativeCompile --info
-      - name: Verify sirix-query native image
-        run: echo '1 + 1' | ./bundles/sirix-query/build/native/nativeCompile/sirix-shell || true
+      - name: Native smoke test sirix-query
+        run: ./gradlew :sirix-query:nativeSmokeTest --info
       - name: Stop Gradle daemon (free memory)
         run: ./gradlew --stop
-      - name: Build sirix-kotlin-cli native image
-        run: ./gradlew :sirix-kotlin-cli:nativeCompile --info
-      - name: Verify sirix-kotlin-cli native image
-        run: ./bundles/sirix-kotlin-cli/build/native/nativeCompile/sirix-cli --help || true
+      - name: Native smoke test sirix-kotlin-cli
+        run: ./gradlew :sirix-kotlin-cli:nativeSmokeTest --info
       - name: Stop Gradle daemon (free memory)
         run: ./gradlew --stop
-      - name: Build sirix-rest-api native image (quick-build)
-        run: ./gradlew :sirix-rest-api:nativeCompile -Pquick-build --info
-      - name: Verify sirix-rest-api native image
-        run: ./bundles/sirix-rest-api/build/native/nativeCompile/sirix-rest-api --version || true
+      - name: Native smoke test sirix-rest-api
+        run: ./gradlew :sirix-rest-api:nativeSmokeTest --info
 
   Deploy:
     name: Deploy to OSSRH and Docker Hub

@@ -98,9 +98,13 @@ tasks.register('nativeImageSmokeTest', Test) {
 
 // GraalVM Native Image Configuration
 graalvmNative {
+    registerTestBinary("smokeTest") {
+        usingSourceSet(sourceSets.test)
+        forTestTask(tasks.named("nativeImageSmokeTest"))
+    }
     binaries {
-        // Test binary configuration for nativeTest task
-        test {
+        // Smoke test binary (compiled to native image via nativeSmokeTest task)
+        smokeTest {
             // Preview features and vector API
             buildArgs.add('--enable-preview')
             buildArgs.add('--enable-native-access=ALL-UNNAMED')
@@ -115,9 +119,10 @@ graalvmNative {
             buildArgs.add('--add-opens=java.base/java.lang.reflect=ALL-UNNAMED')
             buildArgs.add('--add-opens=java.base/java.io=ALL-UNNAMED')
             buildArgs.add('--add-opens=java.base/java.util=ALL-UNNAMED')
-            // Logging frameworks - build time
+            // Logging - SLF4J API at build time, logback at run time
+            // (build-time logback init pulls in FileAppender → FileOutputStream → stale FileDescriptor)
             buildArgs.add('--initialize-at-build-time=org.slf4j')
-            buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-run-time=ch.qos.logback')
             // Jackson - build time
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Sirix FFI components - run time
@@ -192,5 +197,4 @@ graalvmNative {
         }
     }
     toolchainDetection = false
-    testSupport = true
 }
