@@ -3,6 +3,7 @@ package io.sirix.query;
 import io.brackit.query.Query;
 import io.brackit.query.util.io.IOUtils;
 import io.brackit.query.util.serialize.StringSerializer;
+import io.sirix.cache.LinuxMemorySegmentAllocator;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -17,6 +18,7 @@ import static java.lang.foreign.ValueLayout.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Smoke tests for GraalVM native image compilation.
@@ -153,5 +155,44 @@ public class NativeImageSmokeTest {
     assertNotEquals(0L, pageSize);
     // Page size should be a power of 2, typically 4096
     assertEquals(0, pageSize & (pageSize - 1), "Page size should be a power of 2");
+  }
+
+  @Test
+  @DisplayName("LinuxMemorySegmentAllocator mmap/munmap via FFM")
+  void testLinuxMemorySegmentAllocator() {
+    Assumptions.assumeTrue(
+        System.getProperty("os.name").toLowerCase().contains("linux"),
+        "LinuxMemorySegmentAllocator requires Linux");
+
+    var allocator = LinuxMemorySegmentAllocator.getInstance();
+    MemorySegment segment = allocator.mapMemory(4096);
+    assertNotNull(segment);
+    assertEquals(4096, segment.byteSize());
+
+    segment.set(ValueLayout.JAVA_INT, 0, 42);
+    assertEquals(42, segment.get(ValueLayout.JAVA_INT, 0));
+
+    allocator.releaseMemory(segment, 4096);
+  }
+
+  @Test
+  @DisplayName("LinuxMemorySegmentAllocator pool allocation via FFM")
+  void testLinuxMemorySegmentAllocatorPool() {
+    Assumptions.assumeTrue(
+        System.getProperty("os.name").toLowerCase().contains("linux"),
+        "LinuxMemorySegmentAllocator requires Linux");
+
+    var allocator = LinuxMemorySegmentAllocator.getInstance();
+    allocator.init(1L << 30);
+    assertTrue(allocator.isInitialized());
+
+    MemorySegment segment = allocator.allocate(4096);
+    assertNotNull(segment);
+
+    segment.set(ValueLayout.JAVA_LONG, 0, 0xDEADBEEFL);
+    assertEquals(0xDEADBEEFL, segment.get(ValueLayout.JAVA_LONG, 0));
+
+    allocator.release(segment);
+    allocator.free();
   }
 }

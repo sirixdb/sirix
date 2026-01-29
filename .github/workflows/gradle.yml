@@ -86,16 +86,14 @@ jobs:
           ./gradlew :sirix-query:nativeImageSmokeTest --info
           ./gradlew :sirix-kotlin-cli:nativeImageSmokeTest --info
           ./gradlew :sirix-rest-api:nativeImageSmokeTest --info
+      - name: Stop Gradle daemon (free memory for native compilation)
+        run: ./gradlew --stop
       - name: Native smoke test sirix-query
-        run: ./gradlew :sirix-query:nativeSmokeTest --info
-      - name: Stop Gradle daemon (free memory)
-        run: ./gradlew --stop
+        run: ./gradlew :sirix-query:nativeSmokeTest --no-daemon --info
       - name: Native smoke test sirix-kotlin-cli
-        run: ./gradlew :sirix-kotlin-cli:nativeSmokeTest --info
-      - name: Stop Gradle daemon (free memory)
-        run: ./gradlew --stop
+        run: ./gradlew :sirix-kotlin-cli:nativeSmokeTest --no-daemon --info
       - name: Native smoke test sirix-rest-api
-        run: ./gradlew :sirix-rest-api:nativeSmokeTest --info
+        run: ./gradlew :sirix-rest-api:nativeSmokeTest --no-daemon --info
 
   Deploy:
     name: Deploy to OSSRH and Docker Hub
