@@ -77,6 +77,25 @@ dependencies {
     testImplementation testLibraries.jsonassert
 }
 
+// Task to run native-image smoke tests on JVM (also used for nativeTest discovery)
+tasks.register('nativeImageSmokeTest', Test) {
+    description = 'Run native-image smoke tests on JVM'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'native-image'
+    }
+    jvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED'
+    ]
+    minHeapSize = '2g'
+    maxHeapSize = '4g'
+}
+
 // GraalVM Native Image Configuration
 graalvmNative {
     binaries {
@@ -176,23 +195,4 @@ graalvmNative {
     registerTestBinary("test") {
         forTestTask(tasks.named("nativeImageSmokeTest"))
     }
-}
-
-// Task to run only native-image smoke tests on JVM (for validation before native compilation)
-tasks.register('nativeImageSmokeTest', Test) {
-    description = 'Run native-image smoke tests on JVM'
-    group = 'verification'
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform {
-        includeTags 'native-image'
-    }
-    jvmArgs = [
-        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
-        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
-        '--add-modules', 'jdk.incubator.vector',
-        '--enable-native-access=ALL-UNNAMED'
-    ]
-    minHeapSize = '2g'
-    maxHeapSize = '4g'
 }
