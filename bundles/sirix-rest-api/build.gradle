@@ -222,4 +222,6 @@ tasks.register('nativeImageSmokeTest', Test) {
         '--add-modules', 'jdk.incubator.vector',
         '--enable-native-access=ALL-UNNAMED'
     ]
+    minHeapSize = '2g'
+    maxHeapSize = '4g'
 }
