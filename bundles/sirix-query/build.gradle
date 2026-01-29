@@ -85,11 +85,34 @@ test {
     jvmArgs = baseArgs
 }
 
+// Task to run only native-image smoke tests on JVM (for validation before native compilation)
+tasks.register('nativeImageSmokeTest', Test) {
+    description = 'Run native-image smoke tests on JVM'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'native-image'
+    }
+    jvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED'
+    ]
+    minHeapSize = '2g'
+    maxHeapSize = '4g'
+}
+
 // GraalVM Native Image Configuration
 graalvmNative {
+    registerTestBinary("smokeTest") {
+        usingSourceSet(sourceSets.test)
+        forTestTask(tasks.named("nativeImageSmokeTest"))
+    }
     binaries {
-        // Test binary configuration for nativeTest task
-        test {
+        // Smoke test binary (compiled to native image via nativeSmokeTest task)
+        smokeTest {
             // Preview features and vector API
             buildArgs.add('--enable-preview')
             buildArgs.add('--enable-native-access=ALL-UNNAMED')
@@ -188,22 +211,4 @@ graalvmNative {
         }
     }
     toolchainDetection = false
-    testSupport = true
-}
-
-// Task to run only native-image smoke tests on JVM (for validation before native compilation)
-tasks.register('nativeImageSmokeTest', Test) {
-    description = 'Run native-image smoke tests on JVM'
-    group = 'verification'
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform {
-        includeTags 'native-image'
-    }
-    jvmArgs = [
-        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
-        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
-        '--add-modules', 'jdk.incubator.vector',
-        '--enable-native-access=ALL-UNNAMED'
-    ]
 }

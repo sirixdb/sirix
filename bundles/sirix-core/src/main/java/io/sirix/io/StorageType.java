@@ -29,14 +29,21 @@ import io.sirix.io.filechannel.FileChannelStorage;
 import io.sirix.io.iouring.IOUringStorage;
 import io.sirix.io.memorymapped.MMStorage;
 import io.sirix.io.ram.RAMStorage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.RandomAccessFile;
+import java.util.Optional;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
  * Specific backend types are specified in this enum.
+ *
+ * <p>External storage providers can be registered via the {@link StorageProvider} SPI.
+ * Use {@link #fromString(String)} to resolve provider names, which checks both
+ * built-in types and ServiceLoader-discovered providers.
  *
  * @author Johannes Lichtenberger
  */
@@ -122,13 +129,52 @@ public enum StorageType {
   public static final ConcurrentMap<Path, RevisionIndexHolder> REVISION_INDEX_REPOSITORY =
       new ConcurrentHashMap<>();
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(StorageType.class);
+
+  /**
+   * Parse a storage type from string.
+   *
+   * <p>First checks built-in types, then falls back to ServiceLoader-discovered providers.
+   *
+   * @param storageType the storage type name (case-insensitive)
+   * @return the storage type
+   * @throws IllegalArgumentException if type not found in built-in types or providers
+   */
   public static StorageType fromString(String storageType) {
+    // First check built-in types
     for (final var type : values()) {
       if (type.name().equalsIgnoreCase(storageType)) {
         return type;
       }
     }
-    throw new IllegalArgumentException("No constant with name " + storageType + " found");
+
+    // Check if there's an external provider with this name
+    if (StorageProviders.isAvailable(storageType)) {
+      LOGGER.info("Storage type '{}' resolved to external provider", storageType);
+      // Return a marker type - actual creation happens via getStorageWithProviders
+      return FILE_CHANNEL; // Default fallback, but getStorageWithProviders handles it
+    }
+
+    throw new IllegalArgumentException("No storage type or provider with name '" + storageType + "' found. "
+        + "Available types: " + java.util.Arrays.toString(values())
+        + ", Available providers: " + StorageProviders.getAvailableProviderNames());
+  }
+
+  /**
+   * Check if a storage type name refers to an external provider.
+   *
+   * @param storageType the storage type name
+   * @return true if this is handled by an external provider
+   */
+  public static boolean isExternalProvider(String storageType) {
+    // Not a built-in type?
+    for (final var type : values()) {
+      if (type.name().equalsIgnoreCase(storageType)) {
+        return false;
+      }
+    }
+    // Check external providers
+    return StorageProviders.isAvailable(storageType);
   }
 
   /**
@@ -144,12 +190,31 @@ public enum StorageType {
    * Factory method to retrieve suitable {@link IOStorage} instances based upon the suitable
    * {@link ResourceConfiguration}.
    *
+   * <p>This method first checks for external providers (via ServiceLoader) that might
+   * override or enhance the built-in storage type. This allows enterprise features
+   * like FFM-based io_uring to transparently replace the default implementation.
+   *
    * @param resourceConf determining the storage
    * @return an implementation of the {@link IOStorage} interface
    * @throws SirixIOException     if an IO-exception occurs
    * @throws NullPointerException if {@code resourceConf} is {@code null}
    */
   public static IOStorage getStorage(final ResourceConfiguration resourceConf) {
+    final String typeName = resourceConf.storageType.name();
+
+    // Check if an external provider wants to handle this storage type
+    // Enterprise providers can override built-in types with higher-performance implementations
+    Optional<StorageProvider> provider = StorageProviders.get(typeName);
+    if (provider.isPresent() && provider.get().isAvailable()) {
+      StorageProvider p = provider.get();
+      if (p.isEnterprise()) {
+        LOGGER.info("Using enterprise storage provider for {}: {} (priority={})",
+            typeName, p.getClass().getSimpleName(), p.getPriority());
+      }
+      return p.createStorage(resourceConf);
+    }
+
+    // Fall back to built-in implementation
     return resourceConf.storageType.getInstance(resourceConf);
   }
 

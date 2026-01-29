@@ -1,0 +1,46 @@
+{
+  "foreign": {
+    "downcalls": [
+      {
+        "returnType": "void*",
+        "parameterTypes": ["void*", "long", "int", "int", "int", "long"]
+      },
+      {
+        "returnType": "int",
+        "parameterTypes": ["void*", "long"]
+      },
+      {
+        "returnType": "int",
+        "parameterTypes": ["void*", "long", "int"]
+      },
+      {
+        "returnType": "long",
+        "parameterTypes": ["int"]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": []
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": ["int"]
+      },
+      {
+        "returnType": "int",
+        "parameterTypes": ["void*", "void*", "int", "int"]
+      },
+      {
+        "returnType": "int",
+        "parameterTypes": ["void*", "void*", "int", "int", "int"]
+      },
+      {
+        "returnType": "int",
+        "parameterTypes": ["void*", "void*", "int"]
+      },
+      {
+        "returnType": "int",
+        "parameterTypes": ["int"]
+      }
+    ]
+  }
+}

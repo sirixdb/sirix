@@ -8,7 +8,8 @@ import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.node.NodeCollection;
 import io.brackit.query.jdm.node.NodeStore;
 import io.brackit.query.node.parser.DocumentParser;
-import org.junit.After;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,11 +50,12 @@ public final class SirixXMarkTest extends XMarkTest {
   }
 
   @Override
+  @BeforeEach
   public void setUp() throws Exception {
     super.setUp();
   }
 
-  @After
+  @AfterEach
   public void commit() throws DocumentException {
     xmlStore.close();
     if (xmlTestDir != null) {
