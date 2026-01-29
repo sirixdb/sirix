@@ -908,39 +908,40 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         madviseSucceeded = true;
         // Note: Already removed from borrowedSegments above (atomically)
       } else {
-        // madvise failed - add back to borrowed set since memory not actually released
         int errno = getErrno();
-        borrowedSegments.add(address);
-        // EFAULT is expected during shutdown when memory is already unmapped
+        // EFAULT during shutdown: memory already unmapped, segment is unusable
         if (errno == EFAULT) {
           LOGGER.debug("madvise EFAULT (expected during shutdown) - address 0x{}, size {} bytes. " +
                        "Memory already unmapped. Segment NOT returned to pool.",
                        Long.toHexString(address), size);
-        } else {
-          // Log full diagnostics for unexpected errors
-          LOGGER.warn("{}\n  Action: Segment NOT returned to pool - physical memory may still be held.",
-                      buildMadviseDiagnostics(address, size, errno));
+          // Re-add to borrowed set - segment is truly unusable (unmapped)
+          borrowedSegments.add(address);
+          return;
         }
-        // DO NOT return to pool - segment still holds physical memory
-        return;
+        // ENOMEM or other transient error: virtual address is still valid, segment is reusable.
+        // Physical memory is not released, but the segment can be overwritten and reused.
+        // Keep in borrowedSegments so re-borrow won't double-count physical memory.
+        // DON'T decrement physicalMemoryBytes (memory is still held).
+        LOGGER.warn("{}\n  Action: Returning segment to pool (still usable). Physical memory not reclaimed.",
+                    buildMadviseDiagnostics(address, size, errno));
+        borrowedSegments.add(address);
+        // Fall through to return segment to pool below
       }
     } catch (Throwable t) {
-      // madvise invocation failed - add back to borrowed set since memory not actually released
-      borrowedSegments.add(address);
       LOGGER.error("madvise invocation threw exception:\n" +
                    "  Address: 0x{}\n  Size: {} bytes\n  Exception: {}\n" +
-                   "  Action: Segment NOT returned to pool.",
+                   "  Action: Returning segment to pool (still usable). Physical memory not reclaimed.",
                    Long.toHexString(address), size, t.getMessage(), t);
-      // DO NOT return to pool - we don't know the state of physical memory
-      return;
+      // Virtual address is still valid - return to pool. Keep in borrowedSegments to avoid double-count.
+      borrowedSegments.add(address);
+      // Fall through to return segment to pool below
     }
 
-    // Only return segment to pool if madvise succeeded
-    // This prevents accounting errors from re-borrowing segments with unreleased physical memory
-    if (madviseSucceeded) {
-      segmentPools[index].offer(segment);
-      poolSizes[index].incrementAndGet();
-    }
+    // Always return segment to pool (unless EFAULT - already returned above).
+    // Even if madvise failed, the virtual address is valid and the segment is reusable.
+    // Physical memory accounting: madvise success → decremented above; failure → not decremented (correct).
+    segmentPools[index].offer(segment);
+    poolSizes[index].incrementAndGet();
   }
 
   @Override
