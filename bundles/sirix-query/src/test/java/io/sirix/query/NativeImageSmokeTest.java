@@ -3,18 +3,20 @@ package io.sirix.query;
 import io.brackit.query.Query;
 import io.brackit.query.util.io.IOUtils;
 import io.brackit.query.util.serialize.StringSerializer;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
+import static java.lang.foreign.ValueLayout.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 /**
  * Smoke tests for GraalVM native image compilation.
@@ -88,51 +90,68 @@ public class NativeImageSmokeTest {
     assertEquals("100", evaluate("let $x := 10 return $x * $x"));
   }
 
+  /**
+   * Tests FFM downcall stubs registered in reachability-metadata.json.
+   * Calls mmap/munmap directly via FFM to verify the native image has
+   * the required downcall stubs for LinuxMemorySegmentAllocator.
+   *
+   * <p>Uses direct FFM calls instead of importing LinuxMemorySegmentAllocator
+   * to avoid pulling its large dependency graph into the native image.
+   */
   @Test
-  @DisplayName("LinuxMemorySegmentAllocator mmap/munmap via FFM")
-  void testLinuxMemorySegmentAllocator() {
+  @DisplayName("FFM downcall - mmap/munmap")
+  void testFfmMmapMunmap() throws Throwable {
     Assumptions.assumeTrue(
         System.getProperty("os.name").toLowerCase().contains("linux"),
-        "LinuxMemorySegmentAllocator requires Linux");
+        "mmap/munmap requires Linux");
 
-    var allocator = LinuxMemorySegmentAllocator.getInstance();
-    // mapMemory calls mmap, releaseMemory calls munmap
-    MemorySegment segment = allocator.mapMemory(4096);
-    assertNotNull(segment);
-    assertEquals(4096, segment.byteSize());
+    var linker = Linker.nativeLinker();
 
-    // Write and read back to verify the mapped memory is usable
-    segment.set(ValueLayout.JAVA_INT, 0, 42);
-    assertEquals(42, segment.get(ValueLayout.JAVA_INT, 0));
+    // Same FunctionDescriptors as LinuxMemorySegmentAllocator
+    var mmap = linker.downcallHandle(
+        linker.defaultLookup().find("mmap").orElseThrow(),
+        FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_LONG));
 
-    // Release via munmap
-    allocator.releaseMemory(segment, 4096);
-  }
+    var munmap = linker.downcallHandle(
+        linker.defaultLookup().find("munmap").orElseThrow(),
+        FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG));
 
-  @Test
-  @DisplayName("LinuxMemorySegmentAllocator pool allocation via FFM")
-  void testLinuxMemorySegmentAllocatorPool() {
-    Assumptions.assumeTrue(
-        System.getProperty("os.name").toLowerCase().contains("linux"),
-        "LinuxMemorySegmentAllocator requires Linux");
-
-    var allocator = LinuxMemorySegmentAllocator.getInstance();
-    // init() exercises mmap (preAllocateVirtualRegion) and sysconf (detectBasePageSize)
-    allocator.init(1L << 30); // 1GB budget
-    assertTrue(allocator.isInitialized());
-
-    // allocate() gets a segment from the mmap'd pool
-    MemorySegment segment = allocator.allocate(4096);
-    assertNotNull(segment);
+    // mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)
+    MemorySegment addr = (MemorySegment) mmap.invokeExact(
+        MemorySegment.NULL, 4096L, 0x1 | 0x2, 0x02 | 0x20, -1, 0L);
+    assertNotNull(addr);
+    assertNotEquals(0L, addr.address());
 
     // Write and read back
-    segment.set(ValueLayout.JAVA_LONG, 0, 0xDEADBEEFL);
-    assertEquals(0xDEADBEEFL, segment.get(ValueLayout.JAVA_LONG, 0));
+    var segment = addr.reinterpret(4096);
+    segment.set(JAVA_INT, 0, 42);
+    assertEquals(42, segment.get(JAVA_INT, 0));
 
-    // release() exercises madvise(MADV_DONTNEED)
-    allocator.release(segment);
+    // munmap
+    int result = (int) munmap.invokeExact(segment, 4096L);
+    assertEquals(0, result);
+  }
 
-    // free() exercises munmap
-    allocator.free();
+  /**
+   * Tests sysconf downcall stub - used by LinuxMemorySegmentAllocator
+   * to detect the system page size.
+   */
+  @Test
+  @DisplayName("FFM downcall - sysconf page size")
+  void testFfmSysconf() throws Throwable {
+    Assumptions.assumeTrue(
+        System.getProperty("os.name").toLowerCase().contains("linux"),
+        "sysconf requires Linux");
+
+    var linker = Linker.nativeLinker();
+    var sysconf = linker.downcallHandle(
+        linker.defaultLookup().find("sysconf").orElseThrow(),
+        FunctionDescriptor.of(JAVA_LONG, JAVA_INT));
+
+    // _SC_PAGESIZE = 30 on Linux
+    long pageSize = (long) sysconf.invokeExact(30);
+    assertNotEquals(0L, pageSize);
+    // Page size should be a power of 2, typically 4096
+    assertEquals(0, pageSize & (pageSize - 1), "Page size should be a power of 2");
   }
 }
