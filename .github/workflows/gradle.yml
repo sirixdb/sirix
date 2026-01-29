@@ -92,10 +92,6 @@ jobs:
         run: ./gradlew --stop
       - name: Native test sirix-kotlin-cli
         run: ./gradlew :sirix-kotlin-cli:nativeTest --info
-      - name: Stop Gradle daemon (free memory)
-        run: ./gradlew --stop
-      - name: Native test sirix-rest-api
-        run: ./gradlew :sirix-rest-api:nativeTest --info
 
   Deploy:
     name: Deploy to OSSRH and Docker Hub

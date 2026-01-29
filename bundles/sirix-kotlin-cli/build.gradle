@@ -192,7 +192,5 @@ graalvmNative {
         }
     }
     toolchainDetection = false
-    registerTestBinary("test") {
-        forTestTask(tasks.named("nativeImageSmokeTest"))
-    }
+    testSupport = true
 }
