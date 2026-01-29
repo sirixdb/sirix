@@ -119,10 +119,9 @@ graalvmNative {
             buildArgs.add('--add-opens=java.base/java.lang.reflect=ALL-UNNAMED')
             buildArgs.add('--add-opens=java.base/java.io=ALL-UNNAMED')
             buildArgs.add('--add-opens=java.base/java.util=ALL-UNNAMED')
-            // Logging - SLF4J API at build time, logback at run time
-            // (build-time logback init pulls in FileAppender → FileOutputStream → stale FileDescriptor)
+            // Logging frameworks - build time
             buildArgs.add('--initialize-at-build-time=org.slf4j')
-            buildArgs.add('--initialize-at-run-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-build-time=ch.qos.logback')
             // Jackson - build time
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Sirix FFI components - run time

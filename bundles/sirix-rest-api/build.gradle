@@ -148,10 +148,9 @@ graalvmNative {
             buildArgs.add('--add-modules=jdk.incubator.vector')
             buildArgs.add('-H:+ForeignAPISupport')
             buildArgs.add('-H:+UnlockExperimentalVMOptions')
-            // Logging - SLF4J API at build time, logback at run time
-            // (build-time logback init pulls in FileAppender → FileOutputStream → stale FileDescriptor)
+            // Logging frameworks - build time
             buildArgs.add('--initialize-at-build-time=org.slf4j')
-            buildArgs.add('--initialize-at-run-time=ch.qos.logback')
+            buildArgs.add('--initialize-at-build-time=ch.qos.logback')
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Netty - all run time
             buildArgs.add('--initialize-at-run-time=io.netty')
