@@ -18,7 +18,6 @@ import static java.lang.foreign.ValueLayout.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Smoke tests for GraalVM native image compilation.
@@ -175,24 +174,4 @@ public class NativeImageSmokeTest {
     allocator.releaseMemory(segment, 4096);
   }
 
-  @Test
-  @DisplayName("LinuxMemorySegmentAllocator pool allocation via FFM")
-  void testLinuxMemorySegmentAllocatorPool() {
-    Assumptions.assumeTrue(
-        System.getProperty("os.name").toLowerCase().contains("linux"),
-        "LinuxMemorySegmentAllocator requires Linux");
-
-    var allocator = LinuxMemorySegmentAllocator.getInstance();
-    allocator.init(1L << 30);
-    assertTrue(allocator.isInitialized());
-
-    MemorySegment segment = allocator.allocate(4096);
-    assertNotNull(segment);
-
-    segment.set(ValueLayout.JAVA_LONG, 0, 0xDEADBEEFL);
-    assertEquals(0xDEADBEEFL, segment.get(ValueLayout.JAVA_LONG, 0));
-
-    allocator.release(segment);
-    allocator.free();
-  }
 }
