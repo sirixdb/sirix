@@ -28,7 +28,7 @@ services:
       retries: 20
   server:
     build: .
-    image: sirixdb/sirix:local
+    image: sirixdb/sirix:latest
     ports:
       - "9443:9443"
     restart: always

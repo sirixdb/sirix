@@ -10,7 +10,7 @@ import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
@@ -30,10 +30,10 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
         }
 
         val credentials = TokenCredentials(token.substring(7))
-        val user = keycloak.authenticate(credentials).await()
+        val user = keycloak.authenticate(credentials).coAwait()
         val database = ctx.pathParam("database")
 
-        authz.getAuthorizations(user).await()
+        authz.getAuthorizations(user).coAwait()
 
         val isAuthorized =
             if (database == null) {
@@ -57,7 +57,7 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
         @OptIn(DelicateCoroutinesApi::class)
         fun checkIfAuthorized(user: User, dispatcher: CoroutineDispatcher, name: String, role: io.sirix.rest.AuthRole, authz: AuthorizationProvider) {
             GlobalScope.launch(dispatcher) {
-                authz.getAuthorizations(user).await()
+                authz.getAuthorizations(user).coAwait()
                 val isAuthorized = PermissionBasedAuthorization.create(role.databaseRole(name)).match(user)
 
                 require(isAuthorized || RoleBasedAuthorization.create(role.keycloakRole()).match(user)) {

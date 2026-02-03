@@ -6,7 +6,7 @@ import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.auth.oauth2.OAuth2Auth
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import kotlinx.coroutines.runBlocking
 import io.brackit.query.ErrorCode
 import io.brackit.query.QueryContext
@@ -32,6 +32,10 @@ class PermissionCheckingQuery {
     val user: User
     val authz: AuthorizationProvider
 
+    /** The compile chain used to compile this query, stored for plan retrieval */
+    var compileChain: CompileChain? = null
+        private set
+
     constructor(module: Module, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
         this.module = module
         this.keycloak = keycloak
@@ -40,7 +44,9 @@ class PermissionCheckingQuery {
     }
 
     constructor(query: String, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
-        this.module = CompileChain().compile(query)
+        val chain = CompileChain()
+        this.module = chain.compile(query)
+        this.compileChain = chain
         this.keycloak = keycloak
         this.user = user
         this.authz = authz
@@ -48,6 +54,7 @@ class PermissionCheckingQuery {
 
     constructor(chain: CompileChain, query: String, keycloak: OAuth2Auth, user: User, authz: AuthorizationProvider) {
         this.module = chain.compile(query)
+        this.compileChain = chain
         this.keycloak = keycloak
         this.user = user
         this.authz = authz
@@ -74,7 +81,7 @@ class PermissionCheckingQuery {
 
             // FIXME: Better way?
             runBlocking {
-                authz.getAuthorizations(user).await()
+                authz.getAuthorizations(user).coAwait()
                 if (!RoleBasedAuthorization.create(AuthRole.MODIFY.keycloakRole()).match(user)) {
                     throw IllegalStateException("${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to modify the database")
                 }

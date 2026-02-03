@@ -150,35 +150,30 @@ class KotlinJsonStreamingShredder(
         // #region agent log
         debugLog("G", "executeBlocking_called") { mapOf("setup" to true) }
         // #endregion
-        vertx!!.executeBlocking<Unit>(
-            { blockingPromise ->
-                // #region agent log
-                debugLog("G", "consumer_blocking_start") { mapOf("thread" to Thread.currentThread().name) }
-                // #endregion
-                try {
-                    // Run blocking consumer using runBlocking from kotlinx.coroutines
-                    kotlinx.coroutines.runBlocking {
-                        processEvents(channel, paused)
-                    }
-                    
-                    // Check for producer errors
-                    producerError.get()?.let { throw it }
-                    
-                    // Disable bulk insert mode after all events are processed
-                    // Note: We do NOT call adaptHashesInPostorderTraversal() here because
-                    // when using auto-commit (maxNodes), hashes are adapted incrementally.
-                    // Calling it would traverse 300M+ nodes and cause OOM.
-                    internalTrx.setBulkInsertion(false)
-                    
-                    blockingPromise.complete()
-                } catch (e: Throwable) {
-                    // Ensure bulk insert is disabled even on error
-                    try { internalTrx.setBulkInsertion(false) } catch (_: Exception) {}
-                    blockingPromise.fail(e)
+        vertx!!.executeBlocking {
+            // #region agent log
+            debugLog("G", "consumer_blocking_start") { mapOf("thread" to Thread.currentThread().name) }
+            // #endregion
+            try {
+                // Run blocking consumer using runBlocking from kotlinx.coroutines
+                kotlinx.coroutines.runBlocking {
+                    processEvents(channel, paused)
                 }
-            },
-            false  // ordered=false for better parallelism
-        ).onSuccess {
+
+                // Check for producer errors
+                producerError.get()?.let { throw it }
+
+                // Disable bulk insert mode after all events are processed
+                // Note: We do NOT call adaptHashesInPostorderTraversal() here because
+                // when using auto-commit (maxNodes), hashes are adapted incrementally.
+                // Calling it would traverse 300M+ nodes and cause OOM.
+                internalTrx.setBulkInsertion(false)
+            } catch (e: Throwable) {
+                // Ensure bulk insert is disabled even on error
+                try { internalTrx.setBulkInsertion(false) } catch (_: Exception) {}
+                throw e
+            }
+        }.onSuccess {
             promise.complete(revision)
         }.onFailure { e ->
             promise.fail(e)

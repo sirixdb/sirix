@@ -1,0 +1,393 @@
+[
+  {
+    "name": "[B"
+  },
+  {
+    "name": "[C"
+  },
+  {
+    "name": "[D"
+  },
+  {
+    "name": "[F"
+  },
+  {
+    "name": "[I"
+  },
+  {
+    "name": "[J"
+  },
+  {
+    "name": "[S"
+  },
+  {
+    "name": "[Z"
+  },
+  {
+    "name": "ch.qos.logback.classic.encoder.PatternLayoutEncoder",
+    "queryAllPublicMethods": true,
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "ch.qos.logback.classic.pattern.DateConverter",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "ch.qos.logback.classic.pattern.LevelConverter",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "ch.qos.logback.classic.pattern.LineSeparatorConverter",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "ch.qos.logback.classic.pattern.LoggerConverter",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "ch.qos.logback.classic.pattern.MessageConverter",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "ch.qos.logback.classic.pattern.ThreadConverter",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "ch.qos.logback.core.ConsoleAppender",
+    "queryAllPublicMethods": true,
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "ch.qos.logback.core.OutputStreamAppender",
+    "methods": [{"name": "setEncoder", "parameterTypes": ["ch.qos.logback.core.encoder.Encoder"]}]
+  },
+  {
+    "name": "ch.qos.logback.core.encoder.Encoder",
+    "methods": [{"name": "valueOf", "parameterTypes": ["java.lang.String"]}]
+  },
+  {
+    "name": "ch.qos.logback.core.encoder.LayoutWrappingEncoder",
+    "methods": [{"name": "setParent", "parameterTypes": ["ch.qos.logback.core.spi.ContextAware"]}]
+  },
+  {
+    "name": "ch.qos.logback.core.pattern.PatternLayoutEncoderBase",
+    "methods": [{"name": "setPattern", "parameterTypes": ["java.lang.String"]}]
+  },
+  {
+    "name": "ch.qos.logback.core.spi.ContextAware",
+    "methods": [{"name": "valueOf", "parameterTypes": ["java.lang.String"]}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.BBHeader$ReadAndWriteCounterRef",
+    "fields": [{"name": "writeCounter"}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.BBHeader$ReadCounterRef",
+    "fields": [{"name": "readCounter"}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.BLCHeader$DrainStatusRef",
+    "fields": [{"name": "drainStatus"}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.BaseMpscLinkedArrayQueueColdProducerFields",
+    "fields": [{"name": "producerLimit"}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.BaseMpscLinkedArrayQueueConsumerFields",
+    "fields": [{"name": "consumerIndex"}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.BaseMpscLinkedArrayQueueProducerFields",
+    "fields": [{"name": "producerIndex"}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.BoundedLocalCache",
+    "fields": [{"name": "refreshes"}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.PS",
+    "fields": [{"name": "key"}, {"name": "value"}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.PSA",
+    "fields": [{"name": "accessTime"}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.PSAMS",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.PSMS",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SSLMS",
+    "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SSLMSA",
+    "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SSMSA",
+    "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.StripedBuffer",
+    "fields": [{"name": "tableBusy"}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.UnboundedLocalCache",
+    "fields": [{"name": "refreshes"}]
+  },
+  {
+    "name": "io.sirix.rest.SirixVerticle",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.sirix.io.bytepipe.DeflateCompressor",
+    "queryAllPublicConstructors": true,
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "io.sirix.io.bytepipe.SnappyCompressor",
+    "queryAllPublicConstructors": true,
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "io.sirix.io.bytepipe.LZ4Compressor",
+    "queryAllPublicConstructors": true,
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "io.sirix.io.bytepipe.FFILz4Compressor",
+    "queryAllPublicConstructors": true,
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "io.sirix.io.bytepipe.Encryptor",
+    "queryAllPublicConstructors": true,
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "io.sirix.node.NodeSerializerImpl",
+    "queryAllPublicConstructors": true,
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "io.brackit.query.util.log.UtilLogFactory",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "io.vertx.core.Launcher",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.vertx.core.impl.VertxImpl",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.vertx.core.json.JsonObject",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.vertx.core.json.JsonArray",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.vertx.ext.auth.impl.UserImpl",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.vertx.ext.auth.impl.UserConverter",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.vertx.ext.auth.oauth2.impl.OAuth2AuthProviderImpl",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.vertx.ext.web.impl.RouterImpl",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.netty.channel.socket.nio.NioServerSocketChannel",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.netty.channel.socket.nio.NioSocketChannel",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.netty.channel.epoll.EpollServerSocketChannel",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.netty.channel.epoll.EpollSocketChannel",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.netty.handler.codec.http.HttpRequestDecoder",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "io.netty.handler.codec.http.HttpResponseEncoder",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "io.netty.handler.codec.http2.Http2ConnectionHandler",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "io.netty.handler.ssl.SslHandler",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "com.sun.org.apache.xerces.internal.jaxp.SAXParserFactoryImpl",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "java.lang.Object",
+    "fields": [{"name": "reservedMemory"}],
+    "methods": [{"name": "equals", "parameterTypes": ["java.lang.Object"]}, {"name": "hashCode", "parameterTypes": []}, {"name": "toString", "parameterTypes": []}]
+  },
+  {
+    "name": "java.lang.String",
+    "queryAllPublicMethods": true,
+    "fields": [{"name": "coder"}, {"name": "count"}, {"name": "value"}]
+  },
+  {
+    "name": "java.lang.Thread",
+    "methods": [{"name": "onSpinWait", "parameterTypes": []}]
+  },
+  {
+    "name": "java.lang.invoke.MethodHandle",
+    "methods": [{"name": "bindTo", "parameterTypes": ["java.lang.Object"]}, {"name": "invokeWithArguments", "parameterTypes": ["java.lang.Object[]"]}]
+  },
+  {
+    "name": "java.lang.invoke.MethodHandles",
+    "methods": [{"name": "lookup", "parameterTypes": []}, {"name": "privateLookupIn", "parameterTypes": ["java.lang.Class", "java.lang.invoke.MethodHandles$Lookup"]}]
+  },
+  {
+    "name": "java.lang.invoke.MethodHandles$Lookup",
+    "methods": [{"name": "findSpecial", "parameterTypes": ["java.lang.Class", "java.lang.String", "java.lang.invoke.MethodType", "java.lang.Class"]}, {"name": "in", "parameterTypes": ["java.lang.Class"]}, {"name": "unreflectSpecial", "parameterTypes": ["java.lang.reflect.Method", "java.lang.Class"]}]
+  },
+  {
+    "name": "java.lang.invoke.MethodType",
+    "methods": [{"name": "methodType", "parameterTypes": ["java.lang.Class", "java.lang.Class[]"]}]
+  },
+  {
+    "name": "java.nio.Buffer"
+  },
+  {
+    "name": "java.nio.Bits",
+    "fields": [{"name": "RESERVED_MEMORY"}, {"name": "reservedMemory"}]
+  },
+  {
+    "name": "java.util.concurrent.ForkJoinTask",
+    "fields": [{"name": "aux"}, {"name": "status"}]
+  },
+  {
+    "name": "java.util.concurrent.atomic.AtomicBoolean",
+    "fields": [{"name": "value"}]
+  },
+  {
+    "name": "java.util.concurrent.atomic.AtomicReference",
+    "fields": [{"name": "value"}]
+  },
+  {
+    "name": "jdk.internal.misc.Unsafe"
+  },
+  {
+    "name": "jdk.internal.misc.VM",
+    "fields": [{"name": "directMemory"}]
+  },
+  {
+    "name": "net.jpountz.lz4.LZ4HCJNICompressor",
+    "fields": [{"name": "INSTANCE"}],
+    "methods": [{"name": "<init>", "parameterTypes": ["int"]}]
+  },
+  {
+    "name": "net.jpountz.lz4.LZ4JNICompressor",
+    "fields": [{"name": "INSTANCE"}]
+  },
+  {
+    "name": "net.jpountz.lz4.LZ4JNIFastDecompressor",
+    "fields": [{"name": "INSTANCE"}]
+  },
+  {
+    "name": "net.jpountz.lz4.LZ4JNISafeDecompressor",
+    "fields": [{"name": "INSTANCE"}]
+  },
+  {
+    "name": "net.jpountz.xxhash.StreamingXXHash32JNI$Factory",
+    "fields": [{"name": "INSTANCE"}]
+  },
+  {
+    "name": "net.jpountz.xxhash.StreamingXXHash64JNI$Factory",
+    "fields": [{"name": "INSTANCE"}]
+  },
+  {
+    "name": "net.jpountz.xxhash.XXHash32JNI",
+    "fields": [{"name": "INSTANCE"}]
+  },
+  {
+    "name": "net.jpountz.xxhash.XXHash64JNI",
+    "fields": [{"name": "INSTANCE"}]
+  },
+  {
+    "name": "sun.misc.Unsafe",
+    "fields": [{"name": "theUnsafe"}],
+    "methods": [{"name": "allocateMemory", "parameterTypes": ["long"]}, {"name": "freeMemory", "parameterTypes": ["long"]}, {"name": "getAddress", "parameterTypes": ["long"]}, {"name": "getByte", "parameterTypes": ["long"]}, {"name": "getDouble", "parameterTypes": ["long"]}, {"name": "getFloat", "parameterTypes": ["long"]}, {"name": "getInt", "parameterTypes": ["long"]}, {"name": "getLong", "parameterTypes": ["long"]}, {"name": "getShort", "parameterTypes": ["long"]}, {"name": "putAddress", "parameterTypes": ["long", "long"]}, {"name": "putByte", "parameterTypes": ["long", "byte"]}, {"name": "putDouble", "parameterTypes": ["long", "double"]}, {"name": "putFloat", "parameterTypes": ["long", "float"]}, {"name": "putInt", "parameterTypes": ["long", "int"]}, {"name": "putLong", "parameterTypes": ["long", "long"]}, {"name": "putShort", "parameterTypes": ["long", "short"]}]
+  },
+  {
+    "name": "sun.nio.ch.FileChannelImpl",
+    "fields": [{"name": "fd"}]
+  },
+  {
+    "name": "sun.nio.ch.FileDispatcherImpl",
+    "methods": [{"name": "read0", "parameterTypes": ["java.io.FileDescriptor", "long", "int"]}, {"name": "write0", "parameterTypes": ["java.io.FileDescriptor", "long", "int"]}]
+  },
+  {
+    "name": "sun.nio.ch.UnixFileDispatcherImpl",
+    "methods": [{"name": "read0", "parameterTypes": ["java.io.FileDescriptor", "long", "int"]}, {"name": "unmap0", "parameterTypes": ["long", "long"]}, {"name": "write0", "parameterTypes": ["java.io.FileDescriptor", "long", "int"]}]
+  },
+  {
+    "name": "sun.security.provider.NativePRNG",
+    "methods": [{"name": "<init>", "parameterTypes": []}, {"name": "<init>", "parameterTypes": ["java.security.SecureRandomParameters"]}]
+  },
+  {
+    "name": "sun.security.provider.SHA",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "sun.security.provider.SHA2$SHA256",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "kotlin.coroutines.Continuation",
+    "allPublicMethods": true
+  },
+  {
+    "name": "kotlin.coroutines.intrinsics.IntrinsicsKt",
+    "allPublicMethods": true
+  },
+  {
+    "name": "kotlinx.coroutines.internal.MainDispatcherFactory",
+    "allPublicMethods": true
+  }
+]

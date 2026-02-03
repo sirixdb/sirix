@@ -13,28 +13,49 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
+ * Thread-safe index definition container.
+ * <p>
+ * Uses {@link CopyOnWriteArraySet} for lock-free read operations since
+ * index definitions are rarely modified but frequently queried during
+ * index lookups. This eliminates synchronization overhead on hot read paths.
+ * </p>
+ *
  * @author Karsten Schmidt
  * @author Sebastian Baechle
  */
 public final class Indexes implements Materializable {
   public static final QNm INDEXES_TAG = new QNm("indexes");
 
+  /**
+   * Thread-safe set for index definitions.
+   * CopyOnWriteArraySet provides lock-free reads with copy-on-write semantics
+   * for modifications - ideal for read-heavy, write-rare workloads like index metadata.
+   */
   private final Set<IndexDef> indexes;
 
   public Indexes() {
-    indexes = new HashSet<>();
+    indexes = new CopyOnWriteArraySet<>();
   }
 
-  public synchronized Set<IndexDef> getIndexDefs() {
+  /**
+   * Returns a snapshot of all index definitions.
+   * Thread-safe without synchronization due to CopyOnWriteArraySet.
+   */
+  public Set<IndexDef> getIndexDefs() {
     return new HashSet<>(indexes);
   }
 
-  public synchronized IndexDef getIndexDef(final @NonNegative int indexNo, final IndexType type) {
+  /**
+   * Gets an index definition by index number and type.
+   * Thread-safe without synchronization due to CopyOnWriteArraySet.
+   */
+  public IndexDef getIndexDef(final @NonNegative int indexNo, final IndexType type) {
     checkArgument(indexNo >= 0, "indexNo must be >= 0!");
     for (final IndexDef sid : indexes) {
       if (sid.getID() == indexNo && sid.getType() == type) {
@@ -44,8 +65,12 @@ public final class Indexes implements Materializable {
     return null;
   }
 
+  /**
+   * Initializes indexes from persisted XML representation.
+   * Thread-safe: CopyOnWriteArraySet handles concurrent modifications.
+   */
   @Override
-  public synchronized void init(final Node<?> root) throws DocumentException {
+  public void init(final Node<?> root) throws DocumentException {
     final QNm name = root.getName();
     if (!INDEXES_TAG.equals(name)) {
       throw new DocumentException("Expected tag '%s' but found '%s'", INDEXES_TAG, name);
@@ -72,8 +97,12 @@ public final class Indexes implements Materializable {
     }
   }
 
+  /**
+   * Materializes indexes to XML representation.
+   * Thread-safe: CopyOnWriteArraySet provides consistent snapshot for iteration.
+   */
   @Override
-  public synchronized Node<?> materialize() throws DocumentException {
+  public Node<?> materialize() throws DocumentException {
     FragmentHelper helper = new FragmentHelper();
     helper.openElement(INDEXES_TAG);
 
@@ -85,18 +114,21 @@ public final class Indexes implements Materializable {
     return helper.getRoot();
   }
 
-  public synchronized void add(IndexDef indexDefinition) {
+  /**
+   * Adds an index definition.
+   * Thread-safe: CopyOnWriteArraySet handles concurrent modifications.
+   */
+  public void add(IndexDef indexDefinition) {
     indexes.add(indexDefinition);
   }
 
-  public synchronized void removeIndex(final @NonNegative int indexID) {
+  /**
+   * Removes an index definition by ID.
+   * Thread-safe: CopyOnWriteArraySet handles concurrent modifications.
+   */
+  public void removeIndex(final @NonNegative int indexID) {
     checkArgument(indexID >= 0, "indexID must be >= 0!");
-    for (final IndexDef indexDef : indexes) {
-      if (indexDef.getID() == indexID) {
-        indexes.remove(indexDef);
-        return;
-      }
-    }
+    indexes.removeIf(indexDef -> indexDef.getID() == indexID);
   }
 
   public Optional<IndexDef> findPathIndex(final Path<QNm> path) throws DocumentException {

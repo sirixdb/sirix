@@ -3,7 +3,7 @@ package io.sirix.rest.crud.json
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.Databases
 import io.sirix.access.trx.node.HashType
 import io.sirix.api.Database

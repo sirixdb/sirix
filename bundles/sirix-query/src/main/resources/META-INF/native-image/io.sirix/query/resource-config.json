@@ -1,0 +1,49 @@
+{
+  "resources":{
+  "includes":[{
+    "pattern":"\\QMETA-INF/maven/org.jline/jline-native/pom.properties\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/java.lang.System$LoggerFinder\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/java.nio.charset.spi.CharsetProvider\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/java.time.zone.ZoneRulesProvider\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/javax.xml.parsers.SAXParserFactory\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/org/jline/terminal/provider/exec\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/org/jline/terminal/provider/ffm\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/org/jline/terminal/provider/jansi\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/org/jline/terminal/provider/jna\\E"
+  }, {
+    "pattern":"\\QMETA-INF/services/org/jline/terminal/provider/jni\\E"
+  }, {
+    "pattern":"\\Qboot.properties\\E"
+  }, {
+    "pattern":"\\Qcom/sun/jna/linux-x86-64/libjnidispatch.so\\E"
+  }, {
+    "pattern":"\\Qjni/x86_64-Linux/libjffi-1.2.so\\E"
+  }, {
+    "pattern":"\\Qlogback-test.xml\\E"
+  }, {
+    "pattern":"\\Qlogback.xml\\E"
+  }, {
+    "pattern":"\\Qlogging.properties\\E"
+  }, {
+    "pattern":"\\Qnet/jpountz/util/linux/amd64/liblz4-java.so\\E"
+  }, {
+    "pattern":"\\Qorg/jline/nativ/Linux/x86_64/libjlinenative.so\\E"
+  }, {
+    "pattern":"\\Qorg/jline/utils/capabilities.txt\\E"
+  }, {
+    "pattern":"\\Qorg/jline/utils/xterm-256color.caps\\E"
+  }, {
+    "pattern":"\\Qorg/slf4j/impl/StaticLoggerBinder.class\\E"
+  }, {
+    "pattern":"\\Qsystem.properties\\E"
+  }]},
+  "bundles":[]
+}

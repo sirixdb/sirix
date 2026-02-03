@@ -36,6 +36,8 @@ import jdk.incubator.vector.VectorSpecies;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.List;
@@ -119,11 +121,36 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private final AtomicInteger version = new AtomicInteger(0);
 
+  // ========== LOCK-FREE STATE FLAGS (HFT-optimized) ==========
+  // Pack HOT, orphaned, and closed bits into a single int for cache locality.
+  // Uses VarHandle with opaque access for the HOT bit (no memory barriers on hot path).
+  // This eliminates volatile write overhead on every page access.
+
+  /** Bit 0: HOT flag for clock-based eviction */
+  private static final int HOT_BIT = 1;
+  /** Bit 1: Orphan flag for deterministic cleanup */
+  private static final int ORPHANED_BIT = 2;
+  /** Bit 2: Closed flag */
+  private static final int CLOSED_BIT = 4;
+
   /**
-   * HOT bit for clock-based eviction (second-chance algorithm).
-   * Set to true on page access, cleared by clock sweeper.
+   * Packed state flags: HOT (bit 0), orphaned (bit 1), closed (bit 2).
+   * Accessed via VarHandle for lock-free CAS operations.
    */
-  private volatile boolean hot = false;
+  @SuppressWarnings("unused") // Accessed via VarHandle
+  private volatile int stateFlags = 0;
+
+  /** VarHandle for lock-free state flag operations */
+  private static final VarHandle STATE_FLAGS_HANDLE;
+
+  static {
+    try {
+      STATE_FLAGS_HANDLE = MethodHandles.lookup()
+          .findVarHandle(KeyValueLeafPage.class, "stateFlags", int.class);
+    } catch (NoSuchFieldException | IllegalAccessException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
 
   /**
    * Guard count for preventing eviction during active use (LeanStore/Umbra pattern).
@@ -131,14 +158,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * This is simpler than per-transaction pinning - it's just a reference count.
    */
   private final AtomicInteger guardCount = new AtomicInteger(0);
-
-  /**
-   * Orphan flag for deterministic cleanup.
-   * When a page is removed from cache but still has active guards, it's marked as orphaned.
-   * The last releaseGuard() call will close the page if it's orphaned.
-   * This prevents memory leaks without relying on GC/finalizers.
-   */
-  private volatile boolean isOrphaned = false;
 
   /**
    * DIAGNOSTIC: Stack trace of where this page was created (only captured when DEBUG_MEMORY_LEAKS=true).
@@ -293,7 +312,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private int hash;
 
-  private volatile boolean isClosed;
+  // Note: isClosed flag is now packed into stateFlags (bit 2) for lock-free access
 
   /**
    * Flag indicating whether memory was externally allocated (e.g., by Arena in tests).
@@ -1446,7 +1465,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       // Add comprehensive debugging info
       String debugInfo = String.format(
           "%s\nMemory segment: size=%d, closed=%s\nSlot offsets around %d: [%d, %d, %d]\nLast slot index: %d, Free space: %d\n%s",
-          errorMessage, slotMemory.byteSize(), isClosed,
+          errorMessage, slotMemory.byteSize(), isClosed(),
           slotNumber,
           slotNumber > 0 ? slotOffsets[slotNumber-1] : -1,
           slotOffsets[slotNumber],
@@ -1551,6 +1570,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
 
   private static String createStackTraceMessage(String message) {
+    // Only capture stack trace when diagnostics enabled to avoid overhead in production
+    if (!DEBUG_MEMORY_LEAKS) {
+      return message;
+    }
     StringBuilder stackTraceBuilder = new StringBuilder(message + "\n");
     for (StackTraceElement element : Thread.currentThread().getStackTrace()) {
       stackTraceBuilder.append("\t").append(element).append("\n");
@@ -1671,7 +1694,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public boolean isClosed() {
-    return isClosed;
+    return ((int) STATE_FLAGS_HANDLE.getVolatile(this) & CLOSED_BIT) != 0;
   }
 
   /**
@@ -1689,7 +1712,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   @Deprecated(forRemoval = false)
   protected void finalize() {
-    if (!isClosed && DEBUG_MEMORY_LEAKS) {
+    if (!isClosed() && DEBUG_MEMORY_LEAKS) {
       PAGES_FINALIZED_WITHOUT_CLOSE.incrementAndGet();
       
       // Track by type and pageKey for detailed leak analysis
@@ -1733,7 +1756,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   @Override
   public synchronized void close() {
-    if (isClosed) {
+    // Check if already closed using VarHandle
+    int currentFlags = (int) STATE_FLAGS_HANDLE.getVolatile(this);
+    if ((currentFlags & CLOSED_BIT) != 0) {
       return;
     }
 
@@ -1747,7 +1772,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       return;
     }
 
-    isClosed = true;
+    // Set closed flag using CAS (synchronized provides mutual exclusion, but CAS is still correct)
+    int newFlags;
+    do {
+      currentFlags = (int) STATE_FLAGS_HANDLE.getVolatile(this);
+      newFlags = currentFlags | CLOSED_BIT;
+    } while (!STATE_FLAGS_HANDLE.compareAndSet(this, currentFlags, newFlags));
 
     // Update diagnostic counters if tracking is enabled
     if (DEBUG_MEMORY_LEAKS) {
@@ -2046,7 +2076,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @return true if guard was acquired, false if page is orphaned/closed
    */
   public synchronized boolean tryAcquireGuard() {
-    if (isOrphaned || isClosed) {
+    int flags = (int) STATE_FLAGS_HANDLE.getVolatile(this);
+    if ((flags & (ORPHANED_BIT | CLOSED_BIT)) != 0) {
       return false;
     }
     guardCount.incrementAndGet();
@@ -2060,19 +2091,26 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   public synchronized void releaseGuard() {
     guardCount.decrementAndGet();
-    if (isOrphaned) {
-      // close() checks guardCount > 0 and isClosed internally
+    int flags = (int) STATE_FLAGS_HANDLE.getVolatile(this);
+    if ((flags & ORPHANED_BIT) != 0) {
+      // close() checks guardCount > 0 and CLOSED_BIT internally
       close();
     }
   }
 
   /**
-   * Mark this page as orphaned.
+   * Mark this page as orphaned using lock-free CAS.
    * Called when the page is removed from cache but still has active guards.
    * The page will be closed when the last guard is released.
    */
   public void markOrphaned() {
-    this.isOrphaned = true;
+    int current;
+    do {
+      current = (int) STATE_FLAGS_HANDLE.getVolatile(this);
+      if ((current & ORPHANED_BIT) != 0) {
+        return; // Already orphaned
+      }
+    } while (!STATE_FLAGS_HANDLE.compareAndSet(this, current, current | ORPHANED_BIT));
   }
 
   /**
@@ -2081,7 +2119,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @return true if the page has been marked as orphaned
    */
   public boolean isOrphaned() {
-    return isOrphaned;
+    return ((int) STATE_FLAGS_HANDLE.getVolatile(this) & ORPHANED_BIT) != 0;
   }
 
   /**
@@ -2097,25 +2135,51 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Mark this page as recently accessed (set HOT bit).
    * Called on every page access for clock eviction algorithm.
+   * <p>
+   * Uses opaque memory access (no memory barriers) for maximum performance.
+   * The HOT bit is advisory - stale reads are acceptable and will at worst
+   * give a page an extra second chance during eviction.
+   * </p>
    */
   public void markAccessed() {
-    hot = true;
+    // Lock-free: use opaque OR to set HOT bit without memory barriers
+    // This is the hot path - called on every page access
+    int current;
+    do {
+      current = (int) STATE_FLAGS_HANDLE.getOpaque(this);
+      if ((current & HOT_BIT) != 0) {
+        return; // Already hot, avoid unnecessary CAS
+      }
+    } while (!STATE_FLAGS_HANDLE.weakCompareAndSetPlain(this, current, current | HOT_BIT));
   }
 
   /**
    * Check if this page is HOT (recently accessed).
+   * <p>
+   * Uses opaque memory access for maximum performance on the read path.
+   * </p>
    *
    * @return true if page is hot, false otherwise
    */
   public boolean isHot() {
-    return hot;
+    return ((int) STATE_FLAGS_HANDLE.getOpaque(this) & HOT_BIT) != 0;
   }
 
   /**
    * Clear the HOT bit (for clock sweeper second-chance algorithm).
+   * <p>
+   * Uses lock-free CAS to atomically clear the HOT bit.
+   * </p>
    */
   public void clearHot() {
-    hot = false;
+    // Lock-free: use CAS to clear HOT bit
+    int current;
+    do {
+      current = (int) STATE_FLAGS_HANDLE.getOpaque(this);
+      if ((current & HOT_BIT) == 0) {
+        return; // Already cold, avoid unnecessary CAS
+      }
+    } while (!STATE_FLAGS_HANDLE.weakCompareAndSetPlain(this, current, current & ~HOT_BIT));
   }
 
   /**
@@ -2158,8 +2222,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
     hash = 0;
     
-    // Clear HOT bit
-    hot = false;
+    // Clear HOT bit using lock-free operation
+    clearHot();
     
     // NOTE: We do NOT release MemorySegments here - they stay allocated
     // The allocator's release() method is called separately if needed

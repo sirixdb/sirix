@@ -1,0 +1,61 @@
+{
+  "resources": {
+    "includes": [
+      {
+        "pattern": "\\QMETA-INF/services/.*\\E"
+      },
+      {
+        "pattern": "\\QMETA-INF/maven/.*\\E"
+      },
+      {
+        "pattern": "\\QMETA-INF/native-image/.*\\E"
+      },
+      {
+        "pattern": "\\Qlogback.xml\\E"
+      },
+      {
+        "pattern": "\\Qlogback-test.xml\\E"
+      },
+      {
+        "pattern": "\\Qlogging.properties\\E"
+      },
+      {
+        "pattern": "\\Qboot.properties\\E"
+      },
+      {
+        "pattern": "\\Qsystem.properties\\E"
+      },
+      {
+        "pattern": "\\Qnet/jpountz/util/linux/amd64/liblz4-java.so\\E"
+      },
+      {
+        "pattern": "\\Qnet/jpountz/util/.*\\E"
+      },
+      {
+        "pattern": "\\Qcom/sun/jna/linux-x86-64/libjnidispatch.so\\E"
+      },
+      {
+        "pattern": "\\Qjni/x86_64-Linux/libjffi-1.2.so\\E"
+      },
+      {
+        "pattern": "\\Qorg/xerial/snappy/native/.*\\E"
+      },
+      {
+        "pattern": "\\Qio/netty/.*\\E"
+      },
+      {
+        "pattern": "\\Qvertx-default-jul-logging.properties\\E"
+      },
+      {
+        "pattern": "\\Qcert.pem\\E"
+      },
+      {
+        "pattern": "\\Qkey.pem\\E"
+      },
+      {
+        "pattern": "\\Q*.pem\\E"
+      }
+    ]
+  },
+  "bundles": []
+}

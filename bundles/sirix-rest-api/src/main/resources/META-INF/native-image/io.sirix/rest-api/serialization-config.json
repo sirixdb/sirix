@@ -1,0 +1,23 @@
+[
+  {
+    "name": "java.lang.Number"
+  },
+  {
+    "name": "java.lang.String"
+  },
+  {
+    "name": "java.util.ArrayList"
+  },
+  {
+    "name": "java.util.HashMap"
+  },
+  {
+    "name": "java.util.LinkedHashMap"
+  },
+  {
+    "name": "io.vertx.core.json.JsonObject"
+  },
+  {
+    "name": "io.vertx.core.json.JsonArray"
+  }
+]

@@ -435,4 +435,73 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertTrue(pathIndex.isPresent());
     }
   }
+
+  /**
+   * Test that exercises the RBTreeReader cache lookup path with read-only transactions.
+   * This specifically tests the zero-allocation RBIndexKeyLookup optimization.
+   */
+  @Test
+  public void testReadOnlyTransactionCacheLookupsForNameIndex() {
+    final var jsonPath = JSON.resolve("abc-location-stations.json");
+    final var database = JsonTestHelper.getDatabaseWithRedBlackTreeIndexes(JsonTestHelper.PATHS.PATH1.getFile());
+
+    // First, create index and shred data using write transaction
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+
+      final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+      indexController.createIndexes(Set.of(allObjectKeyNames), wtx);
+
+      final var shredder = new JsonShredder.Builder(wtx,
+                                                    JsonShredder.createFileReader(jsonPath),
+                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      shredder.call();
+    }
+
+    // Now query with read-only transaction - this exercises the cache lookup path
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var rtx = session.beginNodeReadOnlyTrx()) {
+      var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
+
+      final var allObjectKeyNamesOpt = indexController.getIndexes().findNameIndex();
+      assertTrue("Name index should exist", allObjectKeyNamesOpt.isPresent());
+      final var allObjectKeyNames = allObjectKeyNamesOpt.get();
+
+      // Use RBTreeReader directly to exercise cache lookup
+      RBTreeReader<QNm, NodeReferences> reader = RBTreeReader.getInstance(
+          session.getIndexCache(),
+          rtx.getPageTrx(),
+          allObjectKeyNames.getType(),
+          allObjectKeyNames.getID());
+
+      // Query multiple times to exercise cache hit path
+      final var name = new QNm("streetaddress");
+
+      // First query - may trigger cache population
+      var nodeResult = reader.getCurrentNodeAsRBNodeKey(name, SearchMode.EQUAL);
+      assertTrue(nodeResult.isPresent());
+      assertEquals("streetaddress", nodeResult.get().getKey().getLocalName());
+
+      // Second query on same key - should use cache
+      nodeResult = reader.getCurrentNodeAsRBNodeKey(name, SearchMode.EQUAL);
+      assertTrue(nodeResult.isPresent());
+      assertEquals("streetaddress", nodeResult.get().getKey().getLocalName());
+
+      // Query for different key - exercises tree traversal with cache lookups
+      final var nameTwitter = new QNm("twitteraccount");
+      var nodeResultTwitter = reader.getCurrentNodeAsRBNodeKey(nameTwitter, SearchMode.EQUAL);
+      assertTrue(nodeResultTwitter.isPresent());
+      assertEquals("twitteraccount", nodeResultTwitter.get().getKey().getLocalName());
+
+      // Test range query which traverses multiple nodes
+      final var nodeGreater = reader.getCurrentNodeAsRBNodeKey(name, SearchMode.GREATER);
+      assertTrue(nodeGreater.isPresent());
+      assertEquals("twitteraccount", nodeGreater.get().getKey().getLocalName());
+
+      final var nodeLess = reader.getCurrentNodeAsRBNodeKey(name, SearchMode.LOWER);
+      assertTrue(nodeLess.isPresent());
+      assertEquals("id", nodeLess.get().getKey().getLocalName());
+    }
+  }
 }

@@ -70,7 +70,12 @@ public final class DescendantAxis extends AbstractAxis {
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
     first = true;
-    rightSiblingKeyStack = new LongArrayList();
+    // OPTIMIZATION: Reuse LongArrayList instead of allocating new one on each reset
+    if (rightSiblingKeyStack == null) {
+      rightSiblingKeyStack = new LongArrayList();
+    } else {
+      rightSiblingKeyStack.clear();
+    }
     // Cache the right sibling key of the start node to avoid moveTo in hasNextNode
     final NodeCursor cursor = getCursor();
     final long currentKey = cursor.getNodeKey();

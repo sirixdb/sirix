@@ -24,21 +24,25 @@ public final class IndexLogKey {
 
   public IndexLogKey setIndexType(IndexType indexType) {
     this.indexType = indexType;
+    this.hash = 0; // Reset cached hash when field changes
     return this;
   }
 
   public IndexLogKey setRecordPageKey(long recordPageKey) {
     this.recordPageKey = recordPageKey;
+    this.hash = 0; // Reset cached hash when field changes
     return this;
   }
 
   public IndexLogKey setIndexNumber(int indexNumber) {
     this.indexNumber = indexNumber;
+    this.hash = 0; // Reset cached hash when field changes
     return this;
   }
 
   public IndexLogKey setRevisionNumber(int revisionNumber) {
     this.revisionNumber = revisionNumber;
+    this.hash = 0; // Reset cached hash when field changes
     return this;
   }
 

@@ -161,10 +161,13 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private static final long[] SEGMENT_SIZES =
       { FOUR_KB, EIGHT_KB, SIXTEEN_KB, THIRTYTWO_KB, SIXTYFOUR_KB, ONE_TWENTYEIGHT_KB, TWO_FIFTYSIX_KB };
 
-  // Virtual memory region size per size class: 4 GB
-  // With global BufferManager serving all databases/resources, we need larger virtual regions.
-  // Total virtual: 4GB * 7 size classes = 28GB (virtual, not physical - maps to 8GB default physical budget)
-  private static final long VIRTUAL_REGION_SIZE = 4L * 1024 * 1024 * 1024;
+  // Virtual memory region size per size class: 128 GB
+  // Virtual memory is FREE - it's just address space reservation, no physical RAM used until touched.
+  // 128GB per class × 7 classes = 896GB total virtual address space (well within Linux limits).
+  // This ensures we NEVER run out of segments even with aggressive concurrent prefetching.
+  // For 64KB segments: 128GB / 64KB = 2,097,152 segments available (2 million!)
+  // For 4KB segments: 128GB / 4KB = 33,554,432 segments available (33 million!)
+  private static final long VIRTUAL_REGION_SIZE = 128L * 1024 * 1024 * 1024; // 128 GB
 
   // Singleton instance
   private static final LinuxMemorySegmentAllocator INSTANCE = new LinuxMemorySegmentAllocator();
@@ -480,9 +483,10 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private void preAllocateVirtualRegion(int poolIndex, long segmentSize) {
     long virtualSize = VIRTUAL_REGION_SIZE;
     
-    // Try full size, fall back to smaller sizes if needed (4GB -> 2GB -> 1GB -> 512MB -> 256MB -> 128MB)
-    // More aggressive fallbacks to support CI environments with limited virtual memory
-    long[] attemptSizes = {virtualSize, virtualSize / 2, virtualSize / 4, virtualSize / 8, virtualSize / 16, virtualSize / 32};
+    // Try full size (1TB), fall back to progressively smaller sizes if needed
+    // Even the smallest fallback (64GB) gives 1M segments for 64KB pages - plenty!
+    // Virtual memory is free, so we want large pools to never exhaust during prefetching
+    long[] attemptSizes = {virtualSize, virtualSize / 2, virtualSize / 4, virtualSize / 8, virtualSize / 16};
     
     for (long attemptSize : attemptSizes) {
       try {
@@ -904,39 +908,40 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         madviseSucceeded = true;
         // Note: Already removed from borrowedSegments above (atomically)
       } else {
-        // madvise failed - add back to borrowed set since memory not actually released
         int errno = getErrno();
-        borrowedSegments.add(address);
-        // EFAULT is expected during shutdown when memory is already unmapped
+        // EFAULT during shutdown: memory already unmapped, segment is unusable
         if (errno == EFAULT) {
           LOGGER.debug("madvise EFAULT (expected during shutdown) - address 0x{}, size {} bytes. " +
                        "Memory already unmapped. Segment NOT returned to pool.",
                        Long.toHexString(address), size);
-        } else {
-          // Log full diagnostics for unexpected errors
-          LOGGER.warn("{}\n  Action: Segment NOT returned to pool - physical memory may still be held.",
-                      buildMadviseDiagnostics(address, size, errno));
+          // Re-add to borrowed set - segment is truly unusable (unmapped)
+          borrowedSegments.add(address);
+          return;
         }
-        // DO NOT return to pool - segment still holds physical memory
-        return;
+        // ENOMEM or other transient error: virtual address is still valid, segment is reusable.
+        // Physical memory is not released, but the segment can be overwritten and reused.
+        // Keep in borrowedSegments so re-borrow won't double-count physical memory.
+        // DON'T decrement physicalMemoryBytes (memory is still held).
+        LOGGER.warn("{}\n  Action: Returning segment to pool (still usable). Physical memory not reclaimed.",
+                    buildMadviseDiagnostics(address, size, errno));
+        borrowedSegments.add(address);
+        // Fall through to return segment to pool below
       }
     } catch (Throwable t) {
-      // madvise invocation failed - add back to borrowed set since memory not actually released
-      borrowedSegments.add(address);
       LOGGER.error("madvise invocation threw exception:\n" +
                    "  Address: 0x{}\n  Size: {} bytes\n  Exception: {}\n" +
-                   "  Action: Segment NOT returned to pool.",
+                   "  Action: Returning segment to pool (still usable). Physical memory not reclaimed.",
                    Long.toHexString(address), size, t.getMessage(), t);
-      // DO NOT return to pool - we don't know the state of physical memory
-      return;
+      // Virtual address is still valid - return to pool. Keep in borrowedSegments to avoid double-count.
+      borrowedSegments.add(address);
+      // Fall through to return segment to pool below
     }
 
-    // Only return segment to pool if madvise succeeded
-    // This prevents accounting errors from re-borrowing segments with unreleased physical memory
-    if (madviseSucceeded) {
-      segmentPools[index].offer(segment);
-      poolSizes[index].incrementAndGet();
-    }
+    // Always return segment to pool (unless EFAULT - already returned above).
+    // Even if madvise failed, the virtual address is valid and the segment is reusable.
+    // Physical memory accounting: madvise success → decremented above; failure → not decremented (correct).
+    segmentPools[index].offer(segment);
+    poolSizes[index].incrementAndGet();
   }
 
   @Override

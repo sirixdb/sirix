@@ -1,10 +1,9 @@
 package io.sirix.rest.crud.xml
 
-import io.vertx.core.Promise
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.Databases
 import io.sirix.access.trx.node.HashType
 import io.sirix.api.xml.XmlNodeTrx
@@ -71,7 +70,7 @@ class XmlUpdate(location: Path) : AbstractUpdateHandler(location) {
     ) {
         val vertxContext = ctx.vertx().orCreateContext
 
-        vertxContext.executeBlocking { promise: Promise<Nothing> ->
+        vertxContext.executeBlocking {
             val sirixDBUser = SirixDBUser.create(ctx)
             val dbFile = location.resolve(databaseName)
 
@@ -139,7 +138,6 @@ class XmlUpdate(location: Path) : AbstractUpdateHandler(location) {
             } else {
                 ctx.response().end()
             }
-            promise.complete(null)
-        }.await()
+        }.coAwait()
     }
 }

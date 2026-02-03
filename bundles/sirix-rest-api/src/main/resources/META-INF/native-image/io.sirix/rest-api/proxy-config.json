@@ -1,0 +1,11 @@
+[
+  {
+    "interfaces": ["io.vertx.core.Handler"]
+  },
+  {
+    "interfaces": ["kotlin.coroutines.Continuation"]
+  },
+  {
+    "interfaces": ["io.vertx.ext.auth.User"]
+  }
+]

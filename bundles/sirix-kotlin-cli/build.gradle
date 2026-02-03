@@ -1,11 +1,24 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
-description = 'Sirix CLI.'
+plugins {
+    id "application"
+}
 
 apply plugin: 'kotlin'
+apply plugin: 'org.graalvm.buildtools.native'
 
-test {
-    useJUnitPlatform()
+description = 'Sirix Kotlin CLI.'
+
+ext {
+    javaMainClass = "io.sirix.cli.MainKt"
+}
+
+application {
+    mainClass = javaMainClass
+}
+
+run {
+    standardInput = System.in
     jvmArgs = [
         '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
@@ -14,6 +27,12 @@ test {
     ]
 }
 
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs += [
+        "--enable-preview",
+        "--add-modules=jdk.incubator.vector"
+    ]
+}
 
 tasks.withType(KotlinCompile).all {
     kotlinOptions {
@@ -25,6 +44,22 @@ kotlin {
     jvmToolchain(25)
 }
 
+jar {
+    manifest {
+        attributes('Main-Class': 'io.sirix.cli.MainKt')
+    }
+}
+
+test {
+    useJUnitPlatform()
+    jvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED'
+    ]
+}
+
 dependencies {
     implementation project(':sirix-core')
     implementation project(':sirix-query')
@@ -33,10 +68,132 @@ dependencies {
     implementation implLibraries.kotlinStdlibJdk8
     implementation implLibraries.kotlinxCli
 
+    testImplementation project(path: ':sirix-core', configuration: 'testArtifacts')
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine
     testImplementation testLibraries.junitVintageEngine
     testImplementation testLibraries.junitPlatformLauncher
     testImplementation testLibraries.junitJupiterParams
     testImplementation testLibraries.jsonassert
+}
+
+// Task to run native-image smoke tests on JVM (also used for nativeTest discovery)
+tasks.register('nativeImageSmokeTest', Test) {
+    description = 'Run native-image smoke tests on JVM'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'native-image'
+    }
+    jvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED'
+    ]
+    minHeapSize = '2g'
+    maxHeapSize = '4g'
+}
+
+// GraalVM Native Image Configuration
+graalvmNative {
+    registerTestBinary("smokeTest") {
+        usingSourceSet(sourceSets.test)
+        forTestTask(tasks.named("nativeImageSmokeTest"))
+    }
+    binaries {
+        // Smoke test binary (compiled to native image via nativeSmokeTest task)
+        smokeTest {
+            // Preview features and vector API
+            buildArgs.add('--enable-preview')
+            buildArgs.add('--enable-native-access=ALL-UNNAMED')
+            buildArgs.add('--add-modules=jdk.incubator.vector')
+            buildArgs.add('-H:+ForeignAPISupport')
+            buildArgs.add('-H:+UnlockExperimentalVMOptions')
+            // Module exports for JNA/JNR/JNI
+            buildArgs.add('--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED')
+            buildArgs.add('--add-exports=java.base/sun.nio.ch=ALL-UNNAMED')
+            buildArgs.add('--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED')
+            buildArgs.add('--add-opens=java.base/java.lang=ALL-UNNAMED')
+            buildArgs.add('--add-opens=java.base/java.lang.reflect=ALL-UNNAMED')
+            buildArgs.add('--add-opens=java.base/java.io=ALL-UNNAMED')
+            buildArgs.add('--add-opens=java.base/java.util=ALL-UNNAMED')
+            // Logging frameworks - build time
+            buildArgs.add('--initialize-at-build-time=org.slf4j')
+            buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            // Jackson - build time
+            buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
+            // Sirix FFI components - run time
+            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
+            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
+            buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
+            // Use G1 GC
+            buildArgs.add('--gc=G1')
+            // Quick build for faster test compilation
+            quickBuild = true
+            // Allocate memory to the native-image compiler
+            jvmArgs.add('-XX:MaxRAMPercentage=80')
+        }
+        main {
+            imageName = 'sirix-cli'
+            mainClass = 'io.sirix.cli.MainKt'
+            sharedLibrary = false
+            // Preview features and vector API
+            buildArgs.add('--enable-preview')
+            buildArgs.add('--enable-native-access=ALL-UNNAMED')
+            buildArgs.add('--add-modules=jdk.incubator.vector')
+            buildArgs.add('-H:+ForeignAPISupport')
+            buildArgs.add('-H:+UnlockExperimentalVMOptions')
+            buildArgs.add('--no-fallback')
+            // Module exports for JNA/JNR/JNI
+            buildArgs.add('--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED')
+            buildArgs.add('--add-exports=java.base/sun.nio.ch=ALL-UNNAMED')
+            buildArgs.add('--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED')
+            buildArgs.add('--add-opens=java.base/java.lang=ALL-UNNAMED')
+            buildArgs.add('--add-opens=java.base/java.lang.reflect=ALL-UNNAMED')
+            buildArgs.add('--add-opens=java.base/java.io=ALL-UNNAMED')
+            buildArgs.add('--add-opens=java.base/java.util=ALL-UNNAMED')
+            // Resource includes
+            buildArgs.add('-H:IncludeResources=.*\\.properties$')
+            buildArgs.add('-H:IncludeResources=.*\\.xml$')
+            buildArgs.add('-H:IncludeResources=.*\\.json$')
+            buildArgs.add('-H:IncludeResources=net/jpountz/.*')
+            // Logging frameworks - build time
+            buildArgs.add('--initialize-at-build-time=org.slf4j')
+            buildArgs.add('--initialize-at-build-time=ch.qos.logback')
+            // Jackson - build time (used for JSON serialization in sirix-core)
+            buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
+            // Exclude problematic library-support.jar substitutions
+            buildArgs.add('--exclude-config')
+            buildArgs.add('library-support.jar')
+            buildArgs.add('META-INF/native-image/.*')
+            // Sirix FFI components - run time
+            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
+            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
+            buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
+            // Use G1 GC for better latency and throughput at runtime
+            buildArgs.add('--gc=G1')
+            // Set max heap for the native image runtime
+            buildArgs.add('-R:MaxHeapSize=4g')
+
+            // Profile-Guided Optimization (PGO) support
+            // Step 1: Build instrumented binary: ./gradlew :sirix-kotlin-cli:nativeCompile -Ppgo-instrument
+            // Step 2: Run workload to collect profile (generates default.iprof)
+            // Step 3: Build optimized binary: ./gradlew :sirix-kotlin-cli:nativeCompile -Ppgo=default.iprof
+            if (project.hasProperty('pgo-instrument')) {
+                buildArgs.add('--pgo-instrument')
+            }
+            if (project.hasProperty('pgo')) {
+                buildArgs.add("--pgo=${project.findProperty('pgo')}")
+            }
+
+            // Enable verbose output for debugging
+            verbose = true
+            quickBuild = false
+            // Allocate more memory to the native-image compiler (use 80% of available RAM)
+            jvmArgs.add('-XX:MaxRAMPercentage=80')
+        }
+    }
+    toolchainDetection = false
 }

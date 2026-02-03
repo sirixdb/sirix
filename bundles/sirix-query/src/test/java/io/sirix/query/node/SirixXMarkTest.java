@@ -1,5 +1,6 @@
 package io.sirix.query.node;
 
+import io.sirix.access.Databases;
 import io.sirix.query.SirixCompileChain;
 import io.brackit.query.XMarkTest;
 import io.brackit.query.Query;
@@ -7,7 +8,11 @@ import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.node.NodeCollection;
 import io.brackit.query.jdm.node.NodeStore;
 import io.brackit.query.node.parser.DocumentParser;
-import org.junit.After;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * XMark test.
@@ -20,9 +25,17 @@ public final class SirixXMarkTest extends XMarkTest {
   /** Sirix database store. */
   private BasicXmlDBStore xmlStore;
 
+  /** Test directory for XML databases. */
+  private Path xmlTestDir;
+
   @Override
   protected NodeStore createStore() {
-    xmlStore = BasicXmlDBStore.newBuilder().build();
+    try {
+      xmlTestDir = Files.createTempDirectory("sirix-xml-xmark-test");
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+    xmlStore = BasicXmlDBStore.newBuilder().location(xmlTestDir).build();
     return xmlStore;
   }
 
@@ -37,12 +50,16 @@ public final class SirixXMarkTest extends XMarkTest {
   }
 
   @Override
+  @BeforeEach
   public void setUp() throws Exception {
     super.setUp();
   }
 
-  @After
+  @AfterEach
   public void commit() throws DocumentException {
     xmlStore.close();
+    if (xmlTestDir != null) {
+      Databases.removeDatabase(xmlTestDir);
+    }
   }
 }

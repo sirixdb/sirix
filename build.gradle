@@ -7,19 +7,21 @@ buildscript {
         maven {
             url "https://plugins.gradle.org/m2/"
         }
+        mavenCentral()
     }
     dependencies {
         classpath "gradle.plugin.org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.12.2"
         classpath 'net.researchgate:gradle-release:3.1.0'
         classpath "com.github.ben-manes:gradle-versions-plugin:0.51.0"
         classpath "com.gradleup.shadow:shadow-gradle-plugin:8.3.3"
-        classpath "com.diffplug.spotless:spotless-plugin-gradle:7.2.1"
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:8.2.0"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath "org.graalvm.buildtools:native-gradle-plugin:0.11.4"
     }
 }
 
 plugins {
-    id "org.sonarqube" version "6.3.1.5724"
+    id "org.sonarqube" version "7.2.2.6593"
 }
 
 sonarqube {
@@ -68,6 +70,7 @@ allprojects {
     apply plugin: 'idea'
 
     repositories {
+        mavenLocal()  // Check local Maven repository first for SNAPSHOT versions
         mavenCentral()
         maven {
             url = "https://central.sonatype.com/repository/maven-snapshots/"
@@ -75,7 +78,6 @@ allprojects {
         maven {
             url "https://kotlin.bintray.com/kotlinx"
         }
-        mavenLocal()
     }
 }
 

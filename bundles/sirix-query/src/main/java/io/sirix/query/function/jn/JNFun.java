@@ -13,7 +13,17 @@ import io.sirix.query.function.jn.index.scan.ScanCASIndexRange;
 import io.sirix.query.function.jn.index.scan.ScanNameIndex;
 import io.sirix.query.function.jn.index.scan.ScanPathIndex;
 import io.sirix.query.function.jn.io.*;
-import io.sirix.query.function.jn.temporal.*;
+import io.sirix.query.function.jn.temporal.AllTimes;
+import io.sirix.query.function.jn.temporal.First;
+import io.sirix.query.function.jn.temporal.FirstExisting;
+import io.sirix.query.function.jn.temporal.Future;
+import io.sirix.query.function.jn.temporal.Last;
+import io.sirix.query.function.jn.temporal.LastExisting;
+import io.sirix.query.function.jn.temporal.Next;
+import io.sirix.query.function.jn.temporal.OpenBitemporal;
+import io.sirix.query.function.jn.temporal.Past;
+import io.sirix.query.function.jn.temporal.Previous;
+import io.sirix.query.function.jn.temporal.ValidAt;
 import io.sirix.query.function.jn.trx.SelectJsonItem;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.function.json.JSONFun;
@@ -88,6 +98,21 @@ public final class JNFun {
                                                        SequenceType.JSON_ITEM)));
     Functions.predefine(new AllTimes(AllTimes.ALL_TIMES,
                                      new Signature(SequenceType.JSON_ITEM_SEQUENCE, SequenceType.JSON_ITEM)));
+
+    // valid-at (bitemporal)
+    Functions.predefine(new ValidAt(ValidAt.VALID_AT,
+                                    new Signature(SequenceType.JSON_ITEM_SEQUENCE,
+                                                  new SequenceType(AtomicType.STR, Cardinality.One),
+                                                  new SequenceType(AtomicType.STR, Cardinality.One),
+                                                  new SequenceType(AtomicType.DATI, Cardinality.One))));
+
+    // open-bitemporal
+    Functions.predefine(new OpenBitemporal(OpenBitemporal.OPEN_BITEMPORAL,
+                                           new Signature(SequenceType.JSON_ITEM_SEQUENCE,
+                                                         new SequenceType(AtomicType.STR, Cardinality.One),
+                                                         new SequenceType(AtomicType.STR, Cardinality.One),
+                                                         new SequenceType(AtomicType.DATI, Cardinality.One),
+                                                         new SequenceType(AtomicType.DATI, Cardinality.One))));
 
     // store
     Functions.predefine(new Store(false));

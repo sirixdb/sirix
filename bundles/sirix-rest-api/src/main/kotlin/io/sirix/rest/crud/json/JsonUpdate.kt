@@ -2,9 +2,8 @@ package io.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
-import io.vertx.core.Promise
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.Databases
 import io.sirix.access.trx.node.json.objectvalue.*
 import io.sirix.api.json.JsonNodeTrx
@@ -300,7 +299,7 @@ class JsonUpdate(location: Path) :
     ) {
         val vertxContext = ctx.vertx().orCreateContext
 
-        vertxContext.executeBlocking { promise: Promise<Nothing> ->
+        vertxContext.executeBlocking {
             val sirixDBUser = SirixDBUser.create(ctx)
             val dbFile = location.resolve(databaseName)
 
@@ -411,8 +410,6 @@ class JsonUpdate(location: Path) :
             } else {
                 ctx.response().end()
             }
-
-            promise.complete(null)
-        }.await()
+        }.coAwait()
     }
 }

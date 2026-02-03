@@ -80,8 +80,9 @@ public class NodeDelegate implements Node {
 
   /**
    * {@link SirixDeweyID} (needs to be deserialized).
+   * Volatile for safe double-checked locking in getDeweyID().
    */
-  private SirixDeweyID sirixDeweyID;
+  private volatile SirixDeweyID sirixDeweyID;
 
   /**
    * The hash function.
@@ -249,11 +250,20 @@ public class NodeDelegate implements Node {
   }
 
   @Override
-  public synchronized SirixDeweyID getDeweyID() {
-    if (sirixDeweyID == null && deweyIDData != null) {
-      sirixDeweyID = new SirixDeweyID(deweyIDData);
+  public SirixDeweyID getDeweyID() {
+    // Double-checked locking for lazy initialization without full synchronization overhead.
+    // The volatile field ensures safe publication of the SirixDeweyID instance.
+    SirixDeweyID result = sirixDeweyID;
+    if (result == null && deweyIDData != null) {
+      synchronized (this) {
+        result = sirixDeweyID;
+        if (result == null) {
+          result = new SirixDeweyID(deweyIDData);
+          sirixDeweyID = result;
+        }
+      }
     }
-    return sirixDeweyID;
+    return result;
   }
 
   @Override

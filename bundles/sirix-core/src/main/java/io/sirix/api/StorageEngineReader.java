@@ -312,4 +312,20 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return the page (HOTLeafPage or HOTIndirectPage), or null if not found
    */
   io.sirix.page.interfaces.@Nullable Page loadHOTPage(@NonNull PageReference reference);
+
+  /**
+   * Get the page reference pointing to a leaf page in the indirect page tree.
+   *
+   * <p>This method traverses the trie of IndirectPages to find the leaf page reference
+   * for a given record page key. This is used by prefetchers to resolve page references
+   * without loading the actual pages.</p>
+   *
+   * @param recordPageKey the record page key to find
+   * @param indexNumber   the index number or 0 for main indices
+   * @param indexType     the index type
+   * @return the page reference to the leaf page, or null if not found
+   * @throws SirixIOException if an I/O error occurs
+   */
+  @Nullable PageReference getLeafPageReference(@NonNegative long recordPageKey, int indexNumber,
+      @NonNull IndexType indexType);
 }

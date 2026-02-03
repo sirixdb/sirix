@@ -59,11 +59,11 @@ public final class MemorySegmentUtils {
     long value = 0;
     int shift = 0;
     int bytesRead = 0;
-    
+
     while (true) {
       byte b = memorySegment.get(ValueLayout.JAVA_BYTE, offset + bytesRead);
       bytesRead++;
-      
+
       // Stop-bit encoding: if MSB is 0, this is the last byte
       if ((b & 0x80) == 0) {
         value |= (long)(b & 0x7F) << shift;
@@ -73,8 +73,73 @@ public final class MemorySegmentUtils {
         shift += 7;
       }
     }
-    
+
     return new VarLongResult(value, bytesRead);
+  }
+
+  /**
+   * Read a variable-length long value from MemorySegment, advancing the offset tracker.
+   * <p>
+   * This is the zero-allocation variant that updates the offset in-place instead of
+   * returning a result object. Use this on hot paths where allocation must be avoided.
+   * </p>
+   *
+   * @param memorySegment the MemorySegment to read from
+   * @param offsetTracker the offset tracker (will be advanced by bytes consumed)
+   * @return the decoded long value
+   */
+  public static long readVarLongDirect(final MemorySegment memorySegment, final MemorySegmentOffset offsetTracker) {
+    long value = 0;
+    int shift = 0;
+    long offset = offsetTracker.get();
+
+    while (true) {
+      byte b = memorySegment.get(ValueLayout.JAVA_BYTE, offset++);
+
+      // Stop-bit encoding: if MSB is 0, this is the last byte
+      if ((b & 0x80) == 0) {
+        value |= (long)(b & 0x7F) << shift;
+        break;
+      } else {
+        value |= (long)(b & 0x7F) << shift;
+        shift += 7;
+      }
+    }
+
+    offsetTracker.set(offset);
+    return value;
+  }
+
+  /**
+   * Read a variable-length int value from MemorySegment, advancing the offset tracker.
+   * <p>
+   * Optimized for reading values that fit in an int. Use this when you know
+   * the value won't exceed Integer.MAX_VALUE.
+   * </p>
+   *
+   * @param memorySegment the MemorySegment to read from
+   * @param offsetTracker the offset tracker (will be advanced by bytes consumed)
+   * @return the decoded int value
+   */
+  public static int readVarIntDirect(final MemorySegment memorySegment, final MemorySegmentOffset offsetTracker) {
+    int value = 0;
+    int shift = 0;
+    long offset = offsetTracker.get();
+
+    while (true) {
+      byte b = memorySegment.get(ValueLayout.JAVA_BYTE, offset++);
+
+      if ((b & 0x80) == 0) {
+        value |= (b & 0x7F) << shift;
+        break;
+      } else {
+        value |= (b & 0x7F) << shift;
+        shift += 7;
+      }
+    }
+
+    offsetTracker.set(offset);
+    return value;
   }
 
   /**
@@ -123,6 +188,9 @@ public final class MemorySegmentUtils {
 
   /**
    * Read a byte array from MemorySegment at the given offset.
+   * <p>
+   * Uses bulk copy for optimal performance instead of byte-by-byte iteration.
+   * </p>
    *
    * @param memorySegment the MemorySegment to read from
    * @param offset the offset to read from
@@ -131,10 +199,29 @@ public final class MemorySegmentUtils {
    */
   public static byte[] readByteArray(final MemorySegment memorySegment, final long offset, final int length) {
     byte[] result = new byte[length];
-    for (int i = 0; i < length; i++) {
-      result[i] = memorySegment.get(ValueLayout.JAVA_BYTE, offset + i);
-    }
+    // Bulk copy is significantly faster than byte-by-byte iteration
+    MemorySegment.copy(memorySegment, ValueLayout.JAVA_BYTE, offset,
+                       result, 0, length);
     return result;
+  }
+
+  /**
+   * Read a byte array from MemorySegment into an existing array (zero-allocation read).
+   * <p>
+   * Uses bulk copy for optimal performance. Caller provides the destination array
+   * to avoid allocation on hot paths.
+   * </p>
+   *
+   * @param memorySegment the MemorySegment to read from
+   * @param offset the offset to read from
+   * @param dest the destination byte array
+   * @param destOffset the offset in the destination array
+   * @param length the number of bytes to read
+   */
+  public static void readByteArrayInto(final MemorySegment memorySegment, final long offset,
+                                       final byte[] dest, final int destOffset, final int length) {
+    MemorySegment.copy(memorySegment, ValueLayout.JAVA_BYTE, offset,
+                       dest, destOffset, length);
   }
 
   /**
@@ -230,15 +317,34 @@ public final class MemorySegmentUtils {
 
   /**
    * Write a byte array to MemorySegment at the given offset.
+   * <p>
+   * Uses bulk copy for optimal performance instead of byte-by-byte iteration.
+   * </p>
    *
    * @param memorySegment the MemorySegment to write to
    * @param offset the offset to write at
    * @param value the byte array to write
    */
   public static void writeByteArray(final MemorySegment memorySegment, final long offset, final byte[] value) {
-    for (int i = 0; i < value.length; i++) {
-      memorySegment.set(ValueLayout.JAVA_BYTE, offset + i, value[i]);
-    }
+    // Bulk copy is significantly faster than byte-by-byte iteration
+    MemorySegment.copy(value, 0, memorySegment, ValueLayout.JAVA_BYTE, offset, value.length);
+  }
+
+  /**
+   * Write a portion of a byte array to MemorySegment at the given offset.
+   * <p>
+   * Uses bulk copy for optimal performance.
+   * </p>
+   *
+   * @param memorySegment the MemorySegment to write to
+   * @param offset the offset to write at
+   * @param value the byte array to write from
+   * @param srcOffset the offset in the source array
+   * @param length the number of bytes to write
+   */
+  public static void writeByteArray(final MemorySegment memorySegment, final long offset,
+                                    final byte[] value, final int srcOffset, final int length) {
+    MemorySegment.copy(value, srcOffset, memorySegment, ValueLayout.JAVA_BYTE, offset, length);
   }
 
   /**

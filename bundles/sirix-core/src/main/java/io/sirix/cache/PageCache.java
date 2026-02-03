@@ -19,7 +19,12 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   private final com.github.benmanes.caffeine.cache.Cache<PageReference, Page> cache;
 
-  public PageCache(final int maxWeight) {
+  /**
+   * Create a PageCache with the specified maximum weight in bytes.
+   *
+   * @param maxWeight maximum weight in bytes for the cache (supports values > 2GB)
+   */
+  public PageCache(final long maxWeight) {
     final RemovalListener<PageReference, Page> removalListener = (PageReference key, Page page, RemovalCause cause) -> {
       assert key != null;
       key.setPage(null);
@@ -33,9 +38,9 @@ public final class PageCache implements Cache<PageReference, Page> {
               key.getKey(), keyValueLeafPage.getGuardCount(), cause);
           return;
         }
-        
+
         // Page handles its own cleanup
-        LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}", 
+        LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}",
                     key.getKey(), cause);
         LOGGER.debug("PageCache EVICT: closing page {} cause={}", keyValueLeafPage.getPageKey(), cause);
         keyValueLeafPage.close();
@@ -50,7 +55,10 @@ public final class PageCache implements Cache<PageReference, Page> {
                         if (keyValueLeafPage.getGuardCount() > 0) {
                           return 0;
                         }
-                        return (int) keyValueLeafPage.getActualMemorySize();
+                        // Return weight as int (Caffeine Weigher interface requires int)
+                        // For very large pages (>2GB), cap at Integer.MAX_VALUE
+                        long size = keyValueLeafPage.getActualMemorySize();
+                        return (int) Math.min(size, Integer.MAX_VALUE);
                       } else {
                         return 1000; // Other page types use fixed weight
                       }
@@ -58,6 +66,8 @@ public final class PageCache implements Cache<PageReference, Page> {
                     .removalListener(removalListener)
                     .recordStats()
                     .build();
+
+    LOGGER.info("PageCache created with maxWeight: {} MB", maxWeight / (1024 * 1024));
   }
 
   @Override
