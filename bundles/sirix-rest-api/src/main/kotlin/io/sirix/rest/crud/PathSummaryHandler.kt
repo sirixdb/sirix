@@ -30,36 +30,50 @@ class PathSummaryHandler(private val location: Path) {
 
                 manager.use {
                     if (manager.resourceConfig.withPathSummary) {
-                        val revision = ctx.queryParam("revision")[0]
+                        val revision = ctx.queryParam("revision").getOrNull(0)
 
-                        val pathSummary = manager.openPathSummary(revision.toInt())
-                        val pathSummaryAxis = DescendantAxis(pathSummary)
-
-                        buffer.append("{\"pathSummary\":[")
-
-                        while (pathSummaryAxis.hasNext()) {
-                            pathSummaryAxis.nextLong()
-
-                            buffer.append("{")
-                            buffer.append("nodeKey:")
-                            buffer.append(pathSummary.nodeKey)
-                            buffer.append(",")
-                            buffer.append("path:")
-                            buffer.append(pathSummary.path)
-                            buffer.append(",")
-                            buffer.append("references:")
-                            buffer.append(pathSummary.references)
-                            buffer.append(",")
-                            buffer.append("level:")
-                            buffer.append(pathSummary.level)
-                            buffer.append("}")
-
-                            if (pathSummaryAxis.hasNext()) {
-                                buffer.append(",")
-                            }
+                        val pathSummary = if (revision != null) {
+                            manager.openPathSummary(revision.toInt())
+                        } else {
+                            manager.openPathSummary()
                         }
 
-                        buffer.append("]}")
+                        pathSummary.use {
+                            val pathSummaryAxis = DescendantAxis(pathSummary)
+
+                            buffer.append("{\"pathSummary\":[")
+
+                            var first = true
+                            while (pathSummaryAxis.hasNext()) {
+                                pathSummaryAxis.nextLong()
+
+                                if (!first) {
+                                    buffer.append(",")
+                                }
+                                first = false
+
+                                val path = pathSummary.path?.toString()
+                                    ?.replace("\\", "\\\\")
+                                    ?.replace("\"", "\\\"")
+                                    ?: ""
+
+                                buffer.append("{")
+                                buffer.append("\"nodeKey\":")
+                                buffer.append(pathSummary.nodeKey)
+                                buffer.append(",")
+                                buffer.append("\"path\":\"")
+                                buffer.append(path)
+                                buffer.append("\",")
+                                buffer.append("\"references\":")
+                                buffer.append(pathSummary.references)
+                                buffer.append(",")
+                                buffer.append("\"level\":")
+                                buffer.append(pathSummary.level)
+                                buffer.append("}")
+                            }
+
+                            buffer.append("]}")
+                        }
                     } else {
                         buffer.append("{\"pathSummary\":[]}")
                     }
