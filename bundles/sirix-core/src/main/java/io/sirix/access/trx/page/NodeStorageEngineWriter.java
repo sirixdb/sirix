@@ -158,6 +158,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private volatile boolean asyncCommitInFlight;
 
   /**
+   * Stores any exception thrown by the background commit thread.
+   * Checked and rethrown by {@link #awaitPendingAsyncCommit()}.
+   */
+  private volatile Throwable asyncCommitError;
+
+  /**
    * Old snapshots whose pages have not yet been closed.
    * <p>
    * Pages from old snapshots may be "borrowed" into the active TIL when
@@ -574,18 +580,49 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     try {
-      // TODO: Enable background page serialization after resolving concurrent
-      // serialization issues (serializePage caches bytes on shared page objects).
-      // For now, just mark complete — TIL rotation still provides bounded memory.
-      snapshot.markCommitComplete();
-    } finally {
-      // NOTE: Do NOT clear pendingSnapshot here!
-      // The snapshot must persist for lazy disk offset propagation to original PageReferences.
-      // The insert thread's refs still have key=NULL_ID_LONG and need the snapshot's
-      // disk offset mapping to resolve correctly via getFromSnapshot().
-      // The snapshot will be replaced by the next rotation or cleared on transaction close.
+      final var resourceConfig = snapshot.resourceConfig();
+      final int snapshotGen = snapshot.getSnapshotGeneration();
 
-      // Release permit for next commit
+      // Allocate a separate buffer for the background thread (Writer's internal byteBufferBytes
+      // is safe to reuse since the Semaphore guarantees sequential Writer access).
+      final var bgBufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+      try {
+        for (final var entry : snapshot.refToContainerEntries()) {
+          final PageReference ref = entry.getKey();
+          final PageContainer container = entry.getValue();
+          if (container == null) {
+            continue;
+          }
+          final Page modified = container.getModified();
+          if (!(modified instanceof KeyValueLeafPage)) {
+            continue;
+          }
+          // Skip refs promoted to the active TIL by the insert thread.
+          // activeTilGeneration is volatile, so the background thread sees promotions.
+          if (ref.getActiveTilGeneration() > snapshotGen) {
+            continue;
+          }
+
+          final int frozenLogKey = snapshot.getSnapshotLogKey(ref);
+
+          // Write page to disk — sets ref.key and ref.hash on the original PageReference
+          storagePageReaderWriter.write(resourceConfig, ref, modified, bgBufferBytes);
+
+          // Record that this entry was written so removeBackgroundWrittenEntries() can skip it
+          snapshot.recordDiskOffset(frozenLogKey, ref.getKey());
+        }
+
+        // Flush remaining buffered data to the data file
+        storagePageReaderWriter.flushBufferedWrites(bgBufferBytes);
+      } finally {
+        bgBufferBytes.close();
+      }
+
+      snapshot.markCommitComplete();
+    } catch (final Throwable t) {
+      asyncCommitError = t;
+    } finally {
+      // Release permit for next commit (or for awaitPendingAsyncCommit)
       commitPermit.release();
     }
   }
@@ -673,6 +710,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     commitPermit.acquireUninterruptibly();
     commitPermit.release();
     asyncCommitInFlight = false;
+
+    final Throwable error = asyncCommitError;
+    if (error != null) {
+      asyncCommitError = null;
+      throw new SirixIOException("Async intermediate commit failed", error);
+    }
   }
 
   // ============================================================================
@@ -937,6 +980,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final CommitSnapshot lastSnapshot = pendingSnapshot;
     if (lastSnapshot != null && lastSnapshot.isCommitComplete()) {
       lastSnapshot.propagateDiskOffsets();
+      // Remove background-written leaf pages from the snapshot so the sync commit's
+      // tree traversal (Page.commit → logKey check) skips them.
+      lastSnapshot.removeBackgroundWrittenEntries();
     }
 
     pageRtx.resourceSession.getCommitLock().lock();

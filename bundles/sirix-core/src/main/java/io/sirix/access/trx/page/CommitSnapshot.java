@@ -31,6 +31,7 @@ package io.sirix.access.trx.page;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
@@ -407,6 +408,20 @@ public final class CommitSnapshot {
   }
 
   /**
+   * Get the frozen logKey for a PageReference at snapshot creation time.
+   * <p>
+   * The insert thread may change a ref's logKey via {@code log.put()} after rotation,
+   * so this method returns the snapshot-time value for correct disk offset recording.
+   *
+   * @param ref the page reference
+   * @return the frozen logKey, or -1 if not found
+   */
+  int getSnapshotLogKey(final PageReference ref) {
+    final Integer key = refToSnapshotLogKey.get(ref);
+    return key != null ? key : -1;
+  }
+
+  /**
    * Get the identity map entries for iteration during background commit.
    * <p>
    * Each entry maps an original PageReference to its PageContainer.
@@ -460,6 +475,53 @@ public final class CommitSnapshot {
         if (diskOffset >= 0 && ref.getKey() == Constants.NULL_ID_LONG) {
           ref.setKey(diskOffset);
         }
+      }
+    }
+  }
+
+  /**
+   * Remove entries that were written by the background thread from the snapshot's lookup structures.
+   * <p>
+   * After this call, {@code getFromSnapshot()} in NodeStorageEngineWriter returns null for
+   * written leaf pages, causing the sync commit's tree traversal ({@link Page#commit}) to skip them.
+   * <p>
+   * For non-promoted refs (still at snapshot generation), also clears {@code logKey} to
+   * {@code NULL_ID_INT} so {@link Page#commit}'s {@code logKey != NULL_ID_INT} check skips the ref.
+   * <p>
+   * <b>MUST</b> be called from the sync commit thread (no concurrent inserts).
+   */
+  void removeBackgroundWrittenEntries() {
+    if (!commitComplete) {
+      return;
+    }
+    final var iter = refToContainer.entrySet().iterator();
+    while (iter.hasNext()) {
+      final var entry = iter.next();
+      final PageReference ref = entry.getKey();
+      final PageContainer container = entry.getValue();
+      if (container == null || !(container.getModified() instanceof KeyValueLeafPage)) {
+        continue;
+      }
+      final Integer frozenLogKey = refToSnapshotLogKey.get(ref);
+      if (frozenLogKey == null || frozenLogKey < 0 || frozenLogKey >= logKeyToDiskOffset.length) {
+        continue;
+      }
+      if (logKeyToDiskOffset[frozenLogKey] < 0) {
+        continue; // Not written by background thread
+      }
+
+      // Remove from identity-based lookup so snapshotLookup returns null
+      iter.remove();
+
+      // Clear array entry
+      if (frozenLogKey < entriesSize) {
+        entries[frozenLogKey] = null;
+      }
+
+      // Clear logKey so Page.commit() skips this ref during tree traversal.
+      // Only for non-promoted refs — promoted refs have logKey pointing to active TIL.
+      if (ref.getActiveTilGeneration() <= snapshotGeneration) {
+        ref.setLogKey(Constants.NULL_ID_INT);
       }
     }
   }
