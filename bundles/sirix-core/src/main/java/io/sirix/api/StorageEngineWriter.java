@@ -208,4 +208,22 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @return a PageGuard that must be closed when done with the node
    */
   PageGuard acquireGuardForCurrentNode();
+
+  /**
+   * Trigger an async intermediate commit with backpressure.
+   * <p>
+   * Blocks if another async commit is still in flight (backpressure),
+   * then rotates the TIL and schedules background page serialization.
+   * The calling thread can continue inserting into the fresh TIL immediately
+   * after this method returns.
+   */
+  default void asyncIntermediateCommit() {}
+
+  /**
+   * Block until any pending async commit completes.
+   * <p>
+   * Must be called before a final synchronous commit, close, or rollback
+   * to ensure the background thread has finished writing.
+   */
+  default void awaitPendingAsyncCommit() {}
 }

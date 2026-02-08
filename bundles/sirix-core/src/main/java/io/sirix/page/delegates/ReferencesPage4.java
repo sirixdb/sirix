@@ -86,6 +86,7 @@ public final class ReferencesPage4 implements Page {
       final var pageReferenceToClone = pageToClone.getReferences().get(offset);
       pageReference.setKey(pageReferenceToClone.getKey());
       pageReference.setLogKey(pageReferenceToClone.getLogKey());
+      pageReference.setActiveTilGeneration(pageReferenceToClone.getActiveTilGeneration());
       pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
       pageReference.setResourceId(pageReferenceToClone.getResourceId());
       pageReference.setPage(pageReferenceToClone.getPage());

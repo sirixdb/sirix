@@ -85,6 +85,20 @@ public interface Writer extends Reader {
   Writer truncate();
 
   /**
+   * Flush any remaining buffered page writes to the underlying storage.
+   * <p>
+   * Must be called after a series of {@link #write} calls to ensure all
+   * serialized page data is written to the file (not just buffered in memory).
+   * The normal commit path flushes via {@link #writeUberPageReference};
+   * async intermediate commits that skip the uber page must call this explicitly.
+   *
+   * @param bufferedBytes the same buffer passed to the preceding {@code write()} calls
+   */
+  default void flushBufferedWrites(BytesOut<?> bufferedBytes) {
+    // Default no-op for implementations that don't buffer
+  }
+
+  /**
    * Force all pending writes to durable storage.
    * This is a single fsync barrier that ensures all written data is persisted.
    * Should be called once at the end of a commit after all pages and uberpage beacons are written.
