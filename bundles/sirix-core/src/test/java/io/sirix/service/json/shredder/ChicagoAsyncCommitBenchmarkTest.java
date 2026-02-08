@@ -19,6 +19,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
@@ -257,6 +259,55 @@ public final class ChicagoAsyncCommitBenchmarkTest {
       return writer.toString();
     } catch (Exception e) {
       throw new RuntimeException(e);
+    }
+  }
+
+  //@Disabled("Manual benchmark — requires cityofchicago.json (~3.6 GB)")
+  @ParameterizedTest
+  @ValueSource(ints = {1, 2, 3, 4})
+  void thresholdSweep(final int shift) {
+    final int threshold = 262_144 << shift;
+    logger.info("=== THRESHOLD SWEEP: 262144 << " + shift + " = " + threshold + " ===");
+
+    JsonTestHelper.deleteEverything();
+
+    // Drop OS page cache between runs for fair comparison
+    try {
+      new ProcessBuilder("sudo", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches")
+          .inheritIO().start().waitFor();
+      logger.info("  OS page cache cleared");
+    } catch (Exception e) {
+      logger.warn("  Could not clear OS page cache: " + e.getMessage());
+    }
+
+    final var stopWatch = new StopWatch();
+    stopWatch.start();
+
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      database.createResource(buildResourceConfig());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx(threshold, AfterCommitState.KEEP_OPEN_ASYNC);
+           final var parser = JacksonJsonShredder.createFileParser(CHICAGO_JSON)) {
+        trx.insertSubtreeAsFirstChild(parser, JsonNodeTrx.Commit.NO);
+        trx.commit();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx()) {
+        stopWatch.stop();
+        final long maxNodeKey = rtx.getMaxNodeKey();
+        final long elapsedMs = stopWatch.getTime(TimeUnit.MILLISECONDS);
+        final int revisions = manager.getMostRecentRevisionNumber();
+        logger.info("  Threshold:  " + threshold + " (262144 << " + shift + ")");
+        logger.info("  Time:       " + elapsedMs + " ms (" + stopWatch.getTime(TimeUnit.SECONDS) + "s)");
+        logger.info("  Nodes:      " + maxNodeKey);
+        logger.info("  Revisions:  " + revisions);
+        logger.info("  Throughput: " + String.format("%.0f", maxNodeKey * 1000.0 / elapsedMs) + " nodes/sec");
+      }
     }
   }
 
