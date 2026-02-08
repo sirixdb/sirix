@@ -34,7 +34,11 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
+import io.sirix.page.interfaces.Page;
+import io.sirix.settings.Constants;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.util.Arrays;
@@ -66,6 +70,8 @@ import java.util.Objects;
  * @author Johannes Lichtenberger
  */
 public final class CommitSnapshot {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(CommitSnapshot.class);
 
   // ============================================================================
   // Frozen TIL entries
@@ -143,6 +149,20 @@ public final class CommitSnapshot {
   private final long[] logKeyToDiskOffset;
 
   /**
+   * Frozen logKey for each original PageReference at snapshot creation time.
+   * The insert thread may change a ref's logKey via log.put() after rotation,
+   * so we must capture the snapshot-time logKey for correct propagation.
+   */
+  private final IdentityHashMap<PageReference, Integer> refToSnapshotLogKey;
+
+  /**
+   * The TIL generation at the time this snapshot was created.
+   * Used to detect refs that have been re-added to a newer TIL
+   * (their generation will be greater than this value).
+   */
+  private final int snapshotGeneration;
+
+  /**
    * Flag indicating commit is complete and disk offsets are available.
    * Volatile for visibility across threads.
    */
@@ -160,6 +180,7 @@ public final class CommitSnapshot {
    * @param commitTimestamp the commit timestamp
    * @param commitFile the commit file (may be null)
    * @param resourceConfig the resource configuration
+   * @param snapshotGeneration the TIL generation at snapshot creation time
    */
   public CommitSnapshot(
       final TransactionIntentLog.RotationResult rotation,
@@ -170,7 +191,8 @@ public final class CommitSnapshot {
       final String commitMessage,
       final long commitTimestamp,
       final File commitFile,
-      final ResourceConfiguration resourceConfig) {
+      final ResourceConfiguration resourceConfig,
+      final int snapshotGeneration) {
 
     Objects.requireNonNull(rotation, "rotation must not be null");
     Objects.requireNonNull(uberPage, "uberPage must not be null");
@@ -190,10 +212,19 @@ public final class CommitSnapshot {
     this.commitTimestamp = commitTimestamp;
     this.commitFile = commitFile;
     this.resourceConfig = resourceConfig;
+    this.snapshotGeneration = snapshotGeneration;
 
     // Pre-allocate disk offset array with -1 (unset)
     this.logKeyToDiskOffset = new long[entriesSize];
     Arrays.fill(logKeyToDiskOffset, -1L);
+
+    // Freeze each ref's logKey at snapshot creation time.
+    // The insert thread may change ref.logKey via log.put() after rotation,
+    // so we must capture the snapshot-time value for correct propagation.
+    this.refToSnapshotLogKey = new IdentityHashMap<>(refToContainer.size() * 4 / 3 + 1);
+    for (final PageReference ref : refToContainer.keySet()) {
+      refToSnapshotLogKey.put(ref, ref.getLogKey());
+    }
   }
 
   // ============================================================================
@@ -231,6 +262,24 @@ public final class CommitSnapshot {
       return entries[logKey];
     }
     return null;
+  }
+
+  /**
+   * Clear an entry in this snapshot to prevent double-close.
+   * <p>
+   * Called when a page container is "promoted" from this snapshot to the active TIL.
+   * After promotion, the active TIL owns the container and its pages. Clearing the
+   * entry here ensures that {@link #closePages()} does not close pages that are
+   * still in use by the active TIL.
+   * <p>
+   * Thread-safe: reference writes are atomic in Java.
+   *
+   * @param logKey the log key of the entry to clear
+   */
+  public void clearEntry(final int logKey) {
+    if (logKey >= 0 && logKey < entriesSize) {
+      entries[logKey] = null;
+    }
   }
 
   /**
@@ -342,5 +391,108 @@ public final class CommitSnapshot {
 
   public ResourceConfiguration resourceConfig() {
     return resourceConfig;
+  }
+
+  /**
+   * Get the TIL generation this snapshot was created from.
+   * <p>
+   * Used by layered lookup to guard against cross-snapshot logKey collisions:
+   * a PageReference's logKey should only be used to index into this snapshot's
+   * entries array if the reference's generation matches this value.
+   *
+   * @return the snapshot's TIL generation
+   */
+  public int getSnapshotGeneration() {
+    return snapshotGeneration;
+  }
+
+  /**
+   * Get the identity map entries for iteration during background commit.
+   * <p>
+   * Each entry maps an original PageReference to its PageContainer.
+   * The PageReference is the actual object from the IndirectPage's internal array,
+   * so disk offsets set via {@code Writer.write()} are visible to the insert thread.
+   *
+   * @return the identity map entry set (unmodifiable view)
+   */
+  Iterable<java.util.Map.Entry<PageReference, PageContainer>> refToContainerEntries() {
+    return refToContainer.entrySet();
+  }
+
+  // ============================================================================
+  // Disk offset propagation
+  // ============================================================================
+
+  /**
+   * Eagerly propagate disk offsets from this completed snapshot to all original PageReferences.
+   * <p>
+   * Must be called BEFORE {@link #closePages()} and AFTER the background commit is complete
+   * (i.e., {@link #isCommitComplete()} returns true).
+   * <p>
+   * This updates each original PageReference's disk key so that future commit traversals
+   * can correctly skip pages that are already on disk. Without this, references from older
+   * generations would have {@code key = NULL_ID_LONG} and be unreachable after the snapshot
+   * is closed.
+   * <p>
+   * Only updates references whose key is still {@code NULL_ID_LONG} — promoted references
+   * (whose logKey was changed by a newer TIL) are naturally skipped since the old logKey
+   * won't match a valid disk offset.
+   */
+  public void propagateDiskOffsets() {
+    if (!commitComplete) {
+      return;
+    }
+    for (final var entry : refToSnapshotLogKey.entrySet()) {
+      final PageReference ref = entry.getKey();
+
+      // Skip refs that have been re-added to a newer TIL by the insert thread.
+      // Those refs have a new generation, new logKey, and new container — the old
+      // disk offset is irrelevant for them.
+      if (ref.getActiveTilGeneration() > snapshotGeneration) {
+        continue;
+      }
+
+      // Use the frozen logKey from snapshot creation time, NOT ref.getLogKey()
+      // which the insert thread may have changed.
+      final int frozenLogKey = entry.getValue();
+      if (frozenLogKey >= 0 && frozenLogKey < logKeyToDiskOffset.length) {
+        final long diskOffset = logKeyToDiskOffset[frozenLogKey];
+        if (diskOffset >= 0 && ref.getKey() == Constants.NULL_ID_LONG) {
+          ref.setKey(diskOffset);
+        }
+      }
+    }
+  }
+
+  // ============================================================================
+  // Page lifecycle
+  // ============================================================================
+
+  /**
+   * Close all pages held in this snapshot's frozen TIL entries.
+   * <p>
+   * Must only be called after the commit is complete ({@link #isCommitComplete()})
+   * and from the insert thread (after acquiring the commit permit, which guarantees
+   * no concurrent access from the background commit thread).
+   */
+  public void closePages() {
+    for (int i = 0; i < entriesSize; i++) {
+      final PageContainer container = entries[i];
+      if (container == null) {
+        continue;
+      }
+      try {
+        final Page complete = container.getComplete();
+        final Page modified = container.getModified();
+        if (complete != null && !complete.isClosed()) {
+          complete.close();
+        }
+        if (modified != null && modified != complete && !modified.isClosed()) {
+          modified.close();
+        }
+      } catch (Exception e) {
+        // Best-effort cleanup
+      }
+    }
   }
 }

@@ -549,6 +549,17 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     }
 
     @Override
+    public void flushBufferedWrites(final BytesOut<?> bufferedBytes) {
+        try {
+            if (bufferedBytes.writePosition() > 0) {
+                flushBuffer(bufferedBytes);
+            }
+        } catch (final IOException e) {
+            throw new SirixIOException(e);
+        }
+    }
+
+    @Override
     public void forceAll() {
         try {
             if (mappedRegion != null) {

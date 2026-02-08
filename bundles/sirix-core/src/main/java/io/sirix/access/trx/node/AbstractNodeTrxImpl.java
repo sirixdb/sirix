@@ -300,6 +300,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     runLocked(() -> {
       state = State.COMMITTING;
 
+      // Wait for any pending async intermediate commit before final sync commit
+      pageTrx.awaitPendingAsyncCommit();
+
       // Execute pre-commit hooks.
       for (final PreCommitHook hook : preCommitHooks) {
         hook.preCommit(this);
@@ -320,7 +323,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       }
 
       // Reinstantiate everything.
-      if (afterCommitState == AfterCommitState.KEEP_OPEN) {
+      if (afterCommitState == AfterCommitState.KEEP_OPEN
+          || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
         // Use the newly committed revision number, not the pre-commit revision.
         // After commit, uberPage represents the new revision, and we need to
         // create a page transaction that will prepare the NEXT revision.
@@ -354,15 +358,25 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   /**
    * Making an intermediate commit based on set attributes.
+   * <p>
+   * When {@code afterCommitState == KEEP_OPEN_ASYNC} (bulk imports), uses the async commit
+   * mechanism: blocks if a previous async commit is still in flight (backpressure), rotates the
+   * TIL, and schedules background page serialization. No intermediate revisions are created —
+   * only the final explicit commit creates a visible revision.
+   * <p>
+   * Otherwise, falls back to the standard sync commit which creates intermediate revisions.
    *
    * @throws SirixException if commit fails
    */
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
     if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
-      LOGGER.debug("AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
-      commit("autoCommit");
-      LOGGER.debug("AUTO-COMMIT completed");
+      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
+        pageTrx.asyncIntermediateCommit();
+        modificationCount = 0L;
+      } else {
+        commit("autoCommit");
+      }
     }
   }
 

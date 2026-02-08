@@ -641,7 +641,7 @@ public final class AsyncAutoCommitComprehensiveTest {
     @Test
     void autoCommitWithMaxNodeCountPreservesDataIntegrity() {
       // Use maxNodeCount to trigger auto-commits during bulk insert
-      try (final var wtx = resourceSession.beginNodeTrx(50, AfterCommitState.KEEP_OPEN)) {
+      try (final var wtx = resourceSession.beginNodeTrx(50, AfterCommitState.KEEP_OPEN_ASYNC)) {
         // Insert a document that will trigger multiple auto-commits
         wtx.insertSubtreeAsFirstChild(
             JsonShredder.createFileReader(JSON.resolve("chicago-subset.json")),
@@ -676,7 +676,7 @@ public final class AsyncAutoCommitComprehensiveTest {
       final int insertCount = 30;
 
       // Very small threshold forces many auto-commits
-      try (final var wtx = resourceSession.beginNodeTrx(5, AfterCommitState.KEEP_OPEN)) {
+      try (final var wtx = resourceSession.beginNodeTrx(5, AfterCommitState.KEEP_OPEN_ASYNC)) {
         wtx.insertObjectAsFirstChild();
 
         for (int i = 0; i < insertCount; i++) {
@@ -713,7 +713,7 @@ public final class AsyncAutoCommitComprehensiveTest {
       final int nodesPerRevision = 10;
 
       for (int rev = 0; rev < revisions; rev++) {
-        try (final var wtx = resourceSession.beginNodeTrx(3, AfterCommitState.KEEP_OPEN)) {
+        try (final var wtx = resourceSession.beginNodeTrx(3, AfterCommitState.KEEP_OPEN_ASYNC)) {
           if (rev == 0) {
             wtx.insertObjectAsFirstChild();
           }
@@ -779,7 +779,7 @@ public final class AsyncAutoCommitComprehensiveTest {
 
       try (final var session = db.beginResourceSession("versioning-test")) {
         // Auto-commit with threshold=10
-        try (final var wtx = session.beginNodeTrx(10, AfterCommitState.KEEP_OPEN)) {
+        try (final var wtx = session.beginNodeTrx(10, AfterCommitState.KEEP_OPEN_ASYNC)) {
           wtx.insertObjectAsFirstChild();
 
           for (int i = 0; i < 25; i++) {
@@ -955,7 +955,7 @@ public final class AsyncAutoCommitComprehensiveTest {
     @Test
     void autoCommitWithManySmallInserts() {
       // This tests that many auto-commits don't cause issues
-      try (final var wtx = resourceSession.beginNodeTrx(3, AfterCommitState.KEEP_OPEN)) {
+      try (final var wtx = resourceSession.beginNodeTrx(3, AfterCommitState.KEEP_OPEN_ASYNC)) {
         wtx.insertObjectAsFirstChild();
 
         // 50 inserts with threshold 3 = ~16 auto-commits
@@ -1080,7 +1080,7 @@ public final class AsyncAutoCommitComprehensiveTest {
     @Test
     void autoCommitThresholdOfOneWorks() {
       // Edge case: auto-commit after every single modification
-      try (final var wtx = resourceSession.beginNodeTrx(1, AfterCommitState.KEEP_OPEN)) {
+      try (final var wtx = resourceSession.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC)) {
         wtx.insertObjectAsFirstChild();
 
         for (int i = 0; i < 10; i++) {
@@ -1111,7 +1111,7 @@ public final class AsyncAutoCommitComprehensiveTest {
 
     @Test
     void autoCommitWithBooleanAndNumberValues() {
-      try (final var wtx = resourceSession.beginNodeTrx(5, AfterCommitState.KEEP_OPEN)) {
+      try (final var wtx = resourceSession.beginNodeTrx(5, AfterCommitState.KEEP_OPEN_ASYNC)) {
         wtx.insertObjectAsFirstChild();
 
         for (int i = 0; i < 20; i++) {

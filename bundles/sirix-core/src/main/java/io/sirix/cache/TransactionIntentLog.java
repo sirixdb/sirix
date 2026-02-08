@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * Transaction intent log (TIL) for caching all changes made by a read/write transaction.
@@ -68,6 +69,15 @@ public final class TransactionIntentLog implements AutoCloseable {
   private final BufferManager bufferManager;
 
   /**
+   * Optional fallback for looking up pages in the pending snapshot.
+   * <p>
+   * Set by the writer after TIL rotation to make snapshot pages accessible
+   * to the reader's {@code loadPage()} during async auto-commit.
+   * When not null, {@link #get(PageReference)} checks this after the active TIL.
+   */
+  private volatile Function<PageReference, PageContainer> snapshotLookup;
+
+  /**
    * The log key (legacy - kept for compatibility, same as size).
    */
   private int logKey;
@@ -89,6 +99,18 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
+   * Set the fallback snapshot lookup function for async auto-commit.
+   * <p>
+   * When set, {@link #get(PageReference)} checks this function after the active TIL,
+   * enabling the reader's trie navigation to find pages from the pending snapshot.
+   *
+   * @param lookup function mapping PageReference to PageContainer (may return null), or null to clear
+   */
+  public void setSnapshotLookup(final Function<PageReference, PageContainer> lookup) {
+    this.snapshotLookup = lookup;
+  }
+
+  /**
    * Retrieves an entry from the cache.<br>
    *
    * @param key the key whose associated value is to be returned.
@@ -101,12 +123,21 @@ public final class TransactionIntentLog implements AutoCloseable {
     if (index != null && index < size) {
       return entries[index];
     }
-    // Fallback to logKey lookup for backward compatibility
-    var logKeyVal = key.getLogKey();
-    if ((logKeyVal >= this.size) || logKeyVal < 0) {
-      return null;
+    // LogKey fallback: ONLY if reference belongs to current TIL generation.
+    // After rotation, stale logKeys may collide with entries of different page types
+    // (e.g., an IndirectPage reference's stale logKey pointing to a KeyValueLeafPage slot).
+    if (key.isInActiveTil(currentGeneration)) {
+      final var logKeyVal = key.getLogKey();
+      if (logKeyVal >= 0 && logKeyVal < this.size) {
+        return entries[logKeyVal];
+      }
     }
-    return entries[logKeyVal];
+    // Check linked snapshot for async auto-commit
+    final var lookup = snapshotLookup;
+    if (lookup != null) {
+      return lookup.apply(key);
+    }
+    return null;
   }
 
   /**

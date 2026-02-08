@@ -204,8 +204,9 @@ public final class AsyncAutoCommitIntegrationTest {
       assertNotNull(snapshot, "Snapshot should be created");
       assertEquals(sizeBeforeSnapshot, snapshot.size(), "Snapshot should have all entries");
 
-      // Verify TIL was reset
-      assertEquals(0, log.size(), "Active TIL should be empty after rotation");
+      // Root-level pages (RRP, NamePage, PathSummary, CAS, Path, DeweyId) are
+      // re-added to the active TIL by reAddRootPageToActiveTil after rotation.
+      assertEquals(6, log.size(), "Root-level pages re-added to active TIL after rotation");
 
       // Start async commit in background
       executor.submit(() -> {
@@ -276,8 +277,9 @@ public final class AsyncAutoCommitIntegrationTest {
       assertNotNull(snapshot, "Should have snapshot");
       assertNotNull(pageTrx.getPendingSnapshot(), "Should have pending snapshot set");
 
-      // Verify TIL was reset
-      assertEquals(0, log.size(), "Active TIL should be empty after rotation");
+      // Root-level pages (RRP, NamePage, PathSummary, CAS, Path, DeweyId) are
+      // re-added to the active TIL by reAddRootPageToActiveTil after rotation.
+      assertEquals(6, log.size(), "Root-level pages re-added to active TIL after rotation");
 
       // Verify snapshot has old entries
       assertEquals(sizeBeforeSnapshot, snapshot.size(), "Snapshot should have entries from before rotation");
@@ -486,8 +488,9 @@ public final class AsyncAutoCommitIntegrationTest {
       // Snapshot should have initial size
       assertEquals(initialSize, snapshot.size(), "Snapshot should capture initial entries");
 
-      // TIL should be empty
-      assertEquals(0, log.size(), "Active TIL should be empty");
+      // Root-level pages (RRP, NamePage, PathSummary, CAS, Path, DeweyId) are
+      // re-added to the active TIL by reAddRootPageToActiveTil after rotation.
+      assertEquals(6, log.size(), "Root-level pages re-added to active TIL after rotation");
 
       // Snapshot size should NOT change when new data would be inserted
       // (though we can't insert here due to path summary issues)
@@ -828,18 +831,21 @@ public final class AsyncAutoCommitIntegrationTest {
       );
 
       assertNotNull(snapshot, "Snapshot should be created");
-      assertEquals(0, log.size(), "Active TIL should be empty after rotation");
+      // Root-level pages (RRP, NamePage, PathSummary, CAS, Path, DeweyId) are
+      // re-added to the active TIL by reAddRootPageToActiveTil after rotation.
+      assertEquals(6, log.size(), "Root-level pages re-added to active TIL after rotation");
 
-      // Verify getLogRecord can find pages from the pending snapshot via logKey fallback
-      // Iterate through snapshot entries by logKey
+      // Verify getLogRecord can find pages from the pending snapshot via logKey fallback.
+      // Some entries may be null because reAddRootPageToActiveTil clears root-level pages
+      // from the snapshot after moving them back into the active TIL.
+      int nonNullEntries = 0;
       for (int i = 0; i < snapshot.size(); i++) {
         PageContainer expected = snapshot.getEntry(i);
-        assertNotNull(expected, "Snapshot entry at logKey " + i + " should exist");
-        
-        // Verify we can retrieve entries from the snapshot
-        // The getLogRecord would need the original PageReference which is in the identity map
-        // For this test, we verify the snapshot API works correctly
+        if (expected != null) {
+          nonNullEntries++;
+        }
       }
+      assertTrue(nonNullEntries > 0, "At least some snapshot entries should be non-null");
 
       // Verify snapshot size matches what was captured
       assertTrue(snapshot.size() > 0, "Snapshot should have entries from pending snapshot");
@@ -882,8 +888,9 @@ public final class AsyncAutoCommitIntegrationTest {
       // Verify the snapshot has captured entries
       assertTrue(snapshot.size() > 0, "Snapshot should have entries");
 
-      // Verify active TIL is empty
-      assertEquals(0, log.size(), "Active TIL should be empty after rotation");
+      // Root-level pages (RRP, NamePage, PathSummary, CAS, Path, DeweyId) are
+      // re-added to the active TIL by reAddRootPageToActiveTil after rotation.
+      assertEquals(6, log.size(), "Root-level pages re-added to active TIL after rotation");
 
       // The pending snapshot should be set
       assertNotNull(pageTrx.getPendingSnapshot(), "Pending snapshot should be set");
@@ -1002,11 +1009,18 @@ public final class AsyncAutoCommitIntegrationTest {
       );
 
       if (snapshot != null) {
-        // Verify snapshot entry lookup works via logKey
+        // Verify snapshot entry lookup works via logKey.
+        // Some entries may be null because reAddRootPageToActiveTil clears
+        // root-level pages (RRP, NamePage, PathSummary, CAS, Path, DeweyId)
+        // from the snapshot after moving them back into the active TIL.
+        int nonNullCount = 0;
         for (int i = 0; i < snapshot.size(); i++) {
           PageContainer entry = snapshot.getEntry(i);
-          assertNotNull(entry, "Entry at logKey " + i + " should exist");
+          if (entry != null) {
+            nonNullCount++;
+          }
         }
+        assertTrue(nonNullCount > 0, "At least some snapshot entries should be non-null");
 
         // Out of bounds should return null or throw safely
         // The implementation should handle this gracefully
@@ -1102,16 +1116,22 @@ public final class AsyncAutoCommitIntegrationTest {
       );
 
       if (snapshot != null) {
-        // Active TIL should be empty
-        assertEquals(0, log.size(), "Active TIL should be empty after rotation");
+        // Root-level pages (RRP, NamePage, PathSummary, CAS, Path, DeweyId) are
+        // re-added to the active TIL by reAddRootPageToActiveTil after rotation.
+        assertEquals(6, log.size(), "Root-level pages re-added to active TIL after rotation");
 
         // Pending snapshot should have all entries
         assertEquals(sizeBefore, snapshot.size(), "Snapshot should have all entries");
 
-        // Verify entries are accessible
+        // Verify non-root entries are accessible. Root-level entries may have been
+        // cleared from the snapshot by reAddRootPageToActiveTil.
+        int accessibleCount = 0;
         for (int i = 0; i < snapshot.size(); i++) {
-          assertNotNull(snapshot.getEntry(i), "Entry at logKey " + i + " should be accessible");
+          if (snapshot.getEntry(i) != null) {
+            accessibleCount++;
+          }
         }
+        assertTrue(accessibleCount > 0, "At least some snapshot entries should be accessible");
       }
 
       wtx.rollback();

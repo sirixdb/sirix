@@ -148,19 +148,10 @@ public final class SnapshotCommitter {
       throw new RuntimeException("Failed to write page during async commit", e);
     }
 
-    // Clean up - release page resources
-    try {
-      final Page completePage = container.getComplete();
-      if (completePage != null && completePage != page) {
-        completePage.close();
-      }
-      page.close();
-    } catch (Exception e) {
-      LOGGER.warn("Failed to close page after commit: {}", reference, e);
-    }
-
-    // Clear page reference to help GC
-    reference.setPage(null);
+    // NOTE: Do NOT close pages here! The insert thread may still access them
+    // via layered lookup (getFromActiveOrPending → getFromSnapshot).
+    // Pages are closed when the snapshot is replaced by the next async commit
+    // (on the insert thread, after permit acquisition guarantees completion).
   }
 
   /**
