@@ -262,7 +262,87 @@ public final class ChicagoAsyncCommitBenchmarkTest {
     }
   }
 
-  //@Disabled("Manual benchmark — requires cityofchicago.json (~3.6 GB)")
+  // ==================== Profiling tests (manual) ====================
+
+  /**
+   * Profile the async auto-commit path with 2M threshold.
+   * Run with: ASYNC_PROFILER=~/async-profiler PROFILE_EVENT=cpu|wall|alloc PROFILE_OUTPUT=/tmp/async-{event}.html
+   */
+  @Disabled("Manual profiling — requires cityofchicago.json (~3.6 GB)")
+  @Test
+  void profileAsyncAutoCommit() {
+    final int threshold = 262_144 << 3; // 2M
+    logger.info("=== PROFILE: ASYNC AUTO-COMMIT (threshold=" + threshold + ") ===");
+
+    final var stopWatch = new StopWatch();
+    stopWatch.start();
+
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      database.createResource(buildResourceConfig());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx(threshold, AfterCommitState.KEEP_OPEN_ASYNC);
+           final var parser = JacksonJsonShredder.createFileParser(CHICAGO_JSON)) {
+        trx.insertSubtreeAsFirstChild(parser, JsonNodeTrx.Commit.NO);
+        trx.commit();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx()) {
+        stopWatch.stop();
+        logResults(stopWatch, rtx.getMaxNodeKey(), manager.getMostRecentRevisionNumber());
+      }
+    }
+  }
+
+  /**
+   * Profile the sync auto-commit path (KEEP_OPEN) with the same 2M threshold.
+   * Run with: ASYNC_PROFILER=~/async-profiler PROFILE_EVENT=cpu|wall|alloc PROFILE_OUTPUT=/tmp/sync-{event}.html
+   */
+  @Disabled("Manual profiling — requires cityofchicago.json (~3.6 GB)")
+  @Test
+  void profileSyncAutoCommit() {
+    final int threshold = 262_144 << 3; // 2M
+    logger.info("=== PROFILE: SYNC AUTO-COMMIT (threshold=" + threshold + ") ===");
+
+    final var stopWatch = new StopWatch();
+    stopWatch.start();
+
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      database.createResource(buildResourceConfig());
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = manager.beginNodeTrx(threshold, AfterCommitState.KEEP_OPEN);
+           final var parser = JacksonJsonShredder.createFileParser(CHICAGO_JSON)) {
+        trx.insertSubtreeAsFirstChild(parser, JsonNodeTrx.Commit.NO);
+        trx.commit();
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+
+      try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = manager.beginNodeReadOnlyTrx()) {
+        stopWatch.stop();
+        logResults(stopWatch, rtx.getMaxNodeKey(), manager.getMostRecentRevisionNumber());
+      }
+    }
+  }
+
+  private void logResults(final StopWatch stopWatch, final long maxNodeKey, final int revisions) {
+    final long elapsedMs = stopWatch.getTime(TimeUnit.MILLISECONDS);
+    logger.info("  Time:       " + elapsedMs + " ms (" + stopWatch.getTime(TimeUnit.SECONDS) + "s)");
+    logger.info("  Nodes:      " + maxNodeKey);
+    logger.info("  Revisions:  " + revisions);
+    logger.info("  Throughput: " + String.format("%.0f", maxNodeKey * 1000.0 / elapsedMs) + " nodes/sec");
+  }
+
+  // ==================== Threshold sweep (manual) ====================
+
+  @Disabled("Manual benchmark — requires cityofchicago.json (~3.6 GB)")
   @ParameterizedTest
   @ValueSource(ints = {1, 2, 3, 4})
   void thresholdSweep(final int shift) {

@@ -177,6 +177,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private final List<CommitSnapshot> oldSnapshots = new ArrayList<>();
 
   /**
+   * Tracks the previous DOCUMENT page key for page-full detection.
+   * When a record is created on a different page, the flag is set so that
+   * the next {@code checkAccessAndCommit()} call triggers eager serialization.
+   */
+  private long lastDocumentRecordPageKey = -1;
+
+  /**
+   * Set by {@link #createRecord} when a DOCUMENT page boundary is crossed.
+   * Checked and cleared by {@link #eagerSerializePagesIfPageBoundaryCrossed()}.
+   */
+  private boolean pageBoundaryCrossed;
+
+  /**
    * {@link XmlIndexController} instance.
    */
   private final IndexController<?, ?> indexController;
@@ -684,6 +697,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public void asyncIntermediateCommit() {
+    // Reset page-full tracking — old TIL entries are going into the snapshot
+    lastDocumentRecordPageKey = -1;
+    pageBoundaryCrossed = false;
+
     // Block if another async commit is still in flight (backpressure)
     commitPermit.acquireUninterruptibly();
 
@@ -715,6 +732,35 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (error != null) {
       asyncCommitError = null;
       throw new SirixIOException("Async intermediate commit failed", error);
+    }
+  }
+
+  // ============================================================================
+  // Eager Serialization for GC Pressure Reduction
+  // ============================================================================
+
+  @Override
+  public void eagerSerializePages() {
+    final var resourceConfig = getResourceSession().getResourceConfig();
+    final int tilSize = log.size();
+    for (int i = 0; i < tilSize; i++) {
+      final PageContainer container = log.getUnchecked(i);
+      if (container == null) {
+        continue;
+      }
+      final Page modified = container.getModified();
+      if (modified instanceof final KeyValueLeafPage kvPage && !kvPage.isAddedReferences()) {
+        kvPage.addReferences(resourceConfig);
+        kvPage.clearRecordsForGC();
+      }
+    }
+  }
+
+  @Override
+  public void eagerSerializePagesIfPageBoundaryCrossed() {
+    if (pageBoundaryCrossed) {
+      pageBoundaryCrossed = false;
+      eagerSerializePages();
     }
   }
 
@@ -859,6 +905,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     };
 
     final long recordPageKey = pageRtx.pageKey(createdRecordKey, indexType);
+
+    // Page-full detection: when the DOCUMENT index crosses a page boundary,
+    // set a flag so the next checkAccessAndCommit() triggers eager serialization.
+    if (indexType == IndexType.DOCUMENT) {
+      if (lastDocumentRecordPageKey >= 0 && recordPageKey != lastDocumentRecordPageKey) {
+        pageBoundaryCrossed = true;
+      }
+      lastDocumentRecordPageKey = recordPageKey;
+    }
+
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
     final KeyValuePage<DataRecord> modified = cont.getModifiedAsKeyValuePage();
     modified.setRecord(record);

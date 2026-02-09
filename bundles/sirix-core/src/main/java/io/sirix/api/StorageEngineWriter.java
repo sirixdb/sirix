@@ -210,6 +210,23 @@ public interface StorageEngineWriter extends StorageEngineReader {
   PageGuard acquireGuardForCurrentNode();
 
   /**
+   * Eagerly serialize dirty {@link io.sirix.page.KeyValueLeafPage}s to slotMemory and
+   * clear their {@code records[]} arrays so the GC can reclaim node objects.
+   * <p>
+   * This is a lightweight, in-memory operation: no compression, no disk I/O.
+   * It reduces GC tenuring pressure during large batch insertions by keeping
+   * the number of live node objects bounded between sub-interval triggers.
+   */
+  default void eagerSerializePages() {}
+
+  /**
+   * Eagerly serialize dirty pages if a DOCUMENT page boundary was crossed since
+   * the last call. This is a conditional wrapper around {@link #eagerSerializePages()}
+   * that avoids iterating the TIL when no boundary was crossed.
+   */
+  default void eagerSerializePagesIfPageBoundaryCrossed() {}
+
+  /**
    * Trigger an async intermediate commit with backpressure.
    * <p>
    * Blocks if another async commit is still in flight (backpressure),

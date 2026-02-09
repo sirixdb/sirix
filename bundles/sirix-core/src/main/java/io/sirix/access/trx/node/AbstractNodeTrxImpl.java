@@ -120,6 +120,18 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private final AfterCommitState afterCommitState;
 
   /**
+   * Interval for eager serialization during batch insertions (must be power of 2).
+   * Every this-many node modifications, dirty pages are serialized to slotMemory
+   * and records[] cleared, so node objects become short-lived and are collected in young gen.
+   */
+  private static final long EAGER_SERIALIZE_INTERVAL = 1L << 18; // 262,144 nodes
+
+  /**
+   * Bitmask for fast modulo check on eager serialization interval.
+   */
+  private static final long EAGER_SERIALIZE_MASK = EAGER_SERIALIZE_INTERVAL - 1;
+
+  /**
    * Modification counter.
    */
   private long modificationCount;
@@ -354,6 +366,14 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     assertRunning();
     modificationCount++;
     intermediateCommitIfRequired();
+    // Eager serialization to reduce GC tenuring pressure.
+    // Only active during auto-committing async batch insertions (bulk imports).
+    if (maxNodeCount > 0 && afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
+      pageTrx.eagerSerializePagesIfPageBoundaryCrossed();
+      if ((modificationCount & EAGER_SERIALIZE_MASK) == 0) {
+        pageTrx.eagerSerializePages();
+      }
+    }
   }
 
   /**

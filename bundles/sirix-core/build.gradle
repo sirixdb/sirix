@@ -74,6 +74,20 @@ test {
         '-XX:+UnlockDiagnosticVMOptions',
         '-XX:+DebugNonSafepoints',
     ]
+
+    // ZGC mode: ./gradlew test -Pzgc=true
+    // Adds ZGC + performance flags from JsonShredderTest Chicago benchmark
+    if (project.hasProperty('zgc')) {
+        baseArgs.addAll([
+            '-XX:+UseZGC',
+            '-XX:+UnlockExperimentalVMOptions',
+            '-XX:+AlwaysPreTouch',
+            '-XX:+DisableExplicitGC',
+            '-XX:ReservedCodeCacheSize=1000m',
+            '-XX:EliminateAllocationArraySizeLimit=1024',
+        ])
+        println "ZGC mode enabled with performance flags"
+    }
     
     if (profilerPath) {
         baseArgs.add("-agentpath:${profilerPath}/lib/libasyncProfiler.so=start,event=${profileEvent},file=${profileOutput}")
@@ -84,8 +98,23 @@ test {
         baseArgs.add("-XX:StartFlightRecording=duration=120s,filename=${jfrOutput},settings=profile")
         println "JFR profiling enabled: output=${jfrOutput}"
     }
-    
+
+    // GC logging: set GC_LOG env var to enable
+    // Usage: GC_LOG=/tmp/gc.log ./gradlew test -Pzgc ...
+    def gcLog = System.getenv("GC_LOG")
+    if (gcLog) {
+        baseArgs.add("-Xlog:gc,gc+heap=info:file=${gcLog}:time,uptime,level,tags")
+        println "GC logging enabled: output=${gcLog}"
+    }
+
     jvmArgs = baseArgs
+
+    // Allow overriding @Disabled annotations for manual/profiling tests
+    // Usage: ./gradlew test -PdisableConditions=true --tests "...profileAsyncAutoCommit"
+    if (project.hasProperty('disableConditions')) {
+        systemProperty "junit.jupiter.conditions.deactivate", "org.junit.*DisabledCondition"
+    }
+
     // Pass through diagnostic system properties
     systemProperty "sirix.debug.path.summary", System.getProperty("sirix.debug.path.summary", "false")
     systemProperty "sirix.debug.leak.diagnostics", System.getProperty("sirix.debug.leak.diagnostics", "false")
