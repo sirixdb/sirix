@@ -282,8 +282,15 @@ public enum PageKind {
         final SerializationType type) {
       KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
 
-      final var bytes = keyValueLeafPage.getBytes();
+      // Check for zero-copy compressed segment first
+      final MemorySegment cachedSegment = keyValueLeafPage.getCompressedSegment();
+      if (cachedSegment != null) {
+        sink.writeSegment(cachedSegment, 0, cachedSegment.byteSize());
+        return;
+      }
 
+      // Legacy byte[] cache fallback
+      final var bytes = keyValueLeafPage.getBytes();
       if (bytes != null) {
         sink.write(bytes.toByteArray());
         return;
@@ -400,14 +407,23 @@ public enum PageKind {
       }
 
       final BytesIn<?> uncompressedBytes = sink.bytesForRead();
-      final byte[] uncompressedArray = uncompressedBytes.toByteArray();
+      final ByteHandlerPipeline pipeline = resourceConfig.byteHandlePipeline;
 
-      final byte[] compressedPage =
-          compress(resourceConfig, uncompressedBytes, uncompressedArray, sink.writePosition());
+      if (pipeline.supportsMemorySegments() && uncompressedBytes instanceof MemorySegmentBytesIn segmentIn) {
+        // Zero-copy path: compress MemorySegment → store MemorySegment. No byte[] at all.
+        final MemorySegment uncompressed = segmentIn.getSource().asSlice(0, sink.writePosition());
+        final MemorySegment compressed = pipeline.compress(uncompressed);
+        keyValueLeafPage.setCompressedSegment(compressed);
+      } else {
+        // Fallback: byte[] path for non-MemorySegment backends
+        final byte[] uncompressedArray = uncompressedBytes.toByteArray();
+        final byte[] compressedPage = compressViaStream(pipeline, uncompressedArray);
+        keyValueLeafPage.setBytes(Bytes.wrapForWrite(compressedPage));
+      }
 
-      // Cache compressed form for writers, but leave the sink unmodified (uncompressed)
-      // so in-memory round-trips that bypass the ByteHandler still work.
-      keyValueLeafPage.setBytes(Bytes.wrapForWrite(compressedPage));
+      // Release node object references — all data is now in slotMemory + compressed cache.
+      // Future reads reconstruct on demand from slotMemory via NodeStorageEngineReader.getValue().
+      keyValueLeafPage.clearRecordsForGC();
     }
   },
 

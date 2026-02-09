@@ -41,6 +41,16 @@ public final class PageHasher {
   }
   
   /**
+   * Compute hash of MemorySegment using default XXH3 algorithm (zero-copy for native segments).
+   *
+   * @param segment the memory segment to hash
+   * @return hash bytes
+   */
+  public static byte[] compute(MemorySegment segment) {
+    return DEFAULT_ALGORITHM.computeHash(segment);
+  }
+
+  /**
    * Compute hash as long using default XXH3 algorithm (zero allocation).
    *
    * @param data the data to hash

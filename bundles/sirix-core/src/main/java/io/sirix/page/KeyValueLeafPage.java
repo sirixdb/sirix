@@ -308,6 +308,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private volatile BytesOut<?> bytes;
 
+  /** Compressed page data as MemorySegment (zero-copy path). Arena.ofAuto()-managed. */
+  private volatile MemorySegment compressedSegment;
+
   private volatile byte[] hashCode;
 
   private int hash;
@@ -622,6 +625,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public void setRecord(@NonNull final DataRecord record) {
     addedReferences = false;
+    // Invalidate stale compressed cache — record mutation means cached bytes are outdated
+    compressedSegment = null;
+    bytes = null;
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
     records[offset] = record;
@@ -637,12 +643,56 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Set bytes after serialization.
+   * Set bytes after serialization (legacy byte[] path).
    *
    * @param bytes bytes
    */
-  public void setBytes(BytesOut<?> bytes) {
+  public void setBytes(final BytesOut<?> bytes) {
     this.bytes = bytes;
+    this.compressedSegment = null;
+  }
+
+  /**
+   * Get the compressed page data as a MemorySegment (zero-copy path).
+   *
+   * @return the compressed segment, or null if not set
+   */
+  public MemorySegment getCompressedSegment() {
+    return compressedSegment;
+  }
+
+  /**
+   * Set compressed page data as a MemorySegment (zero-copy path).
+   * Clears the legacy bytes cache.
+   *
+   * @param segment the compressed segment (Arena.ofAuto()-managed)
+   */
+  public void setCompressedSegment(final MemorySegment segment) {
+    this.compressedSegment = segment;
+    this.bytes = null;
+  }
+
+  /**
+   * Release node object references to allow GC to reclaim them.
+   * <p>
+   * MUST only be called after {@code addReferences()} has serialized all records into
+   * {@code slotMemory} and the compressed form is cached via {@code setCompressedSegment()}
+   * or {@code setBytes()}. After this call, individual records can still be reconstructed
+   * on demand from {@code slotMemory} via {@code getSlot(offset)} in
+   * {@link io.sirix.access.trx.page.NodeStorageEngineReader#getValue}.
+   */
+  public void clearRecordsForGC() {
+    Arrays.fill(records, null);
+  }
+
+  /**
+   * Check whether all non-null records have been serialized to slotMemory.
+   *
+   * @return {@code true} if {@link #addReferences} has been called and no subsequent
+   *         {@link #setRecord} has invalidated the serialized state
+   */
+  public boolean isAddedReferences() {
+    return addedReferences;
   }
 
   @Override
@@ -1829,6 +1879,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     Arrays.fill(records, null);
     references.clear();
     bytes = null;
+    compressedSegment = null;
     hashCode = null;
   }
 

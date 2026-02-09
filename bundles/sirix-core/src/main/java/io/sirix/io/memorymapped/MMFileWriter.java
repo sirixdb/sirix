@@ -295,6 +295,14 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
                                             final Page page,
                                             final BytesOut<?> bufferedBytes,
                                             long offset) {
+        // Fast path: KeyValueLeafPages with pre-compressed MemorySegment — skip serialization entirely
+        if (page instanceof KeyValueLeafPage kvp) {
+            final MemorySegment compressed = kvp.getCompressedSegment();
+            if (compressed != null) {
+                return writeFromCompressedSegment(compressed, pageReference, bufferedBytes, offset);
+            }
+        }
+
         try {
             // Serialize page
             pagePersister.serializePage(resourceConfiguration, byteBufferBytes, page, serializationType);
@@ -378,6 +386,43 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
         }
     }
     
+    /**
+     * Write a pre-compressed page directly from its MemorySegment to the output buffer.
+     * Zero byte[] allocations — the segment data is copied directly via writeSegment().
+     */
+    private MMFileWriter writeFromCompressedSegment(final MemorySegment compressed,
+        final PageReference pageReference, final BytesOut<?> bufferedBytes, long offset) {
+        try {
+            final int length = (int) compressed.byteSize();
+
+            // Alignment (KeyValueLeafPages use PAGE_FRAGMENT_BYTE_ALIGN, never UberPage/RevisionRootPage)
+            int offsetToAdd = 0;
+            if (serializationType == SerializationType.DATA && offset % PAGE_FRAGMENT_BYTE_ALIGN != 0) {
+                offsetToAdd = (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN - 1)));
+                offset += offsetToAdd;
+            }
+
+            if (offsetToAdd > 0) {
+                bufferedBytes.writePosition(bufferedBytes.writePosition() + offsetToAdd);
+            }
+
+            // Write length prefix + compressed data directly from MemorySegment
+            bufferedBytes.writeInt(length);
+            bufferedBytes.writeSegment(compressed, 0, length);
+
+            if (bufferedBytes.writePosition() > FLUSH_SIZE) {
+                flushBuffer(bufferedBytes);
+            }
+
+            pageReference.setKey(offset);
+            pageReference.setHash(PageHasher.compute(compressed));
+
+            return this;
+        } catch (final IOException e) {
+            throw new SirixIOException(e);
+        }
+    }
+
     private void flushBuffer(BytesOut<?> bufferedBytes) throws IOException {
         if (bufferedBytes.writePosition() == 0) {
             return;
