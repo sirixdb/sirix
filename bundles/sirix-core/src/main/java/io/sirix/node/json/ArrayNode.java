@@ -231,7 +231,7 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode {
 
     bytes.writeLong(getPathNodeKey());
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

@@ -224,7 +224,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
     bytes.writeInt(getNameKey());
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   public int getNameKey() {

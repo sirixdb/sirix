@@ -109,6 +109,15 @@ public class VersioningTest {
   }
 
   @Test
+  public void testIncremental3() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
+    testModifySamePageMultipleTimes();
+  }
+
+  @Test
   public void testDifferential() {
     database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
                                                                                      .hashKind(HashType.NONE)
@@ -124,6 +133,15 @@ public class VersioningTest {
                                                                                      .maxNumberOfRevisionsToRestore(3)
                                                                                      .build());
     test1();
+  }
+
+  @Test
+  public void testDifferential3() {
+    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
+                                                                                     .hashKind(HashType.NONE)
+                                                                                     .maxNumberOfRevisionsToRestore(3)
+                                                                                     .build());
+    testModifySamePageMultipleTimes();
   }
 
   @Test

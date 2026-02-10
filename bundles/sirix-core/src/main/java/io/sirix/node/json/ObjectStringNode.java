@@ -243,7 +243,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
     bytes.writeUtf8(getValue());
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

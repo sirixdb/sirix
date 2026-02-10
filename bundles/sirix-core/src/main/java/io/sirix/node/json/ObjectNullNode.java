@@ -186,7 +186,7 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode {
     bytes.writeLong(getNodeKey())
          .writeLong(getParentKey())
          .writeByte(getKind().getId());
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

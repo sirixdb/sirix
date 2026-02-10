@@ -254,7 +254,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
     bytes.writeUtf8(getValue());
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

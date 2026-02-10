@@ -213,7 +213,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
 
     bytes.writeBoolean(getValue());
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

@@ -6,6 +6,7 @@ import java.lang.foreign.MemorySegment;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import net.openhft.hashing.LongHashFunction;
 
 /**
  * A MemorySegment-based implementation of BytesOut.
@@ -215,6 +216,15 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
     @Override
     public byte[] toByteArray() {
         return growingSegment.toByteArray();
+    }
+
+    @Override
+    public long hashDirect(LongHashFunction hashFunction) {
+        final byte[] backingArray = growingSegment.getBackingArrayUnsafe();
+        if (backingArray != null) {
+            return hashFunction.hashBytes(backingArray, 0, growingSegment.getUsedSize());
+        }
+        return hashFunction.hashBytes(growingSegment.getUsedSegment().asByteBuffer());
     }
 
     @Override

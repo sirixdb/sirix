@@ -225,7 +225,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode {
       bytes.writeLong(getLastChildKey());
     }
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

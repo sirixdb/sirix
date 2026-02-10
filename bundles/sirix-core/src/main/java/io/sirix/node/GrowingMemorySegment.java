@@ -18,6 +18,7 @@ public class GrowingMemorySegment {
     private static final int INITIAL_CAPACITY = 1024; // 1KB initial size
     private static final int GROWTH_FACTOR = 2; // Double the size when growing
     private static final long ALIGNMENT = 8; // 8-byte alignment for arena-backed segments
+    private static final MemorySegment EMPTY_SEGMENT = MemorySegment.ofArray(new byte[0]);
     
     private final Arena arena;
     private MemorySegment segment;
@@ -214,10 +215,31 @@ public class GrowingMemorySegment {
      */
     public MemorySegment getUsedSegment() {
         if (position == 0) {
-            // Return an empty segment - use heap-backed for safety
-            return MemorySegment.ofArray(new byte[0]);
+            return EMPTY_SEGMENT;
         }
         return segment.asSlice(0, position);
+    }
+
+    /**
+     * Get heap backing array when this segment is heap-backed.
+     *
+     * @return heap backing byte array, or null for native segments
+     */
+    public byte[] getBackingArrayUnsafe() {
+        if (!heapBacked) {
+            return null;
+        }
+        final Object heapBase = segment.heapBase().orElse(null);
+        return heapBase instanceof byte[] bytes ? bytes : null;
+    }
+
+    /**
+     * Get used size in bytes.
+     *
+     * @return used bytes in the current segment
+     */
+    public int getUsedSize() {
+        return (int) position;
     }
     
     /**

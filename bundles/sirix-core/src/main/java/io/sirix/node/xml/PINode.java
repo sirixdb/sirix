@@ -329,7 +329,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     }
     bytes.writeInt(prefixKey).writeInt(localNameKey).writeInt(uriKey);
     if (value != null) bytes.write(value);
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   public PINode toSnapshot() {

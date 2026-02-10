@@ -219,7 +219,7 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node {
     bytes.clear();
     bytes.writeLong(nodeKey).writeLong(parentKey).writeByte(getKind().getId());
     bytes.writeInt(prefixKey).writeInt(localNameKey).writeInt(uriKey);
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   public NamespaceNode toSnapshot() {

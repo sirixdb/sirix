@@ -38,6 +38,7 @@ import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.SerializationBufferPool;
 import io.sirix.node.PooledBytesOut;
+import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.utils.OS;
 import io.sirix.index.IndexType;
 import io.sirix.io.Writer;
@@ -67,9 +68,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -102,6 +101,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private static final boolean DEBUG_MEMORY_LEAKS = DiagnosticSettings.MEMORY_LEAK_TRACKING;
 
   private BytesOut<?> bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+  private MemorySegmentBytesOut demotionBuffer;
 
   /**
    * Page writer to serialize.
@@ -376,6 +376,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
     final KeyValuePage<DataRecord> modified = cont.getModifiedAsKeyValuePage();
     modified.setRecord(record);
+
+    if (modified instanceof KeyValueLeafPage modifiedLeafPage && modifiedLeafPage.shouldDemoteRecords(indexType)) {
+      if (demotionBuffer == null) {
+        demotionBuffer = new MemorySegmentBytesOut(256);
+      }
+      modifiedLeafPage.demoteRecordsToSlots(pageRtx.getResourceSession().getResourceConfig(), demotionBuffer);
+    }
+
     return record;
   }
 

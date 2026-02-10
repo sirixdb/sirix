@@ -68,7 +68,7 @@ public abstract class AbstractNullNode extends AbstractStructForwardingNode impl
       bytes.writeLong(structNodeDelegate.getLastChildKey());
     }
 
-    return nodeDelegate.getHashFunction().hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(nodeDelegate.getHashFunction());
   }
 
   @Override

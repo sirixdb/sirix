@@ -211,7 +211,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
       default -> throw new IllegalStateException("Unexpected value: " + number);
     }
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override
