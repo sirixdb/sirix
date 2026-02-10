@@ -234,7 +234,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
       default -> throw new IllegalStateException("Unexpected value: " + number);
     }
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

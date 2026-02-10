@@ -790,16 +790,16 @@ public final class JacksonJsonShredder implements Callable<Long> {
       case START_OBJECT -> {
         level++;
         beginObject();
-        yield new ObjectValue();
+        yield ObjectValue.INSTANCE;
       }
       case START_ARRAY -> {
         level++;
         beginArray();
-        yield new ArrayValue();
+        yield ArrayValue.INSTANCE;
       }
       case VALUE_TRUE, VALUE_FALSE -> {
         final boolean booleanVal = nextBoolean();
-        yield new BooleanValue(booleanVal);
+        yield BooleanValue.of(booleanVal);
       }
       case VALUE_STRING -> {
         final String stringVal = nextString();
@@ -807,7 +807,7 @@ public final class JacksonJsonShredder implements Callable<Long> {
       }
       case VALUE_NULL -> {
         nextNull();
-        yield new NullValue();
+        yield NullValue.INSTANCE;
       }
       case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT -> {
         final Number numberVal = nextNumber();

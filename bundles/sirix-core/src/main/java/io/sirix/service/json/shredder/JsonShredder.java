@@ -5,7 +5,13 @@ import com.google.gson.stream.JsonToken;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.json.objectvalue.*;
+import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
+import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
+import io.sirix.access.trx.node.json.objectvalue.NullValue;
+import io.sirix.access.trx.node.json.objectvalue.NumberValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
@@ -586,16 +592,16 @@ public final class JsonShredder implements Callable<Long> {
       case BEGIN_OBJECT -> {
         level++;
         reader.beginObject();
-        yield new ObjectValue();
+        yield ObjectValue.INSTANCE;
       }
       case BEGIN_ARRAY -> {
         level++;
         reader.beginArray();
-        yield new ArrayValue();
+        yield ArrayValue.INSTANCE;
       }
       case BOOLEAN -> {
         final boolean booleanVal = reader.nextBoolean();
-        yield new BooleanValue(booleanVal);
+        yield BooleanValue.of(booleanVal);
       }
       case STRING -> {
         final String stringVal = reader.nextString();
@@ -603,7 +609,7 @@ public final class JsonShredder implements Callable<Long> {
       }
       case NULL -> {
         reader.nextNull();
-        yield new NullValue();
+        yield NullValue.INSTANCE;
       }
       case NUMBER -> {
         final var numberVal = readNumber();

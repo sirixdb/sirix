@@ -24,6 +24,7 @@ package io.sirix.access.trx.node.json.objectvalue;
 import io.sirix.node.NodeKind;
 
 public final class NullValue implements ObjectRecordValue<Void> {
+  public static final NullValue INSTANCE = new NullValue();
 
   @Override
   public Void getValue() {

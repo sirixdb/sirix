@@ -389,6 +389,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Only KeyValueLeafPage has FSST symbol table support
     if (page instanceof KeyValueLeafPage kvPage) {
       propagateFsstSymbolTableToRecord(record, kvPage);
+      kvPage.onRecordRematerialized();
     }
     
     // Use raw type to avoid generic mismatch with different KeyValuePage implementations

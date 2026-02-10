@@ -33,6 +33,7 @@ import io.sirix.node.NodeKind;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class ArrayValue implements ObjectRecordValue<Void> {
+  public static final ArrayValue INSTANCE = new ArrayValue();
 
   @Override
   public NodeKind getKind() {

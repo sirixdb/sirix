@@ -3,6 +3,7 @@ package io.sirix.node;
 import java.lang.foreign.MemorySegment;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import net.openhft.hashing.LongHashFunction;
 
 /**
  * Custom BytesOut interface for writing data to various destinations.
@@ -181,6 +182,19 @@ public interface BytesOut<T> extends AutoCloseable {
      * @return byte array representation of the data
      */
     byte[] toByteArray();
+
+    /**
+     * Hash the currently written bytes directly when supported by the implementation.
+     *
+     * <p>Default fallback uses {@link #toByteArray()}, which may allocate. Hot-path
+     * implementations should override this method to avoid intermediate allocations.
+     *
+     * @param hashFunction hash function to apply
+     * @return hash value
+     */
+    default long hashDirect(LongHashFunction hashFunction) {
+        return hashFunction.hashBytes(toByteArray());
+    }
     
     /**
      * Get bytes for reading.

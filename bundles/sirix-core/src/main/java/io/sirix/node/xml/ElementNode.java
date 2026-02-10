@@ -512,7 +512,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
          .writeInt(getLocalNameKey())
          .writeInt(getURIKey());
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   // === LAZY PARSING ===

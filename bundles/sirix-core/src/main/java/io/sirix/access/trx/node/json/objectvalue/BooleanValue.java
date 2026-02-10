@@ -24,6 +24,8 @@ package io.sirix.access.trx.node.json.objectvalue;
 import io.sirix.node.NodeKind;
 
 public final class BooleanValue implements ObjectRecordValue<Boolean> {
+  public static final BooleanValue TRUE = new BooleanValue(true);
+  public static final BooleanValue FALSE = new BooleanValue(false);
 
   private final boolean mValue;
 
@@ -34,6 +36,10 @@ public final class BooleanValue implements ObjectRecordValue<Boolean> {
    */
   public BooleanValue(boolean value) {
     mValue = value;
+  }
+
+  public static BooleanValue of(boolean value) {
+    return value ? TRUE : FALSE;
   }
 
   @Override

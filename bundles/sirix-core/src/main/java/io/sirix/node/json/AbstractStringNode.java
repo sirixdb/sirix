@@ -68,7 +68,7 @@ public abstract class AbstractStringNode extends AbstractStructForwardingNode im
 
     bytes.writeUtf8(new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING));
 
-    return nodeDelegate.getHashFunction().hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(nodeDelegate.getHashFunction());
   }
 
   @Override

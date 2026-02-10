@@ -26,7 +26,12 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.json.InsertOperations;
-import io.sirix.access.trx.node.json.objectvalue.*;
+import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
+import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
+import io.sirix.access.trx.node.json.objectvalue.NullValue;
+import io.sirix.access.trx.node.json.objectvalue.NumberValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -278,15 +283,15 @@ public final class JsonResourceCopy implements Callable<Void> {
       wtx.moveToParent();
 
       switch (rtxOnRevision.getKind()) {
-        case OBJECT -> wtx.replaceObjectRecordValue(new ObjectValue());
-        case ARRAY -> wtx.replaceObjectRecordValue(new ArrayValue());
+        case OBJECT -> wtx.replaceObjectRecordValue(ObjectValue.INSTANCE);
+        case ARRAY -> wtx.replaceObjectRecordValue(ArrayValue.INSTANCE);
         case OBJECT_NUMBER_VALUE, NUMBER_VALUE ->
             wtx.replaceObjectRecordValue(new NumberValue(rtxOnRevision.getNumberValue()));
-        case OBJECT_NULL_VALUE, NULL_VALUE -> wtx.replaceObjectRecordValue(new NullValue());
+        case OBJECT_NULL_VALUE, NULL_VALUE -> wtx.replaceObjectRecordValue(NullValue.INSTANCE);
         case OBJECT_STRING_VALUE, STRING_VALUE ->
             wtx.replaceObjectRecordValue(new StringValue(rtxOnRevision.getValue()));
         case OBJECT_BOOLEAN_VALUE, BOOLEAN_VALUE ->
-            wtx.replaceObjectRecordValue(new BooleanValue(rtxOnRevision.getBooleanValue()));
+            wtx.replaceObjectRecordValue(BooleanValue.of(rtxOnRevision.getBooleanValue()));
       }
     } else {
       wtx.remove();
@@ -440,11 +445,11 @@ public final class JsonResourceCopy implements Callable<Void> {
           final var key = rtx.getName().getLocalName();
           rtx.moveToFirstChild();
           switch (rtx.getKind()) {
-            case OBJECT -> wtx.insertObjectRecordAsFirstChild(key, new ObjectValue());
-            case ARRAY -> wtx.insertObjectRecordAsFirstChild(key, new ArrayValue());
+            case OBJECT -> wtx.insertObjectRecordAsFirstChild(key, ObjectValue.INSTANCE);
+            case ARRAY -> wtx.insertObjectRecordAsFirstChild(key, ArrayValue.INSTANCE);
             case OBJECT_BOOLEAN_VALUE ->
-                wtx.insertObjectRecordAsFirstChild(key, new BooleanValue(rtx.getBooleanValue()));
-            case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsFirstChild(key, new NullValue());
+                wtx.insertObjectRecordAsFirstChild(key, BooleanValue.of(rtx.getBooleanValue()));
+            case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsFirstChild(key, NullValue.INSTANCE);
             case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsFirstChild(key,
                                                                            new StringValue(rtx.getValue()));
             case OBJECT_NUMBER_VALUE -> wtx.insertObjectRecordAsFirstChild(key, new NumberValue(rtx.getNumberValue()));
@@ -454,11 +459,11 @@ public final class JsonResourceCopy implements Callable<Void> {
           final var key = rtx.getName().getLocalName();
           rtx.moveToFirstChild();
           switch (rtx.getKind()) {
-            case OBJECT -> wtx.insertObjectRecordAsLeftSibling(key, new ObjectValue());
-            case ARRAY -> wtx.insertObjectRecordAsLeftSibling(key, new ArrayValue());
+            case OBJECT -> wtx.insertObjectRecordAsLeftSibling(key, ObjectValue.INSTANCE);
+            case ARRAY -> wtx.insertObjectRecordAsLeftSibling(key, ArrayValue.INSTANCE);
             case OBJECT_BOOLEAN_VALUE ->
-                wtx.insertObjectRecordAsLeftSibling(key, new BooleanValue(rtx.getBooleanValue()));
-            case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, new NullValue());
+                wtx.insertObjectRecordAsLeftSibling(key, BooleanValue.of(rtx.getBooleanValue()));
+            case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, NullValue.INSTANCE);
             case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsLeftSibling(key,
                                                                             new StringValue(rtx.getValue()));
             case OBJECT_NUMBER_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, new NumberValue(rtx.getNumberValue()));
@@ -468,11 +473,11 @@ public final class JsonResourceCopy implements Callable<Void> {
           final var key = rtx.getName().getLocalName();
           rtx.moveToFirstChild();
           switch (rtx.getKind()) {
-            case OBJECT -> wtx.insertObjectRecordAsRightSibling(key, new ObjectValue());
-            case ARRAY -> wtx.insertObjectRecordAsRightSibling(key, new ArrayValue());
+            case OBJECT -> wtx.insertObjectRecordAsRightSibling(key, ObjectValue.INSTANCE);
+            case ARRAY -> wtx.insertObjectRecordAsRightSibling(key, ArrayValue.INSTANCE);
             case OBJECT_BOOLEAN_VALUE ->
-                wtx.insertObjectRecordAsRightSibling(key, new BooleanValue(rtx.getBooleanValue()));
-            case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsRightSibling(key, new NullValue());
+                wtx.insertObjectRecordAsRightSibling(key, BooleanValue.of(rtx.getBooleanValue()));
+            case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsRightSibling(key, NullValue.INSTANCE);
             case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsRightSibling(key,
                                                                              new StringValue(rtx.getValue()));
             case OBJECT_NUMBER_VALUE ->

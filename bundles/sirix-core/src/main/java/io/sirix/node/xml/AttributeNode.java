@@ -236,7 +236,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     bytes.writeLong(nodeKey).writeLong(parentKey).writeByte(getKind().getId());
     bytes.writeInt(prefixKey).writeInt(localNameKey).writeInt(uriKey);
     if (value != null) bytes.write(value);
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   public AttributeNode toSnapshot() {

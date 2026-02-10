@@ -207,7 +207,7 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
 
     bytes.writeBoolean(getValue());
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

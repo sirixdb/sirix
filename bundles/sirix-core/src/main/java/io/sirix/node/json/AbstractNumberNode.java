@@ -95,7 +95,7 @@ public abstract class AbstractNumberNode extends AbstractStructForwardingNode im
       default -> throw new IllegalStateException("Unexpected value: " + number);
     }
 
-    return nodeDelegate.getHashFunction().hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(nodeDelegate.getHashFunction());
   }
 
   @Override

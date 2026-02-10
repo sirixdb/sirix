@@ -1,7 +1,13 @@
 package io.sirix.service.json.shredder;
 
 import com.google.gson.stream.JsonReader;
-import io.sirix.access.trx.node.json.objectvalue.*;
+import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
+import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
+import io.sirix.access.trx.node.json.objectvalue.NullValue;
+import io.sirix.access.trx.node.json.objectvalue.NumberValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.node.NodeKind;
@@ -161,8 +167,8 @@ public final class JsonItemShredder implements Callable<Long> {
       boolean nextTokenIsParent) {
     switch (sequence) {
       case Atomic atomic -> {
-        if (sequence instanceof Numeric) {
-          final var number = JsonNumber.stringToNumber(sequence.toString());
+        if (atomic instanceof Numeric) {
+          final var number = JsonNumber.stringToNumber(atomic.toString());
 
           if (objectField != null) {
             final var value = new NumberValue(number);
@@ -170,24 +176,24 @@ public final class JsonItemShredder implements Callable<Long> {
           } else {
             insertNumberValue(number, nextTokenIsParent);
           }
-        } else if (((Atomic) sequence).type() == Type.BOOL) {
-          final var bool = sequence.booleanValue();
+        } else if (atomic.type() == Type.BOOL) {
+          final var bool = atomic.booleanValue();
 
           if (objectField != null) {
-            final var value = new BooleanValue(bool);
+            final var value = BooleanValue.of(bool);
             addObjectRecord(objectField, value, nextTokenIsParent);
           } else {
             insertBooleanValue(bool, nextTokenIsParent);
           }
-        } else if (((Atomic) sequence).type() == Type.NULL) {
+        } else if (atomic.type() == Type.NULL) {
           if (objectField != null) {
-            final var value = new NullValue();
+            final var value = NullValue.INSTANCE;
             addObjectRecord(objectField, value, nextTokenIsParent);
           } else {
             insertNullValue(nextTokenIsParent);
           }
         } else {
-          final var str = ((Atomic) sequence).asStr().stringValue();
+          final var str = atomic.asStr().stringValue();
 
           if (objectField != null) {
             final var value = new StringValue(str);
@@ -201,7 +207,7 @@ public final class JsonItemShredder implements Callable<Long> {
         level++;
         if (!(level == 1 && skipRootJson)) {
           if (objectField != null) {
-            final var value = new ArrayValue();
+            final var value = ArrayValue.INSTANCE;
             addObjectRecord(objectField, value, nextTokenIsParent);
           } else {
             insertArray();
@@ -226,7 +232,7 @@ public final class JsonItemShredder implements Callable<Long> {
         level++;
         if (!(level == 1 && skipRootJson)) {
           if (objectField != null) {
-            final var value = new ObjectValue();
+            final var value = ObjectValue.INSTANCE;
             addObjectRecord(objectField, value, nextTokenIsParent);
           } else {
             addObject();

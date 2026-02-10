@@ -86,7 +86,7 @@ public abstract class AbstractBooleanNode extends AbstractStructForwardingNode i
 
     bytes.writeBoolean(boolValue);
 
-    return nodeDelegate.getHashFunction().hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(nodeDelegate.getHashFunction());
   }
 
   @Override

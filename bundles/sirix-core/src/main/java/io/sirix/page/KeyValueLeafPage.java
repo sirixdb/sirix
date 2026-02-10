@@ -22,6 +22,7 @@ import io.sirix.utils.FSSTCompressor;
 import io.sirix.utils.ArrayIterator;
 import io.sirix.utils.OS;
 import io.sirix.node.BytesOut;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -234,6 +235,28 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * The record-ID mapped to the records.
    */
   private final DataRecord[] records;
+
+  /**
+   * Number of records currently materialized in {@link #records}.
+   */
+  private int inMemoryRecordCount;
+
+  /**
+   * Adaptive in-memory demotion policy constants.
+   */
+  private static final int MIN_DEMOTION_THRESHOLD = 64;
+  private static final int MAX_DEMOTION_THRESHOLD = 256;
+  private static final int DEMOTION_STEP = 32;
+
+  /**
+   * Current adaptive threshold for demoting materialized records to slot memory.
+   */
+  private int demotionThreshold = MIN_DEMOTION_THRESHOLD;
+
+  /**
+   * Number of records re-materialized from slot memory since last demotion.
+   */
+  private int rematerializedRecordsSinceLastDemotion;
 
   /**
    * Memory segment for slots and Dewey IDs.
@@ -624,6 +647,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     addedReferences = false;
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    if (records[offset] == null) {
+      inMemoryRecordCount++;
+    }
     records[offset] = record;
   }
 
@@ -648,6 +674,69 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public DataRecord[] records() {
     return records;
+  }
+
+  public int getInMemoryRecordCount() {
+    return inMemoryRecordCount;
+  }
+
+  public int getDemotionThreshold() {
+    return demotionThreshold;
+  }
+
+  public boolean shouldDemoteRecords(IndexType currentIndexType) {
+    return currentIndexType == IndexType.DOCUMENT && inMemoryRecordCount >= demotionThreshold;
+  }
+
+  public void onRecordRematerialized() {
+    rematerializedRecordsSinceLastDemotion++;
+    if (rematerializedRecordsSinceLastDemotion > demotionThreshold * 2) {
+      demotionThreshold = Math.min(MAX_DEMOTION_THRESHOLD, demotionThreshold + DEMOTION_STEP);
+      rematerializedRecordsSinceLastDemotion = 0;
+    }
+  }
+
+  public int demoteRecordsToSlots(ResourceConfiguration config, MemorySegmentBytesOut reusableOut) {
+    if (inMemoryRecordCount <= MIN_DEMOTION_THRESHOLD) {
+      return 0;
+    }
+
+    final RecordSerializer serializer = config.recordPersister;
+    int demoted = 0;
+
+    for (int i = 0; i < records.length && inMemoryRecordCount > MIN_DEMOTION_THRESHOLD; i++) {
+      final DataRecord record = records[i];
+      if (record == null) {
+        continue;
+      }
+
+      reusableOut.clear();
+      serializer.serialize(reusableOut, record, config);
+      final MemorySegment segment = reusableOut.getDestination();
+
+      if (segment.byteSize() > PageConstants.MAX_RECORD_SIZE) {
+        continue;
+      }
+
+      setSlot(segment, i);
+
+      if (config.areDeweyIDsStored && record.getDeweyID() != null && record.getNodeKey() != 0) {
+        setDeweyId(record.getDeweyID().toBytes(), i);
+      }
+
+      records[i] = null;
+      inMemoryRecordCount--;
+      demoted++;
+    }
+
+    if (demoted > 0) {
+      if (rematerializedRecordsSinceLastDemotion < demoted / 4) {
+        demotionThreshold = Math.max(MIN_DEMOTION_THRESHOLD, demotionThreshold - DEMOTION_STEP);
+      }
+      rematerializedRecordsSinceLastDemotion = 0;
+    }
+
+    return demoted;
   }
 
   public byte[] getHashCode() {
@@ -1827,6 +1916,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Clear references to aid garbage collection
     Arrays.fill(records, null);
+    inMemoryRecordCount = 0;
+    demotionThreshold = MIN_DEMOTION_THRESHOLD;
+    rematerializedRecordsSinceLastDemotion = 0;
     references.clear();
     bytes = null;
     hashCode = null;
@@ -2190,6 +2282,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public void reset() {
     // Clear record arrays
     Arrays.fill(records, null);
+    inMemoryRecordCount = 0;
+    demotionThreshold = MIN_DEMOTION_THRESHOLD;
+    rematerializedRecordsSinceLastDemotion = 0;
     
     // Clear offsets
     Arrays.fill(slotOffsets, -1);
@@ -2237,9 +2332,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       // INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning types.
       if (preservationBitmap != null && completePageRef != null) {
         for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-          // Check if slot needs preservation AND wasn't modified
+          // Check if slot needs preservation, has no in-memory modification, and has no
+          // already materialized slot payload in the modified page. The last check is
+          // critical for demoted records (records[i] == null but slot already updated).
           boolean needsPreservation = (preservationBitmap[i >>> 6] & (1L << (i & 63))) != 0;
-          if (needsPreservation && records[i] == null) {
+          if (needsPreservation && records[i] == null && !hasSlot(i)) {
             // Copy slot from completePage
             MemorySegment slotData = completePageRef.getSlot(i);
             if (slotData != null) {
@@ -2332,15 +2429,34 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         continue;
       }
       if (record instanceof StringNode stringNode) {
-        byte[] value = stringNode.getRawValueWithoutDecompression();
-        if (value != null && value.length > 0) {
-          stringSamples.add(value);
-        }
+        addStringSample(stringSamples, stringNode.getRawValueWithoutDecompression());
       } else if (record instanceof ObjectStringNode objectStringNode) {
-        byte[] value = objectStringNode.getRawValueWithoutDecompression();
-        if (value != null && value.length > 0) {
-          stringSamples.add(value);
-        }
+        addStringSample(stringSamples, objectStringNode.getRawValueWithoutDecompression());
+      }
+    }
+
+    // Include string values only present in slot memory (demoted records).
+    // This is commit-path work and preserves FSST sample completeness.
+    for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+      if (records[i] != null) {
+        continue;
+      }
+
+      final MemorySegment slot = getSlot(i);
+      if (slot == null) {
+        continue;
+      }
+
+      final long nodeKey = recordPageKey + i;
+      final DataRecord record = resourceConfig.recordPersister.deserialize(new MemorySegmentBytesIn(slot),
+                                                                           nodeKey,
+                                                                           getDeweyIdAsByteArray(i),
+                                                                           resourceConfig);
+
+      if (record instanceof StringNode stringNode) {
+        addStringSample(stringSamples, stringNode.getRawValueWithoutDecompression());
+      } else if (record instanceof ObjectStringNode objectStringNode) {
+        addStringSample(stringSamples, objectStringNode.getRawValueWithoutDecompression());
       }
     }
 
@@ -2358,6 +2474,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
 
     return false;
+  }
+
+  private static void addStringSample(java.util.ArrayList<byte[]> samples, byte[] value) {
+    if (value != null && value.length > 0) {
+      samples.add(value);
+    }
   }
 
   /**
