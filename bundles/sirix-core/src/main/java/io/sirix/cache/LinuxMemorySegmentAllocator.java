@@ -185,6 +185,10 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   @SuppressWarnings("unchecked")
   private final Deque<MemorySegment>[] segmentPools = new Deque[SEGMENT_SIZES.length];
   private final AtomicInteger[] poolSizes = new AtomicInteger[SEGMENT_SIZES.length];
+  // Total number of addressable segments in each virtual region.
+  private final long[] segmentCapacity = new long[SEGMENT_SIZES.length];
+  // Next never-before-borrowed segment index per pool (lazy slice materialization).
+  private final AtomicLong[] nextFreshSegmentIndex = new AtomicLong[SEGMENT_SIZES.length];
 
   // Pre-allocated virtual memory regions (one per size class)
   private final MemorySegment[] virtualRegions = new MemorySegment[SEGMENT_SIZES.length];
@@ -526,24 +530,18 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   }
 
   /**
-   * Partition a virtual region into segments and add them to the pool.
-   * Physical memory is not committed until segments are actually used.
+   * Register per-pool segment metadata.
+   *
+   * <p>Unlike eager partitioning, this does not materialize millions of
+   * {@link MemorySegment} slice objects up front. Fresh slices are created lazily
+   * in {@link #allocate(long)} and recycled segments are still served from the pool.
    */
   private void partitionVirtualRegion(int poolIndex, long segmentSize, long regionSize) {
-    MemorySegment region = virtualRegions[poolIndex];
     long segmentCount = regionSize / segmentSize;
-    
-    LOGGER.debug("Partitioning virtual region into {} segments of {} bytes each",
-                 segmentCount, segmentSize);
-    
-    Deque<MemorySegment> pool = segmentPools[poolIndex];
-    for (long i = 0; i < segmentCount; i++) {
-      MemorySegment slice = region.asSlice(i * segmentSize, segmentSize);
-      pool.offer(slice);
-    }
-    
-    poolSizes[poolIndex].set((int) segmentCount);
-    LOGGER.info("Pool {} initialized with {} pre-allocated segments", poolIndex, segmentCount);
+    segmentCapacity[poolIndex] = segmentCount;
+    nextFreshSegmentIndex[poolIndex].set(0L);
+    poolSizes[poolIndex].set(Math.toIntExact(segmentCount));
+    LOGGER.info("Pool {} initialized with {} addressable segments", poolIndex, segmentCount);
   }
 
   @Override
@@ -585,6 +583,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     for (int i = 0; i < SEGMENT_SIZES.length; i++) {
       segmentPools[i] = new ConcurrentLinkedDeque<>();
       poolSizes[i] = new AtomicInteger(0);
+      nextFreshSegmentIndex[i] = new AtomicLong(0);
       totalBorrows[i] = new AtomicLong(0);
       totalReturns[i] = new AtomicLong(0);
     }
@@ -675,7 +674,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       }
     }
     
-    long callNum = allocateCallCount.incrementAndGet();
+    allocateCallCount.incrementAndGet();
     
     int index = SegmentAllocators.getIndexForSize(size);
 
@@ -706,10 +705,25 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     MemorySegment segment = pool.poll();
 
     if (segment == null) {
-      // This should not happen with pre-allocated virtual regions
-      LOGGER.error("Pool {} exhausted! All {} segments in use. Virtual region may be too small.",
-                   index, poolSizes[index].get());
-      throw new OutOfMemoryError("Memory pool exhausted for size class " + size);
+      final long freshIndex = nextFreshSegmentIndex[index].getAndIncrement();
+      final long totalSegments = segmentCapacity[index];
+      if (freshIndex < totalSegments) {
+        final MemorySegment region = virtualRegions[index];
+        segment = region.asSlice(freshIndex * actualSegmentSize, actualSegmentSize);
+      } else {
+        // A segment might have been returned concurrently while we were checking fresh capacity.
+        segment = pool.poll();
+        if (segment == null) {
+          LOGGER.error("Pool {} exhausted! requestedSize={}, segmentSize={}, available={}, freshUsed={}, totalSegments={}",
+                       index,
+                       size,
+                       actualSegmentSize,
+                       poolSizes[index].get(),
+                       freshIndex,
+                       totalSegments);
+          throw new OutOfMemoryError("Memory pool exhausted for size class " + size);
+        }
+      }
     }
 
     // Track if this is the first time we're borrowing this segment
@@ -863,7 +877,6 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     totalReturns[index].incrementAndGet();
 
     // Use madvise to release physical memory while keeping virtual mapping
-    boolean madviseSucceeded = false;
     try {
       int result = (int) MADVISE.invokeExact(segment, size, MADV_DONTNEED);
       if (result == 0) {
@@ -904,8 +917,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
                       callNum, currentPhysical / (1024 * 1024), newPhysical / (1024 * 1024),
                       size, borrowedSegments.size());
         }
-        
-        madviseSucceeded = true;
+
         // Note: Already removed from borrowedSegments above (atomically)
       } else {
         int errno = getErrno();
@@ -979,6 +991,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       if (segmentPools[i] != null) {
         segmentPools[i].clear();
         poolSizes[i].set(0);
+        segmentCapacity[i] = 0L;
+        nextFreshSegmentIndex[i].set(0L);
         totalBorrows[i].set(0);
         totalReturns[i].set(0);
       }
