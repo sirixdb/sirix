@@ -46,6 +46,7 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.xml.ImmutableElement;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Fixed;
@@ -70,7 +71,7 @@ import java.util.List;
  *
  * @author Johannes Lichtenberger
  */
-public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode {
+public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode, ReusableNodeProxy {
 
   // === IMMEDIATE STRUCTURAL FIELDS ===
   private long nodeKey;
@@ -415,6 +416,11 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     this.deweyIDBytes = null;
   }
 
+  public void setDeweyIDBytes(byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   @Override
   public SirixDeweyID getDeweyID() {
     if (deweyIDBytes != null && sirixDeweyID == null) {
@@ -456,6 +462,10 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     attributeKeys.removeIf(key -> key == attrNodeKey);
   }
 
+  public void clearAttributeKeys() {
+    attributeKeys.clear();
+  }
+
   public List<Long> getAttributeKeys() {
     return Collections.unmodifiableList(attributeKeys);
   }
@@ -479,6 +489,10 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   public void removeNamespace(long namespaceKey) {
     namespaceKeys.removeIf(key -> key == namespaceKey);
+  }
+
+  public void clearNamespaceKeys() {
+    namespaceKeys.clear();
   }
 
   public List<Long> getNamespaceKeys() {
@@ -519,7 +533,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   /**
    * Populate this node from a BytesIn source for singleton reuse.
-   * LAZY OPTIMIZATION: Only parses structural fields immediately.
    */
   public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
       LongHashFunction hashFunction, ResourceConfiguration config,
@@ -528,34 +541,55 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
-    this.attributeKeys = attributeKeys != null ? attributeKeys : new LongArrayList();
-    this.namespaceKeys = namespaceKeys != null ? namespaceKeys : new LongArrayList();
+    if (attributeKeys != null) {
+      this.attributeKeys = attributeKeys;
+    } else if (this.attributeKeys == null) {
+      this.attributeKeys = new LongArrayList();
+    }
+    if (namespaceKeys != null) {
+      this.namespaceKeys = namespaceKeys;
+    } else if (this.namespaceKeys == null) {
+      this.namespaceKeys = new LongArrayList();
+    }
+    this.attributeKeys.clear();
+    this.namespaceKeys.clear();
     this.qNm = qNm;
 
-    // IMMEDIATE: Only structural relationships
     this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.lastChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.prefixKey = DeltaVarIntCodec.decodeSigned(source);
+    this.localNameKey = DeltaVarIntCodec.decodeSigned(source);
+    this.uriKey = DeltaVarIntCodec.decodeSigned(source);
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.childCount = config.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0L;
+    if (config.hashType != HashType.NONE) {
+      this.hash = source.readLong();
+      this.descendantCount = DeltaVarIntCodec.decodeSigned(source);
+    } else {
+      this.hash = 0L;
+      this.descendantCount = 0L;
+    }
 
-    // LAZY: Everything else
-    this.lazySource = source.getSource();
-    this.lazyOffset = source.position();
-    this.lazyFieldsParsed = false;
+    final int attributeCount = DeltaVarIntCodec.decodeSigned(source);
+    for (int i = 0; i < attributeCount; i++) {
+      this.attributeKeys.add(DeltaVarIntCodec.decodeDelta(source, nodeKey));
+    }
+
+    final int namespaceCount = DeltaVarIntCodec.decodeSigned(source);
+    for (int i = 0; i < namespaceCount; i++) {
+      this.namespaceKeys.add(DeltaVarIntCodec.decodeDelta(source, nodeKey));
+    }
+
+    this.lazySource = null;
+    this.lazyOffset = 0L;
+    this.lazyFieldsParsed = true;
     this.hasHash = config.hashType != HashType.NONE;
     this.storeChildCount = config.storeChildCount();
-
-    // Initialize lazy fields to defaults
-    this.pathNodeKey = 0;
-    this.prefixKey = 0;
-    this.localNameKey = 0;
-    this.uriKey = 0;
-    this.previousRevision = 0;
-    this.lastModifiedRevision = 0;
-    this.childCount = 0;
-    this.descendantCount = 0;
-    this.hash = 0;
   }
 
   private void parseLazyFields() {

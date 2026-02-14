@@ -31,7 +31,6 @@ package io.sirix.node.xml;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.node.ByteArrayBytesIn;
@@ -44,6 +43,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.xml.ImmutableText;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
@@ -65,7 +65,7 @@ import java.lang.foreign.MemorySegment;
  *
  * @author Johannes Lichtenberger
  */
-public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
+public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, ReusableNodeProxy {
 
   // === IMMEDIATE STRUCTURAL FIELDS ===
   private long nodeKey;
@@ -94,6 +94,9 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
   private boolean valueParsed;
   private boolean hasHash;
   private long valueOffset;
+  private boolean fixedValueEncoding;
+  private int fixedValueLength;
+  private boolean fixedValueCompressed;
 
   /**
    * Primary constructor with all primitive fields.
@@ -238,7 +241,9 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
 
   @Override
   public byte[] getRawValue() {
-    if (!valueParsed) parseValueField();
+    if (!valueParsed) {
+      parseValuePayload();
+    }
     if (value != null && isCompressed) {
       // Lazy decompress
       value = Compression.decompress(value);
@@ -250,8 +255,30 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
   @Override
   public void setRawValue(byte[] value) {
     this.value = value;
+    this.fixedValueEncoding = false;
+    this.fixedValueLength = 0;
+    this.fixedValueCompressed = false;
     this.isCompressed = false;
     this.hash = 0L;
+  }
+
+  public void setLazyRawValue(Object source, long valueOffset, int valueLength, boolean compressed) {
+    this.lazySource = source;
+    this.lazyOffset = valueOffset;
+    this.valueOffset = valueOffset;
+    this.metadataParsed = true;
+    this.valueParsed = false;
+    this.hasHash = false;
+    this.fixedValueEncoding = true;
+    this.fixedValueLength = valueLength;
+    this.fixedValueCompressed = compressed;
+    this.value = null;
+    this.isCompressed = compressed;
+    this.hash = 0L;
+  }
+
+  public void setCompressed(boolean compressed) {
+    this.isCompressed = compressed;
   }
 
   @Override
@@ -351,6 +378,11 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
     this.deweyIDBytes = null;
   }
 
+  public void setDeweyIDBytes(byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   @Override
   public SirixDeweyID getDeweyID() {
     if (deweyIDBytes != null && sirixDeweyID == null) {
@@ -419,8 +451,12 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
     this.lazyOffset = source.position();
     this.metadataParsed = false;
     this.valueParsed = false;
-    this.hasHash = config.hashType != HashType.NONE;
+    // Text-node hash is not serialized in compact encoding.
+    this.hasHash = false;
     this.valueOffset = 0;
+    this.fixedValueEncoding = false;
+    this.fixedValueLength = 0;
+    this.fixedValueCompressed = false;
 
     // Initialize lazy fields
     this.previousRevision = 0;
@@ -451,7 +487,7 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
     this.metadataParsed = true;
   }
 
-  private void parseValueField() {
+  private void parseValuePayload() {
     if (valueParsed) {
       return;
     }
@@ -462,6 +498,17 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
 
     if (lazySource == null) {
       valueParsed = true;
+      return;
+    }
+
+    if (fixedValueEncoding) {
+      BytesIn<?> bytesIn = createBytesIn(valueOffset);
+      this.isCompressed = fixedValueCompressed;
+      this.value = new byte[fixedValueLength];
+      if (fixedValueLength > 0) {
+        bytesIn.read(this.value, 0, fixedValueLength);
+      }
+      this.valueParsed = true;
       return;
     }
 
@@ -493,7 +540,7 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode {
    */
   public TextNode toSnapshot() {
     if (!metadataParsed) parseMetadataFields();
-    if (!valueParsed) parseValueField();
+    if (!valueParsed) parseValuePayload();
 
     return new TextNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, hash,

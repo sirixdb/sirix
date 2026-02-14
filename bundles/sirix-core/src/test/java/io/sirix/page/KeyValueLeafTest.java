@@ -2,7 +2,13 @@ package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.IndexType;
+import io.sirix.node.NodeKind;
+import io.sirix.node.json.BooleanNode;
+import io.sirix.node.layout.NodeKindLayouts;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.settings.Constants;
+import net.openhft.hashing.LongHashFunction;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -456,5 +462,164 @@ class KeyValueLeafPageTest {
       assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, resizedMemory, 50),
                  "There should be enough space after resizing the memory segment.");
     }
+  }
+
+  @Test
+  void testAddReferencesCopiesOnlyMarkedPreservationSlots() {
+    byte[] preserved = new byte[] { 42, 43, 44 };
+
+    try (var localArena = Arena.ofConfined()) {
+      ResourceConfiguration config = new ResourceConfiguration.Builder("testResource").build();
+      KeyValueLeafPage completePage = new KeyValueLeafPage(1L,
+                                                           IndexType.DOCUMENT,
+                                                           config,
+                                                           1,
+                                                           localArena.allocate(SIXTYFOUR_KB),
+                                                           null);
+      KeyValueLeafPage modifiedPage = new KeyValueLeafPage(1L,
+                                                           IndexType.DOCUMENT,
+                                                           config,
+                                                           1,
+                                                           localArena.allocate(SIXTYFOUR_KB),
+                                                           null);
+
+      completePage.setSlot(preserved, 7);
+      modifiedPage.markSlotForPreservation(7);
+      modifiedPage.setCompletePageRef(completePage);
+
+      modifiedPage.addReferences(config);
+
+      MemorySegment copied = modifiedPage.getSlot(7);
+      assertNotNull(copied);
+      assertArrayEquals(preserved, copied.toArray(ValueLayout.JAVA_BYTE));
+
+      completePage.close();
+      modifiedPage.close();
+    }
+  }
+
+  @Test
+  void testAddReferencesDoesNotOverwriteExistingModifiedSlot() {
+    byte[] completeValue = new byte[] { 1, 2, 3 };
+    byte[] modifiedValue = new byte[] { 9, 8, 7 };
+
+    try (var localArena = Arena.ofConfined()) {
+      ResourceConfiguration config = new ResourceConfiguration.Builder("testResource").build();
+      KeyValueLeafPage completePage = new KeyValueLeafPage(1L,
+                                                           IndexType.DOCUMENT,
+                                                           config,
+                                                           1,
+                                                           localArena.allocate(SIXTYFOUR_KB),
+                                                           null);
+      KeyValueLeafPage modifiedPage = new KeyValueLeafPage(1L,
+                                                           IndexType.DOCUMENT,
+                                                           config,
+                                                           1,
+                                                           localArena.allocate(SIXTYFOUR_KB),
+                                                           null);
+
+      completePage.setSlot(completeValue, 11);
+      modifiedPage.setSlot(modifiedValue, 11);
+      modifiedPage.markSlotForPreservation(11);
+      modifiedPage.setCompletePageRef(completePage);
+
+      modifiedPage.addReferences(config);
+
+      MemorySegment value = modifiedPage.getSlot(11);
+      assertNotNull(value);
+      assertArrayEquals(modifiedValue, value.toArray(ValueLayout.JAVA_BYTE));
+
+      completePage.close();
+      modifiedPage.close();
+    }
+  }
+
+  @Test
+  void testAddReferencesCopiesProjectedFixedSlotSidecar() {
+    final long nodeKey = 7L;
+    final int offset = (int) (nodeKey
+        - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    final BooleanNode node =
+        new BooleanNode(nodeKey, 5L, 2, 3, 11L, 13L, 17L, true, LongHashFunction.xx3(), (byte[]) null);
+
+    try (var localArena = Arena.ofConfined()) {
+      final ResourceConfiguration config = new ResourceConfiguration.Builder("testResource").build();
+      final KeyValueLeafPage completePage = new KeyValueLeafPage(1L,
+                                                                 IndexType.DOCUMENT,
+                                                                 config,
+                                                                 1,
+                                                                 localArena.allocate(SIXTYFOUR_KB),
+                                                                 null);
+      final KeyValueLeafPage modifiedPage = new KeyValueLeafPage(1L,
+                                                                 IndexType.DOCUMENT,
+                                                                 config,
+                                                                 1,
+                                                                 localArena.allocate(SIXTYFOUR_KB),
+                                                                 null);
+
+      completePage.setRecord(node);
+      completePage.addReferences(config);
+
+      modifiedPage.markSlotForPreservation(offset);
+      modifiedPage.setCompletePageRef(completePage);
+      modifiedPage.addReferences(config);
+
+      assertTrue(modifiedPage.hasProjectedFixedSlot(offset));
+      assertEquals(NodeKind.BOOLEAN_VALUE, modifiedPage.getProjectedFixedSlotKind(offset));
+
+      final MemorySegment projectedSlot = modifiedPage.getProjectedFixedSlot(offset);
+      assertNotNull(projectedSlot);
+
+      final var layout = NodeKindLayouts.layoutFor(NodeKind.BOOLEAN_VALUE);
+      assertEquals(5L, SlotLayoutAccessors.readLongField(projectedSlot, layout, StructuralField.PARENT_KEY));
+      assertEquals(11L, SlotLayoutAccessors.readLongField(projectedSlot, layout, StructuralField.RIGHT_SIBLING_KEY));
+      assertEquals(13L, SlotLayoutAccessors.readLongField(projectedSlot, layout, StructuralField.LEFT_SIBLING_KEY));
+      assertTrue(SlotLayoutAccessors.readBooleanField(projectedSlot, layout, StructuralField.BOOLEAN_VALUE));
+
+      completePage.close();
+      modifiedPage.close();
+    }
+  }
+
+  @Test
+  void testSetRecordProjectsPayloadFreeFixedSlot() {
+    final long nodeKey = 1L;
+    final int offset = (int) (nodeKey
+        - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    final BooleanNode node =
+        new BooleanNode(nodeKey, 7L, 3, 4, 9L, 11L, 13L, true, LongHashFunction.xx3(), (byte[]) null);
+
+    keyValueLeafPage.setRecord(node);
+
+    assertTrue(keyValueLeafPage.hasProjectedFixedSlot(offset));
+    assertEquals(NodeKind.BOOLEAN_VALUE, keyValueLeafPage.getProjectedFixedSlotKind(offset));
+
+    final MemorySegment projectedSlot = keyValueLeafPage.getProjectedFixedSlot(offset);
+    assertNotNull(projectedSlot);
+
+    final var layout = NodeKindLayouts.layoutFor(NodeKind.BOOLEAN_VALUE);
+    assertEquals(7L, SlotLayoutAccessors.readLongField(projectedSlot, layout, StructuralField.PARENT_KEY));
+    assertEquals(9L, SlotLayoutAccessors.readLongField(projectedSlot, layout, StructuralField.RIGHT_SIBLING_KEY));
+    assertEquals(11L, SlotLayoutAccessors.readLongField(projectedSlot, layout, StructuralField.LEFT_SIBLING_KEY));
+    assertTrue(SlotLayoutAccessors.readBooleanField(projectedSlot, layout, StructuralField.BOOLEAN_VALUE));
+  }
+
+  @Test
+  void testRawSlotWriteClearsProjectedFixedSlotWithoutMaterializedRecord() {
+    final long nodeKey = 1L;
+    final int offset = (int) (nodeKey
+        - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    final BooleanNode node =
+        new BooleanNode(nodeKey, 2L, 3, 4, 5L, 6L, 7L, false, LongHashFunction.xx3(), (byte[]) null);
+
+    keyValueLeafPage.setRecord(node);
+    assertTrue(keyValueLeafPage.hasProjectedFixedSlot(offset));
+
+    keyValueLeafPage.records()[offset] = null;
+    keyValueLeafPage.setSlot(new byte[] { 1, 2, 3 }, offset);
+
+    assertFalse(keyValueLeafPage.hasProjectedFixedSlot(offset));
+    assertNull(keyValueLeafPage.getProjectedFixedSlotKind(offset));
+    assertNull(keyValueLeafPage.getProjectedFixedSlot(offset));
   }
 }

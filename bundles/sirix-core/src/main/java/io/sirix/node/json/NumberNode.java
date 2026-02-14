@@ -46,6 +46,7 @@ import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.NumericValueNode;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Fixed;
@@ -63,7 +64,7 @@ import java.math.BigInteger;
  * 
  * @author Johannes Lichtenberger
  */
-public final class NumberNode implements StructNode, ImmutableJsonNode, NumericValueNode {
+public final class NumberNode implements StructNode, ImmutableJsonNode, NumericValueNode, ReusableNodeProxy {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;

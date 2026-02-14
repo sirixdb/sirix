@@ -37,6 +37,7 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -62,15 +63,16 @@ public enum VersioningType {
       var firstPage = pages.getFirst();
       T completePage =  firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), pageReadTrx);
 
-      for (int i = 0; i < firstPage.size(); i++) {
-        var slot = firstPage.getSlot(i);
-
-        if (slot == null) {
-          continue;
+      if (firstPage instanceof KeyValueLeafPage firstKvp) {
+        copyAllSlotsFromBitmap(firstPage, completePage, firstKvp.getSlotBitmap(), null);
+      } else {
+        for (int i = 0; i < firstPage.size(); i++) {
+          var slot = firstPage.getSlot(i);
+          if (slot == null) {
+            continue;
+          }
+          copySlotAndDeweyId(firstPage, completePage, i, slot);
         }
-
-        completePage.setSlot(slot, i);
-        completePage.setDeweyId(firstPage.getDeweyId(i), i);
       }
 
       // Propagate FSST symbol table for string compression
@@ -92,13 +94,16 @@ public enum VersioningType {
       final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
 
       // Copy data once (not twice)
-      for (int i = 0; i < firstPage.size(); i++) {
-        var slot = firstPage.getSlot(i);
-        if (slot == null) {
-          continue;
+      if (firstPage instanceof KeyValueLeafPage firstKvp) {
+        copyAllSlotsFromBitmap(firstPage, modifiedPage, firstKvp.getSlotBitmap(), null);
+      } else {
+        for (int i = 0; i < firstPage.size(); i++) {
+          var slot = firstPage.getSlot(i);
+          if (slot == null) {
+            continue;
+          }
+          copySlotAndDeweyId(firstPage, modifiedPage, i, slot);
         }
-        modifiedPage.setSlot(slot, i);
-        modifiedPage.setDeweyId(firstPage.getDeweyId(i), i);
       }
 
       // Propagate FSST symbol table from the original page
@@ -142,15 +147,7 @@ public enum VersioningType {
       final KeyValueLeafPage returnKvp = (KeyValueLeafPage) pageToReturn;
       
       // Copy all populated slots from latest page
-      final int[] latestSlots = latestKvp.populatedSlots();
-      for (int i = 0; i < latestSlots.length; i++) {
-        final int offset = latestSlots[i];
-        pageToReturn.setSlot(firstPage.getSlot(offset), offset);
-        var deweyId = firstPage.getDeweyId(offset);
-        if (deweyId != null) {
-          pageToReturn.setDeweyId(deweyId, offset);
-        }
-      }
+      copyAllSlotsFromBitmap(firstPage, pageToReturn, latestKvp.getSlotBitmap(), null);
       
       // Copy references from latest
       for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
@@ -163,22 +160,7 @@ public enum VersioningType {
         final long[] filledBitmap = returnKvp.getSlotBitmap();
         
         // Use bitmap iteration for O(k) on fullDump
-        final int[] fullDumpSlots = fullDumpKvp.populatedSlots();
-        for (int i = 0; i < fullDumpSlots.length; i++) {
-          final int offset = fullDumpSlots[i];
-          // Check if slot already filled using bitmap (O(1))
-          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from latest
-          }
-          
-          var recordData = fullDump.getSlot(offset);
-          pageToReturn.setSlot(recordData, offset);
-          
-          var deweyId = fullDump.getDeweyId(offset);
-          if (deweyId != null) {
-            pageToReturn.setDeweyId(deweyId, offset);
-          }
-        }
+        copyMissingSlotsFromBitmap(fullDump, pageToReturn, fullDumpKvp.getSlotBitmap(), filledBitmap, null);
 
         // Fill reference gaps
         for (final Entry<Long, PageReference> entry : fullDump.referenceEntrySet()) {
@@ -234,21 +216,7 @@ public enum VersioningType {
       
       // Copy all populated slots from latest to completePage using bitmap iteration
       // For modifiedPage: use lazy copy - mark for preservation, actual copy deferred to commit time
-      final int[] latestSlots = latestKvp.populatedSlots();
-      for (int i = 0; i < latestSlots.length; i++) {
-        final int offset = latestSlots[i];
-        var recordData = firstPage.getSlot(offset);
-        var deweyId = firstPage.getDeweyId(offset);
-        
-        completePage.setSlot(recordData, offset);
-        if (deweyId != null) {
-          completePage.setDeweyId(deweyId, offset);
-        }
-        
-        // LAZY COPY: Mark slot for preservation instead of copying
-        // Actual copy from completePage happens in addReferences() if records[offset] == null
-        modifiedKvp.markSlotForPreservation(offset);
-      }
+      copyAllSlotsFromBitmap(firstPage, completePage, latestKvp.getSlotBitmap(), modifiedKvp);
 
       // Copy references from latest
       for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
@@ -262,27 +230,11 @@ public enum VersioningType {
         final long[] filledBitmap = completeKvp.getSlotBitmap();
         
         // Use bitmap iteration on fullDump
-        final int[] fullDumpSlots = fullDumpKvp.populatedSlots();
-        for (int j = 0; j < fullDumpSlots.length; j++) {
-          final int offset = fullDumpSlots[j];
-          // Check if slot already filled using bitmap (O(1))
-          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from latest
-          }
-          
-          var recordData = fullDump.getSlot(offset);
-          var deweyId = fullDump.getDeweyId(offset);
-          
-          completePage.setSlot(recordData, offset);
-          if (deweyId != null) {
-            completePage.setDeweyId(deweyId, offset);
-          }
-          
-          if (isFullDumpRevision) {
-            // LAZY COPY: Mark slot for preservation instead of copying
-            modifiedKvp.markSlotForPreservation(offset);
-          }
-        }
+        copyMissingSlotsFromBitmap(fullDump,
+                                   completePage,
+                                   fullDumpKvp.getSlotBitmap(),
+                                   filledBitmap,
+                                   isFullDumpRevision ? modifiedKvp : null);
         
         // Fill reference gaps from fullDump
         for (final Map.Entry<Long, PageReference> entry : fullDump.referenceEntrySet()) {
@@ -349,27 +301,12 @@ public enum VersioningType {
 
         // Use bitmap iteration for O(k) instead of O(1024)
         final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
-        final int[] populatedSlots = kvPage.populatedSlots();
-        
-        for (final int offset : populatedSlots) {
-          // Check if slot already filled using bitmap (O(1))
-          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from newer fragment
-          }
-          
-          final var recordData = page.getSlot(offset);
-          pageToReturn.setSlot(recordData, offset);
-          filledSlotCount++;
-          
-          final var deweyId = page.getDeweyId(offset);
-          if (deweyId != null) {
-            pageToReturn.setDeweyId(deweyId, offset);
-          }
-
-          if (filledSlotCount == Constants.NDP_NODE_COUNT) {
-            break;
-          }
-        }
+        filledSlotCount = copyMissingSlotsFromBitmapUntilFull(page,
+                                                               pageToReturn,
+                                                               kvPage.getSlotBitmap(),
+                                                               filledBitmap,
+                                                               filledSlotCount,
+                                                               null);
 
         if (filledSlotCount < Constants.NDP_NODE_COUNT) {
           for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
@@ -436,34 +373,12 @@ public enum VersioningType {
 
         // Use bitmap iteration for O(k) instead of O(1024)
         final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
-        final int[] populatedSlots = kvPage.populatedSlots();
-
-        for (final int offset : populatedSlots) {
-          // Check if slot already filled using bitmap (O(1))
-          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from newer fragment
-          }
-
-          final var recordData = page.getSlot(offset);
-          completePage.setSlot(recordData, offset);
-          filledSlotCount++;
-
-          if (isFullDump) {
-            // LAZY COPY: Mark slot for preservation instead of copying
-            // Actual copy from completePage happens in addReferences() if records[offset] == null
-            modifiedKvp.markSlotForPreservation(offset);
-          }
-          
-          final var deweyId = page.getDeweyId(offset);
-          if (deweyId != null) {
-            completePage.setDeweyId(deweyId, offset);
-            // DeweyId will be lazily copied along with slot in addReferences()
-          }
-          
-          if (filledSlotCount == Constants.NDP_NODE_COUNT) {
-            break;
-          }
-        }
+        filledSlotCount = copyMissingSlotsFromBitmapUntilFull(page,
+                                                               completePage,
+                                                               kvPage.getSlotBitmap(),
+                                                               filledBitmap,
+                                                               filledSlotCount,
+                                                               isFullDump ? modifiedKvp : null);
 
         if (filledSlotCount < Constants.NDP_NODE_COUNT) {
           for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
@@ -543,27 +458,12 @@ public enum VersioningType {
 
         // Use bitmap iteration for O(k) instead of O(1024)
         final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
-        final int[] populatedSlots = kvPage.populatedSlots();
-
-        for (final int offset : populatedSlots) {
-          // Check if slot already filled using bitmap (O(1))
-          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from newer fragment
-          }
-
-          final var recordData = page.getSlot(offset);
-          returnVal.setSlot(recordData, offset);
-          filledSlotCount++;
-
-          final var deweyId = page.getDeweyId(offset);
-          if (deweyId != null) {
-            returnVal.setDeweyId(deweyId, offset);
-          }
-          
-          if (filledSlotCount == Constants.NDP_NODE_COUNT) {
-            break;
-          }
-        }
+        filledSlotCount = copyMissingSlotsFromBitmapUntilFull(page,
+                                                               returnVal,
+                                                               kvPage.getSlotBitmap(),
+                                                               filledBitmap,
+                                                               filledSlotCount,
+                                                               null);
 
         if (filledSlotCount < Constants.NDP_NODE_COUNT) {
           for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
@@ -611,7 +511,7 @@ public enum VersioningType {
       
       // OPTIMIZATION: Use bitmap (128 bytes) instead of temp page (64KB)
       // inWindowBitmap tracks which slots exist in the sliding window
-      final long[] inWindowBitmap = new long[16];  // 16 * 64 = 1024 bits
+      final long[] inWindowBitmap = new long[SLOT_BITMAP_WORD_COUNT];
       
       // DIAGNOSTIC
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
@@ -636,30 +536,12 @@ public enum VersioningType {
 
         // Use bitmap iteration for O(k) instead of O(1024)
         final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
-        final int[] populatedSlots = kvPage.populatedSlots();
-
-        for (final int offset : populatedSlots) {
-          // Mark slot as in-window (for Phase 2 check)
-          inWindowBitmap[offset >>> 6] |= (1L << (offset & 63));
-          
-          // Check if slot already filled in completePage using bitmap (O(1))
-          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from newer fragment
-          }
-
-          final var recordData = page.getSlot(offset);
-          completePage.setSlot(recordData, offset);
-          filledSlotCount++;
-          
-          final var deweyId = page.getDeweyId(offset);
-          if (deweyId != null) {
-            completePage.setDeweyId(deweyId, offset);
-          }
-          
-          if (filledSlotCount == Constants.NDP_NODE_COUNT) {
-            break;  // Page is full
-          }
-        }
+        filledSlotCount = copyMissingSlotsFromBitmapUntilFullTrackingWindow(page,
+                                                                             completePage,
+                                                                             kvPage.getSlotBitmap(),
+                                                                             filledBitmap,
+                                                                             inWindowBitmap,
+                                                                             filledSlotCount);
 
         // Handle references
         for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
@@ -682,27 +564,12 @@ public enum VersioningType {
         assert outOfWindowPage.getPageKey() == recordPageKey;
         
         final KeyValueLeafPage outOfWindowKvp = (KeyValueLeafPage) outOfWindowPage;
-        final int[] populatedSlots = outOfWindowKvp.populatedSlots();
-        
-        for (final int offset : populatedSlots) {
-          final var recordData = outOfWindowPage.getSlot(offset);
-          final var deweyId = outOfWindowPage.getDeweyId(offset);
-          
-          // Add to completePage if not already filled
-          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) == 0) {
-            completePage.setSlot(recordData, offset);
-            if (deweyId != null) {
-              completePage.setDeweyId(deweyId, offset);
-            }
-          }
-          
-          // If slot is NOT in the sliding window, mark for preservation in modifyingPage
-          // (these are records falling out of the window that need to be written)
-          if ((inWindowBitmap[offset >>> 6] & (1L << (offset & 63))) == 0) {
-            // LAZY COPY: Mark slot for preservation instead of copying
-            modifyingKvp.markSlotForPreservation(offset);
-          }
-        }
+        copyOutOfWindowSlotsAndMarkPreservation(outOfWindowPage,
+                                                completePage,
+                                                outOfWindowKvp.getSlotBitmap(),
+                                                filledBitmap,
+                                                inWindowBitmap,
+                                                modifyingKvp);
         
         // Handle references from out-of-window page
         for (final Entry<Long, PageReference> entry : outOfWindowPage.referenceEntrySet()) {
@@ -752,6 +619,7 @@ public enum VersioningType {
   };
 
   private static final Logger LOGGER = LoggerFactory.getLogger(VersioningType.class);
+  private static final int SLOT_BITMAP_WORD_COUNT = (Constants.NDP_NODE_COUNT + Long.SIZE - 1) >>> 6;
 
   public static VersioningType fromString(String versioningType) {
     for (final var type : values()) {
@@ -814,6 +682,148 @@ public enum VersioningType {
         targetKvp.setFsstSymbolTable(fsstSymbolTable);
       }
     }
+  }
+
+  private static <V extends DataRecord, T extends KeyValuePage<V>> void copySlotAndDeweyId(
+      final T sourcePage, final T targetPage, final int offset, final MemorySegment slot) {
+    if (slot == null) {
+      return;
+    }
+    targetPage.setSlot(slot, offset);
+    final var deweyId = sourcePage.getDeweyId(offset);
+    if (deweyId != null) {
+      targetPage.setDeweyId(deweyId, offset);
+    }
+  }
+
+  private static <V extends DataRecord, T extends KeyValuePage<V>> void copyAllSlotsFromBitmap(
+      final T sourcePage,
+      final T targetPage,
+      final long[] sourceBitmap,
+      final KeyValueLeafPage preserveTargetPage) {
+    for (int wordIndex = 0; wordIndex < sourceBitmap.length; wordIndex++) {
+      long word = sourceBitmap[wordIndex];
+      final int baseOffset = wordIndex << 6;
+      while (word != 0) {
+        final int offset = baseOffset + Long.numberOfTrailingZeros(word);
+        copySlotAndDeweyId(sourcePage, targetPage, offset, sourcePage.getSlot(offset));
+        if (preserveTargetPage != null) {
+          preserveTargetPage.markSlotForPreservation(offset);
+        }
+        word &= word - 1;
+      }
+    }
+  }
+
+  private static <V extends DataRecord, T extends KeyValuePage<V>> void copyMissingSlotsFromBitmap(
+      final T sourcePage,
+      final T targetPage,
+      final long[] sourceBitmap,
+      final long[] targetBitmap,
+      final KeyValueLeafPage preserveTargetPage) {
+    for (int wordIndex = 0; wordIndex < sourceBitmap.length; wordIndex++) {
+      long word = sourceBitmap[wordIndex];
+      final int baseOffset = wordIndex << 6;
+      while (word != 0) {
+        final int offset = baseOffset + Long.numberOfTrailingZeros(word);
+        if (!isBitSet(targetBitmap, offset)) {
+          copySlotAndDeweyId(sourcePage, targetPage, offset, sourcePage.getSlot(offset));
+          if (preserveTargetPage != null) {
+            preserveTargetPage.markSlotForPreservation(offset);
+          }
+        }
+        word &= word - 1;
+      }
+    }
+  }
+
+  private static <V extends DataRecord, T extends KeyValuePage<V>> int copyMissingSlotsFromBitmapUntilFull(
+      final T sourcePage,
+      final T targetPage,
+      final long[] sourceBitmap,
+      final long[] targetBitmap,
+      int filledSlotCount,
+      final KeyValueLeafPage preserveTargetPage) {
+    for (int wordIndex = 0; wordIndex < sourceBitmap.length; wordIndex++) {
+      long word = sourceBitmap[wordIndex];
+      final int baseOffset = wordIndex << 6;
+      while (word != 0) {
+        final int offset = baseOffset + Long.numberOfTrailingZeros(word);
+        if (!isBitSet(targetBitmap, offset)) {
+          copySlotAndDeweyId(sourcePage, targetPage, offset, sourcePage.getSlot(offset));
+          if (preserveTargetPage != null) {
+            preserveTargetPage.markSlotForPreservation(offset);
+          }
+          filledSlotCount++;
+          if (filledSlotCount == Constants.NDP_NODE_COUNT) {
+            return filledSlotCount;
+          }
+        }
+        word &= word - 1;
+      }
+    }
+    return filledSlotCount;
+  }
+
+  private static <V extends DataRecord, T extends KeyValuePage<V>> int copyMissingSlotsFromBitmapUntilFullTrackingWindow(
+      final T sourcePage,
+      final T targetPage,
+      final long[] sourceBitmap,
+      final long[] targetBitmap,
+      final long[] inWindowBitmap,
+      int filledSlotCount) {
+    for (int wordIndex = 0; wordIndex < sourceBitmap.length; wordIndex++) {
+      long word = sourceBitmap[wordIndex];
+      final int baseOffset = wordIndex << 6;
+      while (word != 0) {
+        final int offset = baseOffset + Long.numberOfTrailingZeros(word);
+        setBit(inWindowBitmap, offset);
+        if (!isBitSet(targetBitmap, offset)) {
+          copySlotAndDeweyId(sourcePage, targetPage, offset, sourcePage.getSlot(offset));
+          filledSlotCount++;
+          if (filledSlotCount == Constants.NDP_NODE_COUNT) {
+            return filledSlotCount;
+          }
+        }
+        word &= word - 1;
+      }
+    }
+    return filledSlotCount;
+  }
+
+  private static <V extends DataRecord, T extends KeyValuePage<V>> void copyOutOfWindowSlotsAndMarkPreservation(
+      final T outOfWindowPage,
+      final T completePage,
+      final long[] outOfWindowBitmap,
+      final long[] completePageBitmap,
+      final long[] inWindowBitmap,
+      final KeyValueLeafPage modifyingPage) {
+    for (int wordIndex = 0; wordIndex < outOfWindowBitmap.length; wordIndex++) {
+      long word = outOfWindowBitmap[wordIndex];
+      final int baseOffset = wordIndex << 6;
+      while (word != 0) {
+        final int offset = baseOffset + Long.numberOfTrailingZeros(word);
+
+        // Add to completePage if not already filled.
+        if (!isBitSet(completePageBitmap, offset)) {
+          copySlotAndDeweyId(outOfWindowPage, completePage, offset, outOfWindowPage.getSlot(offset));
+        }
+
+        // If slot is NOT in the sliding window, mark for preservation in modifyingPage.
+        if (!isBitSet(inWindowBitmap, offset)) {
+          modifyingPage.markSlotForPreservation(offset);
+        }
+        word &= word - 1;
+      }
+    }
+  }
+
+  private static void setBit(final long[] bitmap, final int offset) {
+    bitmap[offset >>> 6] |= (1L << (offset & 63));
+  }
+
+  private static boolean isBitSet(final long[] bitmap, final int offset) {
+    return (bitmap[offset >>> 6] & (1L << (offset & 63))) != 0;
   }
 
   // ===== HOT Leaf Page Combining Methods =====
@@ -1088,12 +1098,14 @@ public enum VersioningType {
   }
 
   /**
-   * Allocate a new page key.
-   * This is a placeholder - actual implementation uses RevisionRootPage.
+   * Allocate a fallback page key for bitmap chunk pages when no reference key exists yet.
+   *
+   * <p>Using a monotonic nanoTime source preserves lock-free behavior on this path and keeps
+   * allocations at zero. This method remains a placeholder until bitmap chunks are wired into
+   * the regular revision-root page-key allocator.</p>
    */
-  private long allocateNewPageKey(StorageEngineReader pageReadTrx) {
-    // TODO: Integrate with RevisionRootPage page key allocation
-    return System.nanoTime(); // Temporary unique key
+  private long allocateNewPageKey(final StorageEngineReader pageReadTrx) {
+    return System.nanoTime();
   }
 }
 

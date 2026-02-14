@@ -38,6 +38,7 @@ import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.SerializationBufferPool;
 import io.sirix.node.PooledBytesOut;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.utils.OS;
 import io.sirix.index.IndexType;
@@ -48,6 +49,7 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.page.*;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
@@ -375,16 +377,66 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final long recordPageKey = pageRtx.pageKey(createdRecordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
     final KeyValuePage<DataRecord> modified = cont.getModifiedAsKeyValuePage();
-    modified.setRecord(record);
+    final boolean storedAsReusableProxy =
+        persistReusableProxyRecordIfSupported(record, createdRecordKey, indexType, modified);
+    if (!storedAsReusableProxy) {
+      modified.setRecord(record);
 
-    if (modified instanceof KeyValueLeafPage modifiedLeafPage && modifiedLeafPage.shouldDemoteRecords(indexType)) {
-      if (demotionBuffer == null) {
-        demotionBuffer = new MemorySegmentBytesOut(256);
+      if (modified instanceof KeyValueLeafPage modifiedLeafPage && modifiedLeafPage.shouldDemoteRecords(indexType)) {
+        if (demotionBuffer == null) {
+          demotionBuffer = new MemorySegmentBytesOut(256);
+        }
+        modifiedLeafPage.demoteRecordsToSlots(pageRtx.getResourceSession().getResourceConfig(), demotionBuffer);
       }
-      modifiedLeafPage.demoteRecordsToSlots(pageRtx.getResourceSession().getResourceConfig(), demotionBuffer);
     }
 
     return record;
+  }
+
+  private boolean persistReusableProxyRecordIfSupported(final DataRecord record, final long createdRecordKey,
+      @NonNull final IndexType indexType, final KeyValuePage<DataRecord> modified) {
+    if (indexType != IndexType.DOCUMENT || !(record instanceof ReusableNodeProxy)
+        || !(modified instanceof KeyValueLeafPage modifiedLeafPage) || record.getNodeKey() != createdRecordKey) {
+      return false;
+    }
+
+    if (demotionBuffer == null) {
+      demotionBuffer = new MemorySegmentBytesOut(256);
+    }
+    demotionBuffer.clear();
+
+    final ResourceConfiguration resourceConfiguration = pageRtx.getResourceSession().getResourceConfig();
+    resourceConfiguration.recordPersister.serialize(demotionBuffer, record, resourceConfiguration);
+    final var serializedRecord = demotionBuffer.getDestination();
+
+    if (serializedRecord.byteSize() > PageConstants.MAX_RECORD_SIZE) {
+      final DataRecord detachedRecord = materializeDetachedRecord(serializedRecord, record, resourceConfiguration);
+      modified.setRecord(detachedRecord);
+      if (modifiedLeafPage.shouldDemoteRecords(indexType)) {
+        modifiedLeafPage.demoteRecordsToSlots(resourceConfiguration, demotionBuffer);
+      }
+      return true;
+    }
+
+    final int recordOffset = StorageEngineReader.recordPageOffset(record.getNodeKey());
+    modifiedLeafPage.setSlot(serializedRecord, recordOffset);
+
+    if (resourceConfiguration.areDeweyIDsStored) {
+      final byte[] deweyId = record.getDeweyIDAsBytes();
+      if (deweyId != null && deweyId.length > 0) {
+        modifiedLeafPage.setDeweyId(deweyId, recordOffset);
+      }
+    }
+
+    return true;
+  }
+
+  private DataRecord materializeDetachedRecord(final java.lang.foreign.MemorySegment serializedRecord,
+      final DataRecord sourceRecord, final ResourceConfiguration resourceConfiguration) {
+    return resourceConfiguration.recordPersister.deserialize(new MemorySegmentBytesIn(serializedRecord),
+                                                             sourceRecord.getNodeKey(),
+                                                             sourceRecord.getDeweyIDAsBytes(),
+                                                             resourceConfiguration);
   }
 
   @Override

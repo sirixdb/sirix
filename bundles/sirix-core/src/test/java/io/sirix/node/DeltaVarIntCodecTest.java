@@ -156,6 +156,45 @@ class DeltaVarIntCodecTest {
       }
     }
   }
+
+  /**
+   * Test signed long roundtrip for full-edge values.
+   */
+  @Test
+  void testDecodeSignedLongRoundTrip() {
+    long[] values = {Long.MIN_VALUE, -1000L, -1L, 0L, 1L, 1000L, Long.MAX_VALUE};
+
+    for (long value : values) {
+      BytesOut<?> bytesOut = Bytes.elasticOffHeapByteBuffer();
+      DeltaVarIntCodec.encodeSignedLong(bytesOut, value);
+
+      BytesIn<?> bytesIn = Bytes.wrapForRead(bytesOut.toByteArray());
+      long decoded = DeltaVarIntCodec.decodeSignedLong(bytesIn);
+      assertEquals(value, decoded, "Signed long roundtrip failed for value: " + value);
+    }
+  }
+
+  /**
+   * Test signed long decoding from MemorySegment for 10-byte varints.
+   */
+  @Test
+  void testDecodeSignedLongFromSegmentRoundTrip() {
+    long[] values = {Long.MIN_VALUE, Long.MAX_VALUE, -1L, 0L, 1L};
+
+    for (long value : values) {
+      BytesOut<?> bytesOut = Bytes.elasticOffHeapByteBuffer();
+      DeltaVarIntCodec.encodeSignedLong(bytesOut, value);
+      byte[] data = bytesOut.toByteArray();
+
+      try (Arena arena = Arena.ofConfined()) {
+        MemorySegment segment = arena.allocate(data.length);
+        MemorySegment.copy(data, 0, segment, ValueLayout.JAVA_BYTE, 0, data.length);
+
+        long decoded = DeltaVarIntCodec.decodeSignedLongFromSegment(segment, 0);
+        assertEquals(value, decoded, "Signed long segment decode failed for value: " + value);
+      }
+    }
+  }
   
   /**
    * Test varint length calculation from MemorySegment.
