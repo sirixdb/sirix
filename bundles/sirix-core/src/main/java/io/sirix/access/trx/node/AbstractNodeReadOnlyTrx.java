@@ -832,10 +832,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           nodeKey,
           deweyId,
           resourceConfig.nodeHashFunction,
-          resourceConfig,
-          null,
-          null,
-          EMPTY_QNM);
+          resourceConfig);
       case ATTRIBUTE -> ((AttributeNode) singleton).readFrom(source,
           nodeKey,
           deweyId,
