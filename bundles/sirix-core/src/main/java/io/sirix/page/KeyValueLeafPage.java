@@ -15,7 +15,6 @@ import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
-import io.sirix.node.layout.FixedSlotRecordProjector;
 import io.sirix.node.layout.NodeKindLayout;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
@@ -740,37 +739,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     projectedFixedSlotKindOrdinals[slotNumber] = NO_PROJECTED_KIND_ORDINAL;
   }
 
-  private void projectRecordIntoFixedSlot(final DataRecord record, final int slotNumber) {
-    if (!(record.getKind() instanceof NodeKind nodeKind)) {
-      clearProjectedFixedSlot(slotNumber);
-      return;
-    }
-
-    final int nodeKindOrdinal = nodeKind.ordinal();
-    if (!PROJECTABLE_FIXED_SLOT_KIND[nodeKindOrdinal]) {
-      clearProjectedFixedSlot(slotNumber);
-      return;
-    }
-
-    ensureProjectedFixedSlotMemory();
-    if (projectedFixedSlotMemory == null) {
-      clearProjectedFixedSlot(slotNumber);
-      return;
-    }
-
-    final int fixedSlotSize = PROJECTED_FIXED_SLOT_SIZE_BY_KIND[nodeKindOrdinal];
-    final long offset = (long) slotNumber * PROJECTED_FIXED_SLOT_STRIDE;
-    final MemorySegment targetSlot = projectedFixedSlotMemory.asSlice(offset, fixedSlotSize);
-    final NodeKindLayout layout = nodeKind.layoutDescriptor();
-    if (!FixedSlotRecordProjector.project(record, layout, targetSlot)) {
-      clearProjectedFixedSlot(slotNumber);
-      return;
-    }
-
-    projectedFixedSlotBitmap[slotNumber >>> 6] |= (1L << (slotNumber & 63));
-    projectedFixedSlotKindOrdinals[slotNumber] = (byte) nodeKindOrdinal;
-  }
-
   private void copyProjectedFixedSlotFrom(final KeyValueLeafPage sourcePage, final int slotNumber) {
     if (!sourcePage.hasProjectedFixedSlot(slotNumber) || sourcePage.projectedFixedSlotMemory == null) {
       clearProjectedFixedSlot(slotNumber);
@@ -848,7 +816,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       inMemoryRecordCount++;
     }
     records[offset] = record;
-    projectRecordIntoFixedSlot(record, offset);
+    // Write path no longer projects record objects into fixed-slot sidecars.
+    // Slot materialization happens through serialization paths (setSlot/processEntries).
+    clearProjectedFixedSlot(offset);
   }
 
   /**
