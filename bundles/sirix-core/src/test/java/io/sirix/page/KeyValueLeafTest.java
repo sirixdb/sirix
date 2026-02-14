@@ -2,11 +2,7 @@ package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.IndexType;
-import io.sirix.node.NodeKind;
 import io.sirix.node.json.BooleanNode;
-import io.sirix.node.layout.NodeKindLayouts;
-import io.sirix.node.layout.SlotLayoutAccessors;
-import io.sirix.node.layout.StructuralField;
 import io.sirix.settings.Constants;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.jupiter.api.AfterEach;
@@ -535,7 +531,7 @@ class KeyValueLeafPageTest {
   }
 
   @Test
-  void testAddReferencesCopiesProjectedFixedSlotSidecar() {
+  void testAddReferencesCopiesPreservedSlotData() {
     final long nodeKey = 7L;
     final int offset = (int) (nodeKey
         - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
@@ -564,17 +560,11 @@ class KeyValueLeafPageTest {
       modifiedPage.setCompletePageRef(completePage);
       modifiedPage.addReferences(config);
 
-      assertTrue(modifiedPage.hasProjectedFixedSlot(offset));
-      assertEquals(NodeKind.BOOLEAN_VALUE, modifiedPage.getProjectedFixedSlotKind(offset));
-
-      final MemorySegment projectedSlot = modifiedPage.getProjectedFixedSlot(offset);
-      assertNotNull(projectedSlot);
-
-      final var layout = NodeKindLayouts.layoutFor(NodeKind.BOOLEAN_VALUE);
-      assertEquals(5L, SlotLayoutAccessors.readLongField(projectedSlot, layout, StructuralField.PARENT_KEY));
-      assertEquals(11L, SlotLayoutAccessors.readLongField(projectedSlot, layout, StructuralField.RIGHT_SIBLING_KEY));
-      assertEquals(13L, SlotLayoutAccessors.readLongField(projectedSlot, layout, StructuralField.LEFT_SIBLING_KEY));
-      assertTrue(SlotLayoutAccessors.readBooleanField(projectedSlot, layout, StructuralField.BOOLEAN_VALUE));
+      final MemorySegment completeSlot = completePage.getSlot(offset);
+      final MemorySegment modifiedSlot = modifiedPage.getSlot(offset);
+      assertNotNull(completeSlot);
+      assertNotNull(modifiedSlot);
+      assertArrayEquals(completeSlot.toArray(ValueLayout.JAVA_BYTE), modifiedSlot.toArray(ValueLayout.JAVA_BYTE));
 
       completePage.close();
       modifiedPage.close();
@@ -582,7 +572,7 @@ class KeyValueLeafPageTest {
   }
 
   @Test
-  void testSetRecordProjectsPayloadFreeFixedSlot() {
+  void testSetRecordDefersSlotMaterializationUntilAddReferences() {
     final long nodeKey = 1L;
     final int offset = (int) (nodeKey
         - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
@@ -591,21 +581,15 @@ class KeyValueLeafPageTest {
 
     keyValueLeafPage.setRecord(node);
 
-    assertTrue(keyValueLeafPage.hasProjectedFixedSlot(offset));
-    assertEquals(NodeKind.BOOLEAN_VALUE, keyValueLeafPage.getProjectedFixedSlotKind(offset));
+    assertSame(node, keyValueLeafPage.getRecord(offset));
+    assertNull(keyValueLeafPage.getSlot(offset));
 
-    final MemorySegment projectedSlot = keyValueLeafPage.getProjectedFixedSlot(offset);
-    assertNotNull(projectedSlot);
-
-    final var layout = NodeKindLayouts.layoutFor(NodeKind.BOOLEAN_VALUE);
-    assertEquals(7L, SlotLayoutAccessors.readLongField(projectedSlot, layout, StructuralField.PARENT_KEY));
-    assertEquals(9L, SlotLayoutAccessors.readLongField(projectedSlot, layout, StructuralField.RIGHT_SIBLING_KEY));
-    assertEquals(11L, SlotLayoutAccessors.readLongField(projectedSlot, layout, StructuralField.LEFT_SIBLING_KEY));
-    assertTrue(SlotLayoutAccessors.readBooleanField(projectedSlot, layout, StructuralField.BOOLEAN_VALUE));
+    keyValueLeafPage.addReferences(new ResourceConfiguration.Builder("testResource").build());
+    assertNotNull(keyValueLeafPage.getSlot(offset));
   }
 
   @Test
-  void testRawSlotWriteClearsProjectedFixedSlotWithoutMaterializedRecord() {
+  void testRawSlotWriteWithoutMaterializedRecord() {
     final long nodeKey = 1L;
     final int offset = (int) (nodeKey
         - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
@@ -613,13 +597,12 @@ class KeyValueLeafPageTest {
         new BooleanNode(nodeKey, 2L, 3, 4, 5L, 6L, 7L, false, LongHashFunction.xx3(), (byte[]) null);
 
     keyValueLeafPage.setRecord(node);
-    assertTrue(keyValueLeafPage.hasProjectedFixedSlot(offset));
 
     keyValueLeafPage.records()[offset] = null;
     keyValueLeafPage.setSlot(new byte[] { 1, 2, 3 }, offset);
 
-    assertFalse(keyValueLeafPage.hasProjectedFixedSlot(offset));
-    assertNull(keyValueLeafPage.getProjectedFixedSlotKind(offset));
-    assertNull(keyValueLeafPage.getProjectedFixedSlot(offset));
+    final MemorySegment slot = keyValueLeafPage.getSlot(offset);
+    assertNotNull(slot);
+    assertArrayEquals(new byte[] { 1, 2, 3 }, slot.toArray(ValueLayout.JAVA_BYTE));
   }
 }

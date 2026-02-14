@@ -9,13 +9,11 @@ import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
-import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
-import io.sirix.node.layout.NodeKindLayout;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
@@ -153,29 +151,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     } catch (NoSuchFieldException | IllegalAccessException e) {
       throw new ExceptionInInitializerError(e);
     }
-  }
-
-  private static int initializeProjectedFixedSlotMetadata() {
-    int maxProjectedSize = 0;
-
-    for (final NodeKind nodeKind : NODE_KINDS) {
-      final NodeKindLayout layout = nodeKind.layoutDescriptor();
-      if (!layout.isFixedSlotSupported() || layout.payloadRefCount() != 0) {
-        continue;
-      }
-
-      final int kindOrdinal = nodeKind.ordinal();
-      final int fixedSlotSize = layout.fixedSlotSizeInBytes();
-
-      PROJECTABLE_FIXED_SLOT_KIND[kindOrdinal] = true;
-      PROJECTED_FIXED_SLOT_SIZE_BY_KIND[kindOrdinal] = fixedSlotSize;
-
-      if (fixedSlotSize > maxProjectedSize) {
-        maxProjectedSize = fixedSlotSize;
-      }
-    }
-
-    return maxProjectedSize;
   }
 
   /**
@@ -325,32 +300,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private static final int BITMAP_WORDS = 16;
 
   /**
-   * Cached node kind descriptors for fast fixed-slot projection checks.
-   */
-  private static final NodeKind[] NODE_KINDS = NodeKind.values();
-
-  /**
-   * Sentinel for "no projected fixed-slot kind".
-   */
-  private static final byte NO_PROJECTED_KIND_ORDINAL = (byte) -1;
-
-  /**
-   * Whether a node kind can be projected into the fixed-slot sidecar.
-   * Only payload-free layouts are projected in this phase.
-   */
-  private static final boolean[] PROJECTABLE_FIXED_SLOT_KIND = new boolean[NODE_KINDS.length];
-
-  /**
-   * Projected fixed-slot size by node kind ordinal.
-   */
-  private static final int[] PROJECTED_FIXED_SLOT_SIZE_BY_KIND = new int[NODE_KINDS.length];
-
-  /**
-   * Fixed-slot sidecar stride for all slots (max projected layout width).
-   */
-  private static final int PROJECTED_FIXED_SLOT_STRIDE = initializeProjectedFixedSlotMetadata();
-
-  /**
    * Bitmap tracking which slots need preservation during lazy copy (16 longs = 1024 bits).
    * Used by DIFFERENTIAL, INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning.
    * Null means no preservation needed (e.g., INCREMENTAL non-full-dump or FULL versioning).
@@ -364,22 +313,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * slots that need preservation but weren't modified (records[i] == null).
    */
   private KeyValueLeafPage completePageRef;
-
-  /**
-   * Sidecar memory storing projected fixed-slot structural fields for payload-free node kinds.
-   * Allocated lazily on first projected write.
-   */
-  private MemorySegment projectedFixedSlotMemory;
-
-  /**
-   * Bitmap tracking slots with a projected fixed-slot sidecar entry.
-   */
-  private final long[] projectedFixedSlotBitmap;
-
-  /**
-   * Projected node kind ordinal per slot, or {@link #NO_PROJECTED_KIND_ORDINAL}.
-   */
-  private final byte[] projectedFixedSlotKindOrdinals;
 
   /**
    * The index type.
@@ -467,12 +400,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
     this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
     this.slotBitmap = new long[BITMAP_WORDS];  // All bits initially 0 (no slots populated)
-    this.projectedFixedSlotBitmap = new long[BITMAP_WORDS];
-    this.projectedFixedSlotKindOrdinals = new byte[Constants.NDP_NODE_COUNT];
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
     Arrays.fill(stringValueOffsets, -1);
-    Arrays.fill(projectedFixedSlotKindOrdinals, NO_PROJECTED_KIND_ORDINAL);
     this.doResizeMemorySegmentsIfNeeded = true;
     this.slotMemoryFreeSpaceStart = 0;
     this.lastSlotIndex = -1;
@@ -528,12 +458,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
     this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
     this.slotBitmap = new long[BITMAP_WORDS];  // Will be populated during deserialization
-    this.projectedFixedSlotBitmap = new long[BITMAP_WORDS];
-    this.projectedFixedSlotKindOrdinals = new byte[Constants.NDP_NODE_COUNT];
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
     Arrays.fill(stringValueOffsets, -1);
-    Arrays.fill(projectedFixedSlotKindOrdinals, NO_PROJECTED_KIND_ORDINAL);
     this.stringValueMemoryFreeSpaceStart = 0;
     this.lastStringValueIndex = -1;
     this.doResizeMemorySegmentsIfNeeded = true;
@@ -630,9 +557,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     
     // Build bitmap from provided slotOffsets for O(k) iteration
     this.slotBitmap = new long[BITMAP_WORDS];
-    this.projectedFixedSlotBitmap = new long[BITMAP_WORDS];
-    this.projectedFixedSlotKindOrdinals = new byte[Constants.NDP_NODE_COUNT];
-    Arrays.fill(projectedFixedSlotKindOrdinals, NO_PROJECTED_KIND_ORDINAL);
     for (int i = 0; i < slotOffsets.length; i++) {
       if (slotOffsets[i] >= 0) {
         slotBitmap[i >>> 6] |= (1L << (i & 63));
@@ -718,95 +642,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return records[offset];
   }
 
-  private void ensureProjectedFixedSlotMemory() {
-    if (PROJECTED_FIXED_SLOT_STRIDE == 0 || projectedFixedSlotMemory != null) {
-      return;
-    }
-
-    final long requiredBytes = (long) Constants.NDP_NODE_COUNT * PROJECTED_FIXED_SLOT_STRIDE;
-    projectedFixedSlotMemory = segmentAllocator.allocate(requiredBytes);
-  }
-
-  private void clearProjectedFixedSlot(final int slotNumber) {
-    final int wordIndex = slotNumber >>> 6;
-    final long bit = 1L << (slotNumber & 63);
-    final long currentWord = projectedFixedSlotBitmap[wordIndex];
-    if ((currentWord & bit) == 0 && projectedFixedSlotKindOrdinals[slotNumber] == NO_PROJECTED_KIND_ORDINAL) {
-      return;
-    }
-
-    projectedFixedSlotBitmap[wordIndex] = currentWord & ~bit;
-    projectedFixedSlotKindOrdinals[slotNumber] = NO_PROJECTED_KIND_ORDINAL;
-  }
-
-  private void copyProjectedFixedSlotFrom(final KeyValueLeafPage sourcePage, final int slotNumber) {
-    if (!sourcePage.hasProjectedFixedSlot(slotNumber) || sourcePage.projectedFixedSlotMemory == null) {
-      clearProjectedFixedSlot(slotNumber);
-      return;
-    }
-
-    final NodeKind nodeKind = sourcePage.getProjectedFixedSlotKind(slotNumber);
-    if (nodeKind == null) {
-      clearProjectedFixedSlot(slotNumber);
-      return;
-    }
-
-    final int nodeKindOrdinal = nodeKind.ordinal();
-    if (!PROJECTABLE_FIXED_SLOT_KIND[nodeKindOrdinal]) {
-      clearProjectedFixedSlot(slotNumber);
-      return;
-    }
-
-    ensureProjectedFixedSlotMemory();
-    if (projectedFixedSlotMemory == null) {
-      clearProjectedFixedSlot(slotNumber);
-      return;
-    }
-
-    final int fixedSlotSize = PROJECTED_FIXED_SLOT_SIZE_BY_KIND[nodeKindOrdinal];
-    final long sourceOffset = (long) slotNumber * PROJECTED_FIXED_SLOT_STRIDE;
-    final long targetOffset = sourceOffset;
-
-    MemorySegment.copy(sourcePage.projectedFixedSlotMemory,
-                       sourceOffset,
-                       projectedFixedSlotMemory,
-                       targetOffset,
-                       fixedSlotSize);
-
-    projectedFixedSlotBitmap[slotNumber >>> 6] |= (1L << (slotNumber & 63));
-    projectedFixedSlotKindOrdinals[slotNumber] = (byte) nodeKindOrdinal;
-  }
-
-  boolean hasProjectedFixedSlot(final int slotNumber) {
-    return (projectedFixedSlotBitmap[slotNumber >>> 6] & (1L << (slotNumber & 63))) != 0;
-  }
-
-  NodeKind getProjectedFixedSlotKind(final int slotNumber) {
-    final byte ordinal = projectedFixedSlotKindOrdinals[slotNumber];
-    if (ordinal == NO_PROJECTED_KIND_ORDINAL) {
-      return null;
-    }
-    final int nodeKindIndex = Byte.toUnsignedInt(ordinal);
-    if (nodeKindIndex >= NODE_KINDS.length) {
-      return null;
-    }
-    return NODE_KINDS[nodeKindIndex];
-  }
-
-  MemorySegment getProjectedFixedSlot(final int slotNumber) {
-    if (!hasProjectedFixedSlot(slotNumber) || projectedFixedSlotMemory == null) {
-      return null;
-    }
-
-    final NodeKind nodeKind = getProjectedFixedSlotKind(slotNumber);
-    if (nodeKind == null) {
-      return null;
-    }
-
-    final int fixedSlotSize = PROJECTED_FIXED_SLOT_SIZE_BY_KIND[nodeKind.ordinal()];
-    return projectedFixedSlotMemory.asSlice((long) slotNumber * PROJECTED_FIXED_SLOT_STRIDE, fixedSlotSize);
-  }
-
   @Override
   public void setRecord(@NonNull final DataRecord record) {
     addedReferences = false;
@@ -816,9 +651,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       inMemoryRecordCount++;
     }
     records[offset] = record;
-    // Write path no longer projects record objects into fixed-slot sidecars.
-    // Slot materialization happens through serialization paths (setSlot/processEntries).
-    clearProjectedFixedSlot(offset);
   }
 
   /**
@@ -1063,9 +895,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         // Same size - overwrite in place (fast path)
         slotMemory.set(ValueLayout.JAVA_INT, alignedOffset, dataSize);
         MemorySegment.copy(source, sourceOffset, slotMemory, alignedOffset + INT_SIZE, dataSize);
-        if (records[slotNumber] == null) {
-          clearProjectedFixedSlot(slotNumber);
-        }
         return;
       }
       sizeDelta = requiredSize - currentSize;
@@ -1101,10 +930,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Update free space tracking
     updateFreeSpaceStart(slotOffsets, slotMemory, true);
-
-    if (records[slotNumber] == null) {
-      clearProjectedFixedSlot(slotNumber);
-    }
   }
 
   private MemorySegment setData(Object data, int slotNumber, int[] offsets, MemorySegment memory) {
@@ -1162,10 +987,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
           MemorySegment.copy(data, 0, memory, ValueLayout.JAVA_BYTE, alignedOffset + INT_SIZE, dataSize);
         }
 
-        if (isSlotMemory && records[slotNumber] == null) {
-          clearProjectedFixedSlot(slotNumber);
-        }
-
         return null; // No resizing needed
       } else {
         // Calculate sizeDelta based on whether the new data is larger or smaller.
@@ -1210,10 +1031,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Update slotMemoryFreeSpaceStart after adding the slot.
     updateFreeSpaceStart(offsets, memory, isSlotMemory);
-
-    if (isSlotMemory && records[slotNumber] == null) {
-      clearProjectedFixedSlot(slotNumber);
-    }
 
     return resized ? memory : null;
   }
@@ -2094,17 +1911,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       stringValueMemory = null;
     }
 
-    if (projectedFixedSlotMemory != null && projectedFixedSlotMemory.byteSize() > 0) {
-      try {
-        segmentAllocator.release(projectedFixedSlotMemory);
-      } catch (Throwable e) {
-        LOGGER.debug("Failed to release projected fixed-slot memory for page {}: {}",
-                     recordPageKey,
-                     e.getMessage());
-      }
-      projectedFixedSlotMemory = null;
-    }
-    
     // Clear FSST symbol table
     fsstSymbolTable = null;
 
@@ -2113,8 +1919,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     inMemoryRecordCount = 0;
     demotionThreshold = MIN_DEMOTION_THRESHOLD;
     rematerializedRecordsSinceLastDemotion = 0;
-    Arrays.fill(projectedFixedSlotBitmap, 0L);
-    Arrays.fill(projectedFixedSlotKindOrdinals, NO_PROJECTED_KIND_ORDINAL);
     references.clear();
     bytes = null;
     hashCode = null;
@@ -2136,9 +1940,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
     if (stringValueMemory != null) {
       total += stringValueMemory.byteSize();
-    }
-    if (projectedFixedSlotMemory != null) {
-      total += projectedFixedSlotMemory.byteSize();
     }
     return total;
   }
@@ -2491,8 +2292,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     
     // Clear slot bitmap (all slots now empty)
     Arrays.fill(slotBitmap, 0L);
-    Arrays.fill(projectedFixedSlotBitmap, 0L);
-    Arrays.fill(projectedFixedSlotKindOrdinals, NO_PROJECTED_KIND_ORDINAL);
     
     // Reset free space pointers
     slotMemoryFreeSpaceStart = 0;
@@ -2545,7 +2344,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
               MemorySegment slotData = completePageRef.getSlot(slotIndex);
               if (slotData != null) {
                 setSlot(slotData, slotIndex);
-                copyProjectedFixedSlotFrom(completePageRef, slotIndex);
               }
 
               if (areDeweyIDsStored) {
@@ -2648,14 +2446,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
       if (records[i] != null) {
         continue;
-      }
-
-      // Fast reject: projected payload-free kinds can never contribute string payload samples.
-      if (hasProjectedFixedSlot(i)) {
-        final NodeKind projectedKind = getProjectedFixedSlotKind(i);
-        if (projectedKind != NodeKind.STRING_VALUE && projectedKind != NodeKind.OBJECT_STRING_VALUE) {
-          continue;
-        }
       }
 
       final MemorySegment slot = getSlot(i);
