@@ -31,15 +31,19 @@ package io.sirix.node.xml;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.brackit.query.atomic.QNm;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.node.BytesIn;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
+import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.xml.ImmutableNamespace;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
@@ -53,7 +57,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  *
  * @author Johannes Lichtenberger
  */
-public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node {
+public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, ReusableNodeProxy {
 
   // === PRIMITIVE FIELDS ===
   private long nodeKey;
@@ -195,6 +199,11 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node {
   @Override
   public void setDeweyID(SirixDeweyID id) { this.sirixDeweyID = id; this.deweyIDBytes = null; }
 
+  public void setDeweyIDBytes(byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   @Override
   public SirixDeweyID getDeweyID() {
     if (deweyIDBytes != null && sirixDeweyID == null) {
@@ -212,6 +221,28 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node {
   }
 
   public LongHashFunction getHashFunction() { return hashFunction; }
+
+  /**
+   * Populate this node from a BytesIn source for singleton reuse.
+   */
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
+      LongHashFunction hashFunction, ResourceConfiguration config) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
+
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.prefixKey = DeltaVarIntCodec.decodeSigned(source);
+    this.localNameKey = DeltaVarIntCodec.decodeSigned(source);
+    this.uriKey = DeltaVarIntCodec.decodeSigned(source);
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
+
+    // Namespace hash is not serialized; keep it invalidated for lazy recompute.
+    this.hash = 0L;
+  }
 
   @Override
   public long computeHash(BytesOut<?> bytes) {

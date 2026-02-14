@@ -11,6 +11,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.SirixDeweyID;
@@ -42,7 +43,7 @@ import static java.util.concurrent.Executors.newScheduledThreadPool;
  * @author Joao Sousa
  */
 public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor, NF extends NodeFactory, N extends ImmutableNode, IN extends InternalNodeReadOnlyTrx<N>>
-    implements NodeReadOnlyTrx, InternalNodeTrx<W>, NodeCursor {
+    implements InternalNodeTrx<W>, NodeCursor {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractNodeTrxImpl.class);
 
@@ -265,11 +266,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @Override
   public void adaptHashesInPostorderTraversal() {
     if (hashType != HashType.NONE) {
-      final long nodeKey = getCurrentNode().getNodeKey();
+      final long nodeKey = nodeReadOnlyTrx.getNodeKey();
       postOrderTraversalHashes();
-      final ImmutableNode startNode = getCurrentNode();
+      final ImmutableNode startNode = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
       moveToParent();
-      while (getCurrentNode().hasParent()) {
+      while (nodeReadOnlyTrx.hasParent()) {
         moveToParent();
         nodeHashing.addParentHash(startNode);
       }
@@ -616,7 +617,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @Override
   public SirixDeweyID getDeweyID() {
     nodeReadOnlyTrx.assertNotClosed();
-    return getCurrentNode().getDeweyID();
+    return nodeReadOnlyTrx.getDeweyID();
   }
 
   @Override

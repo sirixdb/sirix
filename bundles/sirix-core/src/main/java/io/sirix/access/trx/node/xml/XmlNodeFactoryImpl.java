@@ -8,8 +8,12 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
-import io.sirix.node.delegates.ValueNodeDelegate;
-import io.sirix.node.xml.*;
+import io.sirix.node.xml.AttributeNode;
+import io.sirix.node.xml.CommentNode;
+import io.sirix.node.xml.ElementNode;
+import io.sirix.node.xml.NamespaceNode;
+import io.sirix.node.xml.PINode;
+import io.sirix.node.xml.TextNode;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -48,6 +52,18 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   private final int revisionNumber;
 
   /**
+   * Transaction-local reusable proxies for non-structural XML hot paths.
+   */
+  private final AttributeNode reusableAttributeNode;
+  private final NamespaceNode reusableNamespaceNode;
+  private final PINode reusablePINode;
+  private final TextNode reusableTextNode;
+  private final CommentNode reusableCommentNode;
+  private final LongArrayList reusableElementAttributeKeys;
+  private final LongArrayList reusableElementNamespaceKeys;
+  private final ElementNode reusableElementNode;
+
+  /**
    * Constructor.
    *
    * @param hashFunction the hash function used for hashing nodes
@@ -61,6 +77,218 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     this.pageTrx.createNameKey("xs:untyped", NodeKind.PROCESSING_INSTRUCTION);
     this.hashFunction = requireNonNull(hashFunction);
     this.revisionNumber = pageWriteTrx.getRevisionNumber();
+    this.reusableElementAttributeKeys = new LongArrayList();
+    this.reusableElementNamespaceKeys = new LongArrayList();
+    this.reusableElementNode = new ElementNode(0,
+                                               0,
+                                               Constants.NULL_REVISION_NUMBER,
+                                               revisionNumber,
+                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                               0,
+                                               0,
+                                               0,
+                                               0,
+                                               -1,
+                                               -1,
+                                               -1,
+                                               hashFunction,
+                                               (SirixDeweyID) null,
+                                               reusableElementAttributeKeys,
+                                               reusableElementNamespaceKeys,
+                                               new QNm(""));
+    this.reusableAttributeNode = new AttributeNode(0,
+                                                   0,
+                                                   Constants.NULL_REVISION_NUMBER,
+                                                   revisionNumber,
+                                                   0,
+                                                   -1,
+                                                   -1,
+                                                   -1,
+                                                   0,
+                                                   new byte[0],
+                                                   hashFunction,
+                                                   (SirixDeweyID) null,
+                                                   new QNm(""));
+    this.reusableNamespaceNode = new NamespaceNode(0,
+                                                   0,
+                                                   Constants.NULL_REVISION_NUMBER,
+                                                   revisionNumber,
+                                                   0,
+                                                   -1,
+                                                   -1,
+                                                   -1,
+                                                   0,
+                                                   hashFunction,
+                                                   (SirixDeweyID) null,
+                                                   new QNm(""));
+    this.reusablePINode = new PINode(0,
+                                     0,
+                                     Constants.NULL_REVISION_NUMBER,
+                                     revisionNumber,
+                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                     0,
+                                     0,
+                                     0,
+                                     0,
+                                     -1,
+                                     -1,
+                                     -1,
+                                     new byte[0],
+                                     false,
+                                     hashFunction,
+                                     (SirixDeweyID) null,
+                                     new QNm(""));
+    this.reusableTextNode = new TextNode(0,
+                                         0,
+                                         Constants.NULL_REVISION_NUMBER,
+                                         revisionNumber,
+                                         Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                         Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                         0,
+                                         new byte[0],
+                                         false,
+                                         hashFunction,
+                                         (SirixDeweyID) null);
+    this.reusableCommentNode = new CommentNode(0,
+                                               0,
+                                               Constants.NULL_REVISION_NUMBER,
+                                               revisionNumber,
+                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                               0,
+                                               new byte[0],
+                                               false,
+                                               hashFunction,
+                                               (SirixDeweyID) null);
+  }
+
+  private long nextNodeKey() {
+    return pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+  }
+
+  private AttributeNode bindAttributeNode(final long nodeKey, final long parentKey, final QNm name, final byte[] value,
+      final long pathNodeKey, final int prefixKey, final int localNameKey, final int uriKey, final SirixDeweyID id) {
+    final AttributeNode node = reusableAttributeNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPathNodeKey(pathNodeKey);
+    node.setPrefixKey(prefixKey);
+    node.setLocalNameKey(localNameKey);
+    node.setURIKey(uriKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setRawValue(value);
+    node.setHash(0);
+    node.setName(name);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private NamespaceNode bindNamespaceNode(final long nodeKey, final long parentKey, final QNm name,
+      final long pathNodeKey, final int prefixKey, final int uriKey, final SirixDeweyID id) {
+    final NamespaceNode node = reusableNamespaceNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPathNodeKey(pathNodeKey);
+    node.setPrefixKey(prefixKey);
+    node.setLocalNameKey(-1);
+    node.setURIKey(uriKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setHash(0);
+    node.setName(name);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private PINode bindPINode(final long nodeKey, final long parentKey, final long leftSibKey,
+      final long rightSibKey, final QNm target, final byte[] content, final long pathNodeKey, final int prefixKey,
+      final int localNameKey, final int uriKey, final boolean isCompressed, final SirixDeweyID id) {
+    final PINode node = reusablePINode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setRightSiblingKey(rightSibKey);
+    node.setLeftSiblingKey(leftSibKey);
+    node.setFirstChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
+    node.setLastChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
+    node.setChildCount(0);
+    node.setDescendantCount(0);
+    node.setPathNodeKey(pathNodeKey);
+    node.setPrefixKey(prefixKey);
+    node.setLocalNameKey(localNameKey);
+    node.setURIKey(uriKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setRawValue(content);
+    node.setCompressed(isCompressed);
+    node.setHash(0);
+    node.setName(target);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private ElementNode bindElementNode(final long nodeKey, final long parentKey, final long leftSibKey,
+      final long rightSibKey, final QNm name, final long pathNodeKey, final int prefixKey, final int localNameKey,
+      final int uriKey, final SirixDeweyID id) {
+    reusableElementAttributeKeys.clear();
+    reusableElementNamespaceKeys.clear();
+    final ElementNode node = reusableElementNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setRightSiblingKey(rightSibKey);
+    node.setLeftSiblingKey(leftSibKey);
+    node.setFirstChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
+    node.setLastChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
+    node.setChildCount(0);
+    node.setDescendantCount(0);
+    node.setPathNodeKey(pathNodeKey);
+    node.setPrefixKey(prefixKey);
+    node.setLocalNameKey(localNameKey);
+    node.setURIKey(uriKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setHash(0);
+    node.setName(name);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private TextNode bindTextNode(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
+      final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
+    final TextNode node = reusableTextNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setRightSiblingKey(rightSibKey);
+    node.setLeftSiblingKey(leftSibKey);
+    node.setRawValue(value);
+    node.setCompressed(isCompressed);
+    node.setHash(0);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private CommentNode bindCommentNode(final long nodeKey, final long parentKey, final long leftSibKey,
+      final long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
+    final CommentNode node = reusableCommentNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setRightSiblingKey(rightSibKey);
+    node.setLeftSiblingKey(leftSibKey);
+    node.setRawValue(value);
+    node.setCompressed(isCompressed);
+    node.setHash(0);
+    node.setDeweyID(id);
+    return node;
   }
 
   @Override
@@ -101,59 +329,23 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
                                                                                         NodeKind.ELEMENT) : -1;
     final int localNameKey = pageTrx.createNameKey(name.getLocalName(), NodeKind.ELEMENT);
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-
-    final var config = pageTrx.getResourceSession().getResourceConfig();
-    
-    // Create ElementNode with primitive fields
-    var node = new ElementNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,      // previousRevision
-        revisionNumber,                       // lastModifiedRevision
-        rightSibKey,
-        leftSibKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(),  // firstChild
-        Fixed.NULL_NODE_KEY.getStandardProperty(),  // lastChild
-        0,                                    // childCount
-        0,                                    // descendantCount
-        0,                                    // hash
-        pathNodeKey,
-        prefixKey,
-        localNameKey,
-        uriKey,
-        config.nodeHashFunction,
-        id,
-        new LongArrayList(),                  // attributeKeys
-        new LongArrayList(),                  // namespaceKeys
-        name);
-
+    final long nodeKey = nextNodeKey();
+    final ElementNode node =
+        bindElementNode(nodeKey, parentKey, leftSibKey, rightSibKey, name, pathNodeKey, prefixKey, localNameKey,
+                        uriKey, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public TextNode createTextNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
       final @NonNegative long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    final long nodeKey = nextNodeKey();
     
     // Compress value if needed
     final boolean compression = isCompressed && value.length > 10;
     final byte[] compressedValue = compression ? Compression.compress(value, Deflater.HUFFMAN_ONLY) : value;
     
-    // Create TextNode with primitive fields
-    var node = new TextNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,       // previousRevision
-        revisionNumber,                        // lastModifiedRevision
-        rightSibKey,
-        leftSibKey,
-        0,                                     // hash
-        compressedValue,
-        compression,
-        hashFunction,
-        id);
-
+    final TextNode node = bindTextNode(nodeKey, parentKey, leftSibKey, rightSibKey, compressedValue, compression, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
@@ -165,24 +357,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
                                                                                         NodeKind.ATTRIBUTE) : -1;
     final int localNameKey = pageTrx.createNameKey(name.getLocalName(), NodeKind.ATTRIBUTE);
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-
-    // Create AttributeNode with primitive fields
-    var node = new AttributeNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,              // previousRevision
-        revisionNumber,                               // lastModifiedRevision
-        pathNodeKey,
-        prefixKey,
-        localNameKey,
-        uriKey,
-        0,                                            // hash
-        value,
-        hashFunction,
-        id,
-        name);
-
+    final long nodeKey = nextNodeKey();
+    final AttributeNode node =
+        bindAttributeNode(nodeKey, parentKey, name, value, pathNodeKey, prefixKey, localNameKey, uriKey, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
@@ -194,24 +371,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
                                                                                         NodeKind.NAMESPACE) : -1;
 
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-
-    // Allocate MemorySegment and write all fields matching NamespaceNode.CORE_LAYOUT order
-    // Create NamespaceNode with primitive fields
-    var node = new NamespaceNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,              // previousRevision
-        revisionNumber,                               // lastModifiedRevision
-        pathNodeKey,
-        prefixKey,
-        -1,                                           // localNameKey (not used for namespaces)
-        uriKey,
-        0,                                            // hash
-        hashFunction,
-        id,
-        name);
-
+    final long nodeKey = nextNodeKey();
+    final NamespaceNode node = bindNamespaceNode(nodeKey, parentKey, name, pathNodeKey, prefixKey, uriKey, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
@@ -226,57 +387,36 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
             : -1;
     final int localNameKey = pageTrx.createNameKey(target.getLocalName(), NodeKind.PROCESSING_INSTRUCTION);
     final int uriKey = pageTrx.createNameKey(target.getNamespaceURI(), NodeKind.NAMESPACE);
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-
-    // Create PINode with primitive fields
-    var node = new PINode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,                          // previousRevision
-        revisionNumber,                                           // lastModifiedRevision
-        rightSibKey,
-        leftSibKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(),               // firstChild
-        Fixed.NULL_NODE_KEY.getStandardProperty(),               // lastChild
-        0,                                                        // childCount
-        0,                                                        // descendantCount
-        0,                                                        // hash
-        pathNodeKey,
-        prefixKey,
-        localNameKey,
-        uriKey,
-        content,
-        false,                                                    // isCompressed
-        hashFunction,
-        id,
-        target);
-
+    final long nodeKey = nextNodeKey();
+    final boolean compression = isCompressed && content.length > 10;
+    final byte[] compressedContent = compression ? Compression.compress(content, Deflater.HUFFMAN_ONLY) : content;
+    final PINode node =
+        bindPINode(nodeKey,
+                   parentKey,
+                   leftSibKey,
+                   rightSibKey,
+                   target,
+                   compressedContent,
+                   pathNodeKey,
+                   prefixKey,
+                   localNameKey,
+                   uriKey,
+                   compression,
+                   id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public CommentNode createCommentNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
       final @NonNegative long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    final long nodeKey = nextNodeKey();
     
     // Compress value if needed
     final boolean compression = isCompressed && value.length > 10;
     final byte[] compressedValue = compression ? Compression.compress(value, Deflater.HUFFMAN_ONLY) : value;
     
-    // Create CommentNode with primitive fields
-    var node = new CommentNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,       // previousRevision
-        revisionNumber,                        // lastModifiedRevision
-        rightSibKey,
-        leftSibKey,
-        0,                                     // hash
-        compressedValue,
-        compression,
-        hashFunction,
-        id);
-
+    final CommentNode node =
+        bindCommentNode(nodeKey, parentKey, leftSibKey, rightSibKey, compressedValue, compression, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 }

@@ -30,14 +30,20 @@ package io.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.DeltaVarIntCodec;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.xml.ImmutableComment;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
@@ -49,6 +55,8 @@ import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.lang.foreign.MemorySegment;
+
 /**
  * Comment node implementation using primitive fields.
  *
@@ -56,7 +64,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  *
  * @author Johannes Lichtenberger
  */
-public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNode {
+public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNode, ReusableNodeProxy {
 
   // === IMMEDIATE STRUCTURAL FIELDS ===
   private long nodeKey;
@@ -72,6 +80,11 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   // === VALUE FIELD ===
   private byte[] value;
   private boolean isCompressed;
+  private Object lazyValueSource;
+  private long lazyValueOffset;
+  private int lazyValueLength;
+  private boolean lazyValueCompressed;
+  private boolean valueParsed = true;
 
   // === NON-SERIALIZED FIELDS ===
   private LongHashFunction hashFunction;
@@ -210,6 +223,9 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
 
   @Override
   public byte[] getRawValue() {
+    if (!valueParsed) {
+      parseLazyValue();
+    }
     if (value != null && isCompressed) {
       value = Compression.decompress(value);
       isCompressed = false;
@@ -220,8 +236,28 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   @Override
   public void setRawValue(byte[] value) {
     this.value = value;
+    this.valueParsed = true;
+    this.lazyValueSource = null;
+    this.lazyValueOffset = 0L;
+    this.lazyValueLength = 0;
+    this.lazyValueCompressed = false;
     this.isCompressed = false;
     this.hash = 0L;
+  }
+
+  public void setLazyRawValue(Object source, long valueOffset, int valueLength, boolean compressed) {
+    this.lazyValueSource = source;
+    this.lazyValueOffset = valueOffset;
+    this.lazyValueLength = valueLength;
+    this.lazyValueCompressed = compressed;
+    this.value = null;
+    this.valueParsed = false;
+    this.isCompressed = compressed;
+    this.hash = 0L;
+  }
+
+  public void setCompressed(boolean compressed) {
+    this.isCompressed = compressed;
   }
 
   @Override
@@ -319,6 +355,11 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     this.deweyIDBytes = null;
   }
 
+  public void setDeweyIDBytes(byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   @Override
   public SirixDeweyID getDeweyID() {
     if (deweyIDBytes != null && sirixDeweyID == null) {
@@ -337,6 +378,67 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
 
   public LongHashFunction getHashFunction() {
     return hashFunction;
+  }
+
+  /**
+   * Populate this node from a BytesIn source for singleton reuse.
+   */
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
+      LongHashFunction hashFunction, ResourceConfiguration config) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
+
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
+
+    final boolean compressed = source.readByte() == (byte) 1;
+    final int valueLength = DeltaVarIntCodec.decodeSigned(source);
+    final long valueOffset = source.position();
+    setLazyRawValue(source.getSource(), valueOffset, valueLength, compressed);
+    source.position(valueOffset + valueLength);
+
+    // Comment hash is not serialized; keep it invalidated for lazy recompute.
+    this.hash = 0L;
+  }
+
+  private void parseLazyValue() {
+    if (valueParsed) {
+      return;
+    }
+
+    if (lazyValueSource == null) {
+      valueParsed = true;
+      return;
+    }
+
+    final BytesIn<?> bytesIn = createBytesIn(lazyValueSource, lazyValueOffset);
+    final byte[] parsedValue = new byte[lazyValueLength];
+    if (lazyValueLength > 0) {
+      bytesIn.read(parsedValue, 0, lazyValueLength);
+    }
+    value = parsedValue;
+    isCompressed = lazyValueCompressed;
+    valueParsed = true;
+    lazyValueSource = null;
+  }
+
+  private static BytesIn<?> createBytesIn(Object source, long offset) {
+    if (source instanceof MemorySegment segment) {
+      final var bytesIn = new MemorySegmentBytesIn(segment);
+      bytesIn.position(offset);
+      return bytesIn;
+    }
+    if (source instanceof byte[] bytes) {
+      final var bytesIn = new ByteArrayBytesIn(bytes);
+      bytesIn.position(offset);
+      return bytesIn;
+    }
+    throw new IllegalStateException("Unknown lazy source type: " + source.getClass());
   }
 
   public boolean isCompressed() {
@@ -364,9 +466,10 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   }
 
   public CommentNode toSnapshot() {
+    final byte[] rawValue = getRawValue();
     return new CommentNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, hash,
-        value != null ? value.clone() : null, isCompressed,
+        rawValue != null ? rawValue.clone() : null, isCompressed,
         hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null);
   }

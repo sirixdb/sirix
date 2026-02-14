@@ -23,9 +23,12 @@ package io.sirix.node.json;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
@@ -355,6 +358,24 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
    */
   public LongHashFunction getHashFunction() {
     return hashFunction;
+  }
+
+  /**
+   * Populate this node from a BytesIn source for singleton reuse.
+   */
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
+      LongHashFunction hashFunction, ResourceConfiguration config) {
+    final long firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+
+    this.nodeKey = Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
+    this.firstChildKey = firstChildKey;
+    this.lastChildKey = firstChildKey;
+    this.childCount = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty() ? 0L : 1L;
+    this.descendantCount = DeltaVarIntCodec.decodeSignedLong(source);
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
+    this.hash = 0L;
   }
 
   /**

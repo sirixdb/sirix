@@ -197,17 +197,15 @@ public final class JsonNodeReadOnlyTrxImpl
   @Override
   public String getValue() {
     assertNotClosed();
-
-    final var currentNode = getCurrentNode();
     // $CASES-OMITTED$
-    return switch (currentNode.getKind()) {
+    return switch (getKind()) {
       case OBJECT_STRING_VALUE, STRING_VALUE ->
-          new String(((ValueNode) currentNode).getRawValue(), Constants.DEFAULT_ENCODING);
-      case OBJECT_BOOLEAN_VALUE -> String.valueOf(((ObjectBooleanNode) currentNode).getValue());
-      case BOOLEAN_VALUE -> String.valueOf(((BooleanNode) currentNode).getValue());
+          new String(((ValueNode) getStructuralNode()).getRawValue(), Constants.DEFAULT_ENCODING);
+      case OBJECT_BOOLEAN_VALUE -> String.valueOf(((ObjectBooleanNode) getStructuralNode()).getValue());
+      case BOOLEAN_VALUE -> String.valueOf(((BooleanNode) getStructuralNode()).getValue());
       case OBJECT_NULL_VALUE, NULL_VALUE -> "null";
-      case OBJECT_NUMBER_VALUE -> String.valueOf(((ObjectNumberNode) currentNode).getValue());
-      case NUMBER_VALUE -> String.valueOf(((NumberNode) currentNode).getValue());
+      case OBJECT_NUMBER_VALUE -> String.valueOf(((ObjectNumberNode) getStructuralNode()).getValue());
+      case NUMBER_VALUE -> String.valueOf(((NumberNode) getStructuralNode()).getValue());
       default -> "";
     };
   }
@@ -216,22 +214,22 @@ public final class JsonNodeReadOnlyTrxImpl
   public boolean getBooleanValue() {
     assertNotClosed();
 
-    final var currentNode = getCurrentNode();
-    if (currentNode.getKind() == NodeKind.BOOLEAN_VALUE)
-      return ((BooleanNode) currentNode).getValue();
-    else if (currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE)
-      return ((ObjectBooleanNode) currentNode).getValue();
+    final NodeKind kind = getKind();
+    if (kind == NodeKind.BOOLEAN_VALUE)
+      return ((BooleanNode) getStructuralNode()).getValue();
+    else if (kind == NodeKind.OBJECT_BOOLEAN_VALUE)
+      return ((ObjectBooleanNode) getStructuralNode()).getValue();
     throw new IllegalStateException("Current node is no boolean node.");
   }
 
   @Override
   public Number getNumberValue() {
     assertNotClosed();
-    final var currentNode = getCurrentNode();
-    if (currentNode.getKind() == NodeKind.NUMBER_VALUE)
-      return ((NumberNode) currentNode).getValue();
-    else if (currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE)
-      return ((ObjectNumberNode) currentNode).getValue();
+    final NodeKind kind = getKind();
+    if (kind == NodeKind.NUMBER_VALUE)
+      return ((NumberNode) getStructuralNode()).getValue();
+    else if (kind == NodeKind.OBJECT_NUMBER_VALUE)
+      return ((ObjectNumberNode) getStructuralNode()).getValue();
     throw new IllegalStateException("Current node is no number node.");
   }
 
@@ -245,7 +243,7 @@ public final class JsonNodeReadOnlyTrxImpl
   public ImmutableNode getNode() {
     assertNotClosed();
 
-    final var currentNode = getCurrentNode();
+    final var currentNode = getStructuralNode();
     // $CASES-OMITTED$
     return switch (currentNode.getKind()) {
       case OBJECT -> ImmutableObjectNode.of((ObjectNode) currentNode);
@@ -328,16 +326,15 @@ public final class JsonNodeReadOnlyTrxImpl
   public QNm getName() {
     assertNotClosed();
 
-    final var currentNode = getCurrentNode();
-    if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
-      final var currentObjectKeyNode = (ObjectKeyNode) currentNode;
+    if (getKind() == NodeKind.OBJECT_KEY) {
+      final var currentObjectKeyNode = (ObjectKeyNode) getStructuralNode();
       if (currentObjectKeyNode.getName() != null) {
         return currentObjectKeyNode.getName();
       }
 
       final int nameKey = currentObjectKeyNode.getNameKey();
-      final String localName = nameKey == -1 ? "" : pageReadOnlyTrx.getName(nameKey, currentNode.getKind());
-      ((ObjectKeyNode) currentNode).setName(localName);
+      final String localName = nameKey == -1 ? "" : pageReadOnlyTrx.getName(nameKey, NodeKind.OBJECT_KEY);
+      currentObjectKeyNode.setName(localName);
       return new QNm(localName);
     }
 
@@ -347,15 +344,14 @@ public final class JsonNodeReadOnlyTrxImpl
   @Override
   public VisitResult acceptVisitor(final JsonNodeVisitor visitor) {
     assertNotClosed();
-    return ((ImmutableJsonNode) getCurrentNode()).acceptVisitor(visitor);
+    return ((ImmutableJsonNode) getStructuralNode()).acceptVisitor(visitor);
   }
 
   @Override
   public int getNameKey() {
     assertNotClosed();
-    final var currentNode = getCurrentNode();
-    if (currentNode.getKind() == NodeKind.OBJECT_KEY) {
-      return ((ObjectKeyNode) currentNode).getNameKey();
+    if (getKind() == NodeKind.OBJECT_KEY) {
+      return ((ObjectKeyNode) getStructuralNode()).getNameKey();
     }
     return -1;
   }
@@ -364,7 +360,7 @@ public final class JsonNodeReadOnlyTrxImpl
   public String toString() {
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
     helper.add("Revision number", getRevisionNumber());
-    final var currentNode = getCurrentNode();
+    final var currentNode = getStructuralNode();
     final var name = getName();
     if (currentNode.getKind() == NodeKind.OBJECT_KEY && name != null) {
       helper.add("Name of Node", name.toString());

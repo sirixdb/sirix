@@ -23,13 +23,11 @@ package io.sirix.node.xml;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.NodeTestHelper;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
-import io.brackit.query.atomic.QNm;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -82,57 +80,42 @@ public class ElementNodeTest {
         .storeChildCount(true)
         .build();
 
-    // Create data in the correct serialization format with size prefix and padding
-    // Format: [NodeKind][4-byte size][3-byte padding][NodeDelegate + StructNode + NameNode fields + attributes + namespaces][end padding]
+    // Create data in the structural delta/varint format.
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
-    
-    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.ELEMENT);
-    long startPos = data.writePosition();
-    
-    // Write NodeDelegate fields (16 bytes)
-    data.writeLong(14);                              // parentKey - offset 0
-    data.writeInt(Constants.NULL_REVISION_NUMBER);   // previousRevision - offset 8
-    data.writeInt(0);                                // lastModifiedRevision - offset 12
-    
-    // Write StructNode fields (32 bytes)
-    data.writeLong(17L);                             // rightSiblingKey - offset 16
-    data.writeLong(16L);                             // leftSiblingKey - offset 24
-    data.writeLong(12L);                             // firstChildKey - offset 32
-    data.writeLong(12L);                             // lastChildKey - offset 40
-    
-    // Write NameNode fields (20 bytes)
-    data.writeLong(1L);                              // pathNodeKey - offset 48
-    data.writeInt(18);                               // prefixKey - offset 56
-    data.writeInt(19);                               // localNameKey - offset 60
-    data.writeInt(17);                               // uriKey - offset 64
-    
-    // Write optional fields
+
+    final long nodeKey = 13L;
+    data.writeByte(NodeKind.ELEMENT.getId());
+    DeltaVarIntCodec.encodeDelta(data, 14L, nodeKey); // parentKey
+    DeltaVarIntCodec.encodeDelta(data, 17L, nodeKey); // rightSiblingKey
+    DeltaVarIntCodec.encodeDelta(data, 16L, nodeKey); // leftSiblingKey
+    DeltaVarIntCodec.encodeDelta(data, 12L, nodeKey); // firstChildKey
+    DeltaVarIntCodec.encodeDelta(data, 12L, nodeKey); // lastChildKey
+    DeltaVarIntCodec.encodeDelta(data, 1L, nodeKey);  // pathNodeKey
+    DeltaVarIntCodec.encodeSigned(data, 18);          // prefixKey
+    DeltaVarIntCodec.encodeSigned(data, 19);          // localNameKey
+    DeltaVarIntCodec.encodeSigned(data, 17);          // uriKey
+    DeltaVarIntCodec.encodeSigned(data, Constants.NULL_REVISION_NUMBER);
+    DeltaVarIntCodec.encodeSigned(data, 0);           // lastModifiedRevision
+
     if (config.storeChildCount()) {
-      data.writeLong(1L);                            // childCount - offset 68
+      DeltaVarIntCodec.encodeSigned(data, 1);        // childCount
     }
     if (config.hashType != HashType.NONE) {
-      data.writeLong(0);                             // hash placeholder - offset 76
-      data.writeLong(0);                             // descendantCount - offset 84
+      data.writeLong(0);                             // hash
+      DeltaVarIntCodec.encodeSigned(data, 0);        // descendantCount
     }
-    
-    // Write attributes list
-    data.writeInt(2);                                // attribute count
-    data.writeLong(97);                              // attribute key 1
-    data.writeLong(98);                              // attribute key 2
-    
-    // Write namespaces list
-    data.writeInt(2);                                // namespace count
-    data.writeLong(99);                              // namespace key 1
-    data.writeLong(100);                             // namespace key 2
-    
-    // Finalize AFTER writing attributes and namespaces
-    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+    DeltaVarIntCodec.encodeSigned(data, 2);          // attribute count
+    DeltaVarIntCodec.encodeDelta(data, 97L, nodeKey);
+    DeltaVarIntCodec.encodeDelta(data, 98L, nodeKey);
+    DeltaVarIntCodec.encodeSigned(data, 2);          // namespace count
+    DeltaVarIntCodec.encodeDelta(data, 99L, nodeKey);
+    DeltaVarIntCodec.encodeDelta(data, 100L, nodeKey);
     
     // Deserialize to create properly initialized node
     var bytesIn = data.asBytesIn();
     bytesIn.readByte(); // Skip NodeKind byte
     final ElementNode node = (ElementNode) NodeKind.ELEMENT.deserialize(
-        bytesIn, 13L, SirixDeweyID.newRootID().toBytes(), config);
+        bytesIn, nodeKey, SirixDeweyID.newRootID().toBytes(), config);
     
     // Compute and set hash
     var hashBytes = Bytes.elasticOffHeapByteBuffer();

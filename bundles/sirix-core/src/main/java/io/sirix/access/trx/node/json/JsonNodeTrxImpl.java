@@ -25,9 +25,9 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Item;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.ValidTimeConfig;
 import io.sirix.access.trx.node.*;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.api.StorageEngineWriter;
@@ -50,14 +50,11 @@ import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.immutable.json.ImmutableArrayNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.interfaces.BooleanValueNode;
 import io.sirix.node.interfaces.NumericValueNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
-import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.*;
 import io.sirix.page.NamePage;
@@ -160,6 +157,9 @@ final class JsonNodeTrxImpl extends
    */
   private static final String INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE =
       "Insert is not allowed if parent node is not an array node!";
+
+  private static final Str STR_TRUE = new Str("true");
+  private static final Str STR_FALSE = new Str("false");
 
   /**
    * Constructor.
@@ -273,13 +273,13 @@ final class JsonNodeTrxImpl extends
 
     // Create index for validFrom path
     final var validFromPath = validTimeConfig.getNormalizedValidFromPath();
-    final var validFromPaths = Set.of(io.brackit.query.util.path.Path.<io.brackit.query.atomic.QNm>parse(validFromPath,
+    final var validFromPaths = Set.of(io.brackit.query.util.path.Path.parse(validFromPath,
         io.brackit.query.util.path.PathParser.Type.JSON));
     indexDefs.add(io.sirix.index.IndexDefs.createCASIdxDef(false, dateTimeType, validFromPaths, 0, IndexDef.DbType.JSON));
 
     // Create index for validTo path
     final var validToPath = validTimeConfig.getNormalizedValidToPath();
-    final var validToPaths = Set.of(io.brackit.query.util.path.Path.<io.brackit.query.atomic.QNm>parse(validToPath,
+    final var validToPaths = Set.of(io.brackit.query.util.path.Path.parse(validToPath,
         io.brackit.query.util.path.PathParser.Type.JSON));
     indexDefs.add(io.sirix.index.IndexDefs.createCASIdxDef(false, dateTimeType, validToPaths, 1, IndexDef.DbType.JSON));
 
@@ -437,7 +437,7 @@ final class JsonNodeTrxImpl extends
         if (isAutoCommitting) {
           nodeHashing.setAutoCommit(true);
         }
-        var nodeKey = getCurrentNode().getNodeKey();
+        final long nodeKey = getNodeKey();
         final var shredderBuilder = new JsonShredder.Builder(this, reader, insertionPosition);
 
         if (skipRootJsonToken == SkipRootToken.YES) {
@@ -624,7 +624,7 @@ final class JsonNodeTrxImpl extends
         if (isAutoCommitting) {
           nodeHashing.setAutoCommit(true);
         }
-        var nodeKey = getCurrentNode().getNodeKey();
+        final long nodeKey = getNodeKey();
         
         // Create a wrapper parser that replays the peeked token
         final var wrappedParser = new PeekedTokenJsonParser(parser, peekedToken);
@@ -831,7 +831,7 @@ final class JsonNodeTrxImpl extends
       if (isAutoCommitting) {
         nodeHashing.setAutoCommit(true);
       }
-      var nodeKey = getCurrentNode().getNodeKey();
+      final long nodeKey = getNodeKey();
       final var shredderBuilder = new JsonItemShredder.Builder(this, item, insertionPosition);
 
       if (skipRootJsonToken == SkipRootToken.YES) {
@@ -1086,7 +1086,7 @@ final class JsonNodeTrxImpl extends
 
       nodeReadOnlyTrx.setCurrentNode(node);
 
-      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
 
       insertValue(value);
 
@@ -1147,7 +1147,7 @@ final class JsonNodeTrxImpl extends
 
       nodeReadOnlyTrx.setCurrentNode(node);
 
-      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
 
       insertValue(value);
 
@@ -1367,7 +1367,7 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
 
-      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
@@ -1417,7 +1417,7 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
 
-      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
@@ -1445,7 +1445,7 @@ final class JsonNodeTrxImpl extends
       checkAccessAndCommit();
       checkPrecondition();
 
-      final StructNode currentNode = (StructNode) getCurrentNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
 
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getLeftSiblingKey();
@@ -1487,7 +1487,7 @@ final class JsonNodeTrxImpl extends
       checkAccessAndCommit();
       checkPrecondition();
 
-      final StructNode currentNode = (StructNode) getCurrentNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
 
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getNodeKey();
@@ -1544,9 +1544,7 @@ final class JsonNodeTrxImpl extends
       moveTo(nodeKey);
       insertValue(value);
 
-      final ImmutableNode node = getCurrentNode();
-
-      adaptUpdateOperationsForReplace(node.getDeweyID(), oldValueNodeKey, node.getNodeKey());
+      adaptUpdateOperationsForReplace(getDeweyID(), oldValueNodeKey, getNodeKey());
 
       return this;
     } finally {
@@ -1595,7 +1593,7 @@ final class JsonNodeTrxImpl extends
       adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
 
       // Index text value.
-      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
@@ -1654,7 +1652,7 @@ final class JsonNodeTrxImpl extends
       adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
 
       // Index text value.
-      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
@@ -1704,7 +1702,7 @@ final class JsonNodeTrxImpl extends
       checkAccessAndCommit();
       checkPrecondition();
 
-      final StructNode currentNode = (StructNode) getCurrentNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getLeftSiblingKey();
       final long rightSibKey = currentNode.getNodeKey();
@@ -1745,7 +1743,7 @@ final class JsonNodeTrxImpl extends
       checkAccessAndCommit();
       checkPrecondition();
 
-      final StructNode currentNode = (StructNode) getCurrentNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
@@ -1791,7 +1789,7 @@ final class JsonNodeTrxImpl extends
         checkAccessAndCommit();
       }
 
-      final StructNode structNode = (StructNode) getCurrentNode();
+      final StructNode structNode = nodeReadOnlyTrx.getStructuralNode();
       final long pathNodeKey = getPathNodeKey(structNode);
       final long parentKey = structNode.getNodeKey();
 
@@ -1810,7 +1808,7 @@ final class JsonNodeTrxImpl extends
       adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
 
       // Index text value.
-      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
@@ -1844,7 +1842,7 @@ final class JsonNodeTrxImpl extends
         checkAccessAndCommit();
       }
 
-      final StructNode structNode = (StructNode) getCurrentNode();
+      final StructNode structNode = nodeReadOnlyTrx.getStructuralNode();
       final long pathNodeKey = getPathNodeKey(structNode);
       final long parentKey = structNode.getNodeKey();
 
@@ -1865,7 +1863,7 @@ final class JsonNodeTrxImpl extends
       adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
 
       // Index text value.
-      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
@@ -1893,7 +1891,7 @@ final class JsonNodeTrxImpl extends
       checkAccessAndCommit();
       checkPrecondition();
 
-      final StructNode currentNode = (StructNode) getCurrentNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getLeftSiblingKey();
       final long rightSibKey = currentNode.getNodeKey();
@@ -1930,7 +1928,7 @@ final class JsonNodeTrxImpl extends
       checkAccessAndCommit();
       checkPrecondition();
 
-      final StructNode currentNode = (StructNode) getCurrentNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
@@ -1975,21 +1973,14 @@ final class JsonNodeTrxImpl extends
 
     if (buildPathSummary) {
       moveToParentObjectKeyArrayOrDocumentRoot();
-
-      if (isObjectKey()) {
-        pathNodeKey = ((ImmutableObjectKeyNode) getNode()).getPathNodeKey();
-      } else if (isArray()) {
-        pathNodeKey = ((ImmutableArrayNode) getNode()).getPathNodeKey();
-      } else {
-        pathNodeKey = -1;
-      }
+      pathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNode());
     } else {
       pathNodeKey = 0;
     }
 
     nodeReadOnlyTrx.setCurrentNode(node);
 
-    indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
   }
 
   @Override
@@ -2009,7 +2000,7 @@ final class JsonNodeTrxImpl extends
         checkAccessAndCommit();
       }
 
-      final StructNode currentNode = (StructNode) getCurrentNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
       final long pathNodeKey = getPathNodeKey(currentNode);
       final long parentKey = currentNode.getNodeKey();
 
@@ -2028,7 +2019,7 @@ final class JsonNodeTrxImpl extends
       adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
 
       // Index text value.
-      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
@@ -2063,7 +2054,7 @@ final class JsonNodeTrxImpl extends
         checkAccessAndCommit();
       }
 
-      final StructNode currentNode = (StructNode) getCurrentNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
       final long pathNodeKey = getPathNodeKey(currentNode);
       final long parentKey = currentNode.getNodeKey();
 
@@ -2084,7 +2075,7 @@ final class JsonNodeTrxImpl extends
       adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
 
       // Index text value.
-      indexController.notifyChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, node.getNodeKey());
@@ -2383,7 +2374,7 @@ final class JsonNodeTrxImpl extends
     final var nodePageGuard = pageTrx.acquireGuardForCurrentNode();
 
     try {
-        final StructNode node = (StructNode) getCurrentNode();
+        final StructNode node = nodeReadOnlyTrx.getStructuralNode();
         if (node.getKind() == NodeKind.JSON_DOCUMENT) {
           throw new SirixUsageException("Document root can not be removed.");
         }
@@ -2404,9 +2395,7 @@ final class JsonNodeTrxImpl extends
 
         // Remove subtree.
         for (final var axis = new PostOrderAxis(this); axis.hasNext(); ) {
-          axis.nextLong();
-
-          final var currentNode = axis.getCursor().getNode();
+          final long currentNodeKey = axis.nextLong();
 
           // Remove name.
           removeName();
@@ -2415,10 +2404,10 @@ final class JsonNodeTrxImpl extends
           removeValue();
 
           // Then remove node.
-          pageTrx.removeRecord(currentNode.getNodeKey(), IndexType.DOCUMENT, -1);
+          pageTrx.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
 
           if (storeNodeHistory) {
-            nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNode.getNodeKey());
+            nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
           }
         }
 
@@ -2472,30 +2461,63 @@ final class JsonNodeTrxImpl extends
     moveTo(oldNodeKey);
   }
 
-  private void removeValue() {
-    final var currentNode = getCurrentNode();
-    if (currentNode.getKind() == NodeKind.OBJECT_STRING_VALUE || currentNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
-        || currentNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE || currentNode.getKind() == NodeKind.STRING_VALUE
-        || currentNode.getKind() == NodeKind.NUMBER_VALUE || currentNode.getKind() == NodeKind.BOOLEAN_VALUE) {
-      final long nodeKey = getNodeKey();
+  private void notifyPrimitiveIndexChange(final IndexController.ChangeType type, final ImmutableNode node,
+      final long pathNodeKey) {
+    if (!indexController.hasPathIndex() && !indexController.hasNameIndex() && !indexController.hasCASIndex()) {
+      return;
+    }
 
-      final long pathNodeKey;
+    final NodeKind kind = node.getKind();
+    final long nodeKey = node.getNodeKey();
+
+    final QNm name;
+    if (kind == NodeKind.OBJECT_KEY && indexController.hasNameIndex() && node instanceof ObjectKeyNode objectKeyNode) {
+      name = objectKeyNode.getName();
+    } else {
+      name = null;
+    }
+
+    final Str value;
+    if (indexController.hasCASIndex()) {
+      value = switch (kind) {
+        case STRING_VALUE, OBJECT_STRING_VALUE -> node instanceof ValueNode valueNode
+            ? new Str(valueNode.getValue())
+            : null;
+        case BOOLEAN_VALUE -> node instanceof BooleanNode boolNode
+            ? (boolNode.getValue() ? STR_TRUE : STR_FALSE)
+            : null;
+        case OBJECT_BOOLEAN_VALUE -> node instanceof ObjectBooleanNode boolNode
+            ? (boolNode.getValue() ? STR_TRUE : STR_FALSE)
+            : null;
+        case NUMBER_VALUE -> node instanceof NumberNode numberNode
+            ? new Str(String.valueOf(numberNode.getValue()))
+            : null;
+        case OBJECT_NUMBER_VALUE -> node instanceof ObjectNumberNode numberNode
+            ? new Str(String.valueOf(numberNode.getValue()))
+            : null;
+        default -> null;
+      };
+    } else {
+      value = null;
+    }
+
+    indexController.notifyChange(type, nodeKey, kind, pathNodeKey, name, value);
+  }
+
+  private void removeValue() {
+    final NodeKind nodeKind = getKind();
+    if (nodeKind == NodeKind.OBJECT_STRING_VALUE || nodeKind == NodeKind.OBJECT_NUMBER_VALUE
+        || nodeKind == NodeKind.OBJECT_BOOLEAN_VALUE || nodeKind == NodeKind.STRING_VALUE
+        || nodeKind == NodeKind.NUMBER_VALUE || nodeKind == NodeKind.BOOLEAN_VALUE) {
+      final long nodeKey = getNodeKey();
+      final StructNode currentValueNode = nodeReadOnlyTrx.getStructuralNode();
 
       moveToParent();
-
-      final var parentNode = getNode();
-
-      if (parentNode.getKind() == NodeKind.ARRAY) {
-        pathNodeKey = ((ImmutableArrayNode) parentNode).getPathNodeKey();
-      } else if (parentNode.getKind() == NodeKind.OBJECT_KEY) {
-        pathNodeKey = ((ImmutableObjectKeyNode) parentNode).getPathNodeKey();
-      } else {
-        pathNodeKey = -1;
-      }
+      final long pathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNode());
 
       moveTo(nodeKey);
-      // Pass the VALUE node (currentNode), not the parent node - CAS index needs the value to extract
-      indexController.notifyChange(IndexController.ChangeType.DELETE, currentNode, pathNodeKey);
+      // Pass the VALUE node, not the parent node - CAS index needs the value to extract.
+      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) currentValueNode, pathNodeKey);
     }
   }
 
@@ -2505,16 +2527,17 @@ final class JsonNodeTrxImpl extends
    * @throws SirixException if Sirix fails
    */
   private void removeName() {
-    if (getCurrentNode() instanceof ImmutableNameNode node) {
+    if (getKind() == NodeKind.OBJECT_KEY) {
+      final ObjectKeyNode node = (ObjectKeyNode) nodeReadOnlyTrx.getStructuralNode();
       // Ensure the name is resolved for index listener (ObjectKeyNode may have null cachedName when loaded from disk)
-      if (node instanceof ObjectKeyNode objectKeyNode && objectKeyNode.getName() == null) {
-        final String resolvedName = pageTrx.getName(objectKeyNode.getLocalNameKey(), node.getKind());
+      if (node.getName() == null) {
+        final String resolvedName = pageTrx.getName(node.getLocalNameKey(), node.getKind());
         if (resolvedName != null) {
-          objectKeyNode.setName(resolvedName);
+          node.setName(resolvedName);
         }
       }
 
-      indexController.notifyChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
+      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
       final NodeKind nodeKind = node.getKind();
       final NamePage page = pageTrx.getNamePage(pageTrx.getActualRevisionRootPage());
       page.removeName(node.getLocalNameKey(), nodeKind, pageTrx);
@@ -2538,7 +2561,7 @@ final class JsonNodeTrxImpl extends
         throw new SirixUsageException("Not allowed if current node is not an object key node!");
       checkAccessAndCommit();
 
-      ObjectKeyNode node = (ObjectKeyNode) nodeReadOnlyTrx.getCurrentNode();
+      ObjectKeyNode node = (ObjectKeyNode) nodeReadOnlyTrx.getStructuralNode();
       final long oldHash = node.computeHash(bytes);
 
       // Remove old keys from mapping.
@@ -2627,14 +2650,12 @@ final class JsonNodeTrxImpl extends
       final long pathNodeKey = getPathNodeKey();
       moveTo(nodeKey);
 
-      // Remove old value from indexes.
-      indexController.notifyChange(IndexController.ChangeType.DELETE, getNode(), pathNodeKey);
-
-      final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
-      final byte[] byteVal = getBytes(value);
-
       final ValueNode node =
-          pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
+          pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      // Remove old value from indexes before mutating the node.
+      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
+      final long oldHash = node.computeHash(bytes);
+      final byte[] byteVal = getBytes(value);
       node.setRawValue(byteVal);
       node.setPreviousRevision(node.getLastModifiedRevisionNumber());
       node.setLastModifiedRevision(pageTrx.getRevisionNumber());
@@ -2643,7 +2664,7 @@ final class JsonNodeTrxImpl extends
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
       // Index new value.
-      indexController.notifyChange(IndexController.ChangeType.INSERT, getNode(), pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
@@ -2677,13 +2698,11 @@ final class JsonNodeTrxImpl extends
       final long pathNodeKey = getPathNodeKey();
       moveTo(nodeKey);
 
-      // Remove old value from indexes.
-      indexController.notifyChange(IndexController.ChangeType.DELETE, getNode(), pathNodeKey);
-
-      final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
-
       final BooleanValueNode node =
-          pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
+          pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      // Remove old value from indexes before mutating the node.
+      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
+      final long oldHash = node.computeHash(bytes);
       node.setValue(value);
       node.setPreviousRevision(node.getLastModifiedRevisionNumber());
       node.setLastModifiedRevision(pageTrx.getRevisionNumber());
@@ -2692,7 +2711,7 @@ final class JsonNodeTrxImpl extends
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
       // Index new value.
-      indexController.notifyChange(IndexController.ChangeType.INSERT, getNode(), pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
@@ -2727,13 +2746,11 @@ final class JsonNodeTrxImpl extends
       final long pathNodeKey = getPathNodeKey();
       moveTo(nodeKey);
 
-      // Remove old value from indexes.
-      indexController.notifyChange(IndexController.ChangeType.DELETE, getNode(), pathNodeKey);
-
-      final long oldHash = nodeReadOnlyTrx.getCurrentNode().computeHash(bytes);
-
       final NumericValueNode node =
-          pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
+          pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      // Remove old value from indexes before mutating the node.
+      notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
+      final long oldHash = node.computeHash(bytes);
       node.setValue(value);
       node.setPreviousRevision(node.getLastModifiedRevisionNumber());
       node.setLastModifiedRevision(pageTrx.getRevisionNumber());
@@ -2742,7 +2759,7 @@ final class JsonNodeTrxImpl extends
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
       // Index new value.
-      indexController.notifyChange(IndexController.ChangeType.INSERT, getNode(), pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
@@ -2923,7 +2940,7 @@ final class JsonNodeTrxImpl extends
 
     try {
       checkAccessAndCommit();
-      final long nodeKey = getCurrentNode().getNodeKey();
+      final long nodeKey = getNodeKey();
       copy(rtx, InsertPosition.AS_FIRST_CHILD);
       moveTo(nodeKey);
       moveToFirstChild();
@@ -2944,7 +2961,7 @@ final class JsonNodeTrxImpl extends
 
     try {
       checkAccessAndCommit();
-      final long nodeKey = getCurrentNode().getNodeKey();
+      final long nodeKey = getNodeKey();
       copy(rtx, InsertPosition.AS_LEFT_SIBLING);
       moveTo(nodeKey);
       moveToFirstChild();
@@ -2965,7 +2982,7 @@ final class JsonNodeTrxImpl extends
 
     try {
       checkAccessAndCommit();
-      final long nodeKey = getCurrentNode().getNodeKey();
+      final long nodeKey = getNodeKey();
       copy(rtx, InsertPosition.AS_RIGHT_SIBLING);
       moveTo(nodeKey);
       moveToRightSibling();

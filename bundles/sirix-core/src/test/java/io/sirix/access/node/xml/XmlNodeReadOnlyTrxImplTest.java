@@ -25,9 +25,13 @@ import java.nio.file.Files;
 
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.xml.InternalXmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.axis.DescendantAxis;
 import io.sirix.node.NodeKind;
+import io.sirix.node.interfaces.StructNode;
+import io.sirix.settings.Fixed;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -113,6 +117,39 @@ public final class XmlNodeReadOnlyTrxImplTest {
 
     assertEquals(holder.getXmlNodeReadTrx().hasParent(), holder.getXmlNodeReadTrx().moveToParent());
     assertEquals(1L, holder.getXmlNodeReadTrx().getNodeKey());
+  }
+
+  @Test
+  public void testMoveToReusesXmlElementSingleton() {
+    final InternalXmlNodeReadOnlyTrx rtx = (InternalXmlNodeReadOnlyTrx) holder.getXmlNodeReadTrx();
+    assertTrue(rtx.moveToDocumentRoot());
+
+    long firstElementKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+    long secondElementKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+    final DescendantAxis axis = new DescendantAxis(rtx);
+    while (axis.hasNext()) {
+      axis.nextLong();
+      if (rtx.getKind() == NodeKind.ELEMENT) {
+        if (firstElementKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+          firstElementKey = rtx.getNodeKey();
+        } else {
+          secondElementKey = rtx.getNodeKey();
+          break;
+        }
+      }
+    }
+
+    assertTrue(firstElementKey != Fixed.NULL_NODE_KEY.getStandardProperty());
+    assertTrue(secondElementKey != Fixed.NULL_NODE_KEY.getStandardProperty());
+
+    assertTrue(rtx.moveTo(firstElementKey));
+    final StructNode firstSingleton = rtx.getStructuralNode();
+    assertEquals(firstElementKey, firstSingleton.getNodeKey());
+
+    assertTrue(rtx.moveTo(secondElementKey));
+    final StructNode secondSingleton = rtx.getStructuralNode();
+    assertSame(firstSingleton, secondSingleton);
+    assertEquals(secondElementKey, secondSingleton.getNodeKey());
   }
 
 }

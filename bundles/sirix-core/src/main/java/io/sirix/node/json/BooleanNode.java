@@ -46,6 +46,7 @@ import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.interfaces.BooleanValueNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Fixed;
@@ -60,7 +61,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  * 
  * @author Johannes Lichtenberger
  */
-public final class BooleanNode implements StructNode, ImmutableJsonNode, BooleanValueNode {
+public final class BooleanNode implements StructNode, ImmutableJsonNode, BooleanValueNode, ReusableNodeProxy {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;

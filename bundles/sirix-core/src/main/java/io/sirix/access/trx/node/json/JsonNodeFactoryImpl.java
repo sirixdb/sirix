@@ -10,7 +10,17 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
-import io.sirix.node.json.*;
+import io.sirix.node.json.ArrayNode;
+import io.sirix.node.json.BooleanNode;
+import io.sirix.node.json.NullNode;
+import io.sirix.node.json.NumberNode;
+import io.sirix.node.json.ObjectBooleanNode;
+import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNode;
+import io.sirix.node.json.ObjectNullNode;
+import io.sirix.node.json.ObjectNumberNode;
+import io.sirix.node.json.ObjectStringNode;
+import io.sirix.node.json.StringNode;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -46,6 +56,21 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private final int revisionNumber;
 
   /**
+   * Transaction-local reusable proxies for selected hot-path JSON node kinds.
+   */
+  private final ObjectNode reusableObjectNode;
+  private final ArrayNode reusableArrayNode;
+  private final ObjectKeyNode reusableObjectKeyNode;
+  private final NullNode reusableNullNode;
+  private final BooleanNode reusableBooleanNode;
+  private final NumberNode reusableNumberNode;
+  private final StringNode reusableStringNode;
+  private final ObjectNullNode reusableObjectNullNode;
+  private final ObjectBooleanNode reusableObjectBooleanNode;
+  private final ObjectNumberNode reusableObjectNumberNode;
+  private final ObjectStringNode reusableObjectStringNode;
+
+  /**
    * Constructor.
    *
    * @param hashFunction hash function used to hash nodes
@@ -55,6 +80,291 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     this.hashFunction = requireNonNull(hashFunction);
     this.pageTrx = requireNonNull(pageTrx);
     this.revisionNumber = pageTrx.getRevisionNumber();
+    this.reusableObjectNode = new ObjectNode(0,
+                                             0,
+                                             Constants.NULL_REVISION_NUMBER,
+                                             revisionNumber,
+                                             Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                             Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                             Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                             Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                             0,
+                                             0,
+                                             0,
+                                             hashFunction,
+                                             (SirixDeweyID) null);
+    this.reusableArrayNode = new ArrayNode(0,
+                                           0,
+                                           0,
+                                           Constants.NULL_REVISION_NUMBER,
+                                           revisionNumber,
+                                           Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                           Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                           Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                           Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                           0,
+                                           0,
+                                           0,
+                                           hashFunction,
+                                           (SirixDeweyID) null);
+    this.reusableObjectKeyNode = new ObjectKeyNode(0,
+                                                   0,
+                                                   0,
+                                                   Constants.NULL_REVISION_NUMBER,
+                                                   revisionNumber,
+                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                   Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                                   0,
+                                                   0,
+                                                   0,
+                                                   hashFunction,
+                                                   (SirixDeweyID) null);
+    this.reusableNullNode = new NullNode(0,
+                                         0,
+                                         Constants.NULL_REVISION_NUMBER,
+                                         revisionNumber,
+                                         Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                         Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                         0,
+                                         hashFunction,
+                                         (SirixDeweyID) null);
+    this.reusableBooleanNode = new BooleanNode(0,
+                                               0,
+                                               Constants.NULL_REVISION_NUMBER,
+                                               revisionNumber,
+                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                               0,
+                                               false,
+                                               hashFunction,
+                                               (SirixDeweyID) null);
+    this.reusableNumberNode = new NumberNode(0,
+                                             0,
+                                             Constants.NULL_REVISION_NUMBER,
+                                             revisionNumber,
+                                             Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                             Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                             0,
+                                             0,
+                                             hashFunction,
+                                             (SirixDeweyID) null);
+    this.reusableStringNode = new StringNode(0,
+                                             0,
+                                             Constants.NULL_REVISION_NUMBER,
+                                             revisionNumber,
+                                             Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                             Fixed.NULL_NODE_KEY.getStandardProperty(),
+                                             0,
+                                             new byte[0],
+                                             hashFunction,
+                                             (SirixDeweyID) null,
+                                             false,
+                                             null);
+    this.reusableObjectNullNode = new ObjectNullNode(0,
+                                                     0,
+                                                     Constants.NULL_REVISION_NUMBER,
+                                                     revisionNumber,
+                                                     0,
+                                                     hashFunction,
+                                                     (SirixDeweyID) null);
+    this.reusableObjectBooleanNode = new ObjectBooleanNode(0,
+                                                           0,
+                                                           Constants.NULL_REVISION_NUMBER,
+                                                           revisionNumber,
+                                                           0,
+                                                           false,
+                                                           hashFunction,
+                                                           (SirixDeweyID) null);
+    this.reusableObjectNumberNode = new ObjectNumberNode(0,
+                                                         0,
+                                                         Constants.NULL_REVISION_NUMBER,
+                                                         revisionNumber,
+                                                         0,
+                                                         0,
+                                                         hashFunction,
+                                                         (SirixDeweyID) null);
+    this.reusableObjectStringNode = new ObjectStringNode(0,
+                                                         0,
+                                                         Constants.NULL_REVISION_NUMBER,
+                                                         revisionNumber,
+                                                         0,
+                                                         new byte[0],
+                                                         hashFunction,
+                                                         (SirixDeweyID) null,
+                                                         false,
+                                                         null);
+  }
+
+  private long nextNodeKey() {
+    return pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+  }
+
+  private ObjectNode bindObjectNode(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
+      final SirixDeweyID id) {
+    final ObjectNode node = reusableObjectNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setRightSiblingKey(rightSibKey);
+    node.setLeftSiblingKey(leftSibKey);
+    node.setFirstChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
+    node.setLastChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
+    node.setChildCount(0);
+    node.setDescendantCount(0);
+    node.setHash(0);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private ArrayNode bindArrayNode(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
+      final long pathNodeKey, final SirixDeweyID id) {
+    final ArrayNode node = reusableArrayNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPathNodeKey(pathNodeKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setRightSiblingKey(rightSibKey);
+    node.setLeftSiblingKey(leftSibKey);
+    node.setFirstChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
+    node.setLastChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
+    node.setChildCount(0);
+    node.setDescendantCount(0);
+    node.setHash(0);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private ObjectKeyNode bindObjectKeyNode(final long nodeKey, final long parentKey, final long leftSibKey,
+      final long rightSibKey, final long pathNodeKey, final int nameKey, final String name,
+      final long objectValueKey, final SirixDeweyID id) {
+    final ObjectKeyNode node = reusableObjectKeyNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPathNodeKey(pathNodeKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setRightSiblingKey(rightSibKey);
+    node.setLeftSiblingKey(leftSibKey);
+    node.setFirstChildKey(objectValueKey);
+    node.setNameKey(nameKey);
+    node.setName(name);
+    node.setDescendantCount(0);
+    node.setHash(0);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private NullNode bindNullNode(final long nodeKey, final long parentKey, final long leftSibKey,
+      final long rightSibKey, final SirixDeweyID id) {
+    final NullNode node = reusableNullNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setRightSiblingKey(rightSibKey);
+    node.setLeftSiblingKey(leftSibKey);
+    node.setHash(0);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private BooleanNode bindBooleanNode(final long nodeKey, final long parentKey, final long leftSibKey,
+      final long rightSibKey, final boolean boolValue, final SirixDeweyID id) {
+    final BooleanNode node = reusableBooleanNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setRightSiblingKey(rightSibKey);
+    node.setLeftSiblingKey(leftSibKey);
+    node.setHash(0);
+    node.setValue(boolValue);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private NumberNode bindNumberNode(final long nodeKey, final long parentKey, final long leftSibKey,
+      final long rightSibKey, final Number value, final SirixDeweyID id) {
+    final NumberNode node = reusableNumberNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setRightSiblingKey(rightSibKey);
+    node.setLeftSiblingKey(leftSibKey);
+    node.setHash(0);
+    node.setValue(value);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private StringNode bindStringNode(final long nodeKey, final long parentKey, final long leftSibKey,
+      final long rightSibKey, final byte[] value, final boolean isCompressed, final byte[] fsstSymbolTable,
+      final SirixDeweyID id) {
+    final StringNode node = reusableStringNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setRightSiblingKey(rightSibKey);
+    node.setLeftSiblingKey(leftSibKey);
+    node.setHash(0);
+    node.setRawValue(value, isCompressed, fsstSymbolTable);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private ObjectNullNode bindObjectNullNode(final long nodeKey, final long parentKey, final SirixDeweyID id) {
+    final ObjectNullNode node = reusableObjectNullNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setHash(0);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private ObjectBooleanNode bindObjectBooleanNode(final long nodeKey, final long parentKey, final boolean boolValue,
+      final SirixDeweyID id) {
+    final ObjectBooleanNode node = reusableObjectBooleanNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setHash(0);
+    node.setValue(boolValue);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private ObjectNumberNode bindObjectNumberNode(final long nodeKey, final long parentKey, final Number value,
+      final SirixDeweyID id) {
+    final ObjectNumberNode node = reusableObjectNumberNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setHash(0);
+    node.setValue(value);
+    node.setDeweyID(id);
+    return node;
+  }
+
+  private ObjectStringNode bindObjectStringNode(final long nodeKey, final long parentKey, final byte[] value,
+      final boolean isCompressed, final byte[] fsstSymbolTable, final SirixDeweyID id) {
+    final ObjectStringNode node = reusableObjectStringNode;
+    node.setNodeKey(nodeKey);
+    node.setParentKey(parentKey);
+    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
+    node.setLastModifiedRevision(revisionNumber);
+    node.setHash(0);
+    node.setRawValue(value, isCompressed, fsstSymbolTable);
+    node.setDeweyID(id);
+    return node;
   }
 
   @Override
@@ -90,69 +400,22 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public ArrayNode createJsonArrayNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
       SirixDeweyID id) {
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-    
-    // Create ArrayNode with primitive fields
-    var node = new ArrayNode(
-        nodeKey,
-        parentKey,
-        pathNodeKey,
-        Constants.NULL_REVISION_NUMBER,
-        revisionNumber,
-        rightSibKey,
-        leftSibKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), // firstChild
-        Fixed.NULL_NODE_KEY.getStandardProperty(), // lastChild
-        0, // childCount
-        0, // descendantCount
-        0, // hash
-        hashFunction,
-        id
-    );
-    
+    final long nodeKey = nextNodeKey();
+    final ArrayNode node = bindArrayNode(nodeKey, parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectNode createJsonObjectNode(long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id) {
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-    
-    // Create ObjectNode with primitive fields
-    var node = new ObjectNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,
-        revisionNumber,
-        rightSibKey,
-        leftSibKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), // firstChild
-        Fixed.NULL_NODE_KEY.getStandardProperty(), // lastChild
-        0, // childCount
-        0, // descendantCount
-        0, // hash
-        hashFunction,
-        id
-    );
-    
+    final long nodeKey = nextNodeKey();
+    final ObjectNode node = bindObjectNode(nodeKey, parentKey, leftSibKey, rightSibKey, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public NullNode createJsonNullNode(long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id) {
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-    
-    var node = new NullNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,
-        revisionNumber,
-        rightSibKey,
-        leftSibKey,
-        0, // hash
-        hashFunction,
-        id
-    );
-    
+    final long nodeKey = nextNodeKey();
+    final NullNode node = bindNullNode(nodeKey, parentKey, leftSibKey, rightSibKey, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
@@ -160,184 +423,82 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   public ObjectKeyNode createJsonObjectKeyNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
       String name, long objectValueKey, SirixDeweyID id) {
     final int localNameKey = pageTrx.createNameKey(name, NodeKind.OBJECT_KEY);
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-    
-    var node = new ObjectKeyNode(
-        nodeKey,
-        parentKey,
-        pathNodeKey,
-        Constants.NULL_REVISION_NUMBER,
-        revisionNumber,
-        rightSibKey,
-        leftSibKey,
-        objectValueKey, // firstChild
-        localNameKey,
-        0, // descendantCount
-        0, // hash
-        hashFunction,
-        id
-    );
-    
-    // Set name for later retrieval (cached)
-    node.setName(name);
-    
+    final long nodeKey = nextNodeKey();
+    final ObjectKeyNode node =
+        bindObjectKeyNode(nodeKey, parentKey, leftSibKey, rightSibKey, pathNodeKey, localNameKey, name, objectValueKey, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public StringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey, byte[] value,
       boolean doCompress, SirixDeweyID id) {
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    final long nodeKey = nextNodeKey();
     
-    // Check if FSST compression should be applied
+    // For FSST, page-level symbol tables are required for decoding.
+    // Until symbol table plumbing is complete, keep stored values uncompressed.
     final ResourceConfiguration config = pageTrx.getResourceSession().getResourceConfig();
-    final boolean useCompression = doCompress && config.stringCompressionType == StringCompressionType.FSST;
+    final boolean shouldUseCompression = doCompress && config.stringCompressionType == StringCompressionType.FSST;
+    if (shouldUseCompression) {
+      // Intentionally not compressing here: no symbol table is available on this path yet.
+    }
+    final boolean isCompressed = false;
     
-    // For FSST, we would ideally build a symbol table from page strings.
-    // For now, we set the compression flag but keep the value as-is.
-    // The page-level serialization will handle actual compression when
-    // columnar storage is fully implemented.
-    
-    var node = new StringNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,
-        revisionNumber,
-        rightSibKey,
-        leftSibKey,
-        0, // hash
-        value,
-        hashFunction,
-        id,
-        false, // isCompressed - set to false since no page-level symbol table yet
-        null   // fsstSymbolTable - will be set by page-level compression
-    );
-    
+    final StringNode node = bindStringNode(nodeKey, parentKey, leftSibKey, rightSibKey, value, isCompressed, null, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public BooleanNode createJsonBooleanNode(long parentKey, long leftSibKey, long rightSibKey, boolean boolValue,
       SirixDeweyID id) {
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-    
-    var node = new BooleanNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,
-        revisionNumber,
-        rightSibKey,
-        leftSibKey,
-        0, // hash
-        boolValue,
-        hashFunction,
-        id
-    );
-    
+    final long nodeKey = nextNodeKey();
+    final BooleanNode node = bindBooleanNode(nodeKey, parentKey, leftSibKey, rightSibKey, boolValue, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, Number value,
       SirixDeweyID id) {
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-    
-    var node = new NumberNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,
-        revisionNumber,
-        rightSibKey,
-        leftSibKey,
-        0, // hash
-        value,
-        hashFunction,
-        id
-    );
-    
+    final long nodeKey = nextNodeKey();
+    final NumberNode node = bindNumberNode(nodeKey, parentKey, leftSibKey, rightSibKey, value, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectNullNode createJsonObjectNullNode(long parentKey, SirixDeweyID id) {
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-    
-    var node = new ObjectNullNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,
-        revisionNumber,
-        0, // hash
-        hashFunction,
-        id
-    );
-    
+    final long nodeKey = nextNodeKey();
+    final ObjectNullNode node = bindObjectNullNode(nodeKey, parentKey, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectStringNode createJsonObjectStringNode(long parentKey, byte[] value, boolean doCompress,
       SirixDeweyID id) {
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    final long nodeKey = nextNodeKey();
     
-    // Check if FSST compression should be applied
+    // For FSST, page-level symbol tables are required for decoding.
+    // Until symbol table plumbing is complete, keep stored values uncompressed.
     final ResourceConfiguration config = pageTrx.getResourceSession().getResourceConfig();
-    final boolean useCompression = doCompress && config.stringCompressionType == StringCompressionType.FSST;
+    final boolean shouldUseCompression = doCompress && config.stringCompressionType == StringCompressionType.FSST;
+    if (shouldUseCompression) {
+      // Intentionally not compressing here: no symbol table is available on this path yet.
+    }
+    final boolean isCompressed = false;
     
-    // For FSST, we would ideally build a symbol table from page strings.
-    // For now, we set the compression flag but keep the value as-is.
-    // The page-level serialization will handle actual compression when
-    // columnar storage is fully implemented.
-    
-    var node = new ObjectStringNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,
-        revisionNumber,
-        0, // hash
-        value,
-        hashFunction,
-        id,
-        false, // isCompressed - set to false since no page-level symbol table yet
-        null   // fsstSymbolTable - will be set by page-level compression
-    );
-    
+    final ObjectStringNode node = bindObjectStringNode(nodeKey, parentKey, value, isCompressed, null, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectBooleanNode createJsonObjectBooleanNode(long parentKey, boolean boolValue, SirixDeweyID id) {
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-    
-    var node = new ObjectBooleanNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,
-        revisionNumber,
-        0, // hash
-        boolValue,
-        hashFunction,
-        id
-    );
-    
+    final long nodeKey = nextNodeKey();
+    final ObjectBooleanNode node = bindObjectBooleanNode(nodeKey, parentKey, boolValue, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectNumberNode createJsonObjectNumberNode(long parentKey, Number value, SirixDeweyID id) {
-    final long nodeKey = pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-    
-    var node = new ObjectNumberNode(
-        nodeKey,
-        parentKey,
-        Constants.NULL_REVISION_NUMBER,
-        revisionNumber,
-        0, // hash
-        value,
-        hashFunction,
-        id
-    );
-    
+    final long nodeKey = nextNodeKey();
+    final ObjectNumberNode node = bindObjectNumberNode(nodeKey, parentKey, value, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 

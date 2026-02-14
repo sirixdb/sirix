@@ -30,7 +30,6 @@ package io.sirix.access.trx.node.json;
 
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexType;
@@ -39,9 +38,16 @@ import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.DataRecord;
-import io.sirix.node.json.*;
+import io.sirix.node.json.BooleanNode;
+import io.sirix.node.json.NullNode;
+import io.sirix.node.json.NumberNode;
+import io.sirix.node.json.ObjectBooleanNode;
+import io.sirix.node.json.ObjectNode;
+import io.sirix.node.json.ObjectNullNode;
+import io.sirix.node.json.ObjectNumberNode;
+import io.sirix.node.json.ObjectStringNode;
+import io.sirix.node.json.StringNode;
 import io.sirix.page.RevisionRootPage;
-import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
@@ -499,27 +505,76 @@ public class JsonNodeFactoryImplTest {
   }
 
   @Test
-  public void testFactoryCreateMultipleNodes_SiblingsIndependent() {
-    // Create multiple nodes to ensure sibling values don't interfere with each other
-    final StringNode node1 = factory.createJsonStringNode(
+  public void testFactoryCreateMultipleNodes_ReboundStateIsCorrect() {
+    final StringNode firstStringNode = factory.createJsonStringNode(
         1L, 10L, 20L, "node1".getBytes(StandardCharsets.UTF_8), false, null
     );
-    final StringNode node2 = factory.createJsonStringNode(
+    final long firstStringNodeKey = firstStringNode.getNodeKey();
+
+    final StringNode secondStringNode = factory.createJsonStringNode(
         1L, 30L, 40L, "node2".getBytes(StandardCharsets.UTF_8), false, null
     );
-    final NumberNode node3 = factory.createJsonNumberNode(
+    final NumberNode numberNode = factory.createJsonNumberNode(
         1L, 50L, 60L, 100.0, null
     );
-    
-    // Each node should have its own independent sibling values
-    assertEquals("Node1 left sibling", 10L, node1.getLeftSiblingKey());
-    assertEquals("Node1 right sibling", 20L, node1.getRightSiblingKey());
-    
-    assertEquals("Node2 left sibling", 30L, node2.getLeftSiblingKey());
-    assertEquals("Node2 right sibling", 40L, node2.getRightSiblingKey());
-    
-    assertEquals("Node3 left sibling", 50L, node3.getLeftSiblingKey());
-    assertEquals("Node3 right sibling", 60L, node3.getRightSiblingKey());
+
+    assertSame("String node proxy should be reused", firstStringNode, secondStringNode);
+    assertNotEquals("Rebound string node should expose new node key", firstStringNodeKey, secondStringNode.getNodeKey());
+    assertEquals("Second string node left sibling", 30L, secondStringNode.getLeftSiblingKey());
+    assertEquals("Second string node right sibling", 40L, secondStringNode.getRightSiblingKey());
+
+    assertEquals("Number node left sibling should match create call", 50L, numberNode.getLeftSiblingKey());
+    assertEquals("Number node right sibling should match create call", 60L, numberNode.getRightSiblingKey());
+  }
+
+  @Test
+  public void testFactoryReusesPayloadFreeObjectNodeProxy() {
+    final ObjectNode first = factory.createJsonObjectNode(1L, 10L, 20L, null);
+    final long firstNodeKey = first.getNodeKey();
+
+    final ObjectNode second = factory.createJsonObjectNode(2L, 30L, 40L, null);
+
+    assertSame("Factory should reuse transaction-local object proxy", first, second);
+    assertNotEquals("Rebound proxy must expose updated node key", firstNodeKey, second.getNodeKey());
+    assertEquals("Parent key should be rebound", 2L, second.getParentKey());
+    assertEquals("Left sibling should be rebound", 30L, second.getLeftSiblingKey());
+    assertEquals("Right sibling should be rebound", 40L, second.getRightSiblingKey());
+  }
+
+  @Test
+  public void testFactoryReusesNumberNodeProxy() {
+    final NumberNode first = factory.createJsonNumberNode(1L, 10L, 20L, 41, null);
+    final long firstNodeKey = first.getNodeKey();
+
+    final NumberNode second = factory.createJsonNumberNode(2L, 30L, 40L, 42, null);
+
+    assertSame("Factory should reuse transaction-local number proxy", first, second);
+    assertNotEquals("Rebound proxy must expose updated node key", firstNodeKey, second.getNodeKey());
+    assertEquals("Parent key should be rebound", 2L, second.getParentKey());
+    assertEquals("Left sibling should be rebound", 30L, second.getLeftSiblingKey());
+    assertEquals("Right sibling should be rebound", 40L, second.getRightSiblingKey());
+    assertEquals("Value should be rebound", 42L, second.getValue().longValue());
+  }
+
+  @Test
+  public void testFactoryReusesStringNodeProxy() {
+    final StringNode first = factory.createJsonStringNode(1L,
+                                                           10L,
+                                                           20L,
+                                                           "first".getBytes(StandardCharsets.UTF_8),
+                                                           false,
+                                                           null);
+    final long firstNodeKey = first.getNodeKey();
+
+    final byte[] secondValue = "second".getBytes(StandardCharsets.UTF_8);
+    final StringNode second = factory.createJsonStringNode(2L, 30L, 40L, secondValue, false, null);
+
+    assertSame("Factory should reuse transaction-local string proxy", first, second);
+    assertNotEquals("Rebound proxy must expose updated node key", firstNodeKey, second.getNodeKey());
+    assertEquals("Parent key should be rebound", 2L, second.getParentKey());
+    assertEquals("Left sibling should be rebound", 30L, second.getLeftSiblingKey());
+    assertEquals("Right sibling should be rebound", 40L, second.getRightSiblingKey());
+    assertArrayEquals("Value should be rebound", secondValue, second.getRawValueWithoutDecompression());
   }
 
   @Test

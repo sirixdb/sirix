@@ -2,6 +2,8 @@ package io.sirix.access.trx.node;
 
 import io.sirix.api.*;
 import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.node.Node;
 import io.brackit.query.node.d2linked.D2NodeBuilder;
@@ -23,7 +25,9 @@ import io.sirix.index.name.NameFilter;
 import io.sirix.index.path.PCRCollector;
 import io.sirix.index.path.PathFilter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -58,6 +62,33 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return {@code true} if an index of the specified type exists, {@code false} otherwise
    */
   boolean containsIndex(IndexType type);
+
+  /**
+   * Fast-path check for path indexes.
+   *
+   * <p>Implementations may override with cached constant-time checks.</p>
+   */
+  default boolean hasPathIndex() {
+    return containsIndex(IndexType.PATH);
+  }
+
+  /**
+   * Fast-path check for CAS indexes.
+   *
+   * <p>Implementations may override with cached constant-time checks.</p>
+   */
+  default boolean hasCASIndex() {
+    return containsIndex(IndexType.CAS);
+  }
+
+  /**
+   * Fast-path check for name indexes.
+   *
+   * <p>Implementations may override with cached constant-time checks.</p>
+   */
+  default boolean hasNameIndex() {
+    return containsIndex(IndexType.NAME);
+  }
 
   /**
    * Determines if an index of the specified type is available.
@@ -120,6 +151,21 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixIOException if an I/O error occurs
    */
   void notifyChange(ChangeType type, ImmutableNode node, long pathNodeKey);
+
+  /**
+   * Notify primitive change details to all listening indexes.
+   *
+   * <p>Used on write hot paths to avoid immutable-node snapshot materialization.</p>
+   *
+   * @param type type of change
+   * @param nodeKey node key of the changed node
+   * @param nodeKind node kind of the changed node
+   * @param pathNodeKey path node key of the changed node (or parent path key for value nodes)
+   * @param name optional name (only relevant for name-indexed kinds)
+   * @param value optional value (only relevant for value-indexed kinds)
+   */
+  void notifyChange(ChangeType type, long nodeKey, NodeKind nodeKind, long pathNodeKey,
+      @Nullable QNm name, @Nullable Str value);
 
   /**
    * Create new indexes.

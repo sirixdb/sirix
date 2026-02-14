@@ -46,6 +46,7 @@ import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Fixed;
@@ -58,7 +59,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  *
  * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
  */
-public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonNode {
+public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonNode, ReusableNodeProxy {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;

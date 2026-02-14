@@ -1910,7 +1910,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       deweyIdMemory = null;
       stringValueMemory = null;
     }
-    
+
     // Clear FSST symbol table
     fsstSymbolTable = null;
 
@@ -2331,24 +2331,30 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       // This is the deferred work from combineRecordPagesForModification for DIFFERENTIAL,
       // INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning types.
       if (preservationBitmap != null && completePageRef != null) {
-        for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-          // Check if slot needs preservation, has no in-memory modification, and has no
-          // already materialized slot payload in the modified page. The last check is
-          // critical for demoted records (records[i] == null but slot already updated).
-          boolean needsPreservation = (preservationBitmap[i >>> 6] & (1L << (i & 63))) != 0;
-          if (needsPreservation && records[i] == null && !hasSlot(i)) {
-            // Copy slot from completePage
-            MemorySegment slotData = completePageRef.getSlot(i);
-            if (slotData != null) {
-              setSlot(slotData, i);
-            }
-            // Copy deweyId too if stored
-            if (areDeweyIDsStored) {
-              MemorySegment deweyId = completePageRef.getDeweyId(i);
-              if (deweyId != null) {
-                setDeweyId(deweyId, i);
+        for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
+          long word = preservationBitmap[wordIndex];
+          int baseSlot = wordIndex << 6;
+          while (word != 0) {
+            int bit = Long.numberOfTrailingZeros(word);
+            int slotIndex = baseSlot + bit;
+
+            // Preserve only when the slot is still absent from the modified page.
+            // This keeps write-intent data authoritative and avoids rematerialization churn.
+            if (records[slotIndex] == null && !hasSlot(slotIndex)) {
+              MemorySegment slotData = completePageRef.getSlot(slotIndex);
+              if (slotData != null) {
+                setSlot(slotData, slotIndex);
+              }
+
+              if (areDeweyIDsStored) {
+                MemorySegment deweyId = completePageRef.getDeweyId(slotIndex);
+                if (deweyId != null) {
+                  setDeweyId(deweyId, slotIndex);
+                }
               }
             }
+
+            word &= word - 1;
           }
         }
       }

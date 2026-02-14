@@ -4,11 +4,13 @@ import io.sirix.api.*;
 import io.sirix.index.*;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 import io.brackit.query.util.serialize.SubtreePrinter;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.index.cas.CASFilter;
 import io.sirix.index.cas.CASFilterRange;
@@ -20,6 +22,7 @@ import io.sirix.index.path.PathFilter;
 import io.sirix.index.path.PathIndex;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 
 import java.io.OutputStream;
@@ -45,6 +48,11 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   private final Set<ChangeListener> listeners;
 
   /**
+   * Set of primitive listeners for allocation-conscious hot-path notifications.
+   */
+  private final Set<PathNodeKeyChangeListener> primitiveListeners;
+
+  /**
    * Used to provide path indexes.
    */
   protected final PathIndex<?, ?> pathIndex;
@@ -60,6 +68,13 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   protected final NameIndex<?, ?> nameIndex;
 
   /**
+   * Cached capabilities for hot-path checks.
+   */
+  private boolean hasPathIndex;
+  private boolean hasCASIndex;
+  private boolean hasNameIndex;
+
+  /**
    * Constructor.
    *
    * @param indexes   the index definitions
@@ -72,9 +87,18 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       final PathIndex<?, ?> pathIndex, final CASIndex<?, ?, R> casIndex, final NameIndex<?, ?> nameIndex) {
     this.indexes = indexes;
     this.listeners = listeners;
+    this.primitiveListeners = new HashSet<>(listeners.size());
+    for (final ChangeListener listener : listeners) {
+      if (listener instanceof final PathNodeKeyChangeListener primitiveListener) {
+        primitiveListeners.add(primitiveListener);
+      }
+    }
     this.pathIndex = pathIndex;
     this.casIndex = casIndex;
     this.nameIndex = nameIndex;
+    for (final IndexDef indexDef : indexes.getIndexDefs()) {
+      updateIndexCapability(indexDef.getType());
+    }
   }
 
   @Override
@@ -84,6 +108,21 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
         return true;
     }
     return false;
+  }
+
+  @Override
+  public boolean hasPathIndex() {
+    return hasPathIndex;
+  }
+
+  @Override
+  public boolean hasCASIndex() {
+    return hasCASIndex;
+  }
+
+  @Override
+  public boolean hasNameIndex() {
+    return hasNameIndex;
   }
 
   @Override
@@ -113,23 +152,55 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
+  public void notifyChange(final ChangeType type, final long nodeKey, final NodeKind nodeKind, final long pathNodeKey,
+      final @Nullable QNm name, final @Nullable Str value) {
+    if (primitiveListeners.isEmpty()) {
+      return;
+    }
+    for (final PathNodeKeyChangeListener primitiveListener : primitiveListeners) {
+      primitiveListener.listen(type, nodeKey, nodeKind, pathNodeKey, name, value);
+    }
+  }
+
+  @Override
   public IndexController<R, W> createIndexListeners(final Set<IndexDef> indexDefs, final W nodeWriteTrx) {
     requireNonNull(nodeWriteTrx);
     // Save for upcoming modifications.
     for (final IndexDef indexDef : indexDefs) {
       indexes.add(indexDef);
+      updateIndexCapability(indexDef.getType());
       switch (indexDef.getType()) {
-        case PATH ->
-            listeners.add(createPathIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
-        case CAS ->
-            listeners.add(createCASIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
-        case NAME -> listeners.add(createNameIndexListener(nodeWriteTrx.getPageWtx(), indexDef));
+        case PATH -> addListener(
+            createPathIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+        case CAS -> addListener(
+            createCASIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+        case NAME -> addListener(createNameIndexListener(nodeWriteTrx.getPageWtx(), indexDef));
         default -> {
         }
       }
     }
 
     return this;
+  }
+
+  private void updateIndexCapability(final IndexType type) {
+    switch (type) {
+      case PATH -> hasPathIndex = true;
+      case CAS -> hasCASIndex = true;
+      case NAME -> hasNameIndex = true;
+      default -> {
+      }
+    }
+  }
+
+  private void addListener(final ChangeListener listener) {
+    listeners.add(listener);
+    if (listener instanceof final PathNodeKeyChangeListener primitiveListener) {
+      primitiveListeners.add(primitiveListener);
+    } else {
+      throw new IllegalStateException("Listener does not support primitive change events: "
+          + listener.getClass().getName());
+    }
   }
 
   private ChangeListener createPathIndexListener(final StorageEngineWriter pageWriteTrx, final PathSummaryReader pathSummaryReader,

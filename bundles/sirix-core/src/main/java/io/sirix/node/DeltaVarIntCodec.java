@@ -327,17 +327,21 @@ public final class DeltaVarIntCodec {
     // General case for larger values (rare for structural keys)
     result |= (long) (b & 0x7F) << 7;
     int shift = 14;
-    do {
-      b = source.readByte();
-      result |= (long) (b & 0x7F) << shift;
-      shift += 7;
-      
-      if (shift > 63) {
+    while (true) {
+      if (shift >= Long.SIZE) {
         throw new IllegalStateException("Varint too long (more than 10 bytes)");
       }
-    } while ((b & 0x80) != 0);
-    
-    return result;
+
+      b = source.readByte();
+      if (shift == Long.SIZE - 1 && (b & 0x7E) != 0) {
+        throw new IllegalStateException("Varint exceeds 64-bit range");
+      }
+      result |= (long) (b & 0x7F) << shift;
+      if ((b & 0x80) == 0) {
+        return result;
+      }
+      shift += 7;
+    }
   }
   
   // ==================== SIZE ESTIMATION ====================
@@ -540,17 +544,21 @@ public final class DeltaVarIntCodec {
     result |= (long) (b & 0x7F) << 7;
     int pos = offset + 2;
     int shift = 14;
-    do {
-      b = segment.get(ValueLayout.JAVA_BYTE, pos++);
-      result |= (long) (b & 0x7F) << shift;
-      shift += 7;
-      
-      if (shift > 63) {
+    while (true) {
+      if (shift >= Long.SIZE) {
         throw new IllegalStateException("Varint too long (more than 10 bytes)");
       }
-    } while ((b & 0x80) != 0);
-    
-    return result;
+
+      b = segment.get(ValueLayout.JAVA_BYTE, pos++);
+      if (shift == Long.SIZE - 1 && (b & 0x7E) != 0) {
+        throw new IllegalStateException("Varint exceeds 64-bit range");
+      }
+      result |= (long) (b & 0x7F) << shift;
+      if ((b & 0x80) == 0) {
+        return result;
+      }
+      shift += 7;
+    }
   }
   
   /**

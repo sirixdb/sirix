@@ -45,12 +45,12 @@ import io.sirix.node.SirixDeweyID;
 import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -63,7 +63,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  * 
  * @author Johannes Lichtenberger
  */
-public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJsonNode {
+public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJsonNode, ReusableNodeProxy {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
