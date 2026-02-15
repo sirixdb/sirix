@@ -403,6 +403,17 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
     return hashFunction;
   }
 
+  /**
+   * Returns the raw value bytes without triggering decompression.
+   * Used by the fixed-slot projector to preserve the original compressed bytes.
+   */
+  public byte[] getRawValueWithoutDecompression() {
+    if (!valueParsed) {
+      parseValuePayload();
+    }
+    return value;
+  }
+
   public boolean isCompressed() {
     return isCompressed;
   }

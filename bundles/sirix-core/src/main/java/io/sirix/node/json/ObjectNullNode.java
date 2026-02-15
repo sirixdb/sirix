@@ -158,6 +158,11 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
     this.deweyIDBytes = null;
   }
 
+  public void setDeweyIDBytes(final byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   @Override
   public void setPreviousRevision(final int revision) {
     this.previousRevision = revision;

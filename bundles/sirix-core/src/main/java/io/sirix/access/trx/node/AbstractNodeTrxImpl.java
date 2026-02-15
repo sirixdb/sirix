@@ -16,6 +16,7 @@ import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.page.UberPage;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -269,10 +270,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       final long nodeKey = nodeReadOnlyTrx.getNodeKey();
       postOrderTraversalHashes();
       final ImmutableNode startNode = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      // Pre-capture all values from startNode before traversing ancestors.
+      // Each ancestor's prepareRecordForModification may overwrite the singleton if same kind.
+      final long hashToAdd = startNode.computeHash(nodeHashing.getBytes());
+      final boolean startIsStruct = startNode instanceof StructNode;
+      final long startDescendantCount = startIsStruct ? ((StructNode) startNode).getDescendantCount() : 0;
       moveToParent();
       while (nodeReadOnlyTrx.hasParent()) {
         moveToParent();
-        nodeHashing.addParentHash(startNode);
+        nodeHashing.addParentHash(hashToAdd, startIsStruct, startDescendantCount);
       }
       moveTo(nodeKey);
     }

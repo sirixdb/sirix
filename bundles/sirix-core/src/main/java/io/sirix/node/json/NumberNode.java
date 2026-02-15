@@ -100,6 +100,10 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   private boolean hasHash;              // Whether hash is stored (from config)
   private long valueOffset;             // Offset where value starts (after metadata)
 
+  // Fixed-slot value encoding state (for read path via populateSingletonFromFixedSlot)
+  private boolean fixedValueEncoding;   // Whether value comes from fixed-slot inline payload
+  private int fixedValueLength;         // Length of inline payload bytes
+
   /**
    * Primary constructor with all primitive fields.
    * All fields are already parsed - no lazy loading needed.
@@ -301,6 +305,8 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
 
   public void setValue(final Number value) {
     this.value = value;
+    this.fixedValueEncoding = false;
+    this.valueParsed = true;
   }
 
   @Override
@@ -368,6 +374,11 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     this.nodeKey = nodeKey;
   }
 
+  public void setDeweyIDBytes(final byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   /**
    * Populate this node from a BytesIn source for singleton reuse.
    * LAZY OPTIMIZATION: Only parses structural fields immediately.
@@ -401,6 +412,26 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   }
   
   /**
+   * Populate this singleton from fixed-slot inline payload (zero allocation).
+   * Sets up lazy value parsing from the fixed-slot MemorySegment.
+   * CRITICAL: Resets hash to 0 — caller MUST call setHash() AFTER this method.
+   *
+   * @param source the slot data (MemorySegment) containing inline payload
+   * @param valueOffset byte offset within source where payload bytes start
+   * @param valueLength length of payload bytes
+   */
+  public void setLazyNumberValue(final Object source, final long valueOffset, final int valueLength) {
+    this.lazySource = source;
+    this.valueOffset = valueOffset;
+    this.metadataParsed = true;
+    this.valueParsed = false;
+    this.fixedValueEncoding = true;
+    this.fixedValueLength = valueLength;
+    this.value = null;
+    this.hash = 0L;
+  }
+
+  /**
    * Parse metadata fields on demand (cheap - just varints and optionally a long).
    * Called by getters that access prevRev, lastModRev, or hash.
    */
@@ -432,17 +463,29 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     if (valueParsed) {
       return;
     }
-    
+
+    // Fixed-slot inline payload path (from setLazyNumberValue)
+    if (fixedValueEncoding) {
+      if (fixedValueLength > 0) {
+        final BytesIn<?> bytesIn = createBytesIn(valueOffset);
+        this.value = NodeKind.deserializeNumber(bytesIn);
+      } else {
+        this.value = 0;
+      }
+      this.valueParsed = true;
+      return;
+    }
+
     if (!metadataParsed) {
       parseMetadataFields();
     }
-    
+
     if (lazySource == null) {
       valueParsed = true;
       return;
     }
-    
-    BytesIn<?> bytesIn = createBytesIn(valueOffset);
+
+    final BytesIn<?> bytesIn = createBytesIn(valueOffset);
     this.value = NodeKind.deserializeNumber(bytesIn);
     this.valueParsed = true;
   }

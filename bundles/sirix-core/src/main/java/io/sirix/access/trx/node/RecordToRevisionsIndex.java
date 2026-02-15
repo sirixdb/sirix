@@ -49,5 +49,6 @@ public final class RecordToRevisionsIndex {
     final RevisionReferencesNode revisionReferencesNode =
         pageTrx.prepareRecordForModification(recordKey, IndexType.RECORD_TO_REVISIONS, 0);
     revisionReferencesNode.addRevision(pageTrx.getRevisionNumber());
+    pageTrx.updateRecordSlot(revisionReferencesNode, IndexType.RECORD_TO_REVISIONS, 0);
   }
 }

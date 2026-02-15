@@ -232,6 +232,18 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
 
   public void setName(QNm name) { this.qNm = name; }
 
+  /**
+   * Returns the raw value bytes without triggering decompression.
+   * Attributes are never compressed, so this is identical to getRawValue().
+   * Provided for consistency with the fixed-slot projector interface.
+   */
+  public byte[] getRawValueWithoutDecompression() {
+    if (!valueParsed) {
+      parseLazyValue();
+    }
+    return value;
+  }
+
   @Override
   public boolean isSameItem(@Nullable Node other) { return other != null && other.getNodeKey() == nodeKey; }
 

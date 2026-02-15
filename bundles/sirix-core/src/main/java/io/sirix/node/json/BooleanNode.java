@@ -172,6 +172,11 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
     this.deweyIDBytes = null;
   }
 
+  public void setDeweyIDBytes(final byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   @Override
   public void setPreviousRevision(final int revision) {
     this.previousRevision = revision;

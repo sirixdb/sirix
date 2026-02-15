@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.page;
 
+import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
@@ -46,6 +47,28 @@ import io.sirix.io.Writer;
 import io.sirix.node.DeletedNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
+import io.sirix.node.json.ArrayNode;
+import io.sirix.node.json.BooleanNode;
+import io.sirix.node.json.JsonDocumentRootNode;
+import io.sirix.node.json.NullNode;
+import io.sirix.node.json.NumberNode;
+import io.sirix.node.json.ObjectBooleanNode;
+import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNode;
+import io.sirix.node.json.ObjectNullNode;
+import io.sirix.node.json.ObjectNumberNode;
+import io.sirix.node.json.ObjectStringNode;
+import io.sirix.node.json.StringNode;
+import io.sirix.node.xml.AttributeNode;
+import io.sirix.node.xml.CommentNode;
+import io.sirix.node.xml.NamespaceNode;
+import io.sirix.node.xml.PINode;
+import io.sirix.node.xml.TextNode;
+import io.sirix.node.xml.ElementNode;
+import io.sirix.node.xml.XmlDocumentRootNode;
+import io.sirix.node.layout.FixedSlotRecordMaterializer;
+import io.sirix.node.layout.FixedSlotRecordProjector;
+import io.sirix.node.layout.NodeKindLayout;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
@@ -67,6 +90,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -104,6 +128,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private BytesOut<?> bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
   private MemorySegmentBytesOut demotionBuffer;
+  private MemorySegment fixedSlotProjectionBuffer;
+
+  private record RecordFetchResult(DataRecord record) {
+  }
 
   /**
    * Page writer to serialize.
@@ -190,6 +218,27 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * The most recent path summary page container.
    */
   private IndexLogKeyToPageContainer mostRecentPathSummaryPageContainer;
+
+  // Write-path singletons — one per XML/JSON node kind (lazily allocated)
+  private ObjectNode writeObjectSingleton;
+  private ArrayNode writeArraySingleton;
+  private ObjectKeyNode writeObjectKeySingleton;
+  private StringNode writeStringSingleton;
+  private NumberNode writeNumberSingleton;
+  private BooleanNode writeBooleanSingleton;
+  private NullNode writeNullSingleton;
+  private ObjectStringNode writeObjectStringSingleton;
+  private ObjectNumberNode writeObjectNumberSingleton;
+  private ObjectBooleanNode writeObjectBooleanSingleton;
+  private ObjectNullNode writeObjectNullSingleton;
+  private JsonDocumentRootNode writeJsonDocumentSingleton;
+  private XmlDocumentRootNode writeXmlDocumentSingleton;
+  private ElementNode writeElementSingleton;
+  private TextNode writeTextSingleton;
+  private CommentNode writeCommentSingleton;
+  private AttributeNode writeAttributeSingleton;
+  private NamespaceNode writeNamespaceSingleton;
+  private PINode writePISingleton;
 
   private final LinkedHashMap<IndexLogKey, PageContainer> pageContainerCache;
 
@@ -312,19 +361,163 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
     final var modifiedPage = cont.getModifiedAsKeyValuePage();
 
-    DataRecord record = pageRtx.getValue(modifiedPage, recordKey);
-    if (record == null) {
-      final DataRecord oldRecord = pageRtx.getValue(cont.getCompleteAsKeyValuePage(), recordKey);
-      if (oldRecord == null) {
-        throw new SirixIOException(
-            "Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType + ") (index: "
-                + index + ")");
-      }
-      record = oldRecord;
-      modifiedPage.setRecord(record);
+    // Check records[] first — this is the fast path and returns a stable reference.
+    final int recordOffset = StorageEngineReader.recordPageOffset(recordKey);
+    DataRecord record = modifiedPage.getRecord(recordOffset);
+    if (record != null) {
+      return record;
     }
 
+    // Try fixed-slot singleton path — zero allocation hot path.
+    // The write singleton is populated from fixed-slot bytes (authoritative state).
+    // Callers must use the returned object immediately, mutate, and persist via
+    // updateRecordSlot before the next prepareRecordForModification call for the
+    // same node kind (use-persist-discard rule).
+    if (modifiedPage instanceof KeyValueLeafPage modifiedLeafPage && modifiedLeafPage.isFixedSlotFormat(recordOffset)) {
+      final NodeKind nodeKind = modifiedLeafPage.getFixedSlotNodeKind(recordOffset);
+      if (nodeKind != null) {
+        final MemorySegment fixedSlotBytes = modifiedLeafPage.getSlot(recordOffset);
+        if (fixedSlotBytes != null) {
+          final DataRecord singleton = getOrCreateWriteSingleton(nodeKind);
+          if (singleton != null) {
+            final byte[] deweyIdBytes = modifiedLeafPage.getDeweyIdAsByteArray(recordOffset);
+            if (FixedSlotRecordMaterializer.populateExisting(singleton, nodeKind, recordKey,
+                fixedSlotBytes, deweyIdBytes, pageRtx.getResourceSession().getResourceConfig())) {
+              return singleton;  // Zero-allocation hot path
+            }
+          }
+        }
+      }
+    }
+
+    // Try compact-format / records[] on the modified page.
+    record = pageRtx.getValue(modifiedPage, recordKey);
+    if (record != null) {
+      modifiedPage.setRecord(record);
+      return record;
+    }
+
+    // Fall back to complete (on-disk) page.
+    final DataRecord oldRecord = pageRtx.getValue(cont.getCompleteAsKeyValuePage(), recordKey);
+    if (oldRecord == null) {
+      throw new SirixIOException(
+          "Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType + ") (index: "
+              + index + ")");
+    }
+    record = oldRecord;
+
+    // Project disk-read records to fixed-slot format if eligible.
+    // Fixed-slot bytes are now authoritative. Don't cache in records[] —
+    // next access will use write singleton via fixed-slot path.
+    if (modifiedPage instanceof KeyValueLeafPage modifiedLeafPage && indexType == IndexType.DOCUMENT) {
+      final ResourceConfiguration resourceConfiguration = pageRtx.getResourceSession().getResourceConfig();
+      if (tryProjectRecordIntoFixedSlot(record, modifiedLeafPage, resourceConfiguration)) {
+        return record;
+      }
+    }
+    // Non-fixed-slot: cache in records[] for stable reference identity.
+    modifiedPage.setRecord(record);
+
     return record;
+  }
+
+  @Override
+  public void updateRecordSlot(@NonNull final DataRecord record, @NonNull final IndexType indexType, final int index) {
+    pageRtx.assertNotClosed();
+    requireNonNull(record);
+    requireNonNull(indexType);
+    checkArgument(record.getNodeKey() >= 0, "recordKey must be >= 0!");
+
+    final long recordKey = record.getNodeKey();
+    final long recordPageKey = pageRtx.pageKey(recordKey, indexType);
+    final PageContainer container = prepareRecordPage(recordPageKey, index, indexType);
+    final KeyValuePage<DataRecord> modifiedPage = container.getModifiedAsKeyValuePage();
+
+    if (!(modifiedPage instanceof KeyValueLeafPage modifiedLeafPage)) {
+      modifiedPage.setRecord(record);
+      return;
+    }
+
+    final ResourceConfiguration resourceConfiguration = pageRtx.getResourceSession().getResourceConfig();
+    if (tryProjectRecordIntoFixedSlot(record, modifiedLeafPage, resourceConfiguration)) {
+      // Fixed-slot projection succeeded — fixed-slot bytes are the authoritative
+      // in-memory representation. No records[] entry needed; compactFixedSlotsForCommit
+      // handles serialization at commit time.
+      return;
+    }
+
+    // Non-fixed-slot records (payload-bearing kinds like StringNode/NumberNode):
+    // store in records[] for commit-time serialization via processEntries().
+    modifiedPage.setRecord(record);
+  }
+
+  private boolean tryProjectRecordIntoFixedSlot(final DataRecord record, final KeyValueLeafPage modifiedLeafPage,
+      final ResourceConfiguration resourceConfiguration) {
+    if (!(record.getKind() instanceof NodeKind nodeKind)) {
+      return false;
+    }
+
+    final NodeKindLayout layout = nodeKind.layoutDescriptor();
+    if (!layout.isFixedSlotSupported()) {
+      return false;
+    }
+
+    // Only VALUE_BLOB payload refs are supported for inline projection.
+    if (!FixedSlotRecordProjector.hasSupportedPayloads(layout)) {
+      return false;
+    }
+
+    final int fixedSlotSize = layout.fixedSlotSizeInBytes();
+    if (fixedSlotSize <= 0) {
+      return false;
+    }
+
+    // Compute inline payload length for payload-bearing nodes (strings, numbers).
+    final int inlinePayloadLength = FixedSlotRecordProjector.computeInlinePayloadLength(record, layout);
+    if (inlinePayloadLength < 0) {
+      return false;
+    }
+
+    final int totalSlotSize = fixedSlotSize + inlinePayloadLength;
+    if (totalSlotSize > PageConstants.MAX_RECORD_SIZE) {
+      return false;
+    }
+
+    final int recordOffset = StorageEngineReader.recordPageOffset(record.getNodeKey());
+    MemorySegment slot = modifiedLeafPage.getSlot(recordOffset);
+    if (slot == null || slot.byteSize() != totalSlotSize) {
+      final MemorySegment projectionBuffer = ensureFixedSlotProjectionBuffer(totalSlotSize);
+      modifiedLeafPage.setSlot(projectionBuffer.asSlice(0, totalSlotSize), recordOffset);
+      slot = modifiedLeafPage.getSlot(recordOffset);
+      if (slot == null || slot.byteSize() != totalSlotSize) {
+        return false;
+      }
+    }
+
+    if (!FixedSlotRecordProjector.project(record, layout, slot)) {
+      return false;
+    }
+    modifiedLeafPage.markSlotAsFixedFormat(recordOffset, nodeKind);
+
+    if (resourceConfiguration.areDeweyIDsStored) {
+      final byte[] deweyId = record.getDeweyIDAsBytes();
+      if (deweyId != null && deweyId.length > 0) {
+        modifiedLeafPage.setDeweyId(deweyId, recordOffset);
+      }
+    }
+
+    return true;
+  }
+
+  private MemorySegment ensureFixedSlotProjectionBuffer(final int requiredSize) {
+    if (fixedSlotProjectionBuffer == null || fixedSlotProjectionBuffer.byteSize() < requiredSize) {
+      int newSize = 256;
+      while (newSize < requiredSize) {
+        newSize <<= 1;
+      }
+      fixedSlotProjectionBuffer = MemorySegment.ofArray(new byte[newSize]);
+    }
+    return fixedSlotProjectionBuffer;
   }
 
   @Override
@@ -406,6 +599,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     demotionBuffer.clear();
 
     final ResourceConfiguration resourceConfiguration = pageRtx.getResourceSession().getResourceConfig();
+    if (tryProjectRecordIntoFixedSlot(record, modifiedLeafPage, resourceConfiguration)) {
+      return true;
+    }
+
     resourceConfiguration.recordPersister.serialize(demotionBuffer, record, resourceConfiguration);
     final var serializedRecord = demotionBuffer.getDestination();
 
@@ -420,6 +617,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     final int recordOffset = StorageEngineReader.recordPageOffset(record.getNodeKey());
     modifiedLeafPage.setSlot(serializedRecord, recordOffset);
+    modifiedLeafPage.markSlotAsCompactFormat(recordOffset);
 
     if (resourceConfiguration.areDeweyIDsStored) {
       final byte[] deweyId = record.getDeweyIDAsBytes();
@@ -476,12 +674,55 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (pageCont == null) {
       return pageRtx.getRecord(recordKey, indexType, index);
     } else {
-      DataRecord node = pageRtx.getValue(((KeyValueLeafPage) pageCont.getModified()), recordKey);
+      DataRecord node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getModified()), recordKey).record();
       if (node == null) {
-        node = pageRtx.getValue(((KeyValueLeafPage) pageCont.getComplete()), recordKey);
+        node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getComplete()), recordKey).record();
       }
       return (V) pageRtx.checkItemIfDeleted(node);
     }
+  }
+
+  private RecordFetchResult getRecordForWriteAccess(final KeyValuePage<? extends DataRecord> page, final long recordKey) {
+    final int recordOffset = StorageEngineReader.recordPageOffset(recordKey);
+    final DataRecord cachedRecord = page.getRecord(recordOffset);
+    if (cachedRecord != null) {
+      return new RecordFetchResult(cachedRecord);
+    }
+
+    if (page instanceof KeyValueLeafPage leafPage && leafPage.isFixedSlotFormat(recordOffset)) {
+      final NodeKind nodeKind = leafPage.getFixedSlotNodeKind(recordOffset);
+      if (nodeKind == null) {
+        throw new IllegalStateException(
+            "Fixed-slot bitmap set but node kind metadata is missing (key=" + recordKey + ", slot=" + recordOffset + ").");
+      }
+
+      final MemorySegment fixedSlotBytes = leafPage.getSlot(recordOffset);
+      if (fixedSlotBytes == null) {
+        throw new IllegalStateException(
+            "Fixed-slot bitmap set but slot bytes are missing (key=" + recordKey + ", slot=" + recordOffset + ").");
+      }
+
+      final byte[] deweyIdBytes = leafPage.getDeweyIdAsByteArray(recordOffset);
+      final DataRecord materialized =
+          FixedSlotRecordMaterializer.materialize(nodeKind,
+                                                  recordKey,
+                                                  fixedSlotBytes,
+                                                  deweyIdBytes,
+                                                  pageRtx.getResourceSession().getResourceConfig());
+      if (materialized == null) {
+        throw new IllegalStateException(
+            "Unsupported fixed-slot write-path materialization for node kind "
+                + nodeKind
+                + " (key="
+                + recordKey
+                + ", slot="
+                + recordOffset
+                + ").");
+      }
+      return new RecordFetchResult(materialized);
+    }
+
+    return new RecordFetchResult(pageRtx.getValue(page, recordKey));
   }
 
   @Override
@@ -1282,6 +1523,135 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return new PageGuard(currentPage);
   }
   
+  private static final QNm EMPTY_QNM = new QNm("");
+
+  /**
+   * Get or lazily create a write-path singleton for the given node kind.
+   * Returns null for unsupported kinds (non-XML/JSON).
+   */
+  private DataRecord getOrCreateWriteSingleton(final NodeKind kind) {
+    final var hashFunction = pageRtx.getResourceSession().getResourceConfig().nodeHashFunction;
+    return switch (kind) {
+      case OBJECT -> {
+        if (writeObjectSingleton == null) {
+          writeObjectSingleton = new ObjectNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null);
+        }
+        yield writeObjectSingleton;
+      }
+      case ARRAY -> {
+        if (writeArraySingleton == null) {
+          writeArraySingleton = new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null);
+        }
+        yield writeArraySingleton;
+      }
+      case OBJECT_KEY -> {
+        if (writeObjectKeySingleton == null) {
+          writeObjectKeySingleton = new ObjectKeyNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null);
+        }
+        yield writeObjectKeySingleton;
+      }
+      case STRING_VALUE -> {
+        if (writeStringSingleton == null) {
+          writeStringSingleton = new StringNode(0, 0, 0, 0, 0, 0, 0, null, hashFunction, (byte[]) null);
+        }
+        yield writeStringSingleton;
+      }
+      case NUMBER_VALUE -> {
+        if (writeNumberSingleton == null) {
+          writeNumberSingleton = new NumberNode(0, 0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null);
+        }
+        yield writeNumberSingleton;
+      }
+      case BOOLEAN_VALUE -> {
+        if (writeBooleanSingleton == null) {
+          writeBooleanSingleton = new BooleanNode(0, 0, 0, 0, 0, 0, 0, false, hashFunction, (byte[]) null);
+        }
+        yield writeBooleanSingleton;
+      }
+      case NULL_VALUE -> {
+        if (writeNullSingleton == null) {
+          writeNullSingleton = new NullNode(0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null);
+        }
+        yield writeNullSingleton;
+      }
+      case OBJECT_STRING_VALUE -> {
+        if (writeObjectStringSingleton == null) {
+          writeObjectStringSingleton = new ObjectStringNode(0, 0, 0, 0, 0, null, hashFunction, (byte[]) null);
+        }
+        yield writeObjectStringSingleton;
+      }
+      case OBJECT_NUMBER_VALUE -> {
+        if (writeObjectNumberSingleton == null) {
+          writeObjectNumberSingleton = new ObjectNumberNode(0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null);
+        }
+        yield writeObjectNumberSingleton;
+      }
+      case OBJECT_BOOLEAN_VALUE -> {
+        if (writeObjectBooleanSingleton == null) {
+          writeObjectBooleanSingleton = new ObjectBooleanNode(0, 0, 0, 0, 0, false, hashFunction, (byte[]) null);
+        }
+        yield writeObjectBooleanSingleton;
+      }
+      case OBJECT_NULL_VALUE -> {
+        if (writeObjectNullSingleton == null) {
+          writeObjectNullSingleton = new ObjectNullNode(0, 0, 0, 0, 0, hashFunction, (byte[]) null);
+        }
+        yield writeObjectNullSingleton;
+      }
+      case JSON_DOCUMENT -> {
+        if (writeJsonDocumentSingleton == null) {
+          writeJsonDocumentSingleton = new JsonDocumentRootNode(0, 0, 0, 0, 0, hashFunction);
+        }
+        yield writeJsonDocumentSingleton;
+      }
+      case XML_DOCUMENT -> {
+        if (writeXmlDocumentSingleton == null) {
+          writeXmlDocumentSingleton = new XmlDocumentRootNode(0, 0, 0, 0, 0, hashFunction);
+        }
+        yield writeXmlDocumentSingleton;
+      }
+      case ELEMENT -> {
+        if (writeElementSingleton == null) {
+          writeElementSingleton = new ElementNode(0, 0, 0, 0, 0, 0, 0, 0,
+              0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null, null, null, EMPTY_QNM);
+        }
+        yield writeElementSingleton;
+      }
+      case TEXT -> {
+        if (writeTextSingleton == null) {
+          writeTextSingleton = new TextNode(0, 0, 0, 0, 0, 0, 0, new byte[0], false, hashFunction, (byte[]) null);
+        }
+        yield writeTextSingleton;
+      }
+      case COMMENT -> {
+        if (writeCommentSingleton == null) {
+          writeCommentSingleton = new CommentNode(0, 0, 0, 0, 0, 0, 0, new byte[0], false, hashFunction, (byte[]) null);
+        }
+        yield writeCommentSingleton;
+      }
+      case ATTRIBUTE -> {
+        if (writeAttributeSingleton == null) {
+          writeAttributeSingleton = new AttributeNode(0, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0], hashFunction, (byte[]) null, EMPTY_QNM);
+        }
+        yield writeAttributeSingleton;
+      }
+      case NAMESPACE -> {
+        if (writeNamespaceSingleton == null) {
+          writeNamespaceSingleton = new NamespaceNode(0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null, EMPTY_QNM);
+        }
+        yield writeNamespaceSingleton;
+      }
+      case PROCESSING_INSTRUCTION -> {
+        if (writePISingleton == null) {
+          writePISingleton = new PINode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+              new byte[0], false, hashFunction, (byte[]) null, EMPTY_QNM);
+        }
+        yield writePISingleton;
+      }
+      default -> null;
+    };
+  }
+
   /**
    * Package-private helper class for managing the trie structure of IndirectPages.
    * 

@@ -186,6 +186,11 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
     this.deweyIDBytes = null; // Clear cached bytes
   }
 
+  public void setDeweyIDBytes(final byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   @Override
   public void setPreviousRevision(final int revision) {
     this.previousRevision = revision;

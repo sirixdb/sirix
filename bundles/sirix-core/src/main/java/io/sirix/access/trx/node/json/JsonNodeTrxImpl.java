@@ -51,6 +51,7 @@ import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.BooleanValueNode;
+import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NumericValueNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
@@ -1197,6 +1198,11 @@ final class JsonNodeTrxImpl extends
   private void setFirstChildOfObjectKeyNode(final ObjectKeyNode node) {
     final ObjectKeyNode objectKeyNode = pageTrx.prepareRecordForModification(node.getNodeKey(), IndexType.DOCUMENT, -1);
     objectKeyNode.setFirstChildKey(getNodeKey());
+    persistUpdatedRecord(objectKeyNode);
+  }
+
+  private void persistUpdatedRecord(final DataRecord record) {
+    pageTrx.updateRecordSlot(record, IndexType.DOCUMENT, -1);
   }
 
   private void insertValue(final ObjectRecordValue<?> value) throws AssertionError {
@@ -2573,8 +2579,7 @@ final class JsonNodeTrxImpl extends
       // Create new key for mapping.
       final int newNameKey = pageTrx.createNameKey(key, node.getKind());
 
-      // Set new keys for current node.
-      node = pageTrx.prepareRecordForModification(node.getNodeKey(), IndexType.DOCUMENT, -1);
+      // Mutate current singleton-backed node directly.
       node.setNameKey(newNameKey);
       node.setName(key);
       node.setPreviousRevision(pageTrx.getRevisionToRepresent());
@@ -2588,6 +2593,7 @@ final class JsonNodeTrxImpl extends
       node.setPathNodeKey(buildPathSummary ? pathSummaryWriter.getNodeKey() : 0);
 
       nodeReadOnlyTrx.setCurrentNode(node);
+      persistUpdatedRecord(node);
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
@@ -2650,8 +2656,7 @@ final class JsonNodeTrxImpl extends
       final long pathNodeKey = getPathNodeKey();
       moveTo(nodeKey);
 
-      final ValueNode node =
-          pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      final ValueNode node = (ValueNode) nodeReadOnlyTrx.getStructuralNode();
       // Remove old value from indexes before mutating the node.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
       final long oldHash = node.computeHash(bytes);
@@ -2661,6 +2666,7 @@ final class JsonNodeTrxImpl extends
       node.setLastModifiedRevision(pageTrx.getRevisionNumber());
 
       nodeReadOnlyTrx.setCurrentNode(node);
+      persistUpdatedRecord(node);
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
       // Index new value.
@@ -2698,8 +2704,7 @@ final class JsonNodeTrxImpl extends
       final long pathNodeKey = getPathNodeKey();
       moveTo(nodeKey);
 
-      final BooleanValueNode node =
-          pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      final BooleanValueNode node = (BooleanValueNode) nodeReadOnlyTrx.getStructuralNode();
       // Remove old value from indexes before mutating the node.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
       final long oldHash = node.computeHash(bytes);
@@ -2708,6 +2713,7 @@ final class JsonNodeTrxImpl extends
       node.setLastModifiedRevision(pageTrx.getRevisionNumber());
 
       nodeReadOnlyTrx.setCurrentNode(node);
+      persistUpdatedRecord(node);
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
       // Index new value.
@@ -2746,8 +2752,7 @@ final class JsonNodeTrxImpl extends
       final long pathNodeKey = getPathNodeKey();
       moveTo(nodeKey);
 
-      final NumericValueNode node =
-          pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      final NumericValueNode node = (NumericValueNode) nodeReadOnlyTrx.getStructuralNode();
       // Remove old value from indexes before mutating the node.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
       final long oldHash = node.computeHash(bytes);
@@ -2756,6 +2761,7 @@ final class JsonNodeTrxImpl extends
       node.setLastModifiedRevision(pageTrx.getRevisionNumber());
 
       nodeReadOnlyTrx.setCurrentNode(node);
+      persistUpdatedRecord(node);
       nodeHashing.adaptHashedWithUpdate(oldHash);
 
       // Index new value.
@@ -2787,27 +2793,42 @@ final class JsonNodeTrxImpl extends
    */
   private void adaptForInsert(final StructNode structNode) {
     assert structNode != null;
+    // Capture all needed keys from structNode before any prepareRecordForModification calls.
+    // With write-path singletons, prepareRecordForModification for a node of the same kind
+    // would overwrite the singleton, invalidating prior references.
+    final long structNodeKey = structNode.getNodeKey();
+    final long parentKey = structNode.getParentKey();
+    final long leftSibKey = structNode.getLeftSiblingKey();
+    final long rightSibKey = structNode.getRightSiblingKey();
+    final boolean hasLeft = structNode.hasLeftSibling();
+    final boolean hasRight = structNode.hasRightSibling();
 
-    final StructNode parent = pageTrx.prepareRecordForModification(structNode.getParentKey(), IndexType.DOCUMENT, -1);
-
+    // Phase 1: Update parent — childCount + firstChild/lastChild if no siblings.
+    // Complete all parent modifications and persist BEFORE acquiring any sibling singletons.
+    final StructNode parent = pageTrx.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
     if (storeChildCount) {
       parent.incrementChildCount();
     }
+    if (!hasLeft) {
+      parent.setFirstChildKey(structNodeKey);
+    }
+    if (!hasRight) {
+      parent.setLastChildKey(structNodeKey);
+    }
+    persistUpdatedRecord(parent);
 
-    if (structNode.hasLeftSibling()) {
-      final StructNode leftSiblingNode =
-          pageTrx.prepareRecordForModification(structNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
-      leftSiblingNode.setRightSiblingKey(structNode.getNodeKey());
-    } else {
-      parent.setFirstChildKey(structNode.getNodeKey());
+    // Phase 2: Update left sibling (safe — parent already persisted)
+    if (hasLeft) {
+      final StructNode leftSib = pageTrx.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
+      leftSib.setRightSiblingKey(structNodeKey);
+      persistUpdatedRecord(leftSib);
     }
 
-    if (structNode.hasRightSibling()) {
-      final StructNode rightSiblingNode =
-          pageTrx.prepareRecordForModification(structNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
-      rightSiblingNode.setLeftSiblingKey(structNode.getNodeKey());
-    } else {
-      parent.setLastChildKey(structNode.getNodeKey());
+    // Phase 3: Update right sibling
+    if (hasRight) {
+      final StructNode rightSib = pageTrx.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
+      rightSib.setLeftSiblingKey(structNodeKey);
+      persistUpdatedRecord(rightSib);
     }
   }
 
@@ -2827,34 +2848,42 @@ final class JsonNodeTrxImpl extends
    */
   private void adaptForRemove(final StructNode oldNode) {
     assert oldNode != null;
+    // Capture all needed values from oldNode before any prepareRecordForModification calls.
+    // With write-path singletons, subsequent calls for the same kind would overwrite the singleton.
+    final long leftSibKey = oldNode.getLeftSiblingKey();
+    final long rightSibKey = oldNode.getRightSiblingKey();
+    final long parentKey = oldNode.getParentKey();
+    final boolean hasLeft = oldNode.hasLeftSibling();
+    final boolean hasRight = oldNode.hasRightSibling();
 
-    // Adapt left sibling node if there is one.
-    if (oldNode.hasLeftSibling()) {
+    // Phase 1: Adapt left sibling node if there is one.
+    if (hasLeft) {
       final StructNode leftSibling =
-          pageTrx.prepareRecordForModification(oldNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
-      leftSibling.setRightSiblingKey(oldNode.getRightSiblingKey());
+          pageTrx.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
+      leftSibling.setRightSiblingKey(rightSibKey);
+      persistUpdatedRecord(leftSibling);
     }
 
-    // Adapt right sibling node if there is one.
-    if (oldNode.hasRightSibling()) {
+    // Phase 2: Adapt right sibling node if there is one.
+    if (hasRight) {
       final StructNode rightSibling =
-          pageTrx.prepareRecordForModification(oldNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
-      rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
+          pageTrx.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
+      rightSibling.setLeftSiblingKey(leftSibKey);
+      persistUpdatedRecord(rightSibling);
     }
 
-    // Adapt parent, if node has left sibling now it is a first child, and right sibling will be a last child
-    StructNode parent = pageTrx.prepareRecordForModification(oldNode.getParentKey(), IndexType.DOCUMENT, -1);
-
-    if (!oldNode.hasLeftSibling()) {
-      parent.setFirstChildKey(oldNode.getRightSiblingKey());
+    // Phase 3: Adapt parent
+    final StructNode parent = pageTrx.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
+    if (!hasLeft) {
+      parent.setFirstChildKey(rightSibKey);
     }
-    if (!oldNode.hasRightSibling()) {
-      parent.setLastChildKey(oldNode.getLeftSiblingKey());
+    if (!hasRight) {
+      parent.setLastChildKey(leftSibKey);
     }
-
     if (storeChildCount) {
       parent.decrementChildCount();
     }
+    persistUpdatedRecord(parent);
 
     // Remove non-structural nodes of old node.
     if (oldNode.getKind() == NodeKind.ELEMENT) {

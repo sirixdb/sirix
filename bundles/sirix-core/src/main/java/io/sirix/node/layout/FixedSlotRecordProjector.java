@@ -1,50 +1,129 @@
 package io.sirix.node.layout;
 
+import io.sirix.node.NodeKind;
+import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.node.interfaces.BooleanValueNode;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NameNode;
+import io.sirix.node.interfaces.NumericValueNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectStringNode;
+import io.sirix.node.json.StringNode;
+import io.sirix.node.xml.AttributeNode;
+import io.sirix.node.xml.CommentNode;
+import io.sirix.node.xml.ElementNode;
+import io.sirix.node.xml.PINode;
+import io.sirix.node.xml.TextNode;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
 /**
  * Projects record structural metadata into a fixed-slot memory layout.
  *
- * <p>This projector is intentionally limited to payload-free layouts. It mirrors fields used on
- * hot structural paths while leaving payload-bearing node kinds on the existing serializer path.
+ * <p>The projector writes fixed-width structural fields directly, fills payload reference
+ * metadata, and writes inline payload bytes for VALUE_BLOB payloads (strings, numbers).
  */
 public final class FixedSlotRecordProjector {
+
+  /** Unaligned long layout for reading/writing vector entries in inline payload. */
+  private static final ValueLayout.OfLong LONG_UNALIGNED = ValueLayout.JAVA_LONG_UNALIGNED;
+
+  /** Thread-local buffer for serializing number values inline. */
+  private static final ThreadLocal<MemorySegmentBytesOut> NUMBER_BUFFER =
+      ThreadLocal.withInitial(() -> new MemorySegmentBytesOut(32));
+
   private FixedSlotRecordProjector() {
+  }
+
+  /**
+   * Check whether all payload refs in the layout are supported for inline projection.
+   * Supported kinds: VALUE_BLOB, ATTRIBUTE_VECTOR, NAMESPACE_VECTOR.
+   *
+   * @param layout fixed-slot layout descriptor
+   * @return {@code true} if all payload refs are supported or there are no payload refs
+   */
+  public static boolean hasSupportedPayloads(final NodeKindLayout layout) {
+    for (int i = 0, refs = layout.payloadRefCount(); i < refs; i++) {
+      final PayloadRefKind kind = layout.payloadRef(i).kind();
+      if (kind != PayloadRefKind.VALUE_BLOB
+          && kind != PayloadRefKind.ATTRIBUTE_VECTOR
+          && kind != PayloadRefKind.NAMESPACE_VECTOR) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Compute the inline payload byte length for a record projected into the given layout.
+   *
+   * @param record the data record
+   * @param layout the layout descriptor
+   * @return total inline payload bytes, or {@code -1} if the record cannot be projected
+   */
+  public static int computeInlinePayloadLength(final DataRecord record, final NodeKindLayout layout) {
+    int total = 0;
+    for (int i = 0, refs = layout.payloadRefCount(); i < refs; i++) {
+      final PayloadRef payloadRef = layout.payloadRef(i);
+      final PayloadRefKind kind = payloadRef.kind();
+      if (kind == PayloadRefKind.VALUE_BLOB) {
+        final int length = getValueBlobLength(record);
+        if (length < 0) {
+          return -1;
+        }
+        total += length;
+      } else if (kind == PayloadRefKind.ATTRIBUTE_VECTOR
+          || kind == PayloadRefKind.NAMESPACE_VECTOR) {
+        final int length = getVectorPayloadLength(record, kind);
+        if (length < 0) {
+          return -1;
+        }
+        total += length;
+      } else {
+        return -1;
+      }
+    }
+    return total;
   }
 
   /**
    * Project a record into the given fixed-slot target.
    *
+   * <p>For payload-bearing nodes (strings, numbers), the target slot must be sized to include
+   * both the fixed-slot header and inline payload bytes. The payload bytes are written immediately
+   * after the header, and the PayloadRef metadata in the header stores the offset and length.
+   *
    * @param record record to project
    * @param layout fixed-slot layout descriptor
-   * @param targetSlot target slot memory
-   * @return {@code true} if projection succeeded, {@code false} if the record does not provide all required fields
+   * @param targetSlot target slot memory (header + inline payload area)
+   * @return {@code true} if projection succeeded, {@code false} if the record cannot be projected
    */
   public static boolean project(final DataRecord record, final NodeKindLayout layout, final MemorySegment targetSlot) {
     Objects.requireNonNull(record, "record must not be null");
     Objects.requireNonNull(layout, "layout must not be null");
     Objects.requireNonNull(targetSlot, "targetSlot must not be null");
 
-    if (!layout.isFixedSlotSupported() || layout.payloadRefCount() != 0) {
+    if (!layout.isFixedSlotSupported()) {
       return false;
     }
 
-    final int requiredSize = layout.fixedSlotSizeInBytes();
-    if (targetSlot.byteSize() < requiredSize) {
-      throw new IllegalArgumentException(
-          "target slot too small: " + targetSlot.byteSize() + " < " + requiredSize);
+    // Only supported payload kinds are allowed for inline projection.
+    if (!hasSupportedPayloads(layout)) {
+      return false;
     }
 
-    // Clear stale values from previous projection in this slot.
-    targetSlot.asSlice(0, requiredSize).fill((byte) 0);
+    final int headerSize = layout.fixedSlotSizeInBytes();
+    if (targetSlot.byteSize() < headerSize) {
+      throw new IllegalArgumentException(
+          "target slot too small: " + targetSlot.byteSize() + " < " + headerSize);
+    }
+
+    // Clear the header portion (payload area is written explicitly).
+    targetSlot.asSlice(0, headerSize).fill((byte) 0);
 
     final ImmutableNode immutableNode = record instanceof ImmutableNode node ? node : null;
     final StructNode structNode = record instanceof StructNode node ? node : null;
@@ -62,6 +141,9 @@ public final class FixedSlotRecordProjector {
       return false;
     }
     if (!writeBooleanField(booleanValueNode, targetSlot, layout)) {
+      return false;
+    }
+    if (!writeInlinePayloadRefs(record, targetSlot, layout)) {
       return false;
     }
 
@@ -191,5 +273,158 @@ public final class FixedSlotRecordProjector {
                                             booleanValueNode.getValue());
     }
     return true;
+  }
+
+  /**
+   * Write PayloadRef metadata and inline payload bytes.
+   * Supports VALUE_BLOB (strings, numbers), ATTRIBUTE_VECTOR, and NAMESPACE_VECTOR.
+   * The inline payload is written immediately after the fixed-slot header.
+   */
+  private static boolean writeInlinePayloadRefs(final DataRecord record, final MemorySegment targetSlot,
+      final NodeKindLayout layout) {
+    final int refs = layout.payloadRefCount();
+    if (refs == 0) {
+      return true;
+    }
+
+    int payloadOffset = layout.fixedSlotSizeInBytes();
+
+    for (int i = 0; i < refs; i++) {
+      final PayloadRef payloadRef = layout.payloadRef(i);
+      final PayloadRefKind refKind = payloadRef.kind();
+
+      if (refKind == PayloadRefKind.ATTRIBUTE_VECTOR) {
+        if (!(record instanceof ElementNode element)) {
+          return false;
+        }
+        final int count = element.getAttributeCount();
+        final int length = count * Long.BYTES;
+        SlotLayoutAccessors.writePayloadRef(targetSlot, layout, i, payloadOffset, length, 0);
+        for (int j = 0; j < count; j++) {
+          targetSlot.set(LONG_UNALIGNED, payloadOffset, element.getAttributeKey(j));
+          payloadOffset += Long.BYTES;
+        }
+        continue;
+      } else if (refKind == PayloadRefKind.NAMESPACE_VECTOR) {
+        if (!(record instanceof ElementNode element)) {
+          return false;
+        }
+        final int count = element.getNamespaceCount();
+        final int length = count * Long.BYTES;
+        SlotLayoutAccessors.writePayloadRef(targetSlot, layout, i, payloadOffset, length, 0);
+        for (int j = 0; j < count; j++) {
+          targetSlot.set(LONG_UNALIGNED, payloadOffset, element.getNamespaceKey(j));
+          payloadOffset += Long.BYTES;
+        }
+        continue;
+      }
+
+      // VALUE_BLOB handling
+      if (refKind != PayloadRefKind.VALUE_BLOB) {
+        return false;
+      }
+
+      final byte[] payloadBytes;
+      final int flags;
+
+      if (record instanceof StringNode sn) {
+        payloadBytes = sn.getRawValueWithoutDecompression();
+        flags = sn.isCompressed() ? 1 : 0;
+      } else if (record instanceof ObjectStringNode osn) {
+        payloadBytes = osn.getRawValueWithoutDecompression();
+        flags = osn.isCompressed() ? 1 : 0;
+      } else if (record instanceof TextNode tn) {
+        payloadBytes = tn.getRawValueWithoutDecompression();
+        flags = tn.isCompressed() ? 1 : 0;
+      } else if (record instanceof CommentNode cn) {
+        payloadBytes = cn.getRawValueWithoutDecompression();
+        flags = cn.isCompressed() ? 1 : 0;
+      } else if (record instanceof PINode pi) {
+        payloadBytes = pi.getRawValueWithoutDecompression();
+        flags = pi.isCompressed() ? 1 : 0;
+      } else if (record instanceof AttributeNode an) {
+        payloadBytes = an.getRawValueWithoutDecompression();
+        flags = 0; // attributes never compressed
+      } else if (record instanceof NumericValueNode nn) {
+        final MemorySegmentBytesOut buf = NUMBER_BUFFER.get();
+        buf.clear();
+        NodeKind.serializeNumber(nn.getValue(), buf);
+        final MemorySegment serialized = buf.getDestination();
+        final int numLen = (int) serialized.byteSize();
+        SlotLayoutAccessors.writePayloadRef(targetSlot, layout, i, payloadOffset, numLen, 0);
+        if (numLen > 0) {
+          MemorySegment.copy(serialized, 0, targetSlot, payloadOffset, numLen);
+        }
+        payloadOffset += numLen;
+        continue;
+      } else {
+        return false;
+      }
+
+      final int length = payloadBytes != null ? payloadBytes.length : 0;
+      SlotLayoutAccessors.writePayloadRef(targetSlot, layout, i, payloadOffset, length, flags);
+      if (length > 0) {
+        MemorySegment.copy(MemorySegment.ofArray(payloadBytes), 0, targetSlot, payloadOffset, length);
+      }
+      payloadOffset += length;
+    }
+
+    return true;
+  }
+
+  /**
+   * Get the inline payload byte length for a VALUE_BLOB from the given record.
+   *
+   * @return byte length, or {@code -1} if the record type is unsupported
+   */
+  private static int getValueBlobLength(final DataRecord record) {
+    if (record instanceof StringNode sn) {
+      final byte[] raw = sn.getRawValueWithoutDecompression();
+      return raw != null ? raw.length : 0;
+    }
+    if (record instanceof ObjectStringNode osn) {
+      final byte[] raw = osn.getRawValueWithoutDecompression();
+      return raw != null ? raw.length : 0;
+    }
+    if (record instanceof TextNode tn) {
+      final byte[] raw = tn.getRawValueWithoutDecompression();
+      return raw != null ? raw.length : 0;
+    }
+    if (record instanceof CommentNode cn) {
+      final byte[] raw = cn.getRawValueWithoutDecompression();
+      return raw != null ? raw.length : 0;
+    }
+    if (record instanceof PINode pi) {
+      final byte[] raw = pi.getRawValueWithoutDecompression();
+      return raw != null ? raw.length : 0;
+    }
+    if (record instanceof AttributeNode an) {
+      final byte[] raw = an.getRawValueWithoutDecompression();
+      return raw != null ? raw.length : 0;
+    }
+    if (record instanceof NumericValueNode nn) {
+      final MemorySegmentBytesOut buf = NUMBER_BUFFER.get();
+      buf.clear();
+      NodeKind.serializeNumber(nn.getValue(), buf);
+      return (int) buf.getDestination().byteSize();
+    }
+    return -1;
+  }
+
+  /**
+   * Get the inline payload byte length for an ATTRIBUTE_VECTOR or NAMESPACE_VECTOR.
+   *
+   * @return byte length (count * 8), or {@code -1} if the record type is unsupported
+   */
+  private static int getVectorPayloadLength(final DataRecord record, final PayloadRefKind kind) {
+    if (!(record instanceof ElementNode element)) {
+      return -1;
+    }
+    if (kind == PayloadRefKind.ATTRIBUTE_VECTOR) {
+      return element.getAttributeCount() * Long.BYTES;
+    } else if (kind == PayloadRefKind.NAMESPACE_VECTOR) {
+      return element.getNamespaceCount() * Long.BYTES;
+    }
+    return -1;
   }
 }

@@ -297,6 +297,10 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
     indexController.notifyChange(type, nodeKey, kind, pathNodeKey, name, value);
   }
 
+  private void persistUpdatedRecord(final DataRecord record) {
+    pageTrx.updateRecordSlot(record, IndexType.DOCUMENT, -1);
+  }
+
   @Override
   public XmlNodeTrx moveSubtreeToLeftSibling(final @NonNegative long fromKey) {
     if (lock != null) {
@@ -435,17 +439,18 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
       case ASLEFTSIBLING:
       default:
     }
-
     // Adapt first child key of former parent.
     if (parent.getFirstChildKey() == fromNode.getNodeKey()) {
       parent.setFirstChildKey(fromNode.getRightSiblingKey());
     }
+    persistUpdatedRecord(parent);
 
     // Adapt left sibling key of former right sibling.
     if (fromNode.hasRightSibling()) {
       final StructNode rightSibling =
           pageTrx.prepareRecordForModification(fromNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
       rightSibling.setLeftSiblingKey(fromNode.getLeftSiblingKey());
+      persistUpdatedRecord(rightSibling);
     }
 
     // Adapt right sibling key of former left sibling.
@@ -453,6 +458,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
       final StructNode leftSibling =
           pageTrx.prepareRecordForModification(fromNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
       leftSibling.setRightSiblingKey(fromNode.getRightSiblingKey());
+      persistUpdatedRecord(leftSibling);
     }
 
     // Merge text nodes.
@@ -473,11 +479,13 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
               final StructNode leftSibling =
                   pageTrx.prepareRecordForModification(currentLeftNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
               leftSibling.setRightSiblingKey(rightSiblingNodeKey);
+              persistUpdatedRecord(leftSibling);
             }
             final long newLeftSiblingKey = hasLeftSibling ? currentLeftNode.getLeftSiblingKey() : currentLeftNode.getNodeKey();
             moveTo(rightSiblingNodeKey);
             final StructNode rightSibling = pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
             rightSibling.setLeftSiblingKey(newLeftSiblingKey);
+            persistUpdatedRecord(rightSibling);
             moveTo(leftSiblingNodeKey);
             remove();
             moveTo(rightSiblingNodeKey);
@@ -489,11 +497,13 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
               final StructNode rightSibling =
                   pageTrx.prepareRecordForModification(currentRightNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
               rightSibling.setLeftSiblingKey(leftSiblingNodeKey);
+              persistUpdatedRecord(rightSibling);
             }
             final long newRightSiblingKey = hasRightSibling ? currentRightNode.getRightSiblingKey() : currentRightNode.getNodeKey();
             moveTo(leftSiblingNodeKey);
             final StructNode leftSibling = pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
             leftSibling.setRightSiblingKey(newRightSiblingKey);
+            persistUpdatedRecord(leftSibling);
             moveTo(rightSiblingNodeKey);
             remove();
             moveTo(leftSiblingNodeKey);
@@ -733,6 +743,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
       final long hashToAdd = currentNode.computeHash(bytes);
       final Node node = pageTrx.prepareRecordForModification(currentNode.getNodeKey(), IndexType.DOCUMENT, -1);
       node.setHash(hashToAdd);
+      persistUpdatedRecord(node);
 
       moveToRightSibling();
     }
@@ -1212,6 +1223,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
 
       final Node parentNode = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
       ((ElementNode) parentNode).insertAttribute(node.getNodeKey());
+      persistUpdatedRecord(parentNode);
 
       nodeReadOnlyTrx.setCurrentNode(node);
       nodeHashing.adaptHashesWithAdd();
@@ -1269,6 +1281,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
 
       final Node parentNode = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
       ((ElementNode) parentNode).insertNamespace(node.getNodeKey());
+      persistUpdatedRecord(parentNode);
 
       nodeReadOnlyTrx.setCurrentNode(node);
       nodeHashing.adaptHashesWithAdd();
@@ -1319,6 +1332,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
         notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
         final ElementNode parent = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
         parent.removeAttribute(node.getNodeKey());
+        persistUpdatedRecord(parent);
         nodeHashing.adaptHashesWithRemove();
         pageTrx.removeRecord(node.getNodeKey(), IndexType.DOCUMENT, -1);
         removeName();
@@ -1330,6 +1344,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
         notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
         final ElementNode parent = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
         parent.removeNamespace(node.getNodeKey());
+        persistUpdatedRecord(parent);
         nodeHashing.adaptHashesWithRemove();
         pageTrx.removeRecord(node.getNodeKey(), IndexType.DOCUMENT, -1);
         removeName();
@@ -1502,7 +1517,12 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
         if (!getName().equals(name)) {
           checkAccessAndCommit();
 
-          final NameNode node = pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
+          final NameNode node;
+          if (currentKind == NodeKind.ELEMENT || currentKind == NodeKind.PROCESSING_INSTRUCTION) {
+            node = (NameNode) nodeReadOnlyTrx.getStructuralNode();
+          } else {
+            node = (NameNode) nodeReadOnlyTrx.getCurrentNode();
+          }
           final long oldHash = node.computeHash(bytes);
 
           // Remove old keys from mapping.
@@ -1542,6 +1562,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
           node.setPathNodeKey(buildPathSummary ? pathSummaryWriter.getNodeKey() : 0);
 
           nodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node);
+          persistUpdatedRecord(node);
           nodeHashing.adaptHashedWithUpdate(oldHash);
         }
 
@@ -1582,7 +1603,13 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
         final long pathNodeKey = getPathNodeKey();
         moveTo(nodeKey);
 
-        final ValueNode node = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+        final ValueNode node;
+        if (currentKind == NodeKind.TEXT || currentKind == NodeKind.COMMENT
+            || currentKind == NodeKind.PROCESSING_INSTRUCTION) {
+          node = (ValueNode) nodeReadOnlyTrx.getStructuralNode();
+        } else {
+          node = (ValueNode) nodeReadOnlyTrx.getCurrentNode();
+        }
         // Remove old value from indexes before mutating the node.
         notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
         final long oldHash = node.computeHash(bytes);
@@ -1592,6 +1619,7 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
         node.setLastModifiedRevision(nodeReadOnlyTrx.getRevisionNumber());
 
         nodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node);
+        persistUpdatedRecord(node);
         nodeHashing.adaptHashedWithUpdate(oldHash);
 
         // Index new value.
@@ -1656,26 +1684,40 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
     assert insertPos != null;
 
     if (newNode instanceof StructNode structNode) {
-      final StructNode parent = pageTrx.prepareRecordForModification(newNode.getParentKey(), IndexType.DOCUMENT, -1);
+      // Capture all needed keys before any prepareRecordForModification calls.
+      // With write-path singletons, prepareRecordForModification for a node of the same kind
+      // would overwrite the singleton, invalidating prior references.
+      final long structNodeKey = structNode.getNodeKey();
+      final long parentKey = newNode.getParentKey();
+      final long leftSibKey = structNode.getLeftSiblingKey();
+      final long rightSibKey = structNode.getRightSiblingKey();
+      final boolean hasLeft = structNode.hasLeftSibling();
+      final boolean hasRight = structNode.hasRightSibling();
 
+      // Phase 1: Update parent — complete all modifications and persist BEFORE siblings.
+      final StructNode parent = pageTrx.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
       if (storeChildCount) {
         parent.incrementChildCount();
       }
-
-      if (!((StructNode) newNode).hasLeftSibling()) {
-        parent.setFirstChildKey(newNode.getNodeKey());
+      if (!hasLeft) {
+        parent.setFirstChildKey(structNodeKey);
       }
+      persistUpdatedRecord(parent);
 
-      if (structNode.hasRightSibling()) {
+      // Phase 2: Update right sibling (safe — parent already persisted)
+      if (hasRight) {
         final StructNode rightSiblingNode =
-            pageTrx.prepareRecordForModification(structNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
-        rightSiblingNode.setLeftSiblingKey(structNode.getNodeKey());
+            pageTrx.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
+        rightSiblingNode.setLeftSiblingKey(structNodeKey);
+        persistUpdatedRecord(rightSiblingNode);
       }
 
-      if (structNode.hasLeftSibling()) {
+      // Phase 3: Update left sibling
+      if (hasLeft) {
         final StructNode leftSiblingNode =
-            pageTrx.prepareRecordForModification(structNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
-        leftSiblingNode.setRightSiblingKey(structNode.getNodeKey());
+            pageTrx.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
+        leftSiblingNode.setRightSiblingKey(structNodeKey);
+        persistUpdatedRecord(leftSiblingNode);
       }
     }
   }
@@ -1696,51 +1738,62 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
    */
   private void adaptForRemove(final StructNode oldNode) {
     assert oldNode != null;
+    // Capture all needed values from oldNode before any prepareRecordForModification calls.
+    // With write-path singletons, subsequent calls for the same kind would overwrite the singleton.
+    final long leftSibKey = oldNode.getLeftSiblingKey();
+    final long rightSibKey = oldNode.getRightSiblingKey();
+    final long parentKey = oldNode.getParentKey();
+    final boolean hasLeft = oldNode.hasLeftSibling();
+    final boolean hasRight = oldNode.hasRightSibling();
+    final long oldNodeKey = oldNode.getNodeKey();
+    final NodeKind oldNodeKind = oldNode.getKind();
 
     // Concatenate neighbor text nodes if they exist (the right sibling is
     // deleted afterwards).
     boolean concatenated = false;
-    if (oldNode.hasLeftSibling() && oldNode.hasRightSibling() && moveTo(oldNode.getRightSiblingKey())
-        && getKind() == NodeKind.TEXT && moveTo(oldNode.getLeftSiblingKey()) && getKind() == NodeKind.TEXT) {
+    if (hasLeft && hasRight && moveTo(rightSibKey)
+        && getKind() == NodeKind.TEXT && moveTo(leftSibKey) && getKind() == NodeKind.TEXT) {
       final StringBuilder builder = new StringBuilder(getValue());
-      moveTo(oldNode.getRightSiblingKey());
+      moveTo(rightSibKey);
       builder.append(getValue());
-      moveTo(oldNode.getLeftSiblingKey());
+      moveTo(leftSibKey);
       setValue(builder.toString());
       concatenated = true;
     }
 
-    // Adapt left sibling node if there is one.
-    if (oldNode.hasLeftSibling()) {
+    // Phase 1: Adapt left sibling node if there is one.
+    if (hasLeft) {
       final StructNode leftSibling =
-          pageTrx.prepareRecordForModification(oldNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
+          pageTrx.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
       if (concatenated) {
-        moveTo(oldNode.getRightSiblingKey());
+        moveTo(rightSibKey);
         leftSibling.setRightSiblingKey(nodeReadOnlyTrx.getStructuralNode().getRightSiblingKey());
       } else {
-        leftSibling.setRightSiblingKey(oldNode.getRightSiblingKey());
+        leftSibling.setRightSiblingKey(rightSibKey);
       }
+      persistUpdatedRecord(leftSibling);
     }
 
-    // Adapt right sibling node if there is one.
-    if (oldNode.hasRightSibling()) {
+    // Phase 2: Adapt right sibling node if there is one.
+    if (hasRight) {
       StructNode rightSibling;
       if (concatenated) {
-        moveTo(oldNode.getRightSiblingKey());
+        moveTo(rightSibKey);
         moveTo(nodeReadOnlyTrx.getStructuralNode().getRightSiblingKey());
         rightSibling =
             pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
-        rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
+        rightSibling.setLeftSiblingKey(leftSibKey);
       } else {
-        rightSibling = pageTrx.prepareRecordForModification(oldNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
-        rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
+        rightSibling = pageTrx.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
+        rightSibling.setLeftSiblingKey(leftSibKey);
       }
+      persistUpdatedRecord(rightSibling);
     }
 
-    // Adapt parent, if node has now left sibling it is a first child.
-    StructNode parent = pageTrx.prepareRecordForModification(oldNode.getParentKey(), IndexType.DOCUMENT, -1);
-    if (!oldNode.hasLeftSibling()) {
-      parent.setFirstChildKey(oldNode.getRightSiblingKey());
+    // Phase 3: Adapt parent
+    final StructNode parent = pageTrx.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
+    if (!hasLeft) {
+      parent.setFirstChildKey(rightSibKey);
     }
     if (storeChildCount) {
       parent.decrementChildCount();
@@ -1751,34 +1804,39 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
         parent.decrementChildCount();
       }
     }
+    final long parentNodeKey = parent.getNodeKey();
+    final boolean parentHasParent = parent.hasParent();
+    persistUpdatedRecord(parent);
     if (concatenated) {
-      // Adjust descendant count.
-      moveTo(parent.getNodeKey());
-      while (parent.hasParent()) {
+      // Adjust descendant count — each ancestor gets its own singleton lifecycle.
+      moveTo(parentNodeKey);
+      boolean hasAncestorParent = parentHasParent;
+      while (hasAncestorParent) {
         moveToParent();
         final StructNode ancestor =
             pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
         ancestor.decrementDescendantCount();
-        parent = ancestor;
+        hasAncestorParent = ancestor.hasParent();
+        persistUpdatedRecord(ancestor);
       }
     }
 
     // Remove right sibling text node if text nodes have been
     // concatenated/merged.
     if (concatenated) {
-      moveTo(oldNode.getRightSiblingKey());
+      moveTo(rightSibKey);
       pageTrx.removeRecord(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
     }
 
     // Remove non-structural nodes of old node.
-    if (oldNode.getKind() == NodeKind.ELEMENT) {
-      moveTo(oldNode.getNodeKey());
+    if (oldNodeKind == NodeKind.ELEMENT) {
+      moveTo(oldNodeKey);
       removeNonStructural();
     }
 
     // Remove old node.
-    moveTo(oldNode.getNodeKey());
-    pageTrx.removeRecord(oldNode.getNodeKey(), IndexType.DOCUMENT, -1);
+    moveTo(oldNodeKey);
+    pageTrx.removeRecord(oldNodeKey, IndexType.DOCUMENT, -1);
   }
 
   // ////////////////////////////////////////////////////////////

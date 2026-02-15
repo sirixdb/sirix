@@ -14,6 +14,11 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import io.sirix.node.layout.FixedSlotRecordMaterializer;
+import io.sirix.node.layout.FixedSlotRecordProjector;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.node.BytesIn;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.json.ArrayNode;
@@ -477,14 +482,21 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       // Different page - use the slow path with guard management
       return moveToSingletonSlowPath(nodeKey, reader);
     }
-    
-    // Read node kind from first byte
-    byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
-    NodeKind kind = NodeKind.getKind(kindByte);
-    
-    // Check for deleted node
-    if (kind == NodeKind.DELETE) {
-      return false;
+
+    final boolean fixedSlotFormat = page.isFixedSlotFormat(slotOffset);
+    final NodeKind kind;
+    if (fixedSlotFormat) {
+      kind = page.getFixedSlotNodeKind(slotOffset);
+      if (kind == null) {
+        return moveToLegacy(nodeKey);
+      }
+    } else {
+      // Read node kind from first byte.
+      final byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+      kind = NodeKind.getKind(kindByte);
+      if (kind == NodeKind.DELETE) {
+        return false;
+      }
     }
     
     // Get singleton instance for this node type
@@ -494,15 +506,20 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moveToLegacy(nodeKey);
     }
     
-    // Populate singleton from serialized data (NO ALLOCATION)
-    // Note: NO guard management needed - we're on the same page
-    // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
-    reusableBytesIn.reset(data, 1);
+    // Populate singleton from slot bytes (no allocation on the singleton path).
+    // Note: no guard management needed, we're on the same page.
     // For XML resources, Dewey bytes are bound lazily on demand.
     byte[] deweyId = resourceConfig.areDeweyIDsStored && !xmlSingletonResource
         ? page.getDeweyIdAsByteArray(slotOffset)
         : null;
-    populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
+    if (fixedSlotFormat) {
+      if (!populateSingletonFromFixedSlot(singleton, kind, data, nodeKey, deweyId)) {
+        return moveToLegacy(nodeKey);
+      }
+    } else {
+      reusableBytesIn.reset(data, 1);
+      populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
+    }
     
     // Update state - we're in singleton mode now (page guard unchanged)
     this.currentSingleton = singleton;
@@ -526,16 +543,24 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (slotLocation == null) {
       return false;
     }
-    
-    // Read node kind from first byte
-    MemorySegment data = slotLocation.data();
-    byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
-    NodeKind kind = NodeKind.getKind(kindByte);
-    
-    // Check for deleted node
-    if (kind == NodeKind.DELETE) {
-      slotLocation.guard().close();
-      return false;
+
+    final KeyValueLeafPage slotPage = slotLocation.page();
+    final boolean fixedSlotFormat = slotPage.isFixedSlotFormat(slotLocation.offset());
+    final MemorySegment data = slotLocation.data();
+    final NodeKind kind;
+    if (fixedSlotFormat) {
+      kind = slotPage.getFixedSlotNodeKind(slotLocation.offset());
+      if (kind == null) {
+        slotLocation.guard().close();
+        return moveToLegacy(nodeKey);
+      }
+    } else {
+      final byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+      kind = NodeKind.getKind(kindByte);
+      if (kind == NodeKind.DELETE) {
+        slotLocation.guard().close();
+        return false;
+      }
     }
     
     // Get singleton instance for this node type
@@ -551,12 +576,19 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     
     // Populate singleton from serialized data (NO ALLOCATION)
     // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
-    reusableBytesIn.reset(data, 1);
     // For XML resources, Dewey bytes are bound lazily on demand.
     byte[] deweyId = resourceConfig.areDeweyIDsStored && !xmlSingletonResource
-        ? slotLocation.page().getDeweyIdAsByteArray(slotLocation.offset())
+        ? slotPage.getDeweyIdAsByteArray(slotLocation.offset())
         : null;
-    populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, slotLocation.page());
+    if (fixedSlotFormat) {
+      if (!populateSingletonFromFixedSlot(singleton, kind, data, nodeKey, deweyId)) {
+        slotLocation.guard().close();
+        return moveToLegacy(nodeKey);
+      }
+    } else {
+      reusableBytesIn.reset(data, 1);
+      populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, slotPage);
+    }
     
     // Update state - we're in singleton mode now with new page
     this.currentPageGuard = slotLocation.guard();
@@ -571,6 +603,376 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.singletonMode = true;
     
     return true;
+  }
+
+  private boolean populateSingletonFromFixedSlot(final ImmutableNode singleton, final NodeKind kind,
+      final MemorySegment slotData, final long nodeKey, final byte[] deweyIdBytes) {
+    final NodeKindLayout layout = kind.layoutDescriptor();
+    if (!layout.isFixedSlotSupported() || slotData.byteSize() < layout.fixedSlotSizeInBytes()) {
+      return false;
+    }
+    // Reject payload-bearing nodes with non-VALUE_BLOB payload refs (e.g., ATTRIBUTE_VECTOR)
+    if (layout.payloadRefCount() > 0 && !FixedSlotRecordProjector.hasSupportedPayloads(layout)) {
+      return false;
+    }
+
+    switch (kind) {
+      case JSON_DOCUMENT -> {
+        if (!(singleton instanceof JsonDocumentRootNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
+        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
+        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case XML_DOCUMENT -> {
+        if (!(singleton instanceof XmlDocumentRootNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
+        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
+        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case OBJECT -> {
+        if (!(singleton instanceof ObjectNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
+        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
+        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case ARRAY -> {
+        if (!(singleton instanceof ArrayNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
+        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
+        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case OBJECT_KEY -> {
+        if (!(singleton instanceof ObjectKeyNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.NAME_KEY));
+        node.clearCachedName();
+        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case BOOLEAN_VALUE -> {
+        if (!(singleton instanceof BooleanNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setValue(SlotLayoutAccessors.readBooleanField(slotData, layout, StructuralField.BOOLEAN_VALUE));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case NULL_VALUE -> {
+        if (!(singleton instanceof NullNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case OBJECT_BOOLEAN_VALUE -> {
+        if (!(singleton instanceof ObjectBooleanNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setValue(SlotLayoutAccessors.readBooleanField(slotData, layout, StructuralField.BOOLEAN_VALUE));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case OBJECT_NULL_VALUE -> {
+        if (!(singleton instanceof ObjectNullNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case NAMESPACE -> {
+        if (!(singleton instanceof NamespaceNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
+        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
+        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
+        node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setName(EMPTY_QNM);
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case ELEMENT -> {
+        if (!(singleton instanceof ElementNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
+        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
+        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
+        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
+        node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
+        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        FixedSlotRecordMaterializer.readInlineVectorPayload(node, slotData, layout, 0, true);
+        FixedSlotRecordMaterializer.readInlineVectorPayload(node, slotData, layout, 1, false);
+        node.setName(EMPTY_QNM);
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case STRING_VALUE -> {
+        if (!(singleton instanceof StringNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        final long strPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
+        final int strLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
+        final int strFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
+        node.setLazyRawValue(slotData, strPointer, strLength, (strFlags & 1) != 0);
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case OBJECT_STRING_VALUE -> {
+        if (!(singleton instanceof ObjectStringNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        final long objStrPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
+        final int objStrLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
+        final int objStrFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
+        node.setLazyRawValue(slotData, objStrPointer, objStrLength, (objStrFlags & 1) != 0);
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case NUMBER_VALUE -> {
+        if (!(singleton instanceof NumberNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        // setLazyNumberValue BEFORE setHash — setLazyNumberValue resets hash to 0
+        final long numPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
+        final int numLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
+        node.setLazyNumberValue(slotData, numPointer, numLength);
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case OBJECT_NUMBER_VALUE -> {
+        if (!(singleton instanceof ObjectNumberNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        // setLazyNumberValue BEFORE setHash — setLazyNumberValue resets hash to 0
+        final long objNumPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
+        final int objNumLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
+        node.setLazyNumberValue(slotData, objNumPointer, objNumLength);
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case TEXT -> {
+        if (!(singleton instanceof TextNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        final long textPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
+        final int textLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
+        final int textFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
+        node.setLazyRawValue(slotData, textPointer, textLength, (textFlags & 1) != 0);
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case COMMENT -> {
+        if (!(singleton instanceof CommentNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        final long commentPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
+        final int commentLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
+        final int commentFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
+        node.setLazyRawValue(slotData, commentPointer, commentLength, (commentFlags & 1) != 0);
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case ATTRIBUTE -> {
+        if (!(singleton instanceof AttributeNode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
+        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
+        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
+        node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        final long attrPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
+        final int attrLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
+        node.setLazyRawValue(slotData, attrPointer, attrLength);
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setName(EMPTY_QNM);
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      case PROCESSING_INSTRUCTION -> {
+        if (!(singleton instanceof PINode node)) {
+          return false;
+        }
+        node.setNodeKey(nodeKey);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
+        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
+        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
+        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
+        node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
+        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
+        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
+        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        final long piPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
+        final int piLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
+        final int piFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
+        node.setLazyRawValue(slotData, piPointer, piLength, (piFlags & 1) != 0);
+        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
+        node.setName(EMPTY_QNM);
+        node.setDeweyIDBytes(deweyIdBytes);
+        return true;
+      }
+      default -> {
+        return false;
+      }
+    }
   }
   
   /**

@@ -190,6 +190,11 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, ReusableN
     this.deweyIDBytes = null;
   }
 
+  public void setDeweyIDBytes(final byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   @Override
   public void setPreviousRevision(final int revision) {
     this.previousRevision = revision;

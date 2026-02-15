@@ -299,6 +299,10 @@ public enum PageKind {
       final RecordSerializer recordPersister = resourceConfig.recordPersister;
       final Map<Long, PageReference> references = keyValueLeafPage.getReferencesMap();
 
+      // Compact fixed-format slots to delta+varint encoding first.
+      // This must happen before FSST so the symbol table builder sees compact bytes.
+      keyValueLeafPage.compactFixedSlotsForCommit(resourceConfig);
+
       // Build FSST symbol table and compress strings BEFORE addReferences() serializes them
       keyValueLeafPage.buildFsstSymbolTable(resourceConfig);
       keyValueLeafPage.compressStringValues();

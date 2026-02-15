@@ -328,6 +328,17 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   public void setName(QNm name) { this.qNm = name; }
 
+  /**
+   * Returns the raw value bytes without triggering decompression.
+   * Used by the fixed-slot projector to preserve the original compressed bytes.
+   */
+  public byte[] getRawValueWithoutDecompression() {
+    if (!valueParsed) {
+      parseLazyValue();
+    }
+    return value;
+  }
+
   public boolean isCompressed() { return isCompressed; }
 
   public void setCompressed(boolean compressed) {

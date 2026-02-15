@@ -441,6 +441,17 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     throw new IllegalStateException("Unknown lazy source type: " + source.getClass());
   }
 
+  /**
+   * Returns the raw value bytes without triggering decompression.
+   * Used by the fixed-slot projector to preserve the original compressed bytes.
+   */
+  public byte[] getRawValueWithoutDecompression() {
+    if (!valueParsed) {
+      parseLazyValue();
+    }
+    return value;
+  }
+
   public boolean isCompressed() {
     return isCompressed;
   }

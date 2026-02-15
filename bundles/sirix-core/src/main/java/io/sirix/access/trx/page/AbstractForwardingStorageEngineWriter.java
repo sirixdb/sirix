@@ -46,6 +46,11 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
+  public void updateRecordSlot(@NonNull DataRecord record, @NonNull IndexType indexType, int index) {
+    delegate().updateRecordSlot(record, indexType, index);
+  }
+
+  @Override
   public void removeRecord(@NonNegative long recordKey, @NonNull IndexType indexType, @NonNegative int index) {
     delegate().removeRecord(recordKey, indexType, index);
   }

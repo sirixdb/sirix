@@ -105,6 +105,11 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   private boolean hasHash;              // Whether hash is stored (from config)
   private long valueOffset;             // Offset where value starts (after metadata)
 
+  // Fixed-slot value encoding state (for read path via populateSingletonFromFixedSlot)
+  private boolean fixedValueEncoding;   // Whether value comes from fixed-slot inline payload
+  private int fixedValueLength;         // Length of inline payload bytes
+  private boolean fixedValueCompressed; // Whether inline payload is FSST compressed
+
   /**
    * Primary constructor with all primitive fields.
    * All fields are already parsed - no lazy loading needed.
@@ -317,12 +322,13 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   public void setRawValue(final byte[] value) {
     this.value = value;
     this.decodedValue = null;
+    this.fixedValueEncoding = false;
     this.valueParsed = true;
   }
 
   /**
    * Set the raw value with compression information.
-   * 
+   *
    * @param value the value bytes (possibly compressed)
    * @param isCompressed true if value is FSST compressed
    * @param fsstSymbolTable the symbol table for decompression (or null if not compressed)
@@ -332,6 +338,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.isCompressed = isCompressed;
     this.fsstSymbolTable = fsstSymbolTable;
     this.decodedValue = null;
+    this.fixedValueEncoding = false;
     this.valueParsed = true;
   }
 
@@ -436,6 +443,11 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.nodeKey = nodeKey;
   }
 
+  public void setDeweyIDBytes(final byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   /**
    * Populate this node from a BytesIn source for singleton reuse.
    * LAZY OPTIMIZATION: Only parses structural field (parentKey) immediately.
@@ -467,6 +479,31 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   }
   
   /**
+   * Populate this singleton from fixed-slot inline payload (zero allocation).
+   * Sets up lazy value parsing from the fixed-slot MemorySegment.
+   * CRITICAL: Resets hash to 0 — caller MUST call setHash() AFTER this method.
+   *
+   * @param source the slot data (MemorySegment) containing inline payload
+   * @param valueOffset byte offset within source where payload bytes start
+   * @param valueLength length of payload bytes
+   * @param compressed whether the payload is FSST compressed
+   */
+  public void setLazyRawValue(final Object source, final long valueOffset, final int valueLength,
+      final boolean compressed) {
+    this.lazySource = source;
+    this.valueOffset = valueOffset;
+    this.metadataParsed = true;
+    this.valueParsed = false;
+    this.fixedValueEncoding = true;
+    this.fixedValueLength = valueLength;
+    this.fixedValueCompressed = compressed;
+    this.value = null;
+    this.fsstSymbolTable = null;
+    this.decodedValue = null;
+    this.hash = 0L;
+  }
+
+  /**
    * Parse metadata fields on demand (cheap - just varints and optionally a long).
    */
   private void parseMetadataFields() {
@@ -497,23 +534,35 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     if (valueParsed) {
       return;
     }
-    
+
+    // Fixed-slot inline payload path (from setLazyRawValue)
+    if (fixedValueEncoding) {
+      final BytesIn<?> bytesIn = createBytesIn(valueOffset);
+      this.isCompressed = fixedValueCompressed;
+      this.value = new byte[fixedValueLength];
+      if (fixedValueLength > 0) {
+        bytesIn.read(this.value, 0, fixedValueLength);
+      }
+      this.valueParsed = true;
+      return;
+    }
+
     if (!metadataParsed) {
       parseMetadataFields();
     }
-    
+
     if (lazySource == null) {
       valueParsed = true;
       return;
     }
-    
-    BytesIn<?> bytesIn = createBytesIn(valueOffset);
-    
+
+    final BytesIn<?> bytesIn = createBytesIn(valueOffset);
+
     // Read compression flag (1 byte: 0 = none, 1 = FSST)
-    byte compressionByte = bytesIn.readByte();
+    final byte compressionByte = bytesIn.readByte();
     this.isCompressed = compressionByte == 1;
-    
-    int length = DeltaVarIntCodec.decodeSigned(bytesIn);
+
+    final int length = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.value = new byte[length];
     bytesIn.read(this.value);
     this.valueParsed = true;
