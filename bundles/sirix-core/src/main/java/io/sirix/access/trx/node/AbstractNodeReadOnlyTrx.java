@@ -513,14 +513,14 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         ? page.getDeweyIdAsByteArray(slotOffset)
         : null;
     if (fixedSlotFormat) {
-      if (!populateSingletonFromFixedSlot(singleton, kind, data, nodeKey, deweyId)) {
+      if (!populateSingletonFromFixedSlot(singleton, kind, data, nodeKey, deweyId, page)) {
         return moveToLegacy(nodeKey);
       }
     } else {
       reusableBytesIn.reset(data, 1);
       populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
     }
-    
+
     // Update state - we're in singleton mode now (page guard unchanged)
     this.currentSingleton = singleton;
     this.currentNodeKind = kind;
@@ -529,7 +529,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.xmlSingletonDeweyBound = !xmlSingletonResource || !resourceConfig.areDeweyIDsStored;
     this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
-    
+
     return true;
   }
   
@@ -581,7 +581,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         ? slotPage.getDeweyIdAsByteArray(slotLocation.offset())
         : null;
     if (fixedSlotFormat) {
-      if (!populateSingletonFromFixedSlot(singleton, kind, data, nodeKey, deweyId)) {
+      if (!populateSingletonFromFixedSlot(singleton, kind, data, nodeKey, deweyId, slotPage)) {
         slotLocation.guard().close();
         return moveToLegacy(nodeKey);
       }
@@ -606,7 +606,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   private boolean populateSingletonFromFixedSlot(final ImmutableNode singleton, final NodeKind kind,
-      final MemorySegment slotData, final long nodeKey, final byte[] deweyIdBytes) {
+      final MemorySegment slotData, final long nodeKey, final byte[] deweyIdBytes,
+      final KeyValueLeafPage page) {
     final NodeKindLayout layout = kind.layoutDescriptor();
     if (!layout.isFixedSlotSupported() || slotData.byteSize() < layout.fixedSlotSizeInBytes()) {
       return false;
@@ -820,6 +821,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         final int strLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         final int strFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
         node.setLazyRawValue(slotData, strPointer, strLength, (strFlags & 1) != 0);
+        // Propagate FSST symbol table for decompression
+        final byte[] strFsstSymbols = page.getFsstSymbolTable();
+        if (strFsstSymbols != null && strFsstSymbols.length > 0) {
+          node.setFsstSymbolTable(strFsstSymbols);
+        }
         node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
         return true;
@@ -838,6 +844,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         final int objStrLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         final int objStrFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
         node.setLazyRawValue(slotData, objStrPointer, objStrLength, (objStrFlags & 1) != 0);
+        // Propagate FSST symbol table for decompression
+        final byte[] objStrFsstSymbols = page.getFsstSymbolTable();
+        if (objStrFsstSymbols != null && objStrFsstSymbols.length > 0) {
+          node.setFsstSymbolTable(objStrFsstSymbols);
+        }
         node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
         return true;
