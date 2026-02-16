@@ -152,9 +152,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   private final boolean xmlSingletonResource;
 
   /**
-   * Tracks if Dewey bytes are already bound for the current XML singleton.
+   * Tracks if Dewey bytes are already bound for the current singleton.
+   * Deferred binding avoids a byte[] allocation on every moveTo.
    */
-  private boolean xmlSingletonDeweyBound = true;
+  private boolean singletonDeweyBound = true;
 
   /**
    * Constructor.
@@ -508,17 +509,14 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     
     // Populate singleton from slot bytes (no allocation on the singleton path).
     // Note: no guard management needed, we're on the same page.
-    // For XML resources, Dewey bytes are bound lazily on demand.
-    byte[] deweyId = resourceConfig.areDeweyIDsStored && !xmlSingletonResource
-        ? page.getDeweyIdAsByteArray(slotOffset)
-        : null;
+    // Dewey bytes are bound lazily on demand to avoid byte[] allocation per moveTo.
     if (fixedSlotFormat) {
-      if (!populateSingletonFromFixedSlot(singleton, kind, data, nodeKey, deweyId, page)) {
+      if (!populateSingletonFromFixedSlot(singleton, kind, data, nodeKey, null, page)) {
         return moveToLegacy(nodeKey);
       }
     } else {
       reusableBytesIn.reset(data, 1);
-      populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
+      populateSingleton(singleton, reusableBytesIn, nodeKey, null, kind, page);
     }
 
     // Update state - we're in singleton mode now (page guard unchanged)
@@ -526,7 +524,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentNodeKind = kind;
     this.currentNodeKey = nodeKey;
     this.currentSlotOffset = slotOffset;
-    this.xmlSingletonDeweyBound = !xmlSingletonResource || !resourceConfig.areDeweyIDsStored;
+    this.singletonDeweyBound = !resourceConfig.areDeweyIDsStored;
     this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
 
@@ -576,20 +574,17 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     
     // Populate singleton from serialized data (NO ALLOCATION)
     // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
-    // For XML resources, Dewey bytes are bound lazily on demand.
-    byte[] deweyId = resourceConfig.areDeweyIDsStored && !xmlSingletonResource
-        ? slotPage.getDeweyIdAsByteArray(slotLocation.offset())
-        : null;
+    // Dewey bytes are bound lazily on demand to avoid byte[] allocation per moveTo.
     if (fixedSlotFormat) {
-      if (!populateSingletonFromFixedSlot(singleton, kind, data, nodeKey, deweyId, slotPage)) {
+      if (!populateSingletonFromFixedSlot(singleton, kind, data, nodeKey, null, slotPage)) {
         slotLocation.guard().close();
         return moveToLegacy(nodeKey);
       }
     } else {
       reusableBytesIn.reset(data, 1);
-      populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, slotPage);
+      populateSingleton(singleton, reusableBytesIn, nodeKey, null, kind, slotPage);
     }
-    
+
     // Update state - we're in singleton mode now with new page
     this.currentPageGuard = slotLocation.guard();
     this.currentPage = slotLocation.page();
@@ -598,7 +593,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentNodeKind = kind;
     this.currentNodeKey = nodeKey;
     this.currentSlotOffset = slotLocation.offset();
-    this.xmlSingletonDeweyBound = !xmlSingletonResource || !resourceConfig.areDeweyIDsStored;
+    this.singletonDeweyBound = !resourceConfig.areDeweyIDsStored;
     this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
     
@@ -1339,7 +1334,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     currentPage = null;
     currentPageKey = -1;
     currentSlotOffset = -1;
-    xmlSingletonDeweyBound = true;
+    singletonDeweyBound = true;
   }
   
   @Override
@@ -1639,20 +1634,34 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public SirixDeweyID getDeweyID() {
     assertNotClosed();
     if (singletonMode) {
-      bindXmlSingletonDeweyBytesIfNeeded();
+      bindSingletonDeweyBytesIfNeeded();
       return currentSingleton != null ? currentSingleton.getDeweyID() : null;
     }
     return currentNode != null ? currentNode.getDeweyID() : null;
   }
 
-  private void bindXmlSingletonDeweyBytesIfNeeded() {
-    if (!xmlSingletonResource || xmlSingletonDeweyBound || currentSingleton == null
+  private void bindSingletonDeweyBytesIfNeeded() {
+    if (singletonDeweyBound || currentSingleton == null
         || !resourceConfig.areDeweyIDsStored || currentPage == null || currentSlotOffset < 0) {
       return;
     }
 
     final byte[] deweyIdBytes = currentPage.getDeweyIdAsByteArray(currentSlotOffset);
     switch (currentNodeKind) {
+      // JSON node kinds
+      case JSON_DOCUMENT -> ((JsonDocumentRootNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
+      case OBJECT -> ((ObjectNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
+      case ARRAY -> ((ArrayNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
+      case OBJECT_KEY -> ((ObjectKeyNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
+      case STRING_VALUE -> ((StringNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
+      case OBJECT_STRING_VALUE -> ((ObjectStringNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
+      case NUMBER_VALUE -> ((NumberNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
+      case OBJECT_NUMBER_VALUE -> ((ObjectNumberNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
+      case BOOLEAN_VALUE -> ((BooleanNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
+      case OBJECT_BOOLEAN_VALUE -> ((ObjectBooleanNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
+      case NULL_VALUE -> ((NullNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
+      case OBJECT_NULL_VALUE -> ((ObjectNullNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
+      // XML node kinds
       case XML_DOCUMENT -> ((XmlDocumentRootNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
       case ELEMENT -> ((ElementNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
       case ATTRIBUTE -> ((AttributeNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
@@ -1661,10 +1670,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       case COMMENT -> ((CommentNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
       case PROCESSING_INSTRUCTION -> ((PINode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
       default -> {
-        // Non-XML singleton kind for XML resource is unexpected but harmless.
+        // Unknown singleton kind - harmless.
       }
     }
-    xmlSingletonDeweyBound = true;
+    singletonDeweyBound = true;
   }
 
   @Override
