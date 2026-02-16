@@ -15,6 +15,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.SirixDeweyID;
+import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
@@ -354,6 +355,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     assertRunning();
     modificationCount++;
     intermediateCommitIfRequired();
+  }
+
+  protected final void persistUpdatedRecord(final DataRecord record) {
+    pageTrx.updateRecordSlot(record, IndexType.DOCUMENT, -1);
   }
 
   /**

@@ -297,10 +297,6 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
     indexController.notifyChange(type, nodeKey, kind, pathNodeKey, name, value);
   }
 
-  private void persistUpdatedRecord(final DataRecord record) {
-    pageTrx.updateRecordSlot(record, IndexType.DOCUMENT, -1);
-  }
-
   @Override
   public XmlNodeTrx moveSubtreeToLeftSibling(final @NonNegative long fromKey) {
     if (lock != null) {
@@ -772,6 +768,23 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
    * @param insert  insertion location
    * @throws SirixException if any unexpected error occurs
    */
+  private record PositionKeys(long parentKey, long leftSibKey, long rightSibKey, InsertPos pos, SirixDeweyID id) {}
+
+  private PositionKeys calculatePositionKeys(final StructNode currentNode, final InsertPosition insert) {
+    return switch (insert) {
+      case AS_FIRST_CHILD -> new PositionKeys(
+          currentNode.getNodeKey(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+          currentNode.getFirstChildKey(), InsertPos.ASFIRSTCHILD, deweyIDManager.newFirstChildID());
+      case AS_RIGHT_SIBLING -> new PositionKeys(
+          currentNode.getParentKey(), currentNode.getNodeKey(),
+          currentNode.getRightSiblingKey(), InsertPos.ASRIGHTSIBLING, deweyIDManager.newRightSiblingID());
+      case AS_LEFT_SIBLING -> new PositionKeys(
+          currentNode.getParentKey(), currentNode.getLeftSiblingKey(),
+          currentNode.getNodeKey(), InsertPos.ASLEFTSIBLING, deweyIDManager.newLeftSiblingID());
+      default -> throw new IllegalStateException("Insert location not known!");
+    };
+  }
+
   private XmlNodeTrx pi(final String target, final String content, final InsertPosition insert) {
     final byte[] targetBytes = getBytes(target);
     if (!XMLToken.isNCName(requireNonNull(targetBytes))) {
@@ -792,53 +805,24 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
 
       checkAccessAndCommit();
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
+      final PositionKeys pk = calculatePositionKeys(currentNode, insert);
 
-      // Insert new processing instruction node.
       final byte[] processingContent = getBytes(content);
-      long parentKey;
-      long leftSibKey;
-      long rightSibKey;
-      InsertPos pos = InsertPos.ASFIRSTCHILD;
-      SirixDeweyID id;
-      switch (insert) {
-        case AS_FIRST_CHILD -> {
-          parentKey = currentNode.getNodeKey();
-          leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-          rightSibKey = currentNode.getFirstChildKey();
-          id = deweyIDManager.newFirstChildID();
-        }
-        case AS_RIGHT_SIBLING -> {
-          parentKey = currentNode.getParentKey();
-          leftSibKey = currentNode.getNodeKey();
-          rightSibKey = currentNode.getRightSiblingKey();
-          pos = InsertPos.ASRIGHTSIBLING;
-          id = deweyIDManager.newRightSiblingID();
-        }
-        case AS_LEFT_SIBLING -> {
-          parentKey = currentNode.getParentKey();
-          leftSibKey = currentNode.getLeftSiblingKey();
-          rightSibKey = currentNode.getNodeKey();
-          pos = InsertPos.ASLEFTSIBLING;
-          id = deweyIDManager.newLeftSiblingID();
-        }
-        default -> throw new IllegalStateException("Insert location not known!");
-      }
-
       final QNm targetName = new QNm(target);
       final long pathNodeKey = buildPathSummary ? pathSummaryWriter.getPathNodeKey(targetName, NodeKind.PROCESSING_INSTRUCTION)
           : 0;
-      final PINode node = nodeFactory.createPINode(parentKey,
-                                                   leftSibKey,
-                                                   rightSibKey,
+      final PINode node = nodeFactory.createPINode(pk.parentKey(),
+                                                   pk.leftSibKey(),
+                                                   pk.rightSibKey(),
                                                    targetName,
                                                    processingContent,
                                                    useTextCompression,
                                                    pathNodeKey,
-                                                   id);
+                                                   pk.id());
 
       // Adapt local nodes and hashes.
       nodeReadOnlyTrx.setCurrentNode(node);
-      adaptForInsert(node, pos);
+      adaptForInsert(node, pk.pos());
       nodeReadOnlyTrx.setCurrentNode(node);
       nodeHashing.adaptHashesWithAdd();
 
@@ -894,46 +878,15 @@ final class XmlNodeTrxImpl extends AbstractNodeTrxImpl<XmlNodeReadOnlyTrx, XmlNo
 
       checkAccessAndCommit();
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
+      final PositionKeys pk = calculatePositionKeys(currentNode, insert);
 
-      // Insert new comment node.
       final byte[] commentValue = getBytes(value);
-      long parentKey;
-      long leftSibKey;
-      long rightSibKey;
-      final InsertPos pos;
-      final SirixDeweyID id;
-
-      switch (insert) {
-        case AS_FIRST_CHILD -> {
-          parentKey = currentNode.getNodeKey();
-          leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-          rightSibKey = currentNode.getFirstChildKey();
-          pos = InsertPos.ASFIRSTCHILD;
-          id = deweyIDManager.newFirstChildID();
-        }
-        case AS_RIGHT_SIBLING -> {
-          parentKey = currentNode.getParentKey();
-          leftSibKey = currentNode.getNodeKey();
-          rightSibKey = currentNode.getRightSiblingKey();
-          pos = InsertPos.ASRIGHTSIBLING;
-          id = deweyIDManager.newRightSiblingID();
-        }
-        case AS_LEFT_SIBLING -> {
-          parentKey = currentNode.getParentKey();
-          leftSibKey = currentNode.getLeftSiblingKey();
-          rightSibKey = currentNode.getNodeKey();
-          pos = InsertPos.ASLEFTSIBLING;
-          id = deweyIDManager.newLeftSiblingID();
-        }
-        default -> throw new IllegalStateException("Insert location not known!");
-      }
-
       final CommentNode node =
-          nodeFactory.createCommentNode(parentKey, leftSibKey, rightSibKey, commentValue, useTextCompression, id);
+          nodeFactory.createCommentNode(pk.parentKey(), pk.leftSibKey(), pk.rightSibKey(), commentValue, useTextCompression, pk.id());
 
       // Adapt local nodes and hashes.
       nodeReadOnlyTrx.setCurrentNode(node);
-      adaptForInsert(node, pos);
+      adaptForInsert(node, pk.pos());
       nodeReadOnlyTrx.setCurrentNode(node);
       nodeHashing.adaptHashesWithAdd();
 
