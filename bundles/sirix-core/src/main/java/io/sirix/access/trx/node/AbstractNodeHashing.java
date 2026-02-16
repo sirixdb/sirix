@@ -230,7 +230,8 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     // Capture all needed values from startNode before any subsequent prepareRecordForModification
     // calls, which may return the same write-path singleton and overwrite startNode's fields.
     final long startParentKey = startNode.getParentKey();
-    final long startDescendantCount = (startNode instanceof StructNode sn) ? sn.getDescendantCount() : 0;
+    final boolean startNodeIsStruct = startNode instanceof StructNode;
+    final long startDescendantCount = startNodeIsStruct ? ((StructNode) startNode).getDescendantCount() : 0;
     long hashToRemove = startNode.getHash() == 0L ? startNode.computeHash(bytes) : startNode.getHash();
     long hashToAdd = 0;
     long newHash;
@@ -244,13 +245,17 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         // the parent node is just removed
         newHash = node.getHash() - hashToRemove * PRIME;
         hashToRemove = node.getHash();
-        setRemoveDescendants(startDescendantCount, node);
+        if (startNodeIsStruct) {
+          setRemoveDescendants(startDescendantCount, node);
+        }
       } else {
         // the ancestors are all touched regarding the modification
         newHash = node.getHash() - hashToRemove * PRIME;
         newHash = newHash + hashToAdd * PRIME;
         hashToRemove = node.getHash();
-        setRemoveDescendants(startDescendantCount, node);
+        if (startNodeIsStruct) {
+          setRemoveDescendants(startDescendantCount, node);
+        }
       }
       node.setHash(newHash);
       persistNode(node);

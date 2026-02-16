@@ -1264,7 +1264,7 @@ final class JsonNodeTrxImpl extends
 
       moveToParent();
       final long pathNodeKey = getPathNodeKey(currentNode, "array", NodeKind.ARRAY);
-      moveTo(currentNode.getNodeKey());
+      moveTo(rightSibKey);
 
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
 
@@ -1306,7 +1306,7 @@ final class JsonNodeTrxImpl extends
 
       moveToParent();
       final long pathNodeKey = getPathNodeKey(currentNode, "array", NodeKind.ARRAY);
-      moveTo(currentNode.getNodeKey());
+      moveTo(leftSibKey);
 
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
