@@ -137,6 +137,7 @@ public final class BitmapReferencesPage implements Page {
       pageReference.setKey(pageReferenceToClone.getKey());
       pageReference.setPage(pageReferenceToClone.getPage());
       pageReference.setLogKey(pageReferenceToClone.getLogKey());
+      pageReference.setActiveTilGeneration(pageReferenceToClone.getActiveTilGeneration());
       pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
       pageReference.setResourceId(pageReferenceToClone.getResourceId());
       pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
