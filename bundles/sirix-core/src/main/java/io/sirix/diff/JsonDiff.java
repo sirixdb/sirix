@@ -99,8 +99,7 @@ final class JsonDiff extends AbstractDiff<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
   @Override
   void emitNonStructuralDiff(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx, final DiffDepth depth,
-      final DiffFactory.DiffType diff) {
-  }
+      final DiffFactory.DiffType diff) {}
 
   @Override
   boolean checkNodeNamesOrValues(final JsonNodeReadOnlyTrx newRtx, final JsonNodeReadOnlyTrx oldRtx) {

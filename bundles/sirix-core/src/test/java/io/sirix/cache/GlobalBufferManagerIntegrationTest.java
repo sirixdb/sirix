@@ -15,12 +15,10 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration test for global BufferManager with multiple databases and resources.
- * Validates that:
- * 1. Multiple databases can coexist with a single global BufferManager
- * 2. No cache collisions occur between different databases
- * 3. No cache collisions occur between different resources
- * 4. Database IDs are properly assigned and persisted
+ * Integration test for global BufferManager with multiple databases and resources. Validates that:
+ * 1. Multiple databases can coexist with a single global BufferManager 2. No cache collisions occur
+ * between different databases 3. No cache collisions occur between different resources 4. Database
+ * IDs are properly assigned and persisted
  *
  * @author Johannes Lichtenberger
  */
@@ -55,7 +53,7 @@ public class GlobalBufferManagerIntegrationTest {
 
     // Open databases
     try (final Database<JsonResourceSession> db1 = Databases.openJsonDatabase(database1Path);
-         final Database<JsonResourceSession> db2 = Databases.openJsonDatabase(database2Path)) {
+        final Database<JsonResourceSession> db2 = Databases.openJsonDatabase(database2Path)) {
 
       // Verify databases have different IDs
       final var db1ConfigLoaded = DatabaseConfiguration.deserialize(database1Path);
@@ -81,20 +79,18 @@ public class GlobalBufferManagerIntegrationTest {
 
       // Open resources
       try (final JsonResourceSession res1 = db.beginResourceSession("resource1");
-           final JsonResourceSession res2 = db.beginResourceSession("resource2")) {
+          final JsonResourceSession res2 = db.beginResourceSession("resource2")) {
 
         final long res1Id = res1.getResourceConfig().getID();
         final long res2Id = res2.getResourceConfig().getID();
 
-        assertNotEquals(res1Id, res2Id,
-            "Different resources in same database must have unique resource IDs");
+        assertNotEquals(res1Id, res2Id, "Different resources in same database must have unique resource IDs");
 
         // Verify both have same database ID
         final long res1DbId = res1.getResourceConfig().getDatabaseId();
         final long res2DbId = res2.getResourceConfig().getDatabaseId();
 
-        assertEquals(res1DbId, res2DbId,
-            "Resources in same database should have same database ID");
+        assertEquals(res1DbId, res2DbId, "Resources in same database should have same database ID");
       }
     }
   }
@@ -115,8 +111,7 @@ public class GlobalBufferManagerIntegrationTest {
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(database1Path)) {
       final long reloadedDatabaseId = DatabaseConfiguration.deserialize(database1Path).getDatabaseId();
 
-      assertEquals(originalDatabaseId, reloadedDatabaseId,
-          "Database ID should persist across database close/reopen");
+      assertEquals(originalDatabaseId, reloadedDatabaseId, "Database ID should persist across database close/reopen");
     }
   }
 
@@ -129,7 +124,7 @@ public class GlobalBufferManagerIntegrationTest {
       db.createResource(ResourceConfiguration.newBuilder("testResource").build());
 
       try (final JsonResourceSession session = db.beginResourceSession("testResource");
-           final var rtx = session.beginNodeReadOnlyTrx()) {
+          final var rtx = session.beginNodeReadOnlyTrx()) {
 
         // Access the page transaction to verify IDs are set
         final var pageRtx = rtx.getPageTrx();
@@ -150,8 +145,5 @@ public class GlobalBufferManagerIntegrationTest {
     }
   }
 }
-
-
-
 
 

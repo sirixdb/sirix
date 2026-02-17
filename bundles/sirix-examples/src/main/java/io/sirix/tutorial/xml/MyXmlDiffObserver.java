@@ -60,6 +60,5 @@ public class MyXmlDiffObserver implements DiffObserver {
   }
 
   @Override
-  public void diffDone() {
-  }
+  public void diffDone() {}
 }

@@ -108,7 +108,8 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   }
 
   public static SirixQueryContext createWithJsonStoreAndNodeStoreAndCommitStrategy(final XmlDBStore nodeStore,
-      final JsonDBStore jsonItemStore, final CommitStrategy commitStrategy, final String commitMessage, final Instant commitTimestamp) {
+      final JsonDBStore jsonItemStore, final CommitStrategy commitStrategy, final String commitMessage,
+      final Instant commitTimestamp) {
     return new SirixQueryContext(nodeStore, jsonItemStore, commitStrategy, commitMessage, commitTimestamp);
   }
 
@@ -120,15 +121,19 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   /**
    * Private constructor.
    *
-   * @param nodeStore      the database node storage to use
-   * @param jsonItemStore  the database json item storage to use
+   * @param nodeStore the database node storage to use
+   * @param jsonItemStore the database json item storage to use
    * @param commitStrategy the commit strategy to use
    */
   private SirixQueryContext(final XmlDBStore nodeStore, final JsonDBStore jsonItemStore,
       final CommitStrategy commitStrategy, @Nullable final String commitMessage,
       @Nullable final Instant commitTimestamp) {
-    xmlStore = nodeStore == null ? BasicXmlDBStore.newBuilder().build() : nodeStore;
-    jsonStore = jsonItemStore == null ? BasicJsonDBStore.newBuilder().build() : jsonItemStore;
+    xmlStore = nodeStore == null
+        ? BasicXmlDBStore.newBuilder().build()
+        : nodeStore;
+    jsonStore = jsonItemStore == null
+        ? BasicJsonDBStore.newBuilder().build()
+        : jsonItemStore;
     queryContextDelegate = new BrackitQueryContext(nodeStore);
     this.commitStrategy = requireNonNull(commitStrategy);
     this.commitMessage = commitMessage;

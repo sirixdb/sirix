@@ -118,11 +118,11 @@ final class JsonItemSequence {
   }
 
   /**
-   * Replace the value at the current transaction position with a new value.
-   * Handles different node types (object values, array elements).
+   * Replace the value at the current transaction position with a new value. Handles different node
+   * types (object values, array elements).
    *
-   * @param wtx        the write transaction positioned at the node to replace
-   * @param newValue   the new value to replace with
+   * @param wtx the write transaction positioned at the node to replace
+   * @param newValue the new value to replace with
    * @param collection the collection for creating new items
    */
   static void replaceValue(JsonNodeTrx wtx, Sequence newValue, JsonDBCollection collection) {
@@ -139,16 +139,14 @@ final class JsonItemSequence {
   }
 
   private static boolean isObjectValueNode(NodeKind kind) {
-    return kind == NodeKind.OBJECT_STRING_VALUE
-        || kind == NodeKind.OBJECT_NUMBER_VALUE
-        || kind == NodeKind.OBJECT_BOOLEAN_VALUE
-        || kind == NodeKind.OBJECT_NULL_VALUE;
+    return kind == NodeKind.OBJECT_STRING_VALUE || kind == NodeKind.OBJECT_NUMBER_VALUE
+        || kind == NodeKind.OBJECT_BOOLEAN_VALUE || kind == NodeKind.OBJECT_NULL_VALUE;
   }
 
   /**
-   * Replace an object value node. If the new value has the same type as the current node,
-   * performs an in-place update to preserve node identity (important for bitemporal semantics).
-   * If types differ, navigates to the parent OBJECT_KEY and performs a full replacement.
+   * Replace an object value node. If the new value has the same type as the current node, performs an
+   * in-place update to preserve node identity (important for bitemporal semantics). If types differ,
+   * navigates to the parent OBJECT_KEY and performs a full replacement.
    */
   private static void replaceObjectValue(JsonNodeTrx wtx, Sequence newValue) {
     final NodeKind currentKind = wtx.getKind();
@@ -193,8 +191,8 @@ final class JsonItemSequence {
   }
 
   /**
-   * Performs a full object record value replacement (delete + insert).
-   * Must be positioned at OBJECT_KEY node.
+   * Performs a full object record value replacement (delete + insert). Must be positioned at
+   * OBJECT_KEY node.
    */
   private static void doReplaceObjectRecordValue(JsonNodeTrx wtx, Sequence newValue) {
     if (newValue instanceof Array) {
@@ -228,9 +226,9 @@ final class JsonItemSequence {
   }
 
   /**
-   * Replace an array element. If the new value has the same type as the current node,
-   * performs an in-place update to preserve node identity (important for bitemporal semantics).
-   * If types differ, deletes the old node and inserts a new one at the same position.
+   * Replace an array element. If the new value has the same type as the current node, performs an
+   * in-place update to preserve node identity (important for bitemporal semantics). If types differ,
+   * deletes the old node and inserts a new one at the same position.
    */
   private static void replaceArrayElement(JsonNodeTrx wtx, Sequence newValue) {
     final NodeKind currentKind = wtx.getKind();

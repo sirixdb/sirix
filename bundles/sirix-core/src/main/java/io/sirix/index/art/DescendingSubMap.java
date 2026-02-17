@@ -74,7 +74,9 @@ final class DescendingSubMap<K, V> extends NavigableSubMap<K, V> {
   @Override
   public Set<Entry<K, V>> entrySet() {
     EntrySetView es = entrySetView;
-    return (es != null) ? es : (entrySetView = new DescendingEntrySetView());
+    return (es != null)
+        ? es
+        : (entrySetView = new DescendingEntrySetView());
   }
 
   @Override

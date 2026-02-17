@@ -77,10 +77,10 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Constructor.
    *
-   * @param indexes   the index definitions
+   * @param indexes the index definitions
    * @param listeners the set of listeners
    * @param pathIndex the path index manager
-   * @param casIndex  the CAS index manager
+   * @param casIndex the CAS index manager
    * @param nameIndex the name index manager
    */
   public AbstractIndexController(final Indexes indexes, final Set<ChangeListener> listeners,
@@ -170,10 +170,10 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       indexes.add(indexDef);
       updateIndexCapability(indexDef.getType());
       switch (indexDef.getType()) {
-        case PATH -> addListener(
-            createPathIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
-        case CAS -> addListener(
-            createCASIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+        case PATH ->
+          addListener(createPathIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+        case CAS ->
+          addListener(createCASIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
         case NAME -> addListener(createNameIndexListener(nodeWriteTrx.getPageWtx(), indexDef));
         default -> {
         }
@@ -198,18 +198,18 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     if (listener instanceof final PathNodeKeyChangeListener primitiveListener) {
       primitiveListeners.add(primitiveListener);
     } else {
-      throw new IllegalStateException("Listener does not support primitive change events: "
-          + listener.getClass().getName());
+      throw new IllegalStateException(
+          "Listener does not support primitive change events: " + listener.getClass().getName());
     }
   }
 
-  private ChangeListener createPathIndexListener(final StorageEngineWriter pageWriteTrx, final PathSummaryReader pathSummaryReader,
-      final IndexDef indexDef) {
+  private ChangeListener createPathIndexListener(final StorageEngineWriter pageWriteTrx,
+      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return pathIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createCASIndexListener(final StorageEngineWriter pageWriteTrx, final PathSummaryReader pathSummaryReader,
-      final IndexDef indexDef) {
+  private ChangeListener createCASIndexListener(final StorageEngineWriter pageWriteTrx,
+      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return casIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
   }
 

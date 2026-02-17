@@ -27,14 +27,8 @@ public enum DatabaseType {
 
     @Override
     public Node getDocumentNode(SirixDeweyID id) {
-      return new XmlDocumentRootNode(
-          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(),
-          0,
-          0,
-          null,
-          id);
+      return new XmlDocumentRootNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+          Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, null, id);
     }
   },
 
@@ -47,14 +41,8 @@ public enum DatabaseType {
 
     @Override
     public Node getDocumentNode(SirixDeweyID id) {
-      return new JsonDocumentRootNode(
-          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(),
-          Fixed.NULL_NODE_KEY.getStandardProperty(),
-          0,
-          0,
-          null,
-          id);
+      return new JsonDocumentRootNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+          Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, null, id);
     }
   };
 

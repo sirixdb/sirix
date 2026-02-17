@@ -121,7 +121,7 @@ public final class ResourceConfiguration {
     /**
      * Constructor.
      *
-     * @param path     the path
+     * @param path the path
      * @param isFolder determines if the path denotes a filer or not
      */
     ResourcePaths(final Path path, final boolean isFolder) {
@@ -152,7 +152,7 @@ public final class ResourceConfiguration {
      *
      * @param file to be checked
      * @return -1 if less folders are there, 0 if the structure is equal to the one expected, 1 if the
-     * structure has more folders
+     *         structure has more folders
      * @throws NullPointerException if {@code file} is {@code null}
      */
     public static int compareStructure(final Path file) {
@@ -172,7 +172,8 @@ public final class ResourceConfiguration {
    * Standard storage.
    */
   private static final StorageType STORAGE = StorageType.FILE_CHANNEL;
-      //OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
+  // OS.isWindows() ? StorageType.FILE_CHANNEL : OS.is64Bit() ? StorageType.MEMORY_MAPPED :
+  // StorageType.FILE_CHANNEL;
 
   /**
    * Standard versioning approach.
@@ -265,11 +266,15 @@ public final class ResourceConfiguration {
   /**
    * The distance between sibling DeweyIDs when generating new IDs.
    * 
-   * <p>Larger values (e.g., 64, 128) are better for high-insert workloads as they
-   * reduce the chance of needing to overflow into deeper levels. Smaller values
-   * (e.g., 8, 16) result in more compact DeweyIDs for read-mostly workloads.</p>
+   * <p>
+   * Larger values (e.g., 64, 128) are better for high-insert workloads as they reduce the chance of
+   * needing to overflow into deeper levels. Smaller values (e.g., 8, 16) result in more compact
+   * DeweyIDs for read-mostly workloads.
+   * </p>
    * 
-   * <p>Default is 16, which provides a good balance for mixed workloads.</p>
+   * <p>
+   * Default is 16, which provides a good balance for mixed workloads.
+   * </p>
    */
   public final int deweyIdSiblingDistance;
 
@@ -316,39 +321,49 @@ public final class ResourceConfiguration {
   /**
    * Backend type for secondary indexes (PATH, CAS, NAME).
    * 
-   * <p>Determines whether indexes use the traditional Red-Black Tree implementation
-   * or the newer Height-Optimized Trie (HOT) implementation.</p>
+   * <p>
+   * Determines whether indexes use the traditional Red-Black Tree implementation or the newer
+   * Height-Optimized Trie (HOT) implementation.
+   * </p>
    */
   public final IndexBackendType indexBackendType;
 
   /**
    * Whether to verify page checksums on read operations.
    * 
-   * <p>When enabled, each page read from storage is verified against its stored
-   * XXH3 hash to detect corruption. Uses zero-copy verification for native
-   * memory segments (~15 GB/s throughput).</p>
+   * <p>
+   * When enabled, each page read from storage is verified against its stored XXH3 hash to detect
+   * corruption. Uses zero-copy verification for native memory segments (~15 GB/s throughput).
+   * </p>
    * 
-   * <p>Default is {@code true} for data integrity. Disable only if benchmarking.</p>
+   * <p>
+   * Default is {@code true} for data integrity. Disable only if benchmarking.
+   * </p>
    */
   public final boolean verifyChecksumsOnRead;
 
   /**
    * The hash algorithm used for page checksums.
    *
-   * <p>Default is {@link HashAlgorithm#XXH3}, which provides ~15 GB/s throughput.
-   * The algorithm can be changed for future extensibility, though changing it
-   * requires re-writing all pages.</p>
+   * <p>
+   * Default is {@link HashAlgorithm#XXH3}, which provides ~15 GB/s throughput. The algorithm can be
+   * changed for future extensibility, though changing it requires re-writing all pages.
+   * </p>
    */
   public final HashAlgorithm hashAlgorithm;
 
   /**
    * Configuration for valid time support in bitemporal queries.
    *
-   * <p>When set, this enables first-class valid time support, allowing optimized
-   * bitemporal queries using functions like jn:valid-at() and jn:open-bitemporal().</p>
+   * <p>
+   * When set, this enables first-class valid time support, allowing optimized bitemporal queries
+   * using functions like jn:valid-at() and jn:open-bitemporal().
+   * </p>
    *
-   * <p>The configuration specifies which JSON paths hold the validFrom and validTo
-   * timestamps for valid time intervals.</p>
+   * <p>
+   * The configuration specifies which JSON paths hold the validFrom and validTo timestamps for valid
+   * time intervals.
+   * </p>
    */
   public final ValidTimeConfig validTimeConfig;
 
@@ -447,7 +462,9 @@ public final class ResourceConfiguration {
    * @return the database ID, or 0 if database configuration not set
    */
   public long getDatabaseId() {
-    return databaseConfig != null ? databaseConfig.getDatabaseId() : 0;
+    return databaseConfig != null
+        ? databaseConfig.getDatabaseId()
+        : 0;
   }
 
   @Override
@@ -535,12 +552,11 @@ public final class ResourceConfiguration {
   /**
    * JSON names.
    */
-  private static final String[] JSONNAMES =
-      { "binaryEncoding", "revisioning", "revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
-          "storageKind", "hashKind", "hashFunction", "compression", "pathSummary", "resourceID", "deweyIDsStored",
-          "persistenter", "storeDiffs", "customCommitTimestamps", "storeNodeHistory", "storeChildCount",
-          "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance", "verifyChecksumsOnRead",
-          "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath" };
+  private static final String[] JSONNAMES = {"binaryEncoding", "revisioning", "revisioningClass",
+      "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind", "hashKind", "hashFunction", "compression",
+      "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
+      "storeNodeHistory", "storeChildCount", "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance",
+      "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath"};
 
   /**
    * Serialize the configuration.
@@ -551,7 +567,7 @@ public final class ResourceConfiguration {
   public static void serialize(final ResourceConfiguration config) throws SirixIOException {
     final Path configFile = config.getConfigFile();
     try (final FileWriter fileWriter = new FileWriter(configFile.toFile());
-         final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
+        final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
       jsonWriter.beginObject();
       // Binary encoding | page layout.
       jsonWriter.name(JSONNAMES[0]).value(config.binaryVersion.name());
@@ -620,8 +636,8 @@ public final class ResourceConfiguration {
   }
 
   /**
-   * Deserializing a Resource configuration from a JSON-file from the persistent storage.
-   * //todo add track child count parameter here
+   * Deserializing a Resource configuration from a JSON-file from the persistent storage. //todo add
+   * track child count parameter here
    *
    * @param file where the resource lies in.
    * @return a complete {@link ResourceConfiguration} instance
@@ -655,8 +671,8 @@ public final class ResourceConfiguration {
       jsonReader.beginArray();
       while (jsonReader.hasNext()) {
         jsonReader.beginObject();
-        @SuppressWarnings("unchecked") final Class<ByteHandler> clazzName =
-            (Class<ByteHandler>) Class.forName(jsonReader.nextName());
+        @SuppressWarnings("unchecked")
+        final Class<ByteHandler> clazzName = (Class<ByteHandler>) Class.forName(jsonReader.nextName());
         handlerList.add(ByteHandlerKind.getKind(clazzName).deserialize(jsonReader));
         jsonReader.endObject();
       }
@@ -809,8 +825,8 @@ public final class ResourceConfiguration {
       final ResourceConfiguration config = new ResourceConfiguration(builder);
       config.setDatabaseConfiguration(dbConfig);
       return config.setID(ID);
-    } catch (IOException | ClassNotFoundException | IllegalArgumentException | InstantiationException |
-             IllegalAccessException | InvocationTargetException e) {
+    } catch (IOException | ClassNotFoundException | IllegalArgumentException | InstantiationException
+        | IllegalAccessException | InvocationTargetException e) {
       throw new SirixIOException(e);
     }
   }
@@ -876,8 +892,8 @@ public final class ResourceConfiguration {
     private boolean useDeweyIDs = false;
 
     /**
-     * The distance between sibling DeweyIDs when generating new IDs.
-     * Default is 16, which provides a good balance for mixed workloads.
+     * The distance between sibling DeweyIDs when generating new IDs. Default is 16, which provides a
+     * good balance for mixed workloads.
      */
     private int deweyIdSiblingDistance = 16;
 
@@ -904,7 +920,8 @@ public final class ResourceConfiguration {
     private BinaryEncodingVersion binaryEncodingVersion = BINARY_ENCODING_VERSION;
 
     /**
-     * If true, require native LZ4 support; otherwise builder will fall back to the stream LZ4 compressor.
+     * If true, require native LZ4 support; otherwise builder will fall back to the stream LZ4
+     * compressor.
      */
     private boolean requireNativeLz4 = false;
 
@@ -914,26 +931,23 @@ public final class ResourceConfiguration {
     private StringCompressionType stringCompressionType = StringCompressionType.NONE;
 
     /**
-     * Backend type for secondary indexes (PATH, CAS, NAME).
-     * Defaults to HOT for best performance.
+     * Backend type for secondary indexes (PATH, CAS, NAME). Defaults to HOT for best performance.
      */
     private IndexBackendType indexBackendType = IndexBackendType.HOT;
 
     /**
-     * Whether to verify page checksums on read operations.
-     * Default is true for data integrity.
+     * Whether to verify page checksums on read operations. Default is true for data integrity.
      */
     private boolean verifyChecksumsOnRead = true;
 
     /**
-     * Hash algorithm for page checksums.
-     * Default is XXH3 for maximum performance.
+     * Hash algorithm for page checksums. Default is XXH3 for maximum performance.
      */
     private HashAlgorithm hashAlgorithm = HashAlgorithm.XXH3;
 
     /**
-     * Configuration for valid time support in bitemporal queries.
-     * Default is null (no valid time support).
+     * Configuration for valid time support in bitemporal queries. Default is null (no valid time
+     * support).
      */
     private ValidTimeConfig validTimeConfig = null;
 
@@ -1063,11 +1077,15 @@ public final class ResourceConfiguration {
     /**
      * Sets the distance between sibling DeweyIDs when generating new IDs.
      * 
-     * <p>Larger values (e.g., 64, 128) are better for high-insert workloads as they
-     * reduce the chance of needing to overflow into deeper levels. Smaller values
-     * (e.g., 8, 16) result in more compact DeweyIDs for read-mostly workloads.</p>
+     * <p>
+     * Larger values (e.g., 64, 128) are better for high-insert workloads as they reduce the chance of
+     * needing to overflow into deeper levels. Smaller values (e.g., 8, 16) result in more compact
+     * DeweyIDs for read-mostly workloads.
+     * </p>
      * 
-     * <p>Must be a positive even number. Default is 16.</p>
+     * <p>
+     * Must be a positive even number. Default is 16.
+     * </p>
      *
      * @param distance the distance between siblings (must be positive and even)
      * @return reference to the builder object
@@ -1115,7 +1133,8 @@ public final class ResourceConfiguration {
     /**
      * Set to {@code true} if custom commit timestamps should be stored.
      *
-     * @param customCommitTimestamps {code true}, if custom commit timestamps should be stored, {@code false} if not
+     * @param customCommitTimestamps {code true}, if custom commit timestamps should be stored,
+     *        {@code false} if not
      * @return reference to the builder object
      */
     public Builder customCommitTimestamps(final boolean customCommitTimestamps) {
@@ -1148,10 +1167,11 @@ public final class ResourceConfiguration {
     /**
      * Set the string compression type for string-containing nodes.
      * 
-     * <p>This controls whether and how strings in JSON/XML nodes are compressed:
+     * <p>
+     * This controls whether and how strings in JSON/XML nodes are compressed:
      * <ul>
-     *   <li>{@link StringCompressionType#NONE} - No per-string compression (default)</li>
-     *   <li>{@link StringCompressionType#FSST} - Fast Static Symbol Table compression</li>
+     * <li>{@link StringCompressionType#NONE} - No per-string compression (default)</li>
+     * <li>{@link StringCompressionType#FSST} - Fast Static Symbol Table compression</li>
      * </ul>
      *
      * @param stringCompressionType the compression type to use
@@ -1165,10 +1185,11 @@ public final class ResourceConfiguration {
     /**
      * Set the backend type for secondary indexes (PATH, CAS, NAME).
      * 
-     * <p>This controls which data structure is used for storing index data:
+     * <p>
+     * This controls which data structure is used for storing index data:
      * <ul>
-     *   <li>{@link IndexBackendType#RBTREE} - Red-Black Tree (default, stable)</li>
-     *   <li>{@link IndexBackendType#HOT} - Height-Optimized Trie (high performance)</li>
+     * <li>{@link IndexBackendType#RBTREE} - Red-Black Tree (default, stable)</li>
+     * <li>{@link IndexBackendType#HOT} - Height-Optimized Trie (high performance)</li>
      * </ul>
      *
      * @param indexBackendType the index backend type to use
@@ -1182,14 +1203,20 @@ public final class ResourceConfiguration {
     /**
      * Enable HOT (Height-Optimized Trie) indexes for this resource.
      * 
-     * <p>This is the default, so calling this method is optional unless
-     * explicitly overriding a previous setting.</p>
+     * <p>
+     * This is the default, so calling this method is optional unless explicitly overriding a previous
+     * setting.
+     * </p>
      * 
-     * <p>This is a convenience method equivalent to calling
-     * {@code indexBackendType(IndexBackendType.HOT)}.</p>
+     * <p>
+     * This is a convenience method equivalent to calling
+     * {@code indexBackendType(IndexBackendType.HOT)}.
+     * </p>
      * 
-     * <p>HOT indexes provide better performance for large datasets due to
-     * improved cache utilization and reduced memory accesses.</p>
+     * <p>
+     * HOT indexes provide better performance for large datasets due to improved cache utilization and
+     * reduced memory accesses.
+     * </p>
      *
      * @return reference to the builder object
      */
@@ -1201,11 +1228,15 @@ public final class ResourceConfiguration {
     /**
      * Use RBTree (Red-Black Tree) indexes for this resource.
      * 
-     * <p>This is a convenience method equivalent to calling
-     * {@code indexBackendType(IndexBackendType.RBTREE)}.</p>
+     * <p>
+     * This is a convenience method equivalent to calling
+     * {@code indexBackendType(IndexBackendType.RBTREE)}.
+     * </p>
      * 
-     * <p>RBTree is the traditional index implementation. Use this if you
-     * prefer the more established implementation over the newer HOT backend.</p>
+     * <p>
+     * RBTree is the traditional index implementation. Use this if you prefer the more established
+     * implementation over the newer HOT backend.
+     * </p>
      *
      * @return reference to the builder object
      */
@@ -1217,12 +1248,15 @@ public final class ResourceConfiguration {
     /**
      * Enable or disable page checksum verification on read operations.
      * 
-     * <p>When enabled, each page read from storage is verified against its stored
-     * XXH3 hash to detect corruption. Uses zero-copy verification for native
-     * memory segments (~15 GB/s throughput).</p>
+     * <p>
+     * When enabled, each page read from storage is verified against its stored XXH3 hash to detect
+     * corruption. Uses zero-copy verification for native memory segments (~15 GB/s throughput).
+     * </p>
      * 
-     * <p>Default is {@code true} for data integrity. Only disable for benchmarking
-     * or if external integrity mechanisms are in place.</p>
+     * <p>
+     * Default is {@code true} for data integrity. Only disable for benchmarking or if external
+     * integrity mechanisms are in place.
+     * </p>
      *
      * @param verify true to enable checksum verification, false to disable
      * @return reference to the builder object
@@ -1235,8 +1269,10 @@ public final class ResourceConfiguration {
     /**
      * Set the hash algorithm for page checksums.
      *
-     * <p>Default is {@link HashAlgorithm#XXH3}. Changing the algorithm after
-     * pages have been written requires re-writing all pages.</p>
+     * <p>
+     * Default is {@link HashAlgorithm#XXH3}. Changing the algorithm after pages have been written
+     * requires re-writing all pages.
+     * </p>
      *
      * @param algorithm the hash algorithm to use
      * @return reference to the builder object
@@ -1249,11 +1285,15 @@ public final class ResourceConfiguration {
     /**
      * Set the valid time configuration for bitemporal queries.
      *
-     * <p>When set, this enables first-class valid time support with optimized
-     * bitemporal queries using functions like jn:valid-at() and jn:open-bitemporal().</p>
+     * <p>
+     * When set, this enables first-class valid time support with optimized bitemporal queries using
+     * functions like jn:valid-at() and jn:open-bitemporal().
+     * </p>
      *
-     * <p>CAS indexes will be automatically created for the specified paths when
-     * the resource is opened for writing.</p>
+     * <p>
+     * CAS indexes will be automatically created for the specified paths when the resource is opened for
+     * writing.
+     * </p>
      *
      * @param validTimeConfig the valid time configuration, or null to disable
      * @return reference to the builder object
@@ -1266,14 +1306,18 @@ public final class ResourceConfiguration {
     /**
      * Set the valid time paths for bitemporal queries.
      *
-     * <p>This is a convenience method equivalent to calling
-     * {@code validTimeConfig(new ValidTimeConfig(validFromPath, validToPath))}.</p>
+     * <p>
+     * This is a convenience method equivalent to calling
+     * {@code validTimeConfig(new ValidTimeConfig(validFromPath, validToPath))}.
+     * </p>
      *
-     * <p>When set, CAS indexes will be automatically created for these paths
-     * to enable optimized bitemporal queries.</p>
+     * <p>
+     * When set, CAS indexes will be automatically created for these paths to enable optimized
+     * bitemporal queries.
+     * </p>
      *
      * @param validFromPath JSON path to the validFrom field (e.g., "$.validFrom" or "validFrom")
-     * @param validToPath   JSON path to the validTo field (e.g., "$.validTo" or "validTo")
+     * @param validToPath JSON path to the validTo field (e.g., "$.validTo" or "validTo")
      * @return reference to the builder object
      * @throws NullPointerException if any argument is null
      */
@@ -1285,10 +1329,14 @@ public final class ResourceConfiguration {
     /**
      * Enable valid time support using convention-based field names.
      *
-     * <p>This uses the standard field names "_validFrom" and "_validTo".</p>
+     * <p>
+     * This uses the standard field names "_validFrom" and "_validTo".
+     * </p>
      *
-     * <p>This is a convenience method equivalent to calling
-     * {@code validTimeConfig(ValidTimeConfig.withConventionalPaths())}.</p>
+     * <p>
+     * This is a convenience method equivalent to calling
+     * {@code validTimeConfig(ValidTimeConfig.withConventionalPaths())}.
+     * </p>
      *
      * @return reference to the builder object
      */

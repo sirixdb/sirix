@@ -63,8 +63,8 @@ public class EveryExprTest {
     assertEquals(true, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    final AbstractAxis axis2 = new XPathAxis(holder.getXmlNodeReadTrx(),
-        "every $child in child::node()" + "satisfies $child/@abc");
+    final AbstractAxis axis2 =
+        new XPathAxis(holder.getXmlNodeReadTrx(), "every $child in child::node()" + "satisfies $child/@abc");
     assertEquals(true, axis2.hasNext());
     axis2.next();
     assertEquals(false, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
@@ -79,8 +79,8 @@ public class EveryExprTest {
     assertEquals(false, axis3.hasNext());
 
     holder.getXmlNodeReadTrx().moveTo(1L);
-    final AbstractAxis axis4 = new XPathAxis(holder.getXmlNodeReadTrx(),
-        "every $child in child::element() satisfies $child/child::c");
+    final AbstractAxis axis4 =
+        new XPathAxis(holder.getXmlNodeReadTrx(), "every $child in child::element() satisfies $child/child::c");
     assertEquals(true, axis4.hasNext());
     axis4.next();
     assertEquals(true, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));

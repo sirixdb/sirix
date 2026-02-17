@@ -63,8 +63,8 @@ public final class ScanPathIndex extends AbstractScanIndex {
 
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND, "Index no %s for collection %s and document %s not found.",
-                               idx, doc.getCollection().getName(),
-                               doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
+          idx, doc.getCollection().getName(),
+          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     if (indexDef.getType() != IndexType.PATH) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,

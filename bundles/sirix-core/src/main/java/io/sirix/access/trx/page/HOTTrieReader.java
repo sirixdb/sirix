@@ -42,24 +42,31 @@ import java.util.Objects;
 /**
  * HOT trie reader for HOT (Height Optimized Trie) navigation.
  * 
- * <p>This class provides read-only access to HOT indexes with proper guard management
- * to prevent page eviction during active use.</p>
+ * <p>
+ * This class provides read-only access to HOT indexes with proper guard management to prevent page
+ * eviction during active use.
+ * </p>
  * 
- * <p><b>Key Features:</b></p>
+ * <p>
+ * <b>Key Features:</b>
+ * </p>
  * <ul>
- *   <li>Guard acquisition for page lifetime management</li>
- *   <li>Zero-copy value access via MemorySegment slices</li>
- *   <li>SIMD-optimized child lookup via HOTIndirectPage</li>
- *   <li>Pre-allocated traversal arrays for zero allocations</li>
+ * <li>Guard acquisition for page lifetime management</li>
+ * <li>Zero-copy value access via MemorySegment slices</li>
+ * <li>SIMD-optimized child lookup via HOTIndirectPage</li>
+ * <li>Pre-allocated traversal arrays for zero allocations</li>
  * </ul>
  * 
- * <p><b>Usage:</b></p>
+ * <p>
+ * <b>Usage:</b>
+ * </p>
+ * 
  * <pre>{@code
  * try (HOTTrieReader reader = new HOTTrieReader(pageRtx)) {
- *     MemorySegment value = reader.get(rootRef, key);
- *     if (value != null) {
- *         // Use value...
- *     }
+ *   MemorySegment value = reader.get(rootRef, key);
+ *   if (value != null) {
+ *     // Use value...
+ *   }
  * }
  * }</pre>
  * 
@@ -72,19 +79,19 @@ public final class HOTTrieReader implements AutoCloseable {
 
   /** Maximum tree height - increased to handle unbalanced trees during inserts. */
   private static final int MAX_TREE_HEIGHT = 64;
-  
+
   /** The storage engine reader. */
   private final StorageEngineReader pageRtx;
-  
+
   // ===== Pre-allocated traversal path - ZERO allocations on hot path! =====
   private final PageReference[] pathRefs = new PageReference[MAX_TREE_HEIGHT];
   private final HOTIndirectPage[] pathNodes = new HOTIndirectPage[MAX_TREE_HEIGHT];
   private final int[] pathChildIndices = new int[MAX_TREE_HEIGHT];
   private int pathDepth = 0;
-  
+
   // ===== Currently guarded leaf page =====
   private HOTLeafPage guardedLeaf = null;
-  
+
   /**
    * Create a new HOTTrieReader.
    *
@@ -93,10 +100,9 @@ public final class HOTTrieReader implements AutoCloseable {
   public HOTTrieReader(@NonNull StorageEngineReader pageRtx) {
     this.pageRtx = Objects.requireNonNull(pageRtx);
   }
-  
+
   /**
-   * Find value for exact key match.
-   * Returns null if not found - no Optional allocation!
+   * Find value for exact key match. Returns null if not found - no Optional allocation!
    *
    * @param rootRef the root page reference
    * @param key the search key
@@ -105,29 +111,29 @@ public final class HOTTrieReader implements AutoCloseable {
   public @Nullable MemorySegment get(@NonNull PageReference rootRef, byte[] key) {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
-    
+
     // Release any previously guarded leaf
     releaseGuardedLeaf();
-    
+
     // Navigate to leaf
     HOTLeafPage leaf = navigateToLeaf(rootRef, key);
     if (leaf == null) {
       return null;
     }
-    
+
     // Acquire guard to prevent eviction
     leaf.acquireGuard();
     guardedLeaf = leaf;
-    
+
     // Find entry in leaf
     int index = leaf.findEntry(key);
     if (index < 0) {
       return null; // Not found
     }
-    
+
     return leaf.getValueSlice(index);
   }
-  
+
   /**
    * Check if a key exists in the trie.
    *
@@ -138,15 +144,15 @@ public final class HOTTrieReader implements AutoCloseable {
   public boolean containsKey(@NonNull PageReference rootRef, byte[] key) {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
-    
+
     // Release any previously guarded leaf
     releaseGuardedLeaf();
-    
+
     HOTLeafPage leaf = navigateToLeaf(rootRef, key);
     if (leaf == null) {
       return false;
     }
-    
+
     // Acquire guard temporarily
     leaf.acquireGuard();
     try {
@@ -156,7 +162,7 @@ public final class HOTTrieReader implements AutoCloseable {
       leaf.releaseGuard();
     }
   }
-  
+
   /**
    * Create a range cursor for iterating over a key range.
    *
@@ -168,17 +174,21 @@ public final class HOTTrieReader implements AutoCloseable {
   public HOTRangeCursor range(@NonNull PageReference rootRef, byte[] fromKey, byte[] toKey) {
     return new HOTRangeCursor(this, rootRef, fromKey, toKey);
   }
-  
+
   /**
-   * Navigate through HOT trie to reach the leaf containing the key.
-   * Uses pre-allocated path arrays - ZERO allocations!
+   * Navigate through HOT trie to reach the leaf containing the key. Uses pre-allocated path arrays -
+   * ZERO allocations!
    * 
-   * <p><b>Prefetching Strategy (Reference: thesis section 4.3.4):</b></p>
-   * <p>For optimal performance on modern CPUs with deep memory hierarchies:</p>
+   * <p>
+   * <b>Prefetching Strategy (Reference: thesis section 4.3.4):</b>
+   * </p>
+   * <p>
+   * For optimal performance on modern CPUs with deep memory hierarchies:
+   * </p>
    * <ul>
-   *   <li>Prefetch child's first cache line before navigating (hide memory latency)</li>
-   *   <li>HOT's compound nodes reduce tree height → fewer prefetch opportunities needed</li>
-   *   <li>Java's MemorySegment.prefetch() can be used with off-heap pages (JDK 21+)</li>
+   * <li>Prefetch child's first cache line before navigating (hide memory latency)</li>
+   * <li>HOT's compound nodes reduce tree height → fewer prefetch opportunities needed</li>
+   * <li>Java's MemorySegment.prefetch() can be used with off-heap pages (JDK 21+)</li>
    * </ul>
    *
    * @param rootRef the root reference
@@ -188,46 +198,45 @@ public final class HOTTrieReader implements AutoCloseable {
   public @Nullable HOTLeafPage navigateToLeaf(@NonNull PageReference rootRef, byte[] key) {
     pathDepth = 0;
     PageReference currentRef = rootRef;
-    
+
     while (true) {
       Page page = loadPage(currentRef);
       if (page == null) {
         return null; // Empty trie
       }
-      
+
       if (page instanceof HOTLeafPage leaf) {
         return leaf;
       }
-      
+
       if (!(page instanceof HOTIndirectPage hotNode)) {
         return null; // Unexpected page type
       }
-      
+
       // Find child reference using HOT node type-specific logic (uses PEXT/Long.compress)
       int childIndex = hotNode.findChildIndex(key);
       if (childIndex < 0) {
         return null; // Key not found
       }
-      
+
       PageReference childRef = hotNode.getChildReference(childIndex);
       if (childRef == null) {
         return null;
       }
-      
+
       // Software prefetching hint: Accessing sibling refs may trigger CPU prefetch.
       // For off-heap pages, explicit prefetch can be added via MemorySegment API.
       // HOT's reduced tree height (compound nodes) minimizes prefetch overhead.
-      
+
       // Record path for parent-based range traversal
       pushPath(currentRef, hotNode, childIndex);
-      
+
       currentRef = childRef;
     }
   }
-  
+
   /**
-   * Navigate to the leftmost leaf in the subtree.
-   * Used for range scan initialization.
+   * Navigate to the leftmost leaf in the subtree. Used for range scan initialization.
    *
    * @param rootRef the root reference
    * @return the leftmost leaf, or null if empty
@@ -235,36 +244,36 @@ public final class HOTTrieReader implements AutoCloseable {
   public @Nullable HOTLeafPage navigateToLeftmostLeaf(@NonNull PageReference rootRef) {
     pathDepth = 0;
     PageReference currentRef = rootRef;
-    
+
     while (true) {
       Page page = loadPage(currentRef);
       if (page == null) {
         return null;
       }
-      
+
       if (page instanceof HOTLeafPage leaf) {
         return leaf;
       }
-      
+
       if (!(page instanceof HOTIndirectPage hotNode)) {
         return null;
       }
-      
+
       // Take the first (leftmost) child
       int childIndex = 0;
       PageReference childRef = hotNode.getChildReference(childIndex);
       if (childRef == null) {
         return null;
       }
-      
+
       pushPath(currentRef, hotNode, childIndex);
       currentRef = childRef;
     }
   }
-  
+
   /**
-   * Advance to the next leaf in sorted order using parent-based traversal.
-   * This is the COW-compatible alternative to sibling pointers.
+   * Advance to the next leaf in sorted order using parent-based traversal. This is the COW-compatible
+   * alternative to sibling pointers.
    *
    * @return the next leaf, or null if no more leaves
    */
@@ -275,13 +284,13 @@ public final class HOTTrieReader implements AutoCloseable {
       HOTIndirectPage parent = pathNodes[parentIdx];
       int currentChildIdx = pathChildIndices[parentIdx];
       int numChildren = parent.getNumChildren();
-      
+
       // Check if there's a next sibling
       if (currentChildIdx + 1 < numChildren) {
         // Found next sibling - descend to its leftmost leaf
         int nextChildIdx = currentChildIdx + 1;
         pathChildIndices[parentIdx] = nextChildIdx;
-        
+
         PageReference nextChildRef = parent.getChildReference(nextChildIdx);
         if (nextChildRef != null) {
           HOTLeafPage result = descendToLeftmostLeaf(nextChildRef);
@@ -291,46 +300,46 @@ public final class HOTTrieReader implements AutoCloseable {
           // If descend failed, continue to next sibling or pop up
         }
       }
-      
+
       // No more siblings at this level, pop up
       pathDepth--;
     }
-    
+
     // Exhausted the tree
     return null;
   }
-  
+
   /**
    * Descend to the leftmost leaf from a given reference.
    */
   private @Nullable HOTLeafPage descendToLeftmostLeaf(@NonNull PageReference ref) {
     PageReference currentRef = ref;
-    
+
     while (true) {
       Page page = loadPage(currentRef);
       if (page == null) {
         return null;
       }
-      
+
       if (page instanceof HOTLeafPage leaf) {
         return leaf;
       }
-      
+
       if (!(page instanceof HOTIndirectPage hotNode)) {
         return null;
       }
-      
+
       int childIndex = 0;
       PageReference childRef = hotNode.getChildReference(childIndex);
       if (childRef == null) {
         return null;
       }
-      
+
       pushPath(currentRef, hotNode, childIndex);
       currentRef = childRef;
     }
   }
-  
+
   /**
    * Flyweight push for traversal path - no allocation!
    */
@@ -343,7 +352,7 @@ public final class HOTTrieReader implements AutoCloseable {
     pathChildIndices[pathDepth] = childIdx;
     pathDepth++;
   }
-  
+
   /**
    * Clear traversal path (allows GC but no allocation).
    */
@@ -354,17 +363,17 @@ public final class HOTTrieReader implements AutoCloseable {
     }
     pathDepth = 0;
   }
-  
+
   /**
    * Get the current traversal path depth.
    */
   public int getPathDepth() {
     return pathDepth;
   }
-  
+
   /**
-   * Load a page from storage.
-   * Checks the page reference's in-memory page first, then falls back to storage.
+   * Load a page from storage. Checks the page reference's in-memory page first, then falls back to
+   * storage.
    */
   private @Nullable Page loadPage(@NonNull PageReference ref) {
     // First check if page is already in memory (from transaction log or cache)
@@ -372,20 +381,20 @@ public final class HOTTrieReader implements AutoCloseable {
     if (inMemory != null) {
       return inMemory;
     }
-    
+
     // CRITICAL: Check BOTH storage key AND log key before giving up.
     // When a page is in the transaction log, key is set to NULL_ID_LONG (-1)
     // but logKey is set to the index in the log. We must call loadHOTPage
     // which checks the transaction log using the logKey.
     if (ref.getKey() < 0 && ref.getLogKey() < 0) {
-      return null;  // Page not in storage AND not in transaction log
+      return null; // Page not in storage AND not in transaction log
     }
-    
+
     // Load from storage via the storage engine reader
     // The storage engine will handle versioning/fragment combining AND transaction log lookup
     return pageRtx.loadHOTPage(ref);
   }
-  
+
   /**
    * Release the currently guarded leaf page.
    */
@@ -395,14 +404,14 @@ public final class HOTTrieReader implements AutoCloseable {
       guardedLeaf = null;
     }
   }
-  
+
   /**
    * Get the storage engine reader.
    */
   StorageEngineReader getPageRtx() {
     return pageRtx;
   }
-  
+
   @Override
   public void close() {
     releaseGuardedLeaf();

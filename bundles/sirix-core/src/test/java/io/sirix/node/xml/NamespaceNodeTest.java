@@ -75,24 +75,23 @@ public class NamespaceNodeTest {
     final long nodeKey = 99L;
     data.writeByte(NodeKind.NAMESPACE.getId());
     DeltaVarIntCodec.encodeDelta(data, 13L, nodeKey); // parentKey
-    DeltaVarIntCodec.encodeDelta(data, 1L, nodeKey);  // pathNodeKey
-    DeltaVarIntCodec.encodeSigned(data, 14);          // prefixKey
-    DeltaVarIntCodec.encodeSigned(data, 15);          // localNameKey
-    DeltaVarIntCodec.encodeSigned(data, 13);          // uriKey
+    DeltaVarIntCodec.encodeDelta(data, 1L, nodeKey); // pathNodeKey
+    DeltaVarIntCodec.encodeSigned(data, 14); // prefixKey
+    DeltaVarIntCodec.encodeSigned(data, 15); // localNameKey
+    DeltaVarIntCodec.encodeSigned(data, 13); // uriKey
     DeltaVarIntCodec.encodeSigned(data, Constants.NULL_REVISION_NUMBER);
-    DeltaVarIntCodec.encodeSigned(data, 0);           // lastModifiedRevision
-    
+    DeltaVarIntCodec.encodeSigned(data, 0); // lastModifiedRevision
+
     // Deserialize to create properly initialized node
     var bytesIn = data.asBytesIn();
     bytesIn.readByte(); // Skip NodeKind byte
-    final NamespaceNode node = (NamespaceNode) NodeKind.NAMESPACE.deserialize(
-        bytesIn, nodeKey, SirixDeweyID.newRootID().toBytes(),
-        pageReadTrx.getResourceSession().getResourceConfig());
-    
+    final NamespaceNode node = (NamespaceNode) NodeKind.NAMESPACE.deserialize(bytesIn, nodeKey,
+        SirixDeweyID.newRootID().toBytes(), pageReadTrx.getResourceSession().getResourceConfig());
+
     // Compute and set hash
     var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
-    
+
     check(node);
 
     // Serialize and deserialize node again
@@ -101,11 +100,8 @@ public class NamespaceNodeTest {
     node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
     var bytesIn2 = data2.asBytesIn();
     bytesIn2.readByte(); // Skip NodeKind byte
-    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(bytesIn2,
-                                                                           node.getNodeKey(),
-                                                                           node.getDeweyID().toBytes(),
-                                                                           pageReadTrx.getResourceSession()
-                                                                                      .getResourceConfig());
+    final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(bytesIn2, node.getNodeKey(),
+        node.getDeweyID().toBytes(), pageReadTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

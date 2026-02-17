@@ -21,9 +21,8 @@ class BinaryComparableUtils {
   }
 
   /**
-   * For Node4, Node16 to interpret every byte as unsigned when storing partial keys.
-   * Node 48, Node256 simply use {@link Byte#toUnsignedInt(byte)}
-   * to index into their key arrays.
+   * For Node4, Node16 to interpret every byte as unsigned when storing partial keys. Node 48, Node256
+   * simply use {@link Byte#toUnsignedInt(byte)} to index into their key arrays.
    */
   static byte unsigned(byte b) {
     return (byte) (b ^ BYTE_SHIFT);

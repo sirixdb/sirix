@@ -57,14 +57,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * Stress tests for HOT (Height Optimized Trie) indexes with large numbers
- * of unique paths and names.
+ * Stress tests for HOT (Height Optimized Trie) indexes with large numbers of unique paths and
+ * names.
  * 
- * <p>These tests verify that HOT indexes can handle at least 50,000 unique
- * names and paths efficiently, with proper verification of:</p>
+ * <p>
+ * These tests verify that HOT indexes can handle at least 50,000 unique names and paths
+ * efficiently, with proper verification of:
+ * </p>
  * <ul>
- *   <li>Index iteration returns all entries</li>
- *   <li>NodeKey correctness</li>
+ * <li>Index iteration returns all entries</li>
+ * <li>NodeKey correctness</li>
  * </ul>
  * 
  * @author Johannes Lichtenberger
@@ -74,7 +76,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 public class HOTIndexStressTest {
 
   private static final String TMPDIR = System.getProperty("java.io.tmpdir");
-  
+
   /** Use unique path per test to avoid interference. */
   private Path testDbPath;
 
@@ -83,11 +85,11 @@ public class HOTIndexStressTest {
     // Use unique database path per test
     String testName = testInfo.getDisplayName().replaceAll("[^a-zA-Z0-9]", "_");
     testDbPath = Path.of(TMPDIR, "sirix", "hot-stress-" + testName + "-" + System.nanoTime());
-    
+
     // Clean up any previous test data
     Databases.removeDatabase(testDbPath);
     Files.createDirectories(testDbPath.getParent());
-    
+
     // Enable HOT indexes for testing
     System.setProperty(PathIndexListenerFactory.USE_HOT_PROPERTY, "true");
   }
@@ -111,19 +113,18 @@ public class HOTIndexStressTest {
   void testQuickNameIndex() throws IOException {
     final int count = 1_000;
     final Roaring64Bitmap expectedNodeKeys = new Roaring64Bitmap();
-    
+
     final var dbConfig = new DatabaseConfiguration(testDbPath);
     Databases.createJsonDatabase(dbConfig);
-    
+
     try (final var database = Databases.openJsonDatabase(testDbPath)) {
       database.createResource(ResourceConfiguration.newBuilder("test").build());
-      
+
       // Insert data and track node keys
-      try (final var session = database.beginResourceSession("test");
-           final var wtx = session.beginNodeTrx()) {
-        
+      try (final var session = database.beginResourceSession("test"); final var wtx = session.beginNodeTrx()) {
+
         wtx.insertObjectAsFirstChild();
-        
+
         for (int i = 0; i < count; i++) {
           String fieldName = "field_" + i;
           wtx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(i));
@@ -133,29 +134,28 @@ public class HOTIndexStressTest {
           expectedNodeKeys.add(wtx.getNodeKey());
           wtx.moveToParent(); // Move to parent object
         }
-        
+
         wtx.commit();
-        
+
         // Create name index
         final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
         final var indexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(indexDef), wtx);
         wtx.commit();
       }
-      
+
       // Verify with full iteration through indexController
-      try (final var session = database.beginResourceSession("test");
-           final var rtx = session.beginNodeReadOnlyTrx()) {
-        
+      try (final var session = database.beginResourceSession("test"); final var rtx = session.beginNodeReadOnlyTrx()) {
+
         final var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
         var nameIndexOpt = indexController.getIndexes().findNameIndex();
         assertTrue(nameIndexOpt.isPresent(), "Name index should exist");
         IndexDef indexDef = nameIndexOpt.get();
-        
+
         // Use proper indexController API (empty filter = get all)
-        Iterator<NodeReferences> iter = indexController.openNameIndex(
-            rtx.getPageTrx(), indexDef, indexController.createNameFilter(Set.of()));
-        
+        Iterator<NodeReferences> iter =
+            indexController.openNameIndex(rtx.getPageTrx(), indexDef, indexController.createNameFilter(Set.of()));
+
         final Roaring64Bitmap foundNodeKeys = new Roaring64Bitmap();
         int iterCount = 0;
         while (iter.hasNext()) {
@@ -163,11 +163,10 @@ public class HOTIndexStressTest {
           foundNodeKeys.or(refs.getNodeKeys());
           iterCount++;
         }
-        
+
         assertEquals(count, iterCount, "Iterator should return all " + count + " names");
-        assertEquals(count, foundNodeKeys.getLongCardinality(), 
-            "Should have " + count + " unique node keys");
-        
+        assertEquals(count, foundNodeKeys.getLongCardinality(), "Should have " + count + " unique node keys");
+
         // Verify all expected node keys are present
         final Roaring64Bitmap missingKeys = expectedNodeKeys.clone();
         missingKeys.andNot(foundNodeKeys);
@@ -192,19 +191,18 @@ public class HOTIndexStressTest {
     // Path index indexes by PCR, all entries at same level share PCR
     // So we just verify the total node key count matches
     long totalExpectedNodeKeys = 0;
-    
+
     final var dbConfig = new DatabaseConfiguration(testDbPath);
     Databases.createJsonDatabase(dbConfig);
-    
+
     try (final var database = Databases.openJsonDatabase(testDbPath)) {
       database.createResource(ResourceConfiguration.newBuilder("test").build());
-      
+
       // Insert data first, then create index (like the name index test)
-      try (final var session = database.beginResourceSession("test");
-           final var wtx = session.beginNodeTrx()) {
-        
+      try (final var session = database.beginResourceSession("test"); final var wtx = session.beginNodeTrx()) {
+
         wtx.insertObjectAsFirstChild();
-        
+
         for (int i = 0; i < count; i++) {
           String fieldName = "path_" + i;
           wtx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(i));
@@ -214,30 +212,31 @@ public class HOTIndexStressTest {
           totalExpectedNodeKeys++; // Just count how many we expect
           wtx.moveToParent(); // Move to parent object
         }
-        
+
         wtx.commit();
-        
+
         // Create path index AFTER data insertion
         final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
         final var indexDef = IndexDefs.createPathIdxDef(Set.of(), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(indexDef), wtx);
         wtx.commit();
       }
-      
+
       // Verify with full iteration
-      try (final var session = database.beginResourceSession("test");
-           final var rtx = session.beginNodeReadOnlyTrx()) {
-        
+      try (final var session = database.beginResourceSession("test"); final var rtx = session.beginNodeReadOnlyTrx()) {
+
         final var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
-        var pathIndexOpt = indexController.getIndexes().getIndexDefs().stream()
-            .filter(idx -> idx.getType() == IndexType.PATH)
-            .findFirst();
+        var pathIndexOpt = indexController.getIndexes()
+                                          .getIndexDefs()
+                                          .stream()
+                                          .filter(idx -> idx.getType() == IndexType.PATH)
+                                          .findFirst();
         assertTrue(pathIndexOpt.isPresent(), "Path index should exist");
         IndexDef indexDef = pathIndexOpt.get();
-        
+
         // Use proper indexController API
         Iterator<NodeReferences> iter = indexController.openPathIndex(rtx.getPageTrx(), indexDef, null);
-        
+
         final Roaring64Bitmap foundNodeKeys = new Roaring64Bitmap();
         int entryCount = 0;
         while (iter.hasNext()) {
@@ -245,14 +244,13 @@ public class HOTIndexStressTest {
           foundNodeKeys.or(refs.getNodeKeys());
           entryCount++;
         }
-        
+
         assertTrue(entryCount > 0, "Should have indexed PCR entries, got: " + entryCount);
-        
+
         // Path index should have indexed all ObjectKeyNodes
         // Each unique path creates its own PCR entry, so entryCount should equal count
-        assertEquals(count, entryCount, 
-            "Should have " + count + " unique PCR entries (one per unique path)");
-        assertEquals(count, foundNodeKeys.getLongCardinality(), 
+        assertEquals(count, entryCount, "Should have " + count + " unique PCR entries (one per unique path)");
+        assertEquals(count, foundNodeKeys.getLongCardinality(),
             "Should have " + count + " unique node keys in path index");
       }
     }
@@ -267,21 +265,20 @@ public class HOTIndexStressTest {
   void testLargeNameIndex() throws IOException {
     final int count = 50_000;
     final Roaring64Bitmap expectedNodeKeys = new Roaring64Bitmap();
-    
+
     final var dbConfig = new DatabaseConfiguration(testDbPath);
     Databases.createJsonDatabase(dbConfig);
-    
+
     try (final var database = Databases.openJsonDatabase(testDbPath)) {
       database.createResource(ResourceConfiguration.newBuilder("test").build());
-      
+
       long startTime = System.nanoTime();
-      
+
       // Insert data
-      try (final var session = database.beginResourceSession("test");
-           final var wtx = session.beginNodeTrx()) {
-        
+      try (final var session = database.beginResourceSession("test"); final var wtx = session.beginNodeTrx()) {
+
         wtx.insertObjectAsFirstChild();
-        
+
         for (int i = 0; i < count; i++) {
           String fieldName = generateUniqueName(i);
           wtx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(i));
@@ -290,43 +287,42 @@ public class HOTIndexStressTest {
           wtx.moveToParent(); // Move to object key node
           expectedNodeKeys.add(wtx.getNodeKey());
           wtx.moveToParent(); // Move to parent object
-          
+
           if (i % 10_000 == 0 && i > 0) {
             System.out.printf("  Inserted %d names...%n", i);
           }
         }
-        
+
         long insertTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime);
         System.out.printf("Inserted %d names in %d ms%n", count, insertTime);
-        
+
         wtx.commit();
-        
+
         // Create name index
         startTime = System.nanoTime();
         final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
         final var indexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(indexDef), wtx);
-        
+
         long indexTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime);
         System.out.printf("Created name index in %d ms%n", indexTime);
-        
+
         wtx.commit();
       }
-      
+
       // Verify
-      try (final var session = database.beginResourceSession("test");
-           final var rtx = session.beginNodeReadOnlyTrx()) {
-        
+      try (final var session = database.beginResourceSession("test"); final var rtx = session.beginNodeReadOnlyTrx()) {
+
         final var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
         var nameIndexOpt = indexController.getIndexes().findNameIndex();
         assertTrue(nameIndexOpt.isPresent(), "Name index should exist");
         IndexDef indexDef = nameIndexOpt.get();
-        
+
         // Full iteration (empty filter = get all)
         long startTime2 = System.nanoTime();
-        Iterator<NodeReferences> iter = indexController.openNameIndex(
-            rtx.getPageTrx(), indexDef, indexController.createNameFilter(Set.of()));
-        
+        Iterator<NodeReferences> iter =
+            indexController.openNameIndex(rtx.getPageTrx(), indexDef, indexController.createNameFilter(Set.of()));
+
         int iterCount = 0;
         final Roaring64Bitmap allNodeKeys = new Roaring64Bitmap();
         while (iter.hasNext()) {
@@ -334,21 +330,21 @@ public class HOTIndexStressTest {
           allNodeKeys.or(refs.getNodeKeys());
           iterCount++;
         }
-        
+
         long iterTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime2);
-        System.out.printf("Full iteration: %d entries, %d node keys in %d ms%n", 
-            iterCount, allNodeKeys.getLongCardinality(), iterTime);
-        
+        System.out.printf("Full iteration: %d entries, %d node keys in %d ms%n", iterCount,
+            allNodeKeys.getLongCardinality(), iterTime);
+
         assertEquals(count, iterCount, "Iterator should return all " + count + " names");
-        assertEquals(count, allNodeKeys.getLongCardinality(), 
-            "Should have " + count + " unique node keys");
-        
+        assertEquals(count, allNodeKeys.getLongCardinality(), "Should have " + count + " unique node keys");
+
         // Verify all expected node keys are present
         final Roaring64Bitmap missingKeys = expectedNodeKeys.clone();
         missingKeys.andNot(allNodeKeys);
         if (!missingKeys.isEmpty()) {
           LongIterator missingIter = missingKeys.getLongIterator();
-          StringBuilder sb = new StringBuilder("Missing " + missingKeys.getLongCardinality() + " node keys. First 10: ");
+          StringBuilder sb =
+              new StringBuilder("Missing " + missingKeys.getLongCardinality() + " node keys. First 10: ");
           int shown = 0;
           while (missingIter.hasNext() && shown < 10) {
             sb.append(missingIter.next()).append(" ");
@@ -365,21 +361,20 @@ public class HOTIndexStressTest {
   void testLargePathIndex() throws IOException {
     final int count = 50_000;
     final Roaring64Bitmap expectedNodeKeys = new Roaring64Bitmap();
-    
+
     final var dbConfig = new DatabaseConfiguration(testDbPath);
     Databases.createJsonDatabase(dbConfig);
-    
+
     try (final var database = Databases.openJsonDatabase(testDbPath)) {
       database.createResource(ResourceConfiguration.newBuilder("test").build());
-      
+
       long startTime = System.nanoTime();
-      
+
       // Insert data first
-      try (final var session = database.beginResourceSession("test");
-           final var wtx = session.beginNodeTrx()) {
-        
+      try (final var session = database.beginResourceSession("test"); final var wtx = session.beginNodeTrx()) {
+
         wtx.insertObjectAsFirstChild();
-        
+
         for (int i = 0; i < count; i++) {
           String fieldName = "path_" + i + "_" + Integer.toHexString(i);
           wtx.insertObjectRecordAsFirstChild(fieldName, new NumberValue(i));
@@ -388,40 +383,41 @@ public class HOTIndexStressTest {
           wtx.moveToParent(); // Move to object key node
           expectedNodeKeys.add(wtx.getNodeKey());
           wtx.moveToParent(); // Move to parent object
-          
+
           if (i % 10_000 == 0 && i > 0) {
             System.out.printf("  Inserted %d paths...%n", i);
           }
         }
-        
+
         long insertTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime);
         System.out.printf("Inserted %d paths in %d ms%n", count, insertTime);
-        
+
         wtx.commit();
-        
+
         // Create path index AFTER data insertion
         startTime = System.nanoTime();
         final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
         final var indexDef = IndexDefs.createPathIdxDef(Set.of(), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(indexDef), wtx);
-        
+
         long indexTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime);
         System.out.printf("Created path index in %d ms%n", indexTime);
-        
+
         wtx.commit();
       }
-      
+
       // Verify
-      try (final var session = database.beginResourceSession("test");
-           final var rtx = session.beginNodeReadOnlyTrx()) {
-        
+      try (final var session = database.beginResourceSession("test"); final var rtx = session.beginNodeReadOnlyTrx()) {
+
         final var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
-        var pathIndexOpt = indexController.getIndexes().getIndexDefs().stream()
-            .filter(idx -> idx.getType() == IndexType.PATH)
-            .findFirst();
+        var pathIndexOpt = indexController.getIndexes()
+                                          .getIndexDefs()
+                                          .stream()
+                                          .filter(idx -> idx.getType() == IndexType.PATH)
+                                          .findFirst();
         assertTrue(pathIndexOpt.isPresent(), "Path index should exist");
         IndexDef indexDef = pathIndexOpt.get();
-        
+
         // Full iteration
         long startTime2 = System.nanoTime();
         final Roaring64Bitmap foundNodeKeys = new Roaring64Bitmap();
@@ -432,19 +428,20 @@ public class HOTIndexStressTest {
           foundNodeKeys.or(refs.getNodeKeys());
           entryCount++;
         }
-        
+
         long iterTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime2);
-        System.out.printf("Full iteration: %d PCR entries, %d node keys in %d ms%n", 
-            entryCount, foundNodeKeys.getLongCardinality(), iterTime);
-        
+        System.out.printf("Full iteration: %d PCR entries, %d node keys in %d ms%n", entryCount,
+            foundNodeKeys.getLongCardinality(), iterTime);
+
         assertTrue(entryCount > 0, "Should have indexed entries");
-        
+
         // Verify all expected node keys are present
         final Roaring64Bitmap missingKeys = expectedNodeKeys.clone();
         missingKeys.andNot(foundNodeKeys);
         if (!missingKeys.isEmpty()) {
           LongIterator missingIter = missingKeys.getLongIterator();
-          StringBuilder sb = new StringBuilder("Missing " + missingKeys.getLongCardinality() + " node keys. First 10: ");
+          StringBuilder sb =
+              new StringBuilder("Missing " + missingKeys.getLongCardinality() + " node keys. First 10: ");
           int shown = 0;
           while (missingIter.hasNext() && shown < 10) {
             sb.append(missingIter.next()).append(" ");
@@ -452,8 +449,8 @@ public class HOTIndexStressTest {
           }
           fail(sb.toString());
         }
-        
-        assertEquals(count, foundNodeKeys.getLongCardinality(), 
+
+        assertEquals(count, foundNodeKeys.getLongCardinality(),
             "Should have " + count + " unique node keys in path index");
       }
     }

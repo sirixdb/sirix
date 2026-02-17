@@ -44,14 +44,16 @@ import static java.util.Objects.requireNonNull;
 /**
  * Generic HOT index reader for object keys (CASValue, QNm).
  *
- * <p>Replaces {@link io.sirix.index.redblacktree.RBTreeReader} for HOT-based secondary indexes.
- * Provides read-only access with optimistic concurrency for lock-free reads.</p>
+ * <p>
+ * Replaces {@link io.sirix.index.redblacktree.RBTreeReader} for HOT-based secondary indexes.
+ * Provides read-only access with optimistic concurrency for lock-free reads.
+ * </p>
  *
  * <h2>Zero Allocation Design</h2>
  * <ul>
- *   <li>Thread-local byte buffers for key serialization</li>
- *   <li>No Optional - uses @Nullable returns</li>
- *   <li>Lock-free reads with version validation</li>
+ * <li>Thread-local byte buffers for key serialization</li>
+ * <li>No Optional - uses @Nullable returns</li>
+ * <li>Lock-free reads with version validation</li>
  * </ul>
  *
  * @param <K> the key type (must implement Comparable)
@@ -62,21 +64,20 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   /**
    * Thread-local buffer for key serialization (256 bytes default).
    */
-  private static final ThreadLocal<byte[]> KEY_BUFFER =
-      ThreadLocal.withInitial(() -> new byte[256]);
+  private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[256]);
 
   private final HOTKeySerializer<K> keySerializer;
 
   /**
    * Private constructor.
    *
-   * @param pageReadTrx   the storage engine reader
+   * @param pageReadTrx the storage engine reader
    * @param keySerializer the key serializer
-   * @param indexType     the index type (PATH, CAS, NAME)
-   * @param indexNumber   the index number
+   * @param indexType the index type (PATH, CAS, NAME)
+   * @param indexNumber the index number
    */
-  private HOTIndexReader(StorageEngineReader pageReadTrx, HOTKeySerializer<K> keySerializer,
-                         IndexType indexType, int indexNumber) {
+  private HOTIndexReader(StorageEngineReader pageReadTrx, HOTKeySerializer<K> keySerializer, IndexType indexType,
+      int indexNumber) {
     super(pageReadTrx, indexType, indexNumber);
     this.keySerializer = requireNonNull(keySerializer);
   }
@@ -84,23 +85,22 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   /**
    * Creates a new HOTIndexReader.
    *
-   * @param pageReadTrx   the storage engine reader
+   * @param pageReadTrx the storage engine reader
    * @param keySerializer the key serializer
-   * @param indexType     the index type
-   * @param indexNumber   the index number
-   * @param <K>           the key type
+   * @param indexType the index type
+   * @param indexNumber the index number
+   * @param <K> the key type
    * @return a new HOTIndexReader instance
    */
-  public static <K extends Comparable<? super K>> HOTIndexReader<K> create(
-      StorageEngineReader pageReadTrx, HOTKeySerializer<K> keySerializer,
-      IndexType indexType, int indexNumber) {
+  public static <K extends Comparable<? super K>> HOTIndexReader<K> create(StorageEngineReader pageReadTrx,
+      HOTKeySerializer<K> keySerializer, IndexType indexType, int indexNumber) {
     return new HOTIndexReader<>(pageReadTrx, keySerializer, indexType, indexNumber);
   }
 
   /**
    * Get the NodeReferences for a key.
    *
-   * @param key  the index key
+   * @param key the index key
    * @param mode the search mode
    * @return the node references, or null if not found
    */
@@ -115,7 +115,9 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
       setKeyBuffer(keyBuf);
       keyLen = serializeKey(key, keyBuf, 0);
     }
-    byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
+    byte[] keySlice = keyLen == keyBuf.length
+        ? keyBuf
+        : Arrays.copyOf(keyBuf, keyLen);
 
     // Get the root reference
     PageReference rootRef = getRootReference();
@@ -153,7 +155,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
    * Create a range iterator over entries.
    *
    * @param fromKey start key (inclusive)
-   * @param toKey   end key (exclusive)
+   * @param toKey end key (exclusive)
    * @return iterator over key-value pairs in range
    */
   public Iterator<Map.Entry<K, NodeReferences>> range(K fromKey, K toKey) {
@@ -171,8 +173,8 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Create an iterator that starts from a specific key.
-   * This is used for efficient range queries (GREATER, GREATER_OR_EQUAL).
+   * Create an iterator that starts from a specific key. This is used for efficient range queries
+   * (GREATER, GREATER_OR_EQUAL).
    *
    * @param fromKey start key (inclusive)
    * @return iterator over key-value pairs starting from the key
@@ -200,8 +202,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   @Override
-  protected int compareKeys(byte[] key1, int offset1, int length1,
-                            byte[] key2, int offset2, int length2) {
+  protected int compareKeys(byte[] key1, int offset1, int length1, byte[] key2, int offset2, int length2) {
     return keySerializer.compare(key1, offset1, length1, key2, offset2, length2);
   }
 

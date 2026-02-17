@@ -39,11 +39,11 @@ public final class DescendantAxis extends AbstractAxis {
 
   /** Determines if it's the first call to hasNext(). */
   private boolean first;
-  
-  /** 
-   * The right sibling key of the start node.
-   * Used to detect when traversal should stop (when we would move to start's right sibling).
-   * This avoids the costly moveTo+check+moveBack pattern in hasNextNode.
+
+  /**
+   * The right sibling key of the start node. Used to detect when traversal should stop (when we would
+   * move to start's right sibling). This avoids the costly moveTo+check+moveBack pattern in
+   * hasNextNode.
    */
   private long startNodeRightSiblingKey;
 
@@ -115,7 +115,8 @@ public final class DescendantAxis extends AbstractAxis {
     }
 
     // Then follow right sibling if there is one.
-    // PERF: Avoid calling hasRightSibling() + getRightSiblingKey() (reads the same flyweight field twice).
+    // PERF: Avoid calling hasRightSibling() + getRightSiblingKey() (reads the same flyweight field
+    // twice).
     final long rightSiblingKey = cursor.getRightSiblingKey();
     if (rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return hasNextNode(rightSiblingKey);
@@ -133,11 +134,10 @@ public final class DescendantAxis extends AbstractAxis {
   /**
    * Determines if the subtree-traversal is finished.
    * 
-   * OPTIMIZATION: Instead of moving to the candidate node to check if its left sibling
-   * is the start node (then moving back), we simply check if the candidate key equals
-   * the cached right sibling key of the start node. This is equivalent logic:
-   * - Old: candidate.leftSiblingKey == startKey
-   * - New: candidateKey == startNode.rightSiblingKey
+   * OPTIMIZATION: Instead of moving to the candidate node to check if its left sibling is the start
+   * node (then moving back), we simply check if the candidate key equals the cached right sibling key
+   * of the start node. This is equivalent logic: - Old: candidate.leftSiblingKey == startKey - New:
+   * candidateKey == startNode.rightSiblingKey
    * 
    * This eliminates 2 moveTo() calls per check, which is significant during traversal.
    *

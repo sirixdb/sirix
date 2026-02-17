@@ -14,13 +14,16 @@ public enum SearchMode {
   GREATER {
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, @NonNull K secondKey) {
-      return secondKey.compareTo(firstKey) > 0 ? 0 : -1;
+      return secondKey.compareTo(firstKey) > 0
+          ? 0
+          : -1;
     }
 
     @Override
-    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey,
-        Comparator<? super K> comparator) {
-      return comparator.compare(secondKey, firstKey) > 0 ? 0 : -1;
+    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey, Comparator<? super K> comparator) {
+      return comparator.compare(secondKey, firstKey) > 0
+          ? 0
+          : -1;
     }
   },
 
@@ -28,13 +31,16 @@ public enum SearchMode {
   LOWER {
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, @NonNull K secondKey) {
-      return secondKey.compareTo(firstKey) < 0 ? 0 : -1;
+      return secondKey.compareTo(firstKey) < 0
+          ? 0
+          : -1;
     }
 
     @Override
-    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey,
-        Comparator<? super K> comparator) {
-      return comparator.compare(secondKey, firstKey) < 0 ? 0 : -1;
+    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey, Comparator<? super K> comparator) {
+      return comparator.compare(secondKey, firstKey) < 0
+          ? 0
+          : -1;
     }
   },
 
@@ -42,13 +48,16 @@ public enum SearchMode {
   GREATER_OR_EQUAL {
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, @NonNull K secondKey) {
-      return secondKey.compareTo(firstKey) >= 0 ? 0 : -1;
+      return secondKey.compareTo(firstKey) >= 0
+          ? 0
+          : -1;
     }
 
     @Override
-    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey,
-        Comparator<? super K> comparator) {
-      return comparator.compare(secondKey, firstKey) >= 0 ? 0 : -1;
+    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey, Comparator<? super K> comparator) {
+      return comparator.compare(secondKey, firstKey) >= 0
+          ? 0
+          : -1;
     }
   },
 
@@ -56,13 +65,16 @@ public enum SearchMode {
   LOWER_OR_EQUAL {
     @Override
     public <K extends Comparable<? super K>> int compare(K firstKey, @NonNull K secondKey) {
-      return secondKey.compareTo(firstKey) <= 0 ? 0 : -1;
+      return secondKey.compareTo(firstKey) <= 0
+          ? 0
+          : -1;
     }
 
     @Override
-    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey,
-        Comparator<? super K> comparator) {
-      return comparator.compare(secondKey, firstKey) <= 0 ? 0 : -1;
+    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey, Comparator<? super K> comparator) {
+      return comparator.compare(secondKey, firstKey) <= 0
+          ? 0
+          : -1;
     }
   },
 
@@ -74,8 +86,7 @@ public enum SearchMode {
     }
 
     @Override
-    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey,
-        Comparator<? super K> comparator) {
+    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey, Comparator<? super K> comparator) {
       return comparator.compare(firstKey, secondKey);
     }
   };
@@ -87,8 +98,7 @@ public enum SearchMode {
    * @param secondKey the potential result key
    * @return {@code 0} if it's in the search space, else {@code -1} or {@code +1}
    */
-  public abstract <K extends Comparable<? super K>> int compare(final K firstKey,
-      final K secondKey);
+  public abstract <K extends Comparable<? super K>> int compare(final K firstKey, final K secondKey);
 
   public abstract <K extends Comparable<? super K>> int compare(final K firstKey, final K secondKey,
       final Comparator<? super K> comparator);

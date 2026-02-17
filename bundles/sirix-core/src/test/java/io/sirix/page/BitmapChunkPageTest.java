@@ -80,10 +80,9 @@ class BitmapChunkPageTest {
       bitmap.add(100);
       bitmap.add(200);
       bitmap.add(300);
-      
-      BitmapChunkPage page = BitmapChunkPage.createFull(
-          1L, 5, IndexType.PATH, 0, 65536, bitmap);
-      
+
+      BitmapChunkPage page = BitmapChunkPage.createFull(1L, 5, IndexType.PATH, 0, 65536, bitmap);
+
       assertFalse(page.isDelta());
       assertFalse(page.isDeleted());
       assertTrue(page.isFullSnapshot());
@@ -99,9 +98,8 @@ class BitmapChunkPageTest {
     @Test
     @DisplayName("createEmptyFull creates an empty full page")
     void testCreateEmptyFull() {
-      BitmapChunkPage page = BitmapChunkPage.createEmptyFull(
-          1L, 1, IndexType.CAS, 0, 65536);
-      
+      BitmapChunkPage page = BitmapChunkPage.createEmptyFull(1L, 1, IndexType.CAS, 0, 65536);
+
       assertTrue(page.isFullSnapshot());
       assertNotNull(page.getBitmap());
       assertEquals(0, page.getBitmap().getLongCardinality());
@@ -110,13 +108,12 @@ class BitmapChunkPageTest {
     @Test
     @DisplayName("addKey adds to bitmap in full mode")
     void testAddKeyFull() {
-      BitmapChunkPage page = BitmapChunkPage.createEmptyFull(
-          1L, 1, IndexType.PATH, 0, 65536);
-      
+      BitmapChunkPage page = BitmapChunkPage.createEmptyFull(1L, 1, IndexType.PATH, 0, 65536);
+
       page.addKey(100);
       page.addKey(200);
       page.addKey(300);
-      
+
       assertTrue(page.containsKey(100));
       assertTrue(page.containsKey(200));
       assertTrue(page.containsKey(300));
@@ -130,11 +127,10 @@ class BitmapChunkPageTest {
       bitmap.add(100);
       bitmap.add(200);
       bitmap.add(300);
-      BitmapChunkPage page = BitmapChunkPage.createFull(
-          1L, 1, IndexType.PATH, 0, 65536, bitmap);
-      
+      BitmapChunkPage page = BitmapChunkPage.createFull(1L, 1, IndexType.PATH, 0, 65536, bitmap);
+
       page.removeKey(200);
-      
+
       assertTrue(page.containsKey(100));
       assertFalse(page.containsKey(200));
       assertTrue(page.containsKey(300));
@@ -143,9 +139,8 @@ class BitmapChunkPageTest {
     @Test
     @DisplayName("addKey rejects keys outside range")
     void testAddKeyOutOfRange() {
-      BitmapChunkPage page = BitmapChunkPage.createEmptyFull(
-          1L, 1, IndexType.PATH, 65536, 131072);
-      
+      BitmapChunkPage page = BitmapChunkPage.createEmptyFull(1L, 1, IndexType.PATH, 65536, 131072);
+
       assertThrows(IllegalArgumentException.class, () -> page.addKey(100));
       assertThrows(IllegalArgumentException.class, () -> page.addKey(131072));
     }
@@ -163,10 +158,9 @@ class BitmapChunkPageTest {
       additions.add(200);
       Roaring64Bitmap removals = new Roaring64Bitmap();
       removals.add(50);
-      
-      BitmapChunkPage page = BitmapChunkPage.createDelta(
-          1L, 5, IndexType.PATH, 0, 65536, additions, removals);
-      
+
+      BitmapChunkPage page = BitmapChunkPage.createDelta(1L, 5, IndexType.PATH, 0, 65536, additions, removals);
+
       assertTrue(page.isDelta());
       assertFalse(page.isDeleted());
       assertFalse(page.isFullSnapshot());
@@ -180,9 +174,8 @@ class BitmapChunkPageTest {
     @Test
     @DisplayName("createEmptyDelta creates an empty delta page")
     void testCreateEmptyDelta() {
-      BitmapChunkPage page = BitmapChunkPage.createEmptyDelta(
-          1L, 1, IndexType.NAME, 0, 65536);
-      
+      BitmapChunkPage page = BitmapChunkPage.createEmptyDelta(1L, 1, IndexType.NAME, 0, 65536);
+
       assertTrue(page.isDelta());
       assertNotNull(page.getAdditions());
       assertNotNull(page.getRemovals());
@@ -193,13 +186,12 @@ class BitmapChunkPageTest {
     @Test
     @DisplayName("addKey adds to additions and removes from removals")
     void testAddKeyDelta() {
-      BitmapChunkPage page = BitmapChunkPage.createEmptyDelta(
-          1L, 1, IndexType.PATH, 0, 65536);
-      
+      BitmapChunkPage page = BitmapChunkPage.createEmptyDelta(1L, 1, IndexType.PATH, 0, 65536);
+
       // Add a key that was previously "removed"
       page.getRemovals().add(100);
       page.addKey(100);
-      
+
       assertTrue(page.getAdditions().contains(100));
       assertFalse(page.getRemovals().contains(100));
     }
@@ -207,13 +199,12 @@ class BitmapChunkPageTest {
     @Test
     @DisplayName("removeKey adds to removals and removes from additions")
     void testRemoveKeyDelta() {
-      BitmapChunkPage page = BitmapChunkPage.createEmptyDelta(
-          1L, 1, IndexType.PATH, 0, 65536);
-      
+      BitmapChunkPage page = BitmapChunkPage.createEmptyDelta(1L, 1, IndexType.PATH, 0, 65536);
+
       // Add a key then remove it
       page.addKey(100);
       page.removeKey(100);
-      
+
       assertFalse(page.getAdditions().contains(100));
       assertTrue(page.getRemovals().contains(100));
     }
@@ -221,9 +212,8 @@ class BitmapChunkPageTest {
     @Test
     @DisplayName("containsKey throws for delta mode")
     void testContainsKeyDelta() {
-      BitmapChunkPage page = BitmapChunkPage.createEmptyDelta(
-          1L, 1, IndexType.PATH, 0, 65536);
-      
+      BitmapChunkPage page = BitmapChunkPage.createEmptyDelta(1L, 1, IndexType.PATH, 0, 65536);
+
       assertThrows(IllegalStateException.class, () -> page.containsKey(100));
     }
   }
@@ -235,9 +225,8 @@ class BitmapChunkPageTest {
     @Test
     @DisplayName("createTombstone creates a deleted page")
     void testCreateTombstone() {
-      BitmapChunkPage page = BitmapChunkPage.createTombstone(
-          1L, 1, IndexType.PATH, 0, 65536);
-      
+      BitmapChunkPage page = BitmapChunkPage.createTombstone(1L, 1, IndexType.PATH, 0, 65536);
+
       assertTrue(page.isDeleted());
       assertFalse(page.isDelta());
       assertFalse(page.isFullSnapshot());
@@ -249,18 +238,16 @@ class BitmapChunkPageTest {
     @Test
     @DisplayName("containsKey returns false for tombstone")
     void testContainsKeyTombstone() {
-      BitmapChunkPage page = BitmapChunkPage.createTombstone(
-          1L, 1, IndexType.PATH, 0, 65536);
-      
+      BitmapChunkPage page = BitmapChunkPage.createTombstone(1L, 1, IndexType.PATH, 0, 65536);
+
       assertFalse(page.containsKey(100));
     }
 
     @Test
     @DisplayName("addKey throws for tombstone")
     void testAddKeyTombstone() {
-      BitmapChunkPage page = BitmapChunkPage.createTombstone(
-          1L, 1, IndexType.PATH, 0, 65536);
-      
+      BitmapChunkPage page = BitmapChunkPage.createTombstone(1L, 1, IndexType.PATH, 0, 65536);
+
       assertThrows(IllegalStateException.class, () -> page.addKey(100));
     }
   }
@@ -276,17 +263,16 @@ class BitmapChunkPageTest {
       bitmap.add(100);
       bitmap.add(200);
       bitmap.add(300);
-      BitmapChunkPage original = BitmapChunkPage.createFull(
-          1L, 1, IndexType.PATH, 0, 65536, bitmap);
-      
+      BitmapChunkPage original = BitmapChunkPage.createFull(1L, 1, IndexType.PATH, 0, 65536, bitmap);
+
       BitmapChunkPage copy = original.copy(2);
-      
+
       assertEquals(2, copy.getRevision());
       assertEquals(original.getPageKey(), copy.getPageKey());
-      
+
       // Modify original
       original.addKey(400);
-      
+
       // Copy should be independent
       assertFalse(copy.containsKey(400));
     }
@@ -294,12 +280,11 @@ class BitmapChunkPageTest {
     @Test
     @DisplayName("copyAsFull converts to full mode")
     void testCopyAsFull() {
-      BitmapChunkPage delta = BitmapChunkPage.createEmptyDelta(
-          1L, 1, IndexType.PATH, 0, 65536);
+      BitmapChunkPage delta = BitmapChunkPage.createEmptyDelta(1L, 1, IndexType.PATH, 0, 65536);
       delta.addKey(100);
-      
+
       BitmapChunkPage full = delta.copyAsFull(2);
-      
+
       assertEquals(2, full.getRevision());
       assertTrue(full.isFullSnapshot());
       assertNotNull(full.getBitmap());
@@ -318,16 +303,14 @@ class BitmapChunkPageTest {
       bitmap.add(200);
       bitmap.add(300);
       bitmap.add(50000);
-      BitmapChunkPage original = BitmapChunkPage.createFull(
-          42L, 5, IndexType.CAS, 0, 65536, bitmap);
-      
+      BitmapChunkPage original = BitmapChunkPage.createFull(42L, 5, IndexType.CAS, 0, 65536, bitmap);
+
       ByteArrayOutputStream baos = new ByteArrayOutputStream();
       original.serialize(new DataOutputStream(baos));
-      
+
       ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
-      BitmapChunkPage deserialized = BitmapChunkPage.deserialize(
-          new DataInputStream(bais), 42L);
-      
+      BitmapChunkPage deserialized = BitmapChunkPage.deserialize(new DataInputStream(bais), 42L);
+
       assertEquals(original.getPageKey(), deserialized.getPageKey());
       assertEquals(original.getRevision(), deserialized.getRevision());
       assertEquals(original.getIndexType(), deserialized.getIndexType());
@@ -335,8 +318,7 @@ class BitmapChunkPageTest {
       assertEquals(original.getRangeEnd(), deserialized.getRangeEnd());
       assertEquals(original.isDelta(), deserialized.isDelta());
       assertEquals(original.isDeleted(), deserialized.isDeleted());
-      assertEquals(original.getBitmap().getLongCardinality(), 
-                   deserialized.getBitmap().getLongCardinality());
+      assertEquals(original.getBitmap().getLongCardinality(), deserialized.getBitmap().getLongCardinality());
       assertTrue(deserialized.containsKey(100));
       assertTrue(deserialized.containsKey(50000));
     }
@@ -350,16 +332,14 @@ class BitmapChunkPageTest {
       Roaring64Bitmap removals = new Roaring64Bitmap();
       removals.add(50);
       removals.add(75);
-      BitmapChunkPage original = BitmapChunkPage.createDelta(
-          42L, 5, IndexType.PATH, 0, 65536, additions, removals);
-      
+      BitmapChunkPage original = BitmapChunkPage.createDelta(42L, 5, IndexType.PATH, 0, 65536, additions, removals);
+
       ByteArrayOutputStream baos = new ByteArrayOutputStream();
       original.serialize(new DataOutputStream(baos));
-      
+
       ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
-      BitmapChunkPage deserialized = BitmapChunkPage.deserialize(
-          new DataInputStream(bais), 42L);
-      
+      BitmapChunkPage deserialized = BitmapChunkPage.deserialize(new DataInputStream(bais), 42L);
+
       assertTrue(deserialized.isDelta());
       assertEquals(2, deserialized.getAdditions().getLongCardinality());
       assertEquals(2, deserialized.getRemovals().getLongCardinality());
@@ -370,16 +350,14 @@ class BitmapChunkPageTest {
     @Test
     @DisplayName("serialize and deserialize tombstone")
     void testSerializeDeserializeTombstone() throws IOException {
-      BitmapChunkPage original = BitmapChunkPage.createTombstone(
-          42L, 5, IndexType.NAME, 65536, 131072);
-      
+      BitmapChunkPage original = BitmapChunkPage.createTombstone(42L, 5, IndexType.NAME, 65536, 131072);
+
       ByteArrayOutputStream baos = new ByteArrayOutputStream();
       original.serialize(new DataOutputStream(baos));
-      
+
       ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
-      BitmapChunkPage deserialized = BitmapChunkPage.deserialize(
-          new DataInputStream(bais), 42L);
-      
+      BitmapChunkPage deserialized = BitmapChunkPage.deserialize(new DataInputStream(bais), 42L);
+
       assertTrue(deserialized.isDeleted());
       assertEquals(65536, deserialized.getRangeStart());
       assertEquals(131072, deserialized.getRangeEnd());

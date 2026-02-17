@@ -11,8 +11,7 @@ public final class PageKeyToOffsetCache implements Cache<Long, Long> {
   private final com.github.benmanes.caffeine.cache.Cache<Long, Long> cache;
 
   public PageKeyToOffsetCache() {
-    cache = Caffeine.newBuilder()
-                    .build();
+    cache = Caffeine.newBuilder().build();
   }
 
   @Override
@@ -61,6 +60,5 @@ public final class PageKeyToOffsetCache implements Cache<Long, Long> {
   }
 
   @Override
-  public void close() {
-  }
+  public void close() {}
 }

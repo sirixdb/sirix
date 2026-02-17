@@ -30,33 +30,32 @@ class OptionsFactory {
     final Sequence numberOfNodesBeforeAutoCommitSequence =
         providedOptions.get(new QNm("numberOfNodesBeforeAutoCommit"));
 
-    final String commitMessage = commitMessageSequence != null ? ((Str) commitMessageSequence).stringValue() : null;
-    final Instant commitTimestamp =
-        dateTimeSequence != null ? DATE_TIME_TO_INSTANT.convert(new DateTime(dateTimeSequence.toString())) : null;
+    final String commitMessage = commitMessageSequence != null
+        ? ((Str) commitMessageSequence).stringValue()
+        : null;
+    final Instant commitTimestamp = dateTimeSequence != null
+        ? DATE_TIME_TO_INSTANT.convert(new DateTime(dateTimeSequence.toString()))
+        : null;
     final boolean useTextCompression = useTextCompressionSequence != null && useTextCompressionSequence.booleanValue();
-    final boolean buildPathSummary =
-        buildPathSummarySequence == null ? defaultOptions.buildPathSummary() : buildPathSummarySequence.booleanValue();
+    final boolean buildPathSummary = buildPathSummarySequence == null
+        ? defaultOptions.buildPathSummary()
+        : buildPathSummarySequence.booleanValue();
     final StorageType storageType = storageTypeSequence == null
         ? defaultOptions.storageType()
         : StorageType.valueOf(storageTypeSequence.toString());
-    final boolean useDeweyIDs =
-        useDeweyIDsSequence == null ? defaultOptions.useDeweyIDs() : useDeweyIDsSequence.booleanValue();
-    final HashType hashType =
-        hashTypeSequence == null ? defaultOptions.hashType() : HashType.fromString(hashTypeSequence.toString());
+    final boolean useDeweyIDs = useDeweyIDsSequence == null
+        ? defaultOptions.useDeweyIDs()
+        : useDeweyIDsSequence.booleanValue();
+    final HashType hashType = hashTypeSequence == null
+        ? defaultOptions.hashType()
+        : HashType.fromString(hashTypeSequence.toString());
     final VersioningType versioningType = versioningTypeSequence == null
         ? defaultOptions.versioningType()
         : VersioningType.fromString(versioningTypeSequence.toString());
     final int numberOfNodesBeforeAutoCommit = numberOfNodesBeforeAutoCommitSequence == null
         ? defaultOptions.numberOfNodesBeforeAutoCommit()
         : ((Int64) numberOfNodesBeforeAutoCommitSequence).intValue();
-    return new Options(commitMessage,
-                       commitTimestamp,
-                       useTextCompression,
-                       buildPathSummary,
-                       storageType,
-                       useDeweyIDs,
-                       hashType,
-                       versioningType,
-                       numberOfNodesBeforeAutoCommit);
+    return new Options(commitMessage, commitTimestamp, useTextCompression, buildPathSummary, storageType, useDeweyIDs,
+        hashType, versioningType, numberOfNodesBeforeAutoCommit);
   }
 }

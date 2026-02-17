@@ -47,8 +47,8 @@ public final class OpenRevisions extends AbstractFunction {
 
     final var resourceName = ((Str) args[1]).stringValue();
     final var epochMillis = ((DateTime) args[2]).subtract(new DateTime("1970-01-01T00:00:00-00:00"))
-                                           .divide(new DTD(false, (byte) 0, (byte) 0, (byte) 0, 1000))
-                                           .longValue();
+                                                .divide(new DTD(false, (byte) 0, (byte) 0, (byte) 0, 1000))
+                                                .longValue();
 
     final var startPointInTime = Instant.ofEpochMilli(epochMillis);
     final var endDateTime = ((DateTime) args[3]).stringValue();

@@ -15,9 +15,8 @@ import java.lang.invoke.MethodHandle;
 import static java.lang.foreign.ValueLayout.*;
 
 /**
- * FFI-based LZ4 compression/decompression using Foreign Function API.
- * Provides zero-copy compression with MemorySegments.
- * Falls back to lz4-java if native library is unavailable.
+ * FFI-based LZ4 compression/decompression using Foreign Function API. Provides zero-copy
+ * compression with MemorySegments. Falls back to lz4-java if native library is unavailable.
  */
 public final class FFILz4Compressor implements ByteHandler {
 
@@ -26,24 +25,23 @@ public final class FFILz4Compressor implements ByteHandler {
   /**
    * Compression mode for LZ4.
    * <ul>
-   *   <li>{@link #FAST} - Optimized for write-heavy workloads (bulk imports, shredding).
-   *       Uses LZ4_compress_fast which is ~10x faster than HC with ~95% of the compression ratio.</li>
-   *   <li>{@link #HIGH_COMPRESSION} - Optimized for read-heavy or storage-constrained workloads.
-   *       Uses LZ4_compress_HC which provides better compression but is 10-20x slower.
-   *       Decompression speed is identical for both modes.</li>
+   * <li>{@link #FAST} - Optimized for write-heavy workloads (bulk imports, shredding). Uses
+   * LZ4_compress_fast which is ~10x faster than HC with ~95% of the compression ratio.</li>
+   * <li>{@link #HIGH_COMPRESSION} - Optimized for read-heavy or storage-constrained workloads. Uses
+   * LZ4_compress_HC which provides better compression but is 10-20x slower. Decompression speed is
+   * identical for both modes.</li>
    * </ul>
    */
   public enum CompressionMode {
     /**
-     * Fast compression mode - optimized for write throughput.
-     * Best for: bulk imports, shredding, write-heavy workloads.
+     * Fast compression mode - optimized for write throughput. Best for: bulk imports, shredding,
+     * write-heavy workloads.
      */
     FAST,
-    
+
     /**
-     * High compression mode - optimized for storage efficiency.
-     * Best for: read-heavy workloads, storage-constrained environments.
-     * Note: Decompression is equally fast for both modes.
+     * High compression mode - optimized for storage efficiency. Best for: read-heavy workloads,
+     * storage-constrained environments. Note: Decompression is equally fast for both modes.
      */
     HIGH_COMPRESSION
   }
@@ -58,17 +56,18 @@ public final class FFILz4Compressor implements ByteHandler {
   private static final MethodHandle LZ4_DECOMPRESS_SAFE;
   private static final MethodHandle LZ4_DECOMPRESS_FAST;
   private static final MethodHandle LZ4_COMPRESS_BOUND;
-  
+
   /**
    * Whether to use LZ4_decompress_fast instead of LZ4_decompress_safe.
    * 
-   * <p><b>NOTE:</b> In LZ4 1.9.x, LZ4_decompress_fast was deprecated and is actually
-   * SLOWER than LZ4_decompress_safe in benchmarks. This flag is kept for testing only.
+   * <p>
+   * <b>NOTE:</b> In LZ4 1.9.x, LZ4_decompress_fast was deprecated and is actually SLOWER than
+   * LZ4_decompress_safe in benchmarks. This flag is kept for testing only.
    * 
-   * <p>Set via system property: -Dsirix.lz4.fast.decompress=true
+   * <p>
+   * Set via system property: -Dsirix.lz4.fast.decompress=true
    */
-  private static final boolean USE_FAST_DECOMPRESS = 
-      Boolean.getBoolean("sirix.lz4.fast.decompress");
+  private static final boolean USE_FAST_DECOMPRESS = Boolean.getBoolean("sirix.lz4.fast.decompress");
 
   /**
    * LZ4HC compression level (1-12, where 9 is the default providing best ratio/speed tradeoff).
@@ -77,14 +76,14 @@ public final class FFILz4Compressor implements ByteHandler {
   private static final int LZ4HC_CLEVEL_DEFAULT = 9;
 
   /**
-   * LZ4 fast mode acceleration (1=default, higher=faster but worse ratio).
-   * Value of 2 provides ~30% faster compression with ~3% worse ratio.
+   * LZ4 fast mode acceleration (1=default, higher=faster but worse ratio). Value of 2 provides ~30%
+   * faster compression with ~3% worse ratio.
    */
   private static final int LZ4_FAST_ACCELERATION = 2;
 
   /**
-   * Size threshold for adaptive compression (only used in HIGH_COMPRESSION mode).
-   * Pages smaller than this use fast mode even in HC mode for latency.
+   * Size threshold for adaptive compression (only used in HIGH_COMPRESSION mode). Pages smaller than
+   * this use fast mode even in HC mode for latency.
    */
   private static final int ADAPTIVE_HC_THRESHOLD = 16 * 1024; // 16KB
 
@@ -102,25 +101,28 @@ public final class FFILz4Compressor implements ByteHandler {
   private static final LZ4Compressor FALLBACK = new LZ4Compressor();
 
   // Memory segment allocator for decompression buffers
-  private static final MemorySegmentAllocator ALLOCATOR =
-      OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
+  private static final MemorySegmentAllocator ALLOCATOR = OS.isWindows()
+      ? WindowsMemorySegmentAllocator.getInstance()
+      : LinuxMemorySegmentAllocator.getInstance();
 
   /**
    * Default initial size for decompression buffer (128KB - typical page size after decompression).
    */
   private static final int DEFAULT_DECOMPRESS_BUFFER_SIZE = 128 * 1024;
-  
+
   /**
    * Bounded pool of decompression buffers - Loom-friendly.
    * 
-   * <p>Unlike ThreadLocal which creates one buffer per thread (memory explosion with
-   * millions of virtual threads), this pool has a fixed size of 2×CPU cores.
+   * <p>
+   * Unlike ThreadLocal which creates one buffer per thread (memory explosion with millions of virtual
+   * threads), this pool has a fixed size of 2×CPU cores.
    * 
-   * <p>When all buffers are in use, a new one is allocated (not pooled). This ensures
-   * progress under high concurrency while keeping memory bounded for typical loads.
+   * <p>
+   * When all buffers are in use, a new one is allocated (not pooled). This ensures progress under
+   * high concurrency while keeping memory bounded for typical loads.
    */
   private static final int POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
-  private static final java.util.concurrent.ArrayBlockingQueue<MemorySegment> BUFFER_POOL = 
+  private static final java.util.concurrent.ArrayBlockingQueue<MemorySegment> BUFFER_POOL =
       new java.util.concurrent.ArrayBlockingQueue<>(POOL_SIZE);
 
   static {
@@ -136,7 +138,7 @@ public final class FFILz4Compressor implements ByteHandler {
       // Try to load native LZ4 library
       // Try different library names (lz4, lz4.so.1, etc.)
       SymbolLookup lz4Lib = null;
-      for (String libName : new String[]{"lz4", "lz4.so.1", "liblz4", "liblz4.so.1"}) {
+      for (String libName : new String[] {"lz4", "lz4.so.1", "liblz4", "liblz4.so.1"}) {
         try {
           lz4Lib = SymbolLookup.libraryLookup(libName, Arena.global());
           LOGGER.info("Loaded LZ4 library: {}", libName);
@@ -145,49 +147,38 @@ public final class FFILz4Compressor implements ByteHandler {
           // Try next name
         }
       }
-      
+
       if (lz4Lib == null) {
         throw new RuntimeException("Could not load any LZ4 library variant");
       }
 
       // int LZ4_compress_default(const char* src, char* dst, int srcSize, int dstCapacity)
-      compress = LINKER.downcallHandle(
-          lz4Lib.find("LZ4_compress_default").orElseThrow(),
-          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT)
-      );
+      compress = LINKER.downcallHandle(lz4Lib.find("LZ4_compress_default").orElseThrow(),
+          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT));
 
       // int LZ4_compress_fast(const char* src, char* dst, int srcSize, int dstCapacity, int acceleration)
       // acceleration: 1 = default speed, higher = faster but worse compression
-      compressFast = LINKER.downcallHandle(
-          lz4Lib.find("LZ4_compress_fast").orElseThrow(),
-          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT)
-      );
+      compressFast = LINKER.downcallHandle(lz4Lib.find("LZ4_compress_fast").orElseThrow(),
+          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT));
 
-      // int LZ4_compress_HC(const char* src, char* dst, int srcSize, int dstCapacity, int compressionLevel)
-      compressHC = LINKER.downcallHandle(
-          lz4Lib.find("LZ4_compress_HC").orElseThrow(),
-          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT)
-      );
+      // int LZ4_compress_HC(const char* src, char* dst, int srcSize, int dstCapacity, int
+      // compressionLevel)
+      compressHC = LINKER.downcallHandle(lz4Lib.find("LZ4_compress_HC").orElseThrow(),
+          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT));
 
       // int LZ4_decompress_safe(const char* src, char* dst, int compressedSize, int dstCapacity)
-      decompress = LINKER.downcallHandle(
-          lz4Lib.find("LZ4_decompress_safe").orElseThrow(),
-          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT)
-      );
+      decompress = LINKER.downcallHandle(lz4Lib.find("LZ4_decompress_safe").orElseThrow(),
+          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT));
 
       // int LZ4_decompress_fast(const char* src, char* dst, int originalSize)
       // DEPRECATED but ~10-15% faster - doesn't validate compressed buffer bounds
       // Returns: number of bytes read from src, or negative on error
-      decompressFast = LINKER.downcallHandle(
-          lz4Lib.find("LZ4_decompress_fast").orElseThrow(),
-          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT)
-      );
+      decompressFast = LINKER.downcallHandle(lz4Lib.find("LZ4_decompress_fast").orElseThrow(),
+          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
 
       // int LZ4_compressBound(int inputSize)
-      compressBound = LINKER.downcallHandle(
-          lz4Lib.find("LZ4_compressBound").orElseThrow(),
-          FunctionDescriptor.of(JAVA_INT, JAVA_INT)
-      );
+      compressBound = LINKER.downcallHandle(lz4Lib.find("LZ4_compressBound").orElseThrow(),
+          FunctionDescriptor.of(JAVA_INT, JAVA_INT));
 
       available = true;
       LOGGER.info("Native LZ4 library loaded successfully via FFI (with fast and HC modes)");
@@ -202,15 +193,15 @@ public final class FFILz4Compressor implements ByteHandler {
     LZ4_DECOMPRESS_SAFE = decompress;
     LZ4_DECOMPRESS_FAST = decompressFast;
     LZ4_COMPRESS_BOUND = compressBound;
-    
+
     if (USE_FAST_DECOMPRESS && available) {
       LOGGER.info("LZ4 fast decompression enabled (sirix.lz4.fast.decompress=true)");
     }
   }
 
   /**
-   * Creates a new FFILz4Compressor with FAST compression mode (default).
-   * Best for write-heavy workloads like bulk imports and shredding.
+   * Creates a new FFILz4Compressor with FAST compression mode (default). Best for write-heavy
+   * workloads like bulk imports and shredding.
    */
   public FFILz4Compressor() {
     this(CompressionMode.FAST);
@@ -258,8 +249,8 @@ public final class FFILz4Compressor implements ByteHandler {
   }
 
   /**
-   * Compress data from source MemorySegment to destination MemorySegment.
-   * Zero-copy operation using FFI with fast (default) compression.
+   * Compress data from source MemorySegment to destination MemorySegment. Zero-copy operation using
+   * FFI with fast (default) compression.
    *
    * @param source uncompressed data
    * @param destination buffer for compressed data (must be large enough)
@@ -271,20 +262,16 @@ public final class FFILz4Compressor implements ByteHandler {
     }
 
     try {
-      return (int) LZ4_COMPRESS_DEFAULT.invokeExact(
-          source,
-          destination,
-          (int) source.byteSize(),
-          (int) destination.byteSize()
-      );
+      return (int) LZ4_COMPRESS_DEFAULT.invokeExact(source, destination, (int) source.byteSize(),
+          (int) destination.byteSize());
     } catch (Throwable e) {
       throw new RuntimeException("LZ4 compression failed", e);
     }
   }
 
   /**
-   * Compress data with accelerated fast mode for latency-sensitive operations.
-   * Uses LZ4_compress_fast which is faster than default at the cost of ~3% worse ratio.
+   * Compress data with accelerated fast mode for latency-sensitive operations. Uses LZ4_compress_fast
+   * which is faster than default at the cost of ~3% worse ratio.
    *
    * @param source uncompressed data
    * @param destination buffer for compressed data (must be large enough)
@@ -297,13 +284,8 @@ public final class FFILz4Compressor implements ByteHandler {
     }
 
     try {
-      return (int) LZ4_COMPRESS_FAST.invokeExact(
-          source,
-          destination,
-          (int) source.byteSize(),
-          (int) destination.byteSize(),
-          acceleration
-      );
+      return (int) LZ4_COMPRESS_FAST.invokeExact(source, destination, (int) source.byteSize(),
+          (int) destination.byteSize(), acceleration);
     } catch (Throwable e) {
       throw new RuntimeException("LZ4 fast compression failed", e);
     }
@@ -316,7 +298,8 @@ public final class FFILz4Compressor implements ByteHandler {
    *
    * @param source uncompressed data
    * @param destination buffer for compressed data (must be large enough)
-   * @param compressionLevel compression level (1-12, where 9 is default, higher = better compression but slower)
+   * @param compressionLevel compression level (1-12, where 9 is default, higher = better compression
+   *        but slower)
    * @return number of compressed bytes written, or negative on error
    */
   public int compressSegmentHC(MemorySegment source, MemorySegment destination, int compressionLevel) {
@@ -325,21 +308,16 @@ public final class FFILz4Compressor implements ByteHandler {
     }
 
     try {
-      return (int) LZ4_COMPRESS_HC.invokeExact(
-          source,
-          destination,
-          (int) source.byteSize(),
-          (int) destination.byteSize(),
-          compressionLevel
-      );
+      return (int) LZ4_COMPRESS_HC.invokeExact(source, destination, (int) source.byteSize(),
+          (int) destination.byteSize(), compressionLevel);
     } catch (Throwable e) {
       throw new RuntimeException("LZ4 HC compression failed", e);
     }
   }
 
   /**
-   * Decompress data from source MemorySegment to destination MemorySegment.
-   * Zero-copy operation using FFI. Uses safe mode (validates bounds).
+   * Decompress data from source MemorySegment to destination MemorySegment. Zero-copy operation using
+   * FFI. Uses safe mode (validates bounds).
    *
    * @param source compressed data
    * @param destination buffer for decompressed data (must be large enough)
@@ -352,22 +330,18 @@ public final class FFILz4Compressor implements ByteHandler {
     }
 
     try {
-      return (int) LZ4_DECOMPRESS_SAFE.invokeExact(
-          source,
-          destination,
-          compressedSize,
-          (int) destination.byteSize()
-      );
+      return (int) LZ4_DECOMPRESS_SAFE.invokeExact(source, destination, compressedSize, (int) destination.byteSize());
     } catch (Throwable e) {
       throw new RuntimeException("LZ4 decompression failed", e);
     }
   }
-  
+
   /**
    * Decompress data using fast mode (deprecated but ~10-15% faster).
    * 
-   * <p><b>WARNING:</b> This doesn't validate compressed buffer bounds.
-   * Only use when data is from trusted source (like Sirix storage).
+   * <p>
+   * <b>WARNING:</b> This doesn't validate compressed buffer bounds. Only use when data is from
+   * trusted source (like Sirix storage).
    *
    * @param source compressed data
    * @param destination buffer for decompressed data (must be exactly originalSize)
@@ -380,11 +354,7 @@ public final class FFILz4Compressor implements ByteHandler {
     }
 
     try {
-      return (int) LZ4_DECOMPRESS_FAST.invokeExact(
-          source,
-          destination,
-          originalSize
-      );
+      return (int) LZ4_DECOMPRESS_FAST.invokeExact(source, destination, originalSize);
     } catch (Throwable e) {
       throw new RuntimeException("LZ4 fast decompression failed", e);
     }
@@ -410,19 +380,21 @@ public final class FFILz4Compressor implements ByteHandler {
   }
 
   /**
-   * Compress data and return a new MemorySegment with compressed data.
-   * Uses a confined Arena for temporary compression buffer.
+   * Compress data and return a new MemorySegment with compressed data. Uses a confined Arena for
+   * temporary compression buffer.
    * 
-   * <p>Compression strategy depends on the configured {@link CompressionMode}:
+   * <p>
+   * Compression strategy depends on the configured {@link CompressionMode}:
    * <ul>
-   *   <li>Data smaller than MIN_COMPRESSION_SIZE (64 bytes): returned as-is with header</li>
-   *   <li>{@link CompressionMode#FAST}: always uses LZ4 fast mode (~10x faster than HC)</li>
-   *   <li>{@link CompressionMode#HIGH_COMPRESSION}: uses fast mode for small data (&lt;16KB),
-   *       HC mode for larger data (better compression ratio)</li>
+   * <li>Data smaller than MIN_COMPRESSION_SIZE (64 bytes): returned as-is with header</li>
+   * <li>{@link CompressionMode#FAST}: always uses LZ4 fast mode (~10x faster than HC)</li>
+   * <li>{@link CompressionMode#HIGH_COMPRESSION}: uses fast mode for small data (&lt;16KB), HC mode
+   * for larger data (better compression ratio)</li>
    * </ul>
    * 
-   * <p>Handles both heap and native MemorySegments. Heap segments are copied
-   * to native memory for FFI calls.
+   * <p>
+   * Handles both heap and native MemorySegments. Heap segments are copied to native memory for FFI
+   * calls.
    *
    * @param source uncompressed data (can be heap or native)
    * @return compressed data in a MemorySegment
@@ -434,7 +406,7 @@ public final class FFILz4Compressor implements ByteHandler {
     }
 
     int srcSize = (int) source.byteSize();
-    
+
     // Skip compression for very small data - overhead exceeds benefit
     if (srcSize < MIN_COMPRESSION_SIZE) {
       // Return uncompressed with header (negative size indicates uncompressed)
@@ -443,7 +415,7 @@ public final class FFILz4Compressor implements ByteHandler {
       MemorySegment.copy(source, 0, result, 4, srcSize);
       return result;
     }
-    
+
     int maxDstSize = compressBound(srcSize);
 
     // Use Arena for temporary compression buffer
@@ -457,7 +429,7 @@ public final class FFILz4Compressor implements ByteHandler {
         nativeSource = arena.allocate(srcSize);
         MemorySegment.copy(source, 0, nativeSource, 0, srcSize);
       }
-      
+
       // Allocate temporary buffer with header space
       MemorySegment tempCompressed = arena.allocate(maxDstSize + 4);
 
@@ -487,7 +459,7 @@ public final class FFILz4Compressor implements ByteHandler {
           }
         }
       }
-      
+
       // Check if compression is actually beneficial (at least 5% savings)
       // If not, store uncompressed to avoid decompression overhead
       int totalCompressedSize = compressedSize + 4;
@@ -509,8 +481,8 @@ public final class FFILz4Compressor implements ByteHandler {
   /**
    * Decompress data using the scoped pool pattern.
    * 
-   * @deprecated Use {@link #decompressScoped(MemorySegment)} instead for Loom compatibility.
-   *             This method allocates a new buffer that must be managed by the caller.
+   * @deprecated Use {@link #decompressScoped(MemorySegment)} instead for Loom compatibility. This
+   *             method allocates a new buffer that must be managed by the caller.
    */
   @Override
   @Deprecated(forRemoval = true)
@@ -521,7 +493,7 @@ public final class FFILz4Compressor implements ByteHandler {
     }
 
     int sizeHeader = compressed.get(JAVA_INT_UNALIGNED, 0);
-    
+
     // Negative size indicates uncompressed data (stored as-is)
     if (sizeHeader < 0) {
       int uncompressedSize = -sizeHeader;
@@ -529,9 +501,9 @@ public final class FFILz4Compressor implements ByteHandler {
       MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
       return buffer;
     }
-    
+
     int decompressedSize = sizeHeader;
-    
+
     // Use confined arena for temporary native copy if source is heap
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment nativeCompressed;
@@ -542,14 +514,10 @@ public final class FFILz4Compressor implements ByteHandler {
         nativeCompressed = arena.allocate(compressed.byteSize());
         MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
       }
-      
+
       MemorySegment buffer = Arena.ofAuto().allocate(decompressedSize);
 
-      int actualSize = decompressSegment(
-          nativeCompressed.asSlice(4),
-          buffer,
-          (int) nativeCompressed.byteSize() - 4
-      );
+      int actualSize = decompressSegment(nativeCompressed.asSlice(4), buffer, (int) nativeCompressed.byteSize() - 4);
 
       if (actualSize < 0) {
         throw new RuntimeException("LZ4 decompression failed: " + actualSize);
@@ -562,17 +530,21 @@ public final class FFILz4Compressor implements ByteHandler {
   /**
    * Decompress data using the unified allocator for zero-copy page support.
    * 
-   * <p>Unlike the pool-based approach, this allocates from the MemorySegmentAllocator
-   * which allows buffer lifetime to match page lifetime for zero-copy deserialization.
-   * When a page takes ownership via {@link DecompressionResult#transferOwnership()},
-   * the buffer becomes the page's slotMemory directly without copying.
+   * <p>
+   * Unlike the pool-based approach, this allocates from the MemorySegmentAllocator which allows
+   * buffer lifetime to match page lifetime for zero-copy deserialization. When a page takes ownership
+   * via {@link DecompressionResult#transferOwnership()}, the buffer becomes the page's slotMemory
+   * directly without copying.
    * 
-   * <p>Memory is still bounded because the allocator uses tiered pools internally.
+   * <p>
+   * Memory is still bounded because the allocator uses tiered pools internally.
    * 
-   * <p>The returned result MUST be closed after use (unless ownership is transferred):
+   * <p>
+   * The returned result MUST be closed after use (unless ownership is transferred):
+   * 
    * <pre>{@code
    * try (var result = compressor.decompressScoped(compressed)) {
-   *     Page page = deserialize(result.segment());
+   *   Page page = deserialize(result.segment());
    * } // Buffer returned to allocator
    * }</pre>
    *
@@ -586,24 +558,23 @@ public final class FFILz4Compressor implements ByteHandler {
     }
 
     int sizeHeader = compressed.get(JAVA_INT_UNALIGNED, 0);
-    
+
     // Negative size indicates uncompressed data (stored as-is for small/incompressible data)
     if (sizeHeader < 0) {
       int uncompressedSize = -sizeHeader;
       MemorySegment buffer = ALLOCATOR.allocate(uncompressedSize);
       MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
-      
+
       final MemorySegment backingBuffer = buffer;
-      return new DecompressionResult(
-          buffer,                           // segment
-          backingBuffer,                    // backingBuffer (same as segment)
-          () -> ALLOCATOR.release(backingBuffer),  // releaser
-          new java.util.concurrent.atomic.AtomicBoolean(false)  // ownershipTransferred
+      return new DecompressionResult(buffer, // segment
+          backingBuffer, // backingBuffer (same as segment)
+          () -> ALLOCATOR.release(backingBuffer), // releaser
+          new java.util.concurrent.atomic.AtomicBoolean(false) // ownershipTransferred
       );
     }
-    
+
     int decompressedSize = sizeHeader;
-    
+
     // Use unified allocator - buffer lifetime matches page lifetime for zero-copy
     // This replaces the pool-based approach to enable ownership transfer
     MemorySegment buffer = ALLOCATOR.allocate(decompressedSize);
@@ -619,18 +590,14 @@ public final class FFILz4Compressor implements ByteHandler {
       nativeCompressed = tempArena.allocate(compressed.byteSize());
       MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
     }
-    
+
     try {
       // Decompress - choose between safe (validated) and fast (unvalidated) modes
       int actualSize;
       if (USE_FAST_DECOMPRESS) {
         // Fast mode: ~10-15% faster, doesn't validate compressed buffer bounds
         // Returns bytes read from source (not written to dest)
-        int bytesRead = decompressSegmentFast(
-            nativeCompressed.asSlice(4),
-            buffer,
-            decompressedSize
-        );
+        int bytesRead = decompressSegmentFast(nativeCompressed.asSlice(4), buffer, decompressedSize);
         if (bytesRead < 0) {
           ALLOCATOR.release(buffer);
           throw new RuntimeException("LZ4 fast decompression failed: " + bytesRead);
@@ -638,11 +605,7 @@ public final class FFILz4Compressor implements ByteHandler {
         actualSize = decompressedSize; // Fast mode always writes exactly originalSize bytes
       } else {
         // Safe mode: validates compressed buffer bounds
-        actualSize = decompressSegment(
-            nativeCompressed.asSlice(4),
-            buffer,
-            (int) nativeCompressed.byteSize() - 4
-        );
+        actualSize = decompressSegment(nativeCompressed.asSlice(4), buffer, (int) nativeCompressed.byteSize() - 4);
         if (actualSize < 0) {
           ALLOCATOR.release(buffer);
           throw new RuntimeException("LZ4 decompression failed: " + actualSize);
@@ -659,12 +622,11 @@ public final class FFILz4Compressor implements ByteHandler {
       // - releaser: returns buffer to allocator (called unless ownership transferred)
       // - ownershipTransferred: tracks if page took ownership
       final MemorySegment backingBuffer = buffer;
-      
-      return new DecompressionResult(
-          buffer.asSlice(0, actualSize),   // segment (may be smaller than allocated)
-          backingBuffer,                    // backingBuffer (full allocation)
-          () -> ALLOCATOR.release(backingBuffer),  // releaser
-          new java.util.concurrent.atomic.AtomicBoolean(false)  // ownershipTransferred
+
+      return new DecompressionResult(buffer.asSlice(0, actualSize), // segment (may be smaller than allocated)
+          backingBuffer, // backingBuffer (full allocation)
+          () -> ALLOCATOR.release(backingBuffer), // releaser
+          new java.util.concurrent.atomic.AtomicBoolean(false) // ownershipTransferred
       );
     } finally {
       if (tempArena != null) {
@@ -672,15 +634,15 @@ public final class FFILz4Compressor implements ByteHandler {
       }
     }
   }
-  
+
   /**
-   * Clear all buffers from the pool.
-   * Call this when shutting down or when memory needs to be reclaimed.
+   * Clear all buffers from the pool. Call this when shutting down or when memory needs to be
+   * reclaimed.
    */
   public static void clearPool() {
     BUFFER_POOL.clear();
   }
-  
+
   /**
    * Get current pool statistics for monitoring.
    * 

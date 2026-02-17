@@ -40,36 +40,39 @@ public class AuthorNameTest {
       }
     }
 
-    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile(),
-                                                         new User("johannes", UUID.randomUUID()));
-         final var manager = database.beginResourceSession("mydoc.jn");
-         final var wtx = manager.beginNodeTrx()) {
+    try (
+        final var database =
+            Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile(), new User("johannes", UUID.randomUUID()));
+        final var manager = database.beginResourceSession("mydoc.jn");
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(2);
       wtx.setStringValue("blabla").commit();
     }
 
-    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile(),
-                                                         new User("moshe", UUID.randomUUID()));
-         final var manager = database.beginResourceSession("mydoc.jn");
-         final var wtx = manager.beginNodeTrx()) {
+    try (
+        final var database =
+            Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile(), new User("moshe", UUID.randomUUID()));
+        final var manager = database.beginResourceSession("mydoc.jn");
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(2);
       wtx.setStringValue("blablabla").commit();
     }
 
-    try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile(),
-                                                         new User("carolin", UUID.randomUUID()));
-         final var manager = database.beginResourceSession("mydoc.jn");
-         final var wtx = manager.beginNodeTrx()) {
+    try (
+        final var database =
+            Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile(), new User("carolin", UUID.randomUUID()));
+        final var manager = database.beginResourceSession("mydoc.jn");
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(2);
       wtx.remove().commit();
     }
 
     // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       // Use Query to load a JSON database/resource.
       query(ctx, chain, "sdb:author-name(jn:doc('json-path1','mydoc.jn', 1))", "admin");
       query(ctx, chain, "sdb:author-name(jn:doc('json-path1','mydoc.jn', 2))", "johannes");

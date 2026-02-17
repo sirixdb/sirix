@@ -54,8 +54,7 @@ public class AddOpAxis extends AbstractObAxis {
    * 
    */
   @Override
-  public Node operate(final AtomicValue mOperand1, final AtomicValue mOperand2)
-      throws SirixXPathException {
+  public Node operate(final AtomicValue mOperand1, final AtomicValue mOperand2) throws SirixXPathException {
 
     final Type returnType = getReturnType(mOperand1.getTypeKey(), mOperand2.getTypeKey());
     final int typeKey = asXmlNodeReadTrx().keyForName(returnType.getStringRepr());
@@ -130,8 +129,7 @@ public class AddOpAxis extends AbstractObAxis {
           }
           break;
         case YEAR_MONTH_DURATION:
-          if (mType2 == Type.DATE || mType2 == Type.DATE_TIME
-              || mType2 == Type.YEAR_MONTH_DURATION) {
+          if (mType2 == Type.DATE || mType2 == Type.DATE_TIME || mType2 == Type.YEAR_MONTH_DURATION) {
             return mType2;
           }
           break;

@@ -193,8 +193,8 @@ public final class XMLUpdateShredder implements Callable<Long> {
    * @param paramData the data the update shredder operates on. Either a {@link List} of
    *        {@link XMLEvent}s or a {@link File}
    * @param paramCommit determines if changes should be commited
-   * @throws SirixUsageException if insertasfirstChild &amp;&amp; updateOnly is both true OR if wtx is not
-   *         pointing to doc-root and updateOnly= true
+   * @throws SirixUsageException if insertasfirstChild &amp;&amp; updateOnly is both true OR if wtx is
+   *         not pointing to doc-root and updateOnly= true
    * @throws SirixIOException if sirix cannot access node keys
    *
    */
@@ -1156,8 +1156,8 @@ public final class XMLUpdateShredder implements Callable<Long> {
     final var db = Databases.openXmlDatabase(target);
     db.createResource(new ResourceConfiguration.Builder("shredded").build());
     try (final XmlResourceSession resMgr = db.beginResourceSession("shredded");
-         final XmlNodeTrx wtx = resMgr.beginNodeTrx();
-         final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
+        final XmlNodeTrx wtx = resMgr.beginNodeTrx();
+        final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
       final XMLEventReader reader = XmlShredder.createFileReader(fis);
       final XMLUpdateShredder shredder =
           new XMLUpdateShredder(wtx, reader, InsertPosition.AS_FIRST_CHILD, new File(args[0]), ShredderCommit.COMMIT);

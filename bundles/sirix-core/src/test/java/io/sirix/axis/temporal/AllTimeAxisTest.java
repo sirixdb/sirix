@@ -49,12 +49,10 @@ public final class AllTimeAxisTest {
   @Test
   public void testAxis() {
     try (final XmlNodeReadOnlyTrx firstReader = holder.getResourceSession().beginNodeReadOnlyTrx(1);
-         final XmlNodeReadOnlyTrx secondReader = holder.getResourceSession().beginNodeReadOnlyTrx(2);
-         final XmlNodeReadOnlyTrx thirdReader = holder.getXmlNodeReadTrx()) {
-      new IteratorTester<>(ITERATIONS,
-                           IteratorFeature.UNMODIFIABLE,
-                           ImmutableList.of(firstReader, secondReader, thirdReader),
-                           null) {
+        final XmlNodeReadOnlyTrx secondReader = holder.getResourceSession().beginNodeReadOnlyTrx(2);
+        final XmlNodeReadOnlyTrx thirdReader = holder.getXmlNodeReadTrx()) {
+      new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+          ImmutableList.of(firstReader, secondReader, thirdReader), null) {
         @Override
         protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
           return new AllTimeAxis<>(holder.getResourceSession(), holder.getXmlNodeReadTrx());
@@ -80,19 +78,17 @@ public final class AllTimeAxisTest {
     }
 
     try (final XmlNodeReadOnlyTrx firstReader = holder.getResourceSession().beginNodeReadOnlyTrx(1);
-         final XmlNodeReadOnlyTrx secondReader = holder.getResourceSession().beginNodeReadOnlyTrx(2);
-         final XmlNodeReadOnlyTrx thirdReader = holder.getResourceSession().beginNodeReadOnlyTrx(3);
-         final XmlNodeReadOnlyTrx fourthReader = holder.getResourceSession().beginNodeReadOnlyTrx(4)) {
+        final XmlNodeReadOnlyTrx secondReader = holder.getResourceSession().beginNodeReadOnlyTrx(2);
+        final XmlNodeReadOnlyTrx thirdReader = holder.getResourceSession().beginNodeReadOnlyTrx(3);
+        final XmlNodeReadOnlyTrx fourthReader = holder.getResourceSession().beginNodeReadOnlyTrx(4)) {
 
       firstReader.moveTo(4);
       secondReader.moveTo(4);
       thirdReader.moveTo(4);
       fourthReader.moveTo(4);
 
-      new IteratorTester<>(ITERATIONS,
-                           IteratorFeature.UNMODIFIABLE,
-                           ImmutableList.of(firstReader, secondReader, thirdReader, fourthReader),
-                           null) {
+      new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+          ImmutableList.of(firstReader, secondReader, thirdReader, fourthReader), null) {
         @Override
         protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
           return new AllTimeAxis<>(fourthReader.getResourceSession(), fourthReader);

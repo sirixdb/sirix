@@ -11,20 +11,22 @@ class SegmentAllocatorsTest {
     assertEquals(MemorySegmentAllocator.FOUR_KB, SegmentAllocators.roundUpToPowerOfTwo(3000));
     assertEquals(MemorySegmentAllocator.SIXTEEN_KB, SegmentAllocators.roundUpToPowerOfTwo(12000));
     assertEquals(MemorySegmentAllocator.SIXTYFOUR_KB, SegmentAllocators.roundUpToPowerOfTwo(50000));
-    assertEquals(MemorySegmentAllocator.TWO_FIFTYSIX_KB, SegmentAllocators.roundUpToPowerOfTwo(MemorySegmentAllocator.TWO_FIFTYSIX_KB));
+    assertEquals(MemorySegmentAllocator.TWO_FIFTYSIX_KB,
+        SegmentAllocators.roundUpToPowerOfTwo(MemorySegmentAllocator.TWO_FIFTYSIX_KB));
   }
 
   @Test
   void testRoundUpToPowerOfTwo_outOfRangeSizes() {
     assertThrows(IllegalArgumentException.class, () -> SegmentAllocators.roundUpToPowerOfTwo(0));
     assertThrows(IllegalArgumentException.class,
-                 () -> SegmentAllocators.roundUpToPowerOfTwo(MemorySegmentAllocator.TWO_FIFTYSIX_KB + 1));
+        () -> SegmentAllocators.roundUpToPowerOfTwo(MemorySegmentAllocator.TWO_FIFTYSIX_KB + 1));
   }
 
   @Test
   void testRoundUpToPowerOfTwo_edgeCases() {
     assertEquals(MemorySegmentAllocator.FOUR_KB, SegmentAllocators.roundUpToPowerOfTwo(MemorySegmentAllocator.FOUR_KB));
-    assertEquals(MemorySegmentAllocator.TWO_FIFTYSIX_KB, SegmentAllocators.roundUpToPowerOfTwo(MemorySegmentAllocator.TWO_FIFTYSIX_KB - 1));
+    assertEquals(MemorySegmentAllocator.TWO_FIFTYSIX_KB,
+        SegmentAllocators.roundUpToPowerOfTwo(MemorySegmentAllocator.TWO_FIFTYSIX_KB - 1));
   }
 
   @Test

@@ -16,8 +16,7 @@ import io.sirix.query.json.JsonDBCollection;
  * Function for dropping a collection/database. Supported signatures is:
  * </p>
  * <ul>
- * <li><code>jn:drop-database($coll as xs:string, $res as xs:string)</code>
- * </li>
+ * <li><code>jn:drop-database($coll as xs:string, $res as xs:string)</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

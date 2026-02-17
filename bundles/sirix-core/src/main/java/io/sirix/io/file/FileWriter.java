@@ -70,7 +70,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   private final PagePersister pagePersister;
 
   private final AsyncCache<Integer, RevisionFileData> cache;
-  
+
   private final RevisionIndexHolder revisionIndexHolder;
 
   private boolean isFirstUberPage;
@@ -80,13 +80,13 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   /**
    * Constructor.
    *
-   * @param dataFile            the data file
+   * @param dataFile the data file
    * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
-   * @param serializationType   the serialization type (for the transaction log or the data file)
-   * @param pagePersister       transforms in-memory pages into byte-arrays and back
-   * @param cache               the revision file data cache
+   * @param serializationType the serialization type (for the transaction log or the data file)
+   * @param pagePersister transforms in-memory pages into byte-arrays and back
+   * @param cache the revision file data cache
    * @param revisionIndexHolder the holder for the optimized revision index
-   * @param reader              the reader delegate
+   * @param reader the reader delegate
    */
   public FileWriter(final RandomAccessFile dataFile, final RandomAccessFile revisionsOffsetFile,
       final SerializationType serializationType, final PagePersister pagePersister,
@@ -94,13 +94,15 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       final FileReader reader) {
     this.dataFile = requireNonNull(dataFile);
     type = requireNonNull(serializationType);
-    this.revisionsFile = type == SerializationType.DATA ? requireNonNull(revisionsOffsetFile) : null;
+    this.revisionsFile = type == SerializationType.DATA
+        ? requireNonNull(revisionsOffsetFile)
+        : null;
     this.pagePersister = requireNonNull(pagePersister);
     this.cache = cache;
     this.revisionIndexHolder = requireNonNull(revisionIndexHolder);
     this.reader = requireNonNull(reader);
   }
-  
+
   /**
    * Constructor (backward compatibility).
    */
@@ -139,7 +141,9 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
       final Page page, final BytesOut<?> bufferedBytes) {
     try {
       final long fileSize = dataFile.length();
-      long offset = fileSize == 0 ? IOStorage.FIRST_BEACON : fileSize;
+      long offset = fileSize == 0
+          ? IOStorage.FIRST_BEACON
+          : fileSize;
       return writePageReference(resourceConfiguration, pageReference, page, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -204,9 +208,8 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
           revisionsFile.writeLong(currTimestamp);
           if (cache != null) {
             final long currOffset = offset;
-            cache.put(revisionRootPage.getRevision(),
-                      CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
-                                                                               Instant.ofEpochMilli(currTimestamp))));
+            cache.put(revisionRootPage.getRevision(), CompletableFuture.supplyAsync(
+                () -> new RevisionFileData(currOffset, Instant.ofEpochMilli(currTimestamp))));
             // Update the optimized revision index
             revisionIndexHolder.addRevision(currOffset, currTimestamp);
           }
@@ -245,9 +248,9 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
       final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes) {
     isFirstUberPage = true;
-    writePageReference(resourceConfiguration, pageReference, page,0);
+    writePageReference(resourceConfiguration, pageReference, page, 0);
     isFirstUberPage = false;
-    writePageReference(resourceConfiguration, pageReference, page,100);
+    writePageReference(resourceConfiguration, pageReference, page, 100);
     return this;
   }
 

@@ -77,7 +77,7 @@ public final class Store extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public Store(final QNm name, final Signature signature) {
@@ -123,8 +123,8 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void add(final JsonDBCollection collection, final String resourceName,
-      final Sequence nodes, final Object options) {
+  private static void add(final JsonDBCollection collection, final String resourceName, final Sequence nodes,
+      final Object options) {
     if (nodes instanceof Str) {
       try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
         collection.add(resourceName, reader, options);
@@ -134,7 +134,7 @@ public final class Store extends AbstractFunction {
     } else if (nodes instanceof final FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
         int size = collection.getDatabase().listResources().size();
-        for (Item item; (item = iter.next()) != null; ) {
+        for (Item item; (item = iter.next()) != null;) {
           // TODO: use item shredder
           try (final JsonReader reader = JsonShredder.createStringReader(((Str) item).stringValue())) {
             collection.add("resource" + size++, reader, options);
@@ -162,7 +162,7 @@ public final class Store extends AbstractFunction {
       try (final Iter iter = seq.iterate()) {
         final List<Str> list = new ArrayList<>();
 
-        for (Item item; (item = iter.next()) != null; ) {
+        for (Item item; (item = iter.next()) != null;) {
           list.add((Str) item);
         }
 

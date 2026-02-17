@@ -33,17 +33,25 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 /**
  * Utility class for computing discriminative bits between keys.
  * 
- * <p>Implements the discriminative bit computation algorithm from Robert Binna's
- * PhD thesis on Height Optimized Tries (HOT). The discriminative bit is the first
- * bit position where two keys differ, used to determine trie structure.</p>
+ * <p>
+ * Implements the discriminative bit computation algorithm from Robert Binna's PhD thesis on Height
+ * Optimized Tries (HOT). The discriminative bit is the first bit position where two keys differ,
+ * used to determine trie structure.
+ * </p>
  * 
- * <p><b>Reference Implementation:</b> {@code DiscriminativeBit.hpp} lines 52-55</p>
+ * <p>
+ * <b>Reference Implementation:</b> {@code DiscriminativeBit.hpp} lines 52-55
+ * </p>
  * 
- * <p><b>Algorithm:</b> XOR the bytes at each position, find the first non-zero
- * result, then use count-leading-zeros to find the bit position within that byte.</p>
+ * <p>
+ * <b>Algorithm:</b> XOR the bytes at each position, find the first non-zero result, then use
+ * count-leading-zeros to find the bit position within that byte.
+ * </p>
  * 
- * <p><b>Performance:</b> Branchless computation for predictable latency, suitable
- * for high-performance financial systems.</p>
+ * <p>
+ * <b>Performance:</b> Branchless computation for predictable latency, suitable for high-performance
+ * financial systems.
+ * </p>
  * 
  * @author Johannes Lichtenberger
  * @see <a href="https://github.com/speedskater/hot">Reference HOT Implementation</a>
@@ -58,11 +66,15 @@ public final class DiscriminativeBitComputer {
   /**
    * Compute the first differing bit position between two keys.
    * 
-   * <p>This is the discriminative bit that separates left and right subtrees
-   * in a HOT trie. The bit position is 0-indexed from the MSB of the first byte.</p>
+   * <p>
+   * This is the discriminative bit that separates left and right subtrees in a HOT trie. The bit
+   * position is 0-indexed from the MSB of the first byte.
+   * </p>
    * 
-   * <p><b>Reference:</b> DiscriminativeBit.hpp line 52-55:
-   * {@code return __builtin_clz(existingByte ^ newKeyByte) - 24;}</p>
+   * <p>
+   * <b>Reference:</b> DiscriminativeBit.hpp line 52-55:
+   * {@code return __builtin_clz(existingByte ^ newKeyByte) - 24;}
+   * </p>
    * 
    * @param key1 first key (typically max key in left subtree)
    * @param key2 second key (typically min key in right subtree)
@@ -114,8 +126,10 @@ public final class DiscriminativeBitComputer {
   /**
    * Check if a specific bit is set in a key.
    * 
-   * <p><b>Reference:</b> Algorithms.hpp line 87-89:
-   * {@code (existingRawKey[getByteIndex(mAbsoluteBitIndex)] & (0b10000000 >> bitPositionInByte(mAbsoluteBitIndex))) > 0}</p>
+   * <p>
+   * <b>Reference:</b> Algorithms.hpp line 87-89:
+   * {@code (existingRawKey[getByteIndex(mAbsoluteBitIndex)] & (0b10000000 >> bitPositionInByte(mAbsoluteBitIndex))) > 0}
+   * </p>
    * 
    * @param key the key to check
    * @param absoluteBitIndex the absolute bit index (0 = MSB of first byte)
@@ -137,9 +151,10 @@ public final class DiscriminativeBitComputer {
   /**
    * Compute the discriminative bit mask for a set of sorted keys.
    * 
-   * <p>This mask has bits set at all positions where at least two keys differ.
-   * Used for SpanNode and MultiNode creation where multiple discriminative bits
-   * are needed.</p>
+   * <p>
+   * This mask has bits set at all positions where at least two keys differ. Used for SpanNode and
+   * MultiNode creation where multiple discriminative bits are needed.
+   * </p>
    * 
    * @param sortedKeys array of keys in sorted order
    * @param startBytePos starting byte position for mask computation
@@ -160,8 +175,12 @@ public final class DiscriminativeBitComputer {
       byte[] key2 = sortedKeys[keyIdx + 1];
 
       for (int bytePos = startBytePos; bytePos < endBytePos; bytePos++) {
-        int b1 = bytePos < key1.length ? (key1[bytePos] & 0xFF) : 0;
-        int b2 = bytePos < key2.length ? (key2[bytePos] & 0xFF) : 0;
+        int b1 = bytePos < key1.length
+            ? (key1[bytePos] & 0xFF)
+            : 0;
+        int b2 = bytePos < key2.length
+            ? (key2[bytePos] & 0xFF)
+            : 0;
         int diff = b1 ^ b2;
 
         if (diff != 0) {
@@ -179,11 +198,12 @@ public final class DiscriminativeBitComputer {
   /**
    * Count the number of discriminative bits in a mask.
    * 
-   * <p>This determines the node type:
+   * <p>
+   * This determines the node type:
    * <ul>
-   *   <li>1 bit → BiNode (2 children)</li>
-   *   <li>2-4 bits → SpanNode (up to 16 children)</li>
-   *   <li>5+ bits → MultiNode (up to 256 children)</li>
+   * <li>1 bit → BiNode (2 children)</li>
+   * <li>2-4 bits → SpanNode (up to 16 children)</li>
+   * <li>5+ bits → MultiNode (up to 256 children)</li>
    * </ul>
    * </p>
    * 
@@ -197,10 +217,14 @@ public final class DiscriminativeBitComputer {
   /**
    * Extract partial key from a full key using a discriminative bit mask.
    * 
-   * <p><b>Reference:</b> SingleMaskPartialKeyMapping.hpp line 180-182 uses
-   * {@code _pext_u64(inputMask, mSuccessiveExtractionMask)}</p>
+   * <p>
+   * <b>Reference:</b> SingleMaskPartialKeyMapping.hpp line 180-182 uses
+   * {@code _pext_u64(inputMask, mSuccessiveExtractionMask)}
+   * </p>
    * 
-   * <p>Java equivalent uses {@code Long.compress()} (Java 19+).</p>
+   * <p>
+   * Java equivalent uses {@code Long.compress()} (Java 19+).
+   * </p>
    * 
    * @param key the full key
    * @param mask the discriminative bit mask
@@ -246,14 +270,10 @@ public final class DiscriminativeBitComputer {
    * @return 64-bit value in big-endian order
    */
   private static long getLongBE(byte[] bytes, int offset) {
-    return ((long) (bytes[offset] & 0xFF) << 56)
-        | ((long) (bytes[offset + 1] & 0xFF) << 48)
-        | ((long) (bytes[offset + 2] & 0xFF) << 40)
-        | ((long) (bytes[offset + 3] & 0xFF) << 32)
-        | ((long) (bytes[offset + 4] & 0xFF) << 24)
-        | ((long) (bytes[offset + 5] & 0xFF) << 16)
-        | ((long) (bytes[offset + 6] & 0xFF) << 8)
-        | ((long) (bytes[offset + 7] & 0xFF));
+    return ((long) (bytes[offset] & 0xFF) << 56) | ((long) (bytes[offset + 1] & 0xFF) << 48)
+        | ((long) (bytes[offset + 2] & 0xFF) << 40) | ((long) (bytes[offset + 3] & 0xFF) << 32)
+        | ((long) (bytes[offset + 4] & 0xFF) << 24) | ((long) (bytes[offset + 5] & 0xFF) << 16)
+        | ((long) (bytes[offset + 6] & 0xFF) << 8) | ((long) (bytes[offset + 7] & 0xFF));
   }
 }
 

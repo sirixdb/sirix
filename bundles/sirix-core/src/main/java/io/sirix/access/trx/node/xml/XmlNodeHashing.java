@@ -14,9 +14,9 @@ final class XmlNodeHashing extends AbstractNodeHashing<ImmutableXmlNode, XmlNode
   /**
    * Constructor.
    *
-   * @param resourceConfig  the resource configuration
+   * @param resourceConfig the resource configuration
    * @param nodeReadOnlyTrx the internal read-only node trx
-   * @param pageWriteTrx    the page trx
+   * @param pageWriteTrx the page trx
    */
   XmlNodeHashing(final ResourceConfiguration resourceConfig, final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx,
       final StorageEngineWriter pageWriteTrx) {

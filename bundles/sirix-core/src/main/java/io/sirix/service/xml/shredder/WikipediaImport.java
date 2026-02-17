@@ -152,7 +152,7 @@ public final class WikipediaImport implements Import<StartElement> {
   /**
    * Constructor.
    *
-   * @param xmlFile       The XML file to import.
+   * @param xmlFile The XML file to import.
    * @param sirixDatabase The sirix destination storage directory.
    */
   public WikipediaImport(final Path xmlFile, final Path sirixDatabase) throws SirixException {
@@ -177,34 +177,36 @@ public final class WikipediaImport implements Import<StartElement> {
   /**
    * Import data.
    *
-   * @param dateRange <p>
-   *                  Date range, the following values are possible:
-   *                  </p>
-   *                  <dl>
-   *                  <dt>h</dt>
-   *                  <dd>hourly revisions</dd>
-   *                  <dt>d</dt>
-   *                  <dd>daily revisions</dd>
-   *                  <dt>w</dt>
-   *                  <dd>weekly revisions (currently unsupported)</dd>
-   *                  <dt>m</dt>
-   *                  <dd>monthly revisions</dd>
-   *                  </dl>
-   * @param data      <p>
-   *                  List of {@link StartElement}s with the following meaning:
-   *                  </p>
-   *                  <dl>
-   *                  <dt>Zero index</dt>
-   *                  <dd>Timestamp start tag {@link StartElement}.</dd>
-   *                  <dt>First index</dt>
-   *                  <dd>Page start tag {@link StartElement}.</dd>
-   *                  <dt>Second index</dt>
-   *                  <dd>Revision start tag {@link StartElement}.</dd>
-   *                  <dt>Third index</dt>
-   *                  <dd>Page-ID start tag {@link StartElement}.</dd>
-   *                  <dt>Fourth index</dt>
-   *                  <dd>Revision text start tag {@link StartElement}.</dd>
-   *                  </dl>
+   * @param dateRange
+   *        <p>
+   *        Date range, the following values are possible:
+   *        </p>
+   *        <dl>
+   *        <dt>h</dt>
+   *        <dd>hourly revisions</dd>
+   *        <dt>d</dt>
+   *        <dd>daily revisions</dd>
+   *        <dt>w</dt>
+   *        <dd>weekly revisions (currently unsupported)</dd>
+   *        <dt>m</dt>
+   *        <dd>monthly revisions</dd>
+   *        </dl>
+   * @param data
+   *        <p>
+   *        List of {@link StartElement}s with the following meaning:
+   *        </p>
+   *        <dl>
+   *        <dt>Zero index</dt>
+   *        <dd>Timestamp start tag {@link StartElement}.</dd>
+   *        <dt>First index</dt>
+   *        <dd>Page start tag {@link StartElement}.</dd>
+   *        <dt>Second index</dt>
+   *        <dd>Revision start tag {@link StartElement}.</dd>
+   *        <dt>Third index</dt>
+   *        <dd>Page-ID start tag {@link StartElement}.</dd>
+   *        <dt>Fourth index</dt>
+   *        <dd>Revision text start tag {@link StartElement}.</dd>
+   *        </dl>
    */
   @Override
   public void importData(final DateBy dateRange, final List<StartElement> data) {
@@ -270,14 +272,12 @@ public final class WikipediaImport implements Import<StartElement> {
                 XmlShredder shredder = null;
                 if (hasFirstChild) {
                   // Shredder as child.
-                  shredder = new XmlShredder.Builder(mWtx,
-                                                     XmlShredder.createQueueReader(mPageEvents),
-                                                     InsertPosition.AS_RIGHT_SIBLING).build();
+                  shredder = new XmlShredder.Builder(mWtx, XmlShredder.createQueueReader(mPageEvents),
+                      InsertPosition.AS_RIGHT_SIBLING).build();
                 } else {
                   // Shredder as right sibling.
-                  shredder = new XmlShredder.Builder(mWtx,
-                                                     XmlShredder.createQueueReader(mPageEvents),
-                                                     InsertPosition.AS_FIRST_CHILD).build();
+                  shredder = new XmlShredder.Builder(mWtx, XmlShredder.createQueueReader(mPageEvents),
+                      InsertPosition.AS_FIRST_CHILD).build();
                 }
 
                 shredder.call();
@@ -308,18 +308,14 @@ public final class WikipediaImport implements Import<StartElement> {
     try (var db = Databases.openXmlDatabase(path)) {
       db.createResource(new ResourceConfiguration.Builder("wiki").build());
       try (XmlResourceSession resourceManager = db.beginResourceSession("wiki")) {
-        if (mPageEvents.peek() != null && mPageEvents.peek().isStartElement() && !mPageEvents.peek()
-                                                                                             .asStartElement()
-                                                                                             .getName()
-                                                                                             .getLocalPart()
-                                                                                             .equals("root")) {
+        if (mPageEvents.peek() != null && mPageEvents.peek().isStartElement()
+            && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
           mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));
           mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(new QName("root"), null));
         }
         final XmlNodeTrx wtx = resourceManager.beginNodeTrx();
-        final XmlShredder shredder = new XmlShredder.Builder(wtx,
-                                                             XmlShredder.createQueueReader(mPageEvents),
-                                                             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createQueueReader(mPageEvents),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
         wtx.close();
         mPageEvents = new ArrayDeque<>();
@@ -341,23 +337,23 @@ public final class WikipediaImport implements Import<StartElement> {
    * Parses a start tag.
    *
    * @param startTagEvent current StAX {@link XMLEvent}
-   * @param timestamp     timestamp start tag {@link StartElement}
-   * @param wikiPage      wikipedia page start tag {@link StartElement}
-   * @param revision      revision start tag {@link StartElement}
-   * @param pageID        page-ID start tag {@link StartElement}
-   * @param dateRange     date range, the following values are possible:
-   *                      <dl>
-   *                      <dt>h</dt>
-   *                      <dd>hourly revisions</dd>
-   *                      <dt>d</dt>
-   *                      <dd>daily revisions</dd>
-   *                      <dt>w</dt>
-   *                      <dd>weekly revisions (currently unsupported)</dd>
-   *                      <dt>m</dt>
-   *                      <dd>monthly revisions</dd>
-   *                      </dl>
+   * @param timestamp timestamp start tag {@link StartElement}
+   * @param wikiPage wikipedia page start tag {@link StartElement}
+   * @param revision revision start tag {@link StartElement}
+   * @param pageID page-ID start tag {@link StartElement}
+   * @param dateRange date range, the following values are possible:
+   *        <dl>
+   *        <dt>h</dt>
+   *        <dd>hourly revisions</dd>
+   *        <dt>d</dt>
+   *        <dd>daily revisions</dd>
+   *        <dt>w</dt>
+   *        <dd>weekly revisions (currently unsupported)</dd>
+   *        <dt>m</dt>
+   *        <dd>monthly revisions</dd>
+   *        </dl>
    * @throws XMLStreamException In case of any XML parsing errors.
-   * @throws SirixException     In case of any sirix errors.
+   * @throws SirixException In case of any sirix errors.
    */
   private void parseStartTag(final XMLEvent startTagEvent, final StartElement timestamp, final StartElement wikiPage,
       final StartElement revision, final StartElement pageID, final DateBy dateRange)
@@ -508,8 +504,8 @@ public final class WikipediaImport implements Import<StartElement> {
    * Check if start element of two StAX parsers match.
    *
    * @param startTag StartTag of the StAX parser, where it is currently (the "real" StAX parser over
-   *                 the whole document)
-   * @param elem     StartTag to check against
+   *        the whole document)
+   * @param elem StartTag to check against
    * @return {@code true} if start elements match, {@code false} otherwise
    * @throws XMLStreamException handling XML Stream Exception
    */
@@ -521,10 +517,10 @@ public final class WikipediaImport implements Import<StartElement> {
       // Check attributes.
       boolean foundAtts = false;
       boolean hasAtts = false;
-      for (final Iterator<?> itStartTag = startTag.getAttributes(); itStartTag.hasNext(); ) {
+      for (final Iterator<?> itStartTag = startTag.getAttributes(); itStartTag.hasNext();) {
         hasAtts = true;
         final Attribute attStartTag = (Attribute) itStartTag.next();
-        for (final Iterator<?> itElem = elem.getAttributes(); itElem.hasNext(); ) {
+        for (final Iterator<?> itElem = elem.getAttributes(); itElem.hasNext();) {
           final Attribute attElem = (Attribute) itElem.next();
           if (attStartTag.getName().equals(attElem.getName())) {
             foundAtts = true;
@@ -543,10 +539,10 @@ public final class WikipediaImport implements Import<StartElement> {
       // Check namespaces.
       boolean foundNamesps = false;
       boolean hasNamesps = false;
-      for (final Iterator<?> itStartTag = startTag.getNamespaces(); itStartTag.hasNext(); ) {
+      for (final Iterator<?> itStartTag = startTag.getNamespaces(); itStartTag.hasNext();) {
         hasNamesps = true;
         final Namespace nsStartTag = (Namespace) itStartTag.next();
-        for (final Iterator<?> itElem = elem.getNamespaces(); itElem.hasNext(); ) {
+        for (final Iterator<?> itElem = elem.getNamespaces(); itElem.hasNext();) {
           final Namespace nsElem = (Namespace) itElem.next();
           if (nsStartTag.getName().equals(nsElem.getName())) {
             foundNamesps = true;

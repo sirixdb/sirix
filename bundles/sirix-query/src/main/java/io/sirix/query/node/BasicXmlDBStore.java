@@ -90,7 +90,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private final boolean storeDeweyIds;
 
   /**
-   * Number of inserted nodes during an import of an XML document, after which an auto-commit is issued.
+   * Number of inserted nodes during an import of an XML document, after which an auto-commit is
+   * issued.
    */
   private final int numberOfNodesBeforeAutoCommit;
 
@@ -119,13 +120,16 @@ public final class BasicXmlDBStore implements XmlDBStore {
         ? StorageType.fromString(System.getProperty("storageType"))
         : OS.isWindows()
             ? StorageType.FILE_CHANNEL
-            : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
+            : OS.is64Bit()
+                ? StorageType.MEMORY_MAPPED
+                : StorageType.FILE_CHANNEL;
 
     /**
      * The location to store created collections/databases.
      */
-    private Path location =
-        System.getProperty("dbLocation") != null ? Path.of(System.getProperty("dbLocation")) : LOCATION;
+    private Path location = System.getProperty("dbLocation") != null
+        ? Path.of(System.getProperty("dbLocation"))
+        : LOCATION;
 
     /**
      * Determines if a path summary should be build for resources.
@@ -142,8 +146,9 @@ public final class BasicXmlDBStore implements XmlDBStore {
     /**
      * Determines the hash type to use (default: rolling).
      */
-    private HashType hashType =
-        System.getProperty("hashType") != null ? HashType.fromString(System.getProperty("hashType")) : HashType.ROLLING;
+    private HashType hashType = System.getProperty("hashType") != null
+        ? HashType.fromString(System.getProperty("hashType"))
+        : HashType.ROLLING;
 
     /**
      * Determines the versioning type.
@@ -155,9 +160,9 @@ public final class BasicXmlDBStore implements XmlDBStore {
     /**
      * Number of nodes before an auto-commit is issued during an import of an XML document.
      */
-    private int numberOfNodesBeforeAutoCommit =
-        System.getProperty("numberOfNodesBeforeAutoCommit") != null ? Integer.parseInt(System.getProperty(
-            "numberOfNodesBeforeAutoCommit")) : 262_144 << 2;
+    private int numberOfNodesBeforeAutoCommit = System.getProperty("numberOfNodesBeforeAutoCommit") != null
+        ? Integer.parseInt(System.getProperty("numberOfNodesBeforeAutoCommit"))
+        : 262_144 << 2;
 
     /**
      * Determines if DeweyIDs should be stored or not.
@@ -279,12 +284,12 @@ public final class BasicXmlDBStore implements XmlDBStore {
         // by comparing database names (not object identity)
         final Optional<Database<XmlResourceSession>> existingDb =
             databases.stream().filter(db -> db.getName().equals(name) && db.isOpen()).findFirst();
-        
+
         if (existingDb.isPresent()) {
           // Reuse existing database and its collection
           return collections.get(existingDb.get());
         }
-        
+
         // No existing database found, open a new one
         final var database = Databases.openXmlDatabase(dbPath);
         databases.add(database);
@@ -348,7 +353,9 @@ public final class BasicXmlDBStore implements XmlDBStore {
       Databases.createXmlDatabase(dbConf);
       final var database = Databases.openXmlDatabase(dbPath);
       databases.add(database);
-      final String resName = optResName != null ? optResName : "resource" + (database.listResources().size() + 1);
+      final String resName = optResName != null
+          ? optResName
+          : "resource" + (database.listResources().size() + 1);
       database.createResource(ResourceConfiguration.newBuilder(resName)
                                                    .useDeweyIDs(storeDeweyIds)
                                                    .useTextCompression(false)
@@ -362,7 +369,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
       collections.put(database, collection);
 
       try (final XmlResourceSession manager = database.beginResourceSession(resName);
-           final XmlNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+          final XmlNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
         parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
         wtx.commit(commitMessage, commitTimestamp);
       }
@@ -398,13 +405,11 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                            .versioningApproach(versioningType)
                                                            .build());
               try (final XmlResourceSession manager = database.beginResourceSession(resourceName);
-                   final XmlNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+                  final XmlNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
                 final XmlDBCollection collection = new XmlDBCollection(collName, database);
                 collections.put(database, collection);
-                nextParser.parse(new SubtreeBuilder(collection,
-                                                    wtx,
-                                                    InsertPosition.AS_FIRST_CHILD,
-                                                    Collections.emptyList()));
+                nextParser.parse(
+                    new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
                 wtx.commit();
               }
               return null;

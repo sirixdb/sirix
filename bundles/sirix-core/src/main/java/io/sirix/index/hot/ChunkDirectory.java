@@ -39,10 +39,15 @@ import java.util.Objects;
 /**
  * Directory of bitmap chunks for a single index key.
  *
- * <p>Maps document node key ranges to {@link BitmapChunkPage} references.
- * Stored as the value in {@link io.sirix.page.HOTLeafPage} entries.</p>
+ * <p>
+ * Maps document node key ranges to {@link BitmapChunkPage} references. Stored as the value in
+ * {@link io.sirix.page.HOTLeafPage} entries.
+ * </p>
  *
- * <p><b>Structure:</b></p>
+ * <p>
+ * <b>Structure:</b>
+ * </p>
+ * 
  * <pre>
  * ChunkDirectory for indexKey "/root/items/item"
  * ├── Chunk 0: [0, 65536) → PageRef(key=1234)
@@ -50,8 +55,10 @@ import java.util.Objects;
  * └── Chunk 2: [131072, 196608) → PageRef(key=1236)
  * </pre>
  *
- * <p>Chunks are created lazily as document node keys are added. The directory
- * grows dynamically when a new range is needed.</p>
+ * <p>
+ * Chunks are created lazily as document node keys are added. The directory grows dynamically when a
+ * new range is needed.
+ * </p>
  *
  * @author Johannes Lichtenberger
  * @see BitmapChunkPage
@@ -66,8 +73,8 @@ public final class ChunkDirectory {
 
   // ===== Chunk storage =====
   private int chunkCount;
-  private int[] chunkIndices;         // Sorted array of chunk indices
-  private PageReference[] chunkRefs;  // Corresponding page references
+  private int[] chunkIndices; // Sorted array of chunk indices
+  private PageReference[] chunkRefs; // Corresponding page references
 
   // ===== Modification tracking =====
   private boolean modified;
@@ -85,9 +92,9 @@ public final class ChunkDirectory {
   /**
    * Create a ChunkDirectory with pre-allocated arrays.
    *
-   * @param chunkCount    the number of chunks
-   * @param chunkIndices  the chunk indices (sorted)
-   * @param chunkRefs     the page references
+   * @param chunkCount the number of chunks
+   * @param chunkIndices the chunk indices (sorted)
+   * @param chunkRefs the page references
    */
   ChunkDirectory(int chunkCount, int[] chunkIndices, PageReference[] chunkRefs) {
     if (chunkCount < 0) {
@@ -195,8 +202,8 @@ public final class ChunkDirectory {
   }
 
   /**
-   * Get or create the page reference for a chunk index.
-   * Creates a new reference if the chunk doesn't exist.
+   * Get or create the page reference for a chunk index. Creates a new reference if the chunk doesn't
+   * exist.
    *
    * @param chunkIndex the chunk index
    * @return the page reference (never null)
@@ -234,7 +241,7 @@ public final class ChunkDirectory {
    * Set the page reference for a chunk index.
    *
    * @param chunkIndex the chunk index
-   * @param ref        the page reference
+   * @param ref the page reference
    */
   public void setChunkRef(int chunkIndex, @NonNull PageReference ref) {
     Objects.requireNonNull(ref, "ref must not be null");
@@ -312,7 +319,8 @@ public final class ChunkDirectory {
   public String toString() {
     StringBuilder sb = new StringBuilder("ChunkDirectory{chunks=[");
     for (int i = 0; i < chunkCount; i++) {
-      if (i > 0) sb.append(", ");
+      if (i > 0)
+        sb.append(", ");
       sb.append(chunkIndices[i]).append("->").append(chunkRefs[i]);
     }
     sb.append("], modified=").append(modified).append("}");
@@ -321,13 +329,18 @@ public final class ChunkDirectory {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
     ChunkDirectory that = (ChunkDirectory) o;
-    if (chunkCount != that.chunkCount) return false;
+    if (chunkCount != that.chunkCount)
+      return false;
     for (int i = 0; i < chunkCount; i++) {
-      if (chunkIndices[i] != that.chunkIndices[i]) return false;
-      if (!Objects.equals(chunkRefs[i], that.chunkRefs[i])) return false;
+      if (chunkIndices[i] != that.chunkIndices[i])
+        return false;
+      if (!Objects.equals(chunkRefs[i], that.chunkRefs[i]))
+        return false;
     }
     return true;
   }
@@ -337,7 +350,9 @@ public final class ChunkDirectory {
     int result = chunkCount;
     for (int i = 0; i < chunkCount; i++) {
       result = 31 * result + chunkIndices[i];
-      result = 31 * result + (chunkRefs[i] != null ? chunkRefs[i].hashCode() : 0);
+      result = 31 * result + (chunkRefs[i] != null
+          ? chunkRefs[i].hashCode()
+          : 0);
     }
     return result;
   }

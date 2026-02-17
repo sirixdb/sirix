@@ -44,15 +44,14 @@ import static java.util.Objects.requireNonNull;
 public class ConcurrentAxisHelper implements Runnable {
 
   /** Logger. */
-  public static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(ConcurrentAxisHelper.class));
+  public static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(ConcurrentAxisHelper.class));
 
   /** {@link Axis} that computes the results. */
   private final Axis axis;
 
   /**
-   * Queue that stores result keys already computed by this axis. End of the result sequence is
-   * marked by the NULL_NODE_KEY. This is used for communication with the consumer.
+   * Queue that stores result keys already computed by this axis. End of the result sequence is marked
+   * by the NULL_NODE_KEY. This is used for communication with the consumer.
    */
   private BlockingQueue<Long> results;
 
@@ -87,8 +86,8 @@ public class ConcurrentAxisHelper implements Runnable {
           // Wait until next thread arrives and exchange blocking queue.
         } catch (final InterruptedException e) {
           LOGWRAPPER.error("Interrupted while putting result", e);
-          Thread.currentThread().interrupt();  // Restore interrupt status
-          return;  // Exit on interruption
+          Thread.currentThread().interrupt(); // Restore interrupt status
+          return; // Exit on interruption
         }
       }
 

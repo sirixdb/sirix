@@ -12,15 +12,15 @@ import java.util.Set;
  * JUnit Rule that detects memory leaks (unclosed pages) after each test.
  * <p>
  * Usage:
+ * 
  * <pre>{@code
  * @Rule
  * public LeakDetectionRule leakDetection = new LeakDetectionRule();
  * }</pre>
  * <p>
- * This rule:
- * 1. Clears caches after each test to ensure pages are properly released
- * 2. Checks for leaked pages (pages created but not closed)
- * 3. Fails the test if leaks are detected (when -Dsirix.debug.memory.leaks=true)
+ * This rule: 1. Clears caches after each test to ensure pages are properly released 2. Checks for
+ * leaked pages (pages created but not closed) 3. Fails the test if leaks are detected (when
+ * -Dsirix.debug.memory.leaks=true)
  *
  * @author Johannes Lichtenberger
  */
@@ -62,7 +62,7 @@ public class LeakDetectionRule extends TestWatcher {
     // Check for leaks - only count NEW pages that are still live (not pages from previous tests)
     long pagesCreated = KeyValueLeafPage.PAGES_CREATED.get() - pagesCreatedBefore;
     long pagesClosed = KeyValueLeafPage.PAGES_CLOSED.get() - pagesClosedBefore;
-    
+
     // Find pages that are NEW in this test (weren't live before test started)
     Set<KeyValueLeafPage> newLeakedPages = new HashSet<>();
     for (KeyValueLeafPage page : KeyValueLeafPage.ALL_LIVE_PAGES) {
@@ -70,7 +70,7 @@ public class LeakDetectionRule extends TestWatcher {
         newLeakedPages.add(page);
       }
     }
-    
+
     int newLeaksCount = newLeakedPages.size();
     long finalized = KeyValueLeafPage.PAGES_FINALIZED_WITHOUT_CLOSE.get();
 
@@ -90,10 +90,14 @@ public class LeakDetectionRule extends TestWatcher {
             sb.append("  ... and ").append(newLeaksCount - 10).append(" more\n");
             break;
           }
-          sb.append("  - pageKey=").append(page.getPageKey())
-            .append(", type=").append(page.getIndexType())
-            .append(", rev=").append(page.getRevision())
-            .append(", guardCount=").append(page.getGuardCount())
+          sb.append("  - pageKey=")
+            .append(page.getPageKey())
+            .append(", type=")
+            .append(page.getIndexType())
+            .append(", rev=")
+            .append(page.getRevision())
+            .append(", guardCount=")
+            .append(page.getGuardCount())
             .append("\n");
 
           if (page.getCreationStackTrace() != null) {

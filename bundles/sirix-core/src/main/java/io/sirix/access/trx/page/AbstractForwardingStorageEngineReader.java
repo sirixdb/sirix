@@ -21,14 +21,12 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public abstract class AbstractForwardingStorageEngineReader extends ForwardingObject
-    implements StorageEngineReader {
+public abstract class AbstractForwardingStorageEngineReader extends ForwardingObject implements StorageEngineReader {
 
   /**
    * Constructor for use by subclasses.
    */
-  protected AbstractForwardingStorageEngineReader() {
-  }
+  protected AbstractForwardingStorageEngineReader() {}
 
   @Override
   public DataRecord getValue(KeyValuePage<? extends DataRecord> page, long nodeKey) {

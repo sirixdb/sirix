@@ -40,36 +40,50 @@ import java.util.Objects;
 /**
  * HOT (Height Optimized Trie) indirect page for cache-friendly secondary indexes.
  * 
- * <p>Implements compound nodes that span multiple logical trie levels within a single page.
- * Uses discriminative bits and SIMD-optimized child lookup.</p>
+ * <p>
+ * Implements compound nodes that span multiple logical trie levels within a single page. Uses
+ * discriminative bits and SIMD-optimized child lookup.
+ * </p>
  * 
- * <p><b>Node Layout Types (from HOT dissertation):</b></p>
+ * <p>
+ * <b>Node Layout Types (from HOT dissertation):</b>
+ * </p>
  * <ul>
- *   <li>SINGLE_MASK: 9 bytes (initialBytePos + 64-bit mask), uses PEXT instruction</li>
- *   <li>MULTI_MASK: Variable size, for bits spread across multiple bytes</li>
- *   <li>POSITION_SEQUENCE: Variable size, explicit bit positions</li>
+ * <li>SINGLE_MASK: 9 bytes (initialBytePos + 64-bit mask), uses PEXT instruction</li>
+ * <li>MULTI_MASK: Variable size, for bits spread across multiple bytes</li>
+ * <li>POSITION_SEQUENCE: Variable size, explicit bit positions</li>
  * </ul>
  * 
- * <p><b>Node Types:</b></p>
+ * <p>
+ * <b>Node Types:</b>
+ * </p>
  * <ul>
- *   <li>BiNode: 2 children, 1 discriminative bit</li>
- *   <li>SpanNode: 2-16 children, SIMD-searchable partial keys</li>
- *   <li>MultiNode: 17-32 children, direct byte indexing</li>
+ * <li>BiNode: 2 children, 1 discriminative bit</li>
+ * <li>SpanNode: 2-16 children, SIMD-searchable partial keys</li>
+ * <li>MultiNode: 17-32 children, direct byte indexing</li>
  * </ul>
  * 
- * <p><b>Cache-Line Alignment (Reference: thesis section 4.3.2):</b></p>
- * <p>For optimal cache performance on modern CPUs:</p>
+ * <p>
+ * <b>Cache-Line Alignment (Reference: thesis section 4.3.2):</b>
+ * </p>
+ * <p>
+ * For optimal cache performance on modern CPUs:
+ * </p>
  * <ul>
- *   <li>Hot data (bitMask, partialKeys) should be aligned to 64-byte cache lines</li>
- *   <li>BiNode fits in a single cache line (2 children + mask = ~24 bytes)</li>
- *   <li>SpanNode uses up to 2 cache lines (16 children + mask + keys)</li>
- *   <li>Child references are accessed only after lookup, can be in separate lines</li>
+ * <li>Hot data (bitMask, partialKeys) should be aligned to 64-byte cache lines</li>
+ * <li>BiNode fits in a single cache line (2 children + mask = ~24 bytes)</li>
+ * <li>SpanNode uses up to 2 cache lines (16 children + mask + keys)</li>
+ * <li>Child references are accessed only after lookup, can be in separate lines</li>
  * </ul>
  * 
- * <p><b>SIMD Optimization (Reference: thesis section 4.3.3):</b></p>
- * <p>SpanNode uses Long.compress() which maps to PEXT (Parallel Bit Extract)
- * instruction on x86-64 with BMI2. Linear search of 2-16 partial keys is typically
- * faster than binary search due to better branch prediction and cache locality.</p>
+ * <p>
+ * <b>SIMD Optimization (Reference: thesis section 4.3.3):</b>
+ * </p>
+ * <p>
+ * SpanNode uses Long.compress() which maps to PEXT (Parallel Bit Extract) instruction on x86-64
+ * with BMI2. Linear search of 2-16 partial keys is typically faster than binary search due to
+ * better branch prediction and cache locality.
+ * </p>
  * 
  * @author Johannes Lichtenberger
  * @see HOTLeafPage
@@ -115,32 +129,32 @@ public final class HOTIndirectPage implements Page {
   private final long pageKey;
   private final int revision;
   private final int height; // Distance from leaves
-  
+
   // ===== Node structure =====
   private final NodeType nodeType;
   private LayoutType layoutType; // Set in factory methods
   private int numChildren;
-  
+
   // ===== Discriminative bits (layout-dependent) =====
   // SINGLE_MASK layout
   private byte initialBytePos;
   private long bitMask;
-  
+
   // MULTI_MASK layout
   private byte[] maskBytePosArray;
   private byte[] maskArray;
-  
+
   // POSITION_SEQUENCE layout
   private short[] bitPositions;
-  
+
   // ===== Child data =====
   private byte[] partialKeys; // Up to 256 partial keys (raw storage)
   private @Nullable SparsePartialKeys<Byte> sparsePartialKeys; // SIMD-accelerated search
   private final PageReference[] childReferences; // References to child pages
-  
+
   // ===== MultiNode direct index (256 bytes) =====
   private byte[] childIndex; // Maps byte value -> child slot
-  
+
   /**
    * Create a new BiNode with 2 children.
    *
@@ -151,14 +165,12 @@ public final class HOTIndirectPage implements Page {
    * @param rightChild reference to right child (bit=1)
    * @return new BiNode
    */
-  public static HOTIndirectPage createBiNode(long pageKey, int revision,
-                                             int discriminativeBitPos,
-                                             @NonNull PageReference leftChild,
-                                             @NonNull PageReference rightChild) {
+  public static HOTIndirectPage createBiNode(long pageKey, int revision, int discriminativeBitPos,
+      @NonNull PageReference leftChild, @NonNull PageReference rightChild) {
     HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, 0, NodeType.BI_NODE, 2);
     page.layoutType = LayoutType.SINGLE_MASK;
     page.initialBytePos = (byte) (discriminativeBitPos / 8);
-    
+
     // Compute bit mask for PEXT extraction
     // getKeyWordAt uses little-endian: byte 0 goes to bits 0-7, byte 1 to bits 8-15, etc.
     // Within each byte, bit 0 (MSB) is at position 7, bit 7 (LSB) is at position 0
@@ -166,8 +178,8 @@ public final class HOTIndirectPage implements Page {
     int bitWithinByte = discriminativeBitPos % 8; // 0=MSB, 7=LSB
     int bitInWord = byteWithinWindow * 8 + (7 - bitWithinByte);
     page.bitMask = 1L << bitInWord;
-    
-    page.partialKeys = new byte[] { 0, 1 };
+
+    page.partialKeys = new byte[] {0, 1};
     page.childReferences[0] = leftChild;
     page.childReferences[1] = rightChild;
     return page;
@@ -184,21 +196,18 @@ public final class HOTIndirectPage implements Page {
    * @param height the height of this node in the tree
    * @return new BiNode
    */
-  public static HOTIndirectPage createBiNode(long pageKey, int revision,
-                                             int discriminativeBitPos,
-                                             @NonNull PageReference leftChild,
-                                             @NonNull PageReference rightChild,
-                                             int height) {
+  public static HOTIndirectPage createBiNode(long pageKey, int revision, int discriminativeBitPos,
+      @NonNull PageReference leftChild, @NonNull PageReference rightChild, int height) {
     HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.BI_NODE, 2);
     page.layoutType = LayoutType.SINGLE_MASK;
     page.initialBytePos = (byte) (discriminativeBitPos / 8);
-    
+
     int byteWithinWindow = (discriminativeBitPos / 8) - page.initialBytePos;
     int bitWithinByte = discriminativeBitPos % 8;
     int bitInWord = byteWithinWindow * 8 + (7 - bitWithinByte);
     page.bitMask = 1L << bitInWord;
-    
-    page.partialKeys = new byte[] { 0, 1 };
+
+    page.partialKeys = new byte[] {0, 1};
     page.childReferences[0] = leftChild;
     page.childReferences[1] = rightChild;
     return page;
@@ -207,8 +216,10 @@ public final class HOTIndirectPage implements Page {
   /**
    * Create a new SpanNode with 2-16 children.
    *
-   * <p><b>Reference:</b> SpanNode uses SparsePartialKeys for SIMD-accelerated
-   * child lookup. The search pattern is: {@code (denseKey & sparseKey) == sparseKey}</p>
+   * <p>
+   * <b>Reference:</b> SpanNode uses SparsePartialKeys for SIMD-accelerated child lookup. The search
+   * pattern is: {@code (denseKey & sparseKey) == sparseKey}
+   * </p>
    *
    * @param pageKey the page key
    * @param revision the revision
@@ -218,10 +229,8 @@ public final class HOTIndirectPage implements Page {
    * @param children array of child references
    * @return new SpanNode
    */
-  public static HOTIndirectPage createSpanNode(long pageKey, int revision,
-                                               byte initialBytePos, long bitMask,
-                                               byte[] partialKeys,
-                                               PageReference[] children) {
+  public static HOTIndirectPage createSpanNode(long pageKey, int revision, byte initialBytePos, long bitMask,
+      byte[] partialKeys, PageReference[] children) {
     if (children.length < 2 || children.length > 16) {
       throw new IllegalArgumentException("SpanNode must have 2-16 children");
     }
@@ -230,13 +239,13 @@ public final class HOTIndirectPage implements Page {
     page.initialBytePos = initialBytePos;
     page.bitMask = bitMask;
     page.partialKeys = partialKeys.clone();
-    
+
     // Create SIMD-accelerated SparsePartialKeys for fast search
     page.sparsePartialKeys = SparsePartialKeys.forBytes(children.length);
     for (int i = 0; i < children.length; i++) {
       page.sparsePartialKeys.setEntry(i, partialKeys[i]);
     }
-    
+
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
     return page;
   }
@@ -251,10 +260,8 @@ public final class HOTIndirectPage implements Page {
    * @param children array of child references
    * @return new MultiNode
    */
-  public static HOTIndirectPage createMultiNode(long pageKey, int revision,
-                                                byte discriminativeByte,
-                                                byte[] childIndex,
-                                                PageReference[] children) {
+  public static HOTIndirectPage createMultiNode(long pageKey, int revision, byte discriminativeByte, byte[] childIndex,
+      PageReference[] children) {
     if (children.length < 17 || children.length > 256) {
       throw new IllegalArgumentException("MultiNode must have 17-256 children");
     }
@@ -293,7 +300,7 @@ public final class HOTIndirectPage implements Page {
     this.numChildren = other.numChildren;
     this.initialBytePos = other.initialBytePos;
     this.bitMask = other.bitMask;
-    
+
     if (other.maskBytePosArray != null) {
       this.maskBytePosArray = other.maskBytePosArray.clone();
     }
@@ -316,7 +323,7 @@ public final class HOTIndirectPage implements Page {
     if (other.childIndex != null) {
       this.childIndex = other.childIndex.clone();
     }
-    
+
     this.childReferences = new PageReference[other.childReferences.length];
     for (int i = 0; i < other.numChildren; i++) {
       if (other.childReferences[i] != null) {
@@ -341,8 +348,7 @@ public final class HOTIndirectPage implements Page {
   // ===== Child lookup methods =====
 
   /**
-   * Find child index for the given key.
-   * Uses SIMD-optimized lookup based on node type.
+   * Find child index for the given key. Uses SIMD-optimized lookup based on node type.
    *
    * @param key the search key
    * @return child index, or NOT_FOUND (-1) if not found
@@ -375,13 +381,19 @@ public final class HOTIndirectPage implements Page {
   /**
    * SpanNode lookup: Extract partial key and search in partial keys array.
    * 
-   * <p><b>Reference:</b> SparsePartialKeys.hpp search() method</p>
+   * <p>
+   * <b>Reference:</b> SparsePartialKeys.hpp search() method
+   * </p>
    * 
-   * <p>Uses SIMD-accelerated search when SparsePartialKeys is available.
-   * The search pattern is: {@code (densePartialKey & sparsePartialKey) == sparsePartialKey}</p>
+   * <p>
+   * Uses SIMD-accelerated search when SparsePartialKeys is available. The search pattern is:
+   * {@code (densePartialKey & sparsePartialKey) == sparsePartialKey}
+   * </p>
    * 
-   * <p>This finds ALL entries that could match the search key based on the
-   * discriminative bits. For an exact match, we take the first (lowest index) match.</p>
+   * <p>
+   * This finds ALL entries that could match the search key based on the discriminative bits. For an
+   * exact match, we take the first (lowest index) match.
+   * </p>
    */
   private int findChildSpanNode(byte[] key) {
     int bytePos = initialBytePos & 0xFF;
@@ -390,7 +402,7 @@ public final class HOTIndirectPage implements Page {
     }
     long keyWord = getKeyWordAt(key, bytePos);
     int densePartialKey = (int) Long.compress(keyWord, bitMask); // PEXT intrinsic
-    
+
     // Use SIMD-accelerated search if available
     if (sparsePartialKeys != null) {
       // SIMD search returns bitmask of all matching entries
@@ -401,7 +413,7 @@ public final class HOTIndirectPage implements Page {
       // Return lowest matching index (trailing zeros count)
       return Integer.numberOfTrailingZeros(matchMask);
     }
-    
+
     // Fallback: Linear search (for deserialized pages without SparsePartialKeys)
     for (int i = 0; i < numChildren; i++) {
       // Check: (denseKey & sparseKey[i]) == sparseKey[i]
@@ -421,7 +433,7 @@ public final class HOTIndirectPage implements Page {
     if (sparsePartialKeys != null) {
       return findChildSpanNode(key);
     }
-    
+
     // Otherwise use direct byte indexing via childIndex array
     if (childIndex == null) {
       return 0; // Fallback
@@ -432,12 +444,14 @@ public final class HOTIndirectPage implements Page {
     }
     int keyByte = key[bytePos] & 0xFF;
     int index = childIndex[keyByte] & 0xFF;
-    return index < numChildren ? index : NOT_FOUND;
+    return index < numChildren
+        ? index
+        : NOT_FOUND;
   }
 
   /**
-   * Extract up to 8 bytes from key starting at given position.
-   * Uses little-endian byte order for PEXT compatibility.
+   * Extract up to 8 bytes from key starting at given position. Uses little-endian byte order for PEXT
+   * compatibility.
    */
   private static long getKeyWordAt(byte[] key, int pos) {
     long result = 0;
@@ -591,7 +605,7 @@ public final class HOTIndirectPage implements Page {
     copy.layoutType = this.layoutType;
     copy.initialBytePos = this.initialBytePos;
     copy.bitMask = this.bitMask;
-    
+
     if (this.maskBytePosArray != null) {
       copy.maskBytePosArray = this.maskBytePosArray.clone();
     }
@@ -607,21 +621,23 @@ public final class HOTIndirectPage implements Page {
     if (this.childIndex != null) {
       copy.childIndex = this.childIndex.clone();
     }
-    
+
     for (int i = 0; i < this.numChildren; i++) {
       if (this.childReferences[i] != null) {
         copy.childReferences[i] = new PageReference(this.childReferences[i]);
       }
     }
-    
+
     return copy;
   }
 
   /**
    * Create a copy of this node with one child reference updated.
    * 
-   * <p>This is used when a child splits and the parent needs to point to the
-   * new subtree (BiNode) containing the split children.</p>
+   * <p>
+   * This is used when a child splits and the parent needs to point to the new subtree (BiNode)
+   * containing the split children.
+   * </p>
    * 
    * @param childIndex the index of the child to update
    * @param newChildRef the new child reference
@@ -632,13 +648,13 @@ public final class HOTIndirectPage implements Page {
     if (childIndex < 0 || childIndex >= numChildren) {
       throw new IllegalArgumentException("Invalid child index: " + childIndex + ", numChildren: " + numChildren);
     }
-    
+
     // Create a copy with same page key but new revision
     HOTIndirectPage copy = copyWithNewPageKey(this.pageKey, newRevision);
-    
+
     // Update the specified child reference
     copy.childReferences[childIndex] = newChildRef;
-    
+
     return copy;
   }
 
@@ -654,11 +670,8 @@ public final class HOTIndirectPage implements Page {
    * @param height the height of this node
    * @return new SpanNode
    */
-  public static HOTIndirectPage createSpanNode(long pageKey, int revision,
-                                               int initialBytePos, long bitMask,
-                                               byte[] partialKeys,
-                                               PageReference[] children,
-                                               int height) {
+  public static HOTIndirectPage createSpanNode(long pageKey, int revision, int initialBytePos, long bitMask,
+      byte[] partialKeys, PageReference[] children, int height) {
     if (children.length < 2 || children.length > 16) {
       throw new IllegalArgumentException("SpanNode must have 2-16 children");
     }
@@ -683,11 +696,8 @@ public final class HOTIndirectPage implements Page {
    * @param height the height of this node
    * @return new MultiNode
    */
-  public static HOTIndirectPage createMultiNode(long pageKey, int revision,
-                                                int initialBytePos, long bitMask,
-                                                byte[] partialKeys,
-                                                PageReference[] children,
-                                                int height) {
+  public static HOTIndirectPage createMultiNode(long pageKey, int revision, int initialBytePos, long bitMask,
+      byte[] partialKeys, PageReference[] children, int height) {
     if (children.length < 1 || children.length > 32) {
       throw new IllegalArgumentException("MultiNode must have 1-32 children, got: " + children.length);
     }
@@ -696,13 +706,13 @@ public final class HOTIndirectPage implements Page {
     page.initialBytePos = (byte) initialBytePos;
     page.bitMask = bitMask;
     page.partialKeys = partialKeys.clone();
-    
+
     // Set up sparsePartialKeys for SIMD-accelerated navigation (same as SpanNode)
     page.sparsePartialKeys = SparsePartialKeys.forBytes(children.length);
     for (int i = 0; i < children.length; i++) {
       page.sparsePartialKeys.setEntry(i, partialKeys[i]);
     }
-    
+
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
     return page;
   }
@@ -750,17 +760,11 @@ public final class HOTIndirectPage implements Page {
       }
     }
   }
-  
+
   @Override
   public String toString() {
-    return "HOTIndirectPage{" +
-        "pageKey=" + pageKey +
-        ", revision=" + revision +
-        ", height=" + height +
-        ", nodeType=" + nodeType +
-        ", layoutType=" + layoutType +
-        ", numChildren=" + numChildren +
-        '}';
+    return "HOTIndirectPage{" + "pageKey=" + pageKey + ", revision=" + revision + ", height=" + height + ", nodeType="
+        + nodeType + ", layoutType=" + layoutType + ", numChildren=" + numChildren + '}';
   }
 }
 

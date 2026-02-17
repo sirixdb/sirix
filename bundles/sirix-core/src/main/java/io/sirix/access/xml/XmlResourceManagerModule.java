@@ -14,7 +14,7 @@ import io.sirix.dagger.ResourceSessionScope;
 @Module
 public interface XmlResourceManagerModule {
 
-    @Binds
-    @ResourceSessionScope
-    XmlResourceSession resourceSession(XmlResourceSessionImpl resourceSession);
+  @Binds
+  @ResourceSessionScope
+  XmlResourceSession resourceSession(XmlResourceSessionImpl resourceSession);
 }

@@ -45,7 +45,8 @@ import static org.junit.Assert.*;
  *
  * <p>
  * The following figure describes the created test document (see <code>xml/test.xml</code>). The
- * nodes are described as follows: </p>
+ * nodes are described as follows:
+ * </p>
  *
  * <ul>
  * <li><code>Kind.ROOT: doc()</code></li>
@@ -57,7 +58,9 @@ import static org.junit.Assert.*;
  * <li><code>Kind.PI: &amp;content:target</code></li>
  * </ul>
  *
- * <p>without processing instruction and comment:</p>
+ * <p>
+ * without processing instruction and comment:
+ * </p>
  *
  * <pre>
  * 0 doc()
@@ -73,7 +76,9 @@ import static org.junit.Assert.*;
  *     |- 13 #oops3
  * </pre>
  *
- * <p> with processing instruction and comment: </p>
+ * <p>
+ * with processing instruction and comment:
+ * </p>
  *
  * <pre>
  * 0 doc()
@@ -257,10 +262,8 @@ public final class XmlDocumentCreator {
     }
 
     final var outputStream = new ByteArrayOutputStream();
-    final var serializer = XmlSerializer.newBuilder(wtx.getResourceSession(), outputStream)
-                                        .emitIDs()
-                                        .prettyPrint()
-                                        .build();
+    final var serializer =
+        XmlSerializer.newBuilder(wtx.getResourceSession(), outputStream).emitIDs().prettyPrint().build();
     serializer.call();
     final var utf8Encoding = StandardCharsets.UTF_8.toString();
     try {
@@ -362,7 +365,7 @@ public final class XmlDocumentCreator {
     try (final XmlResourceSession resMgr = database.beginResourceSession(XmlTestHelper.RESOURCE)) {
       try (final XmlNodeTrx firstWtx = resMgr.beginNodeTrx()) {
         final XmlShredder shredder = new XmlShredder.Builder(firstWtx, XmlShredder.createStringReader(REVXML),
-                                                             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
 

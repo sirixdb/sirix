@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class HOTLeafPageTest {
 
   private static final int PAGE_SIZE = 64 * 1024;
-  
+
   private HOTLeafPage hotLeafPage;
   private Arena arena;
 
@@ -54,11 +54,9 @@ class HOTLeafPageTest {
   void setUp() {
     arena = Arena.ofConfined();
     MemorySegment slotMemory = arena.allocate(PAGE_SIZE);
-    
+
     // Use the constructor that accepts pre-allocated memory
-    hotLeafPage = new HOTLeafPage(
-        1L, 1, IndexType.PATH,
-        slotMemory, null, // null releaser - Arena will handle cleanup
+    hotLeafPage = new HOTLeafPage(1L, 1, IndexType.PATH, slotMemory, null, // null releaser - Arena will handle cleanup
         new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
   }
 
@@ -87,13 +85,13 @@ class HOTLeafPageTest {
   void testInsertAndFind() {
     byte[] key = "hello".getBytes(StandardCharsets.UTF_8);
     byte[] value = "world".getBytes(StandardCharsets.UTF_8);
-    
+
     assertTrue(hotLeafPage.put(key, value));
     assertEquals(1, hotLeafPage.getEntryCount());
-    
+
     int index = hotLeafPage.findEntry(key);
     assertTrue(index >= 0, "Key should be found");
-    
+
     byte[] retrievedValue = hotLeafPage.getValue(index);
     assertArrayEquals(value, retrievedValue);
   }
@@ -105,24 +103,24 @@ class HOTLeafPageTest {
     byte[] key2 = "banana".getBytes(StandardCharsets.UTF_8);
     byte[] key3 = "cherry".getBytes(StandardCharsets.UTF_8);
     byte[] value = "value".getBytes(StandardCharsets.UTF_8);
-    
+
     // Insert out of order
     hotLeafPage.put(key2, value);
     hotLeafPage.put(key1, value);
     hotLeafPage.put(key3, value);
-    
+
     assertEquals(3, hotLeafPage.getEntryCount());
-    
+
     // Keys should be found in sorted positions
     assertTrue(hotLeafPage.findEntry(key1) >= 0);
     assertTrue(hotLeafPage.findEntry(key2) >= 0);
     assertTrue(hotLeafPage.findEntry(key3) >= 0);
-    
+
     // Verify sorted order by checking positions
     int pos1 = hotLeafPage.findEntry(key1);
     int pos2 = hotLeafPage.findEntry(key2);
     int pos3 = hotLeafPage.findEntry(key3);
-    
+
     assertTrue(pos1 < pos2, "apple should come before banana");
     assertTrue(pos2 < pos3, "banana should come before cherry");
   }
@@ -131,13 +129,13 @@ class HOTLeafPageTest {
   void testNotFound() {
     byte[] key = "hello".getBytes(StandardCharsets.UTF_8);
     byte[] value = "world".getBytes(StandardCharsets.UTF_8);
-    
+
     hotLeafPage.put(key, value);
-    
+
     byte[] notFoundKey = "notfound".getBytes(StandardCharsets.UTF_8);
     int index = hotLeafPage.findEntry(notFoundKey);
     assertTrue(index < 0, "Key should not be found");
-    
+
     // Verify insertion point is returned as -(insertionPoint + 1)
     int insertionPoint = -(index + 1);
     assertTrue(insertionPoint >= 0);
@@ -147,15 +145,15 @@ class HOTLeafPageTest {
   void testZeroCopyKeySlice() {
     byte[] key = "testkey".getBytes(StandardCharsets.UTF_8);
     byte[] value = "testvalue".getBytes(StandardCharsets.UTF_8);
-    
+
     hotLeafPage.put(key, value);
-    
+
     int index = hotLeafPage.findEntry(key);
     MemorySegment keySlice = hotLeafPage.getKeySlice(index);
-    
+
     assertNotNull(keySlice);
     assertEquals(key.length, keySlice.byteSize());
-    
+
     // Verify contents match
     byte[] sliceBytes = new byte[(int) keySlice.byteSize()];
     MemorySegment.copy(keySlice, ValueLayout.JAVA_BYTE, 0, sliceBytes, 0, sliceBytes.length);
@@ -166,15 +164,15 @@ class HOTLeafPageTest {
   void testZeroCopyValueSlice() {
     byte[] key = "testkey".getBytes(StandardCharsets.UTF_8);
     byte[] value = "testvalue".getBytes(StandardCharsets.UTF_8);
-    
+
     hotLeafPage.put(key, value);
-    
+
     int index = hotLeafPage.findEntry(key);
     MemorySegment valueSlice = hotLeafPage.getValueSlice(index);
-    
+
     assertNotNull(valueSlice);
     assertEquals(value.length, valueSlice.byteSize());
-    
+
     // Verify contents match
     byte[] sliceBytes = new byte[(int) valueSlice.byteSize()];
     MemorySegment.copy(valueSlice, ValueLayout.JAVA_BYTE, 0, sliceBytes, 0, sliceBytes.length);
@@ -184,17 +182,17 @@ class HOTLeafPageTest {
   @Test
   void testGuardManagement() {
     assertEquals(0, hotLeafPage.getGuardCount());
-    
+
     hotLeafPage.acquireGuard();
     assertEquals(1, hotLeafPage.getGuardCount());
     assertTrue(hotLeafPage.isHot());
-    
+
     hotLeafPage.acquireGuard();
     assertEquals(2, hotLeafPage.getGuardCount());
-    
+
     hotLeafPage.releaseGuard();
     assertEquals(1, hotLeafPage.getGuardCount());
-    
+
     hotLeafPage.releaseGuard();
     assertEquals(0, hotLeafPage.getGuardCount());
   }
@@ -210,10 +208,10 @@ class HOTLeafPageTest {
   void testOrphanedCleanup() {
     hotLeafPage.acquireGuard();
     hotLeafPage.markOrphaned();
-    
+
     assertTrue(hotLeafPage.isOrphaned());
     assertFalse(hotLeafPage.isClosed(), "Should not close while guarded");
-    
+
     hotLeafPage.releaseGuard();
     assertTrue(hotLeafPage.isClosed(), "Should close when guard released and orphaned");
   }
@@ -223,7 +221,7 @@ class HOTLeafPageTest {
     assertFalse(hotLeafPage.isClosed());
     hotLeafPage.close();
     assertTrue(hotLeafPage.isClosed());
-    
+
     // Double close should be safe
     hotLeafPage.close();
     assertTrue(hotLeafPage.isClosed());
@@ -232,7 +230,7 @@ class HOTLeafPageTest {
   @Test
   void testNeedsSplit() {
     assertFalse(hotLeafPage.needsSplit());
-    
+
     // Insert entries until the page is full
     // Note: We may hit space limit before MAX_ENTRIES due to key/value size
     int inserted = 0;
@@ -245,7 +243,7 @@ class HOTLeafPageTest {
         break; // Space limit hit
       }
     }
-    
+
     // Either we hit MAX_ENTRIES or ran out of space
     assertTrue(inserted > 0, "Should have inserted at least one entry");
     assertTrue(hotLeafPage.needsSplit() || inserted == HOTLeafPage.MAX_ENTRIES);
@@ -254,7 +252,7 @@ class HOTLeafPageTest {
   @Test
   void testVersionIncrement() {
     assertEquals(0, hotLeafPage.getVersion());
-    
+
     int newVersion = hotLeafPage.incrementVersion();
     assertEquals(1, newVersion);
     assertEquals(1, hotLeafPage.getVersion());
@@ -263,13 +261,13 @@ class HOTLeafPageTest {
   @Test
   void testHotFlag() {
     assertFalse(hotLeafPage.isHot());
-    
+
     hotLeafPage.acquireGuard();
     assertTrue(hotLeafPage.isHot());
-    
+
     hotLeafPage.clearHot();
     assertFalse(hotLeafPage.isHot());
-    
+
     hotLeafPage.releaseGuard();
   }
 
@@ -277,7 +275,7 @@ class HOTLeafPageTest {
   void testEmptyPage() {
     assertEquals(0, hotLeafPage.getEntryCount());
     assertEquals(0, hotLeafPage.size());
-    
+
     byte[] key = "notfound".getBytes(StandardCharsets.UTF_8);
     int index = hotLeafPage.findEntry(key);
     assertTrue(index < 0);
@@ -286,21 +284,21 @@ class HOTLeafPageTest {
   @Test
   void testBinaryKeys() {
     // Test with binary data (not just ASCII)
-    byte[] key1 = new byte[] { 0x00, 0x01, 0x02 };
-    byte[] key2 = new byte[] { 0x00, 0x01, 0x03 };
-    byte[] key3 = new byte[] { (byte) 0xFF, (byte) 0xFE };
-    byte[] value = new byte[] { 0x10, 0x20 };
-    
+    byte[] key1 = new byte[] {0x00, 0x01, 0x02};
+    byte[] key2 = new byte[] {0x00, 0x01, 0x03};
+    byte[] key3 = new byte[] {(byte) 0xFF, (byte) 0xFE};
+    byte[] value = new byte[] {0x10, 0x20};
+
     hotLeafPage.put(key1, value);
     hotLeafPage.put(key2, value);
     hotLeafPage.put(key3, value);
-    
+
     assertEquals(3, hotLeafPage.getEntryCount());
-    
+
     assertTrue(hotLeafPage.findEntry(key1) >= 0);
     assertTrue(hotLeafPage.findEntry(key2) >= 0);
     assertTrue(hotLeafPage.findEntry(key3) >= 0);
-    
+
     // High bytes should sort after low bytes (unsigned comparison)
     int posLow = hotLeafPage.findEntry(key1);
     int posHigh = hotLeafPage.findEntry(key3);

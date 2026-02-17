@@ -80,7 +80,7 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
         ? IncludeSelf.YES
         : IncludeSelf.NO;
     return new TemporalSirixJsonArraySliceStream(new PastAxis<>(rtx.getResourceSession(), rtx, include), collection,
-                                                 fromIndex, toIndex);
+        fromIndex, toIndex);
   }
 
   @Override
@@ -90,14 +90,14 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
         ? IncludeSelf.YES
         : IncludeSelf.NO;
     return new TemporalSirixJsonArraySliceStream(new FutureAxis<>(rtx.getResourceSession(), rtx, include), collection,
-                                                 fromIndex, toIndex);
+        fromIndex, toIndex);
   }
 
   @Override
   public Stream<JsonDBArraySlice> getAllTimes() {
     moveRtx();
     return new TemporalSirixJsonArraySliceStream(new AllTimeAxis<>(rtx.getResourceSession(), rtx), collection,
-                                                 fromIndex, toIndex);
+        fromIndex, toIndex);
   }
 
   @Override

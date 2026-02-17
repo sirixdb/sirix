@@ -41,17 +41,16 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public abstract class AbstractStructForwardingNode extends AbstractForwardingNode
-    implements StructNode {
+public abstract class AbstractStructForwardingNode extends AbstractForwardingNode implements StructNode {
 
   /** Constructor for use by subclasses. */
   protected AbstractStructForwardingNode() {}
 
-  /** 
+  /**
    * {@link StructNodeDelegate} instance.
    * 
    * @return the struct node delegate
-  */
+   */
   protected abstract StructNodeDelegate structDelegate();
 
   /**

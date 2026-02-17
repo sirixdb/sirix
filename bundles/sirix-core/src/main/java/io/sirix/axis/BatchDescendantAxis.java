@@ -22,26 +22,29 @@ import java.util.function.LongConsumer;
 import static java.util.Objects.requireNonNull;
 
 /**
- * A preorder descendant traversal that can produce results in batches to reduce per-element iterator overhead.
+ * A preorder descendant traversal that can produce results in batches to reduce per-element
+ * iterator overhead.
  *
- * <p>This is intended for very hot loops where the caller wants to process node keys in chunks, e.g.:
+ * <p>
+ * This is intended for very hot loops where the caller wants to process node keys in chunks, e.g.:
  *
  * <pre>
- *   final var axis = new BatchDescendantAxis(rtx);
- *   final var batch = new LongArrayList(4096);
- *   while (axis.nextBatch(batch, 4096) > 0) {
- *     for (int i = 0; i < batch.size(); i++) {
- *       final long nodeKey = batch.getLong(i);
- *       // process...
- *     }
+ * final var axis = new BatchDescendantAxis(rtx);
+ * final var batch = new LongArrayList(4096);
+ * while (axis.nextBatch(batch, 4096) > 0) {
+ *   for (int i = 0; i < batch.size(); i++) {
+ *     final long nodeKey = batch.getLong(i);
+ *     // process...
  *   }
+ * }
  * </pre>
  *
- * <p>Semantics:
+ * <p>
+ * Semantics:
  * <ul>
- *   <li>Traversal order matches {@link DescendantAxis} (preorder DFS).</li>
- *   <li>On each returned key, this axis moves the underlying cursor to that key.</li>
- *   <li>When finished, {@link #nextBatch(LongArrayList, int)} returns {@code 0}.</li>
+ * <li>Traversal order matches {@link DescendantAxis} (preorder DFS).</li>
+ * <li>On each returned key, this axis moves the underlying cursor to that key.</li>
+ * <li>When finished, {@link #nextBatch(LongArrayList, int)} returns {@code 0}.</li>
  * </ul>
  */
 public final class BatchDescendantAxis {
@@ -94,7 +97,8 @@ public final class BatchDescendantAxis {
   /**
    * Fill {@code out} with up to {@code maxItems} next node keys in preorder.
    *
-   * <p>{@code out} is cleared at the beginning of the call.
+   * <p>
+   * {@code out} is cleared at the beginning of the call.
    *
    * @param out the output list to fill (reused by caller to avoid allocations)
    * @param maxItems maximum number of keys to add (must be &gt; 0)
@@ -133,9 +137,10 @@ public final class BatchDescendantAxis {
   /**
    * Visit up to {@code maxItems} next nodes and call {@code consumer} for each node key.
    *
-   * <p>This is the most allocation-friendly way to consume this axis:
-   * the cursor is moved to each node and you can use flyweight getters on the cursor/transaction to
-   * check structural properties cheaply, only materializing the node object when really needed.
+   * <p>
+   * This is the most allocation-friendly way to consume this axis: the cursor is moved to each node
+   * and you can use flyweight getters on the cursor/transaction to check structural properties
+   * cheaply, only materializing the node object when really needed.
    *
    * @param maxItems maximum number of nodes to visit (must be &gt; 0)
    * @param consumer callback invoked with each visited node key (cursor is positioned on it)
@@ -166,11 +171,14 @@ public final class BatchDescendantAxis {
   }
 
   /**
-   * Visit up to {@code maxItems} next nodes that match the given filters and call {@code consumer} for each match.
+   * Visit up to {@code maxItems} next nodes that match the given filters and call {@code consumer}
+   * for each match.
    *
-   * <p>This reuses the existing {@link Filter} implementations (same contract as {@link io.sirix.axis.filter.FilterAxis})
-   * without the per-item iterator overhead. Filters are evaluated while the cursor is already positioned on the
-   * candidate node, so they can rely on flyweight getters and avoid node materialization.
+   * <p>
+   * This reuses the existing {@link Filter} implementations (same contract as
+   * {@link io.sirix.axis.filter.FilterAxis}) without the per-item iterator overhead. Filters are
+   * evaluated while the cursor is already positioned on the candidate node, so they can rely on
+   * flyweight getters and avoid node materialization.
    *
    * @param maxItems maximum number of matching nodes to visit (must be &gt; 0)
    * @param consumer callback invoked with each visited node key (cursor is positioned on it)
@@ -180,11 +188,8 @@ public final class BatchDescendantAxis {
    * @return number of matching nodes visited (0 if traversal finished)
    */
   @SafeVarargs
-  public final <R extends NodeReadOnlyTrx & NodeCursor> int forEachNextFiltered(
-      final int maxItems,
-      final LongConsumer consumer,
-      final Filter<R> firstFilter,
-      final Filter<R>... moreFilters) {
+  public final <R extends NodeReadOnlyTrx & NodeCursor> int forEachNextFiltered(final int maxItems,
+      final LongConsumer consumer, final Filter<R> firstFilter, final Filter<R>... moreFilters) {
     if (maxItems <= 0) {
       throw new IllegalArgumentException("maxItems must be > 0");
     }
@@ -251,7 +256,9 @@ public final class BatchDescendantAxis {
         return cursor.getNodeKey();
       }
       final long firstChildKey = cursor.getFirstChildKey();
-      return firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty() ? done() : firstChildKey;
+      return firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
+          ? done()
+          : firstChildKey;
     }
 
     // PERF: Avoid hasFirstChild()/hasRightSibling() to prevent redundant flyweight field reads.
@@ -266,19 +273,24 @@ public final class BatchDescendantAxis {
 
     final long rightSiblingKey = cursor.getRightSiblingKey();
     if (rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      return rightSiblingKey == startNodeRightSiblingKey ? done() : rightSiblingKey;
+      return rightSiblingKey == startNodeRightSiblingKey
+          ? done()
+          : rightSiblingKey;
     }
 
     while (!rightSiblingKeyStack.isEmpty()) {
       final long key = rightSiblingKeyStack.popLong();
-      return key == startNodeRightSiblingKey ? done() : key;
+      return key == startNodeRightSiblingKey
+          ? done()
+          : key;
     }
 
     return done();
   }
 
   private long done() {
-    // Mark finished and reset cursor to start node, like AbstractAxis does when hasNext() becomes false.
+    // Mark finished and reset cursor to start node, like AbstractAxis does when hasNext() becomes
+    // false.
     finished = true;
     cursor.moveTo(startNodeKey);
     return Fixed.NULL_NODE_KEY.getStandardProperty();

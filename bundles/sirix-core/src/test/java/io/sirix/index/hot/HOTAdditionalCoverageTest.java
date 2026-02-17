@@ -63,15 +63,15 @@ class HOTAdditionalCoverageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 100; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"key").append(i).append("\": ").append(i);
           }
           json.append("}");
@@ -80,7 +80,7 @@ class HOTAdditionalCoverageTest {
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           assertEquals(NodeKind.OBJECT, rtx.getKind());
@@ -100,11 +100,11 @@ class HOTAdditionalCoverageTest {
       leftRef.setKey(1);
       PageReference rightRef = new PageReference();
       rightRef.setKey(2);
-      
+
       HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       var result = new HeightOptimalSplitter.SplitResult(newRoot, leftRef, rightRef, 5);
-      
+
       assertNotNull(result.newRoot());
       assertNotNull(result.leftChild());
       assertNotNull(result.rightChild());
@@ -161,7 +161,7 @@ class HOTAdditionalCoverageTest {
       PageReference leftRef = new PageReference();
       PageReference rightRef = new PageReference();
       HOTIndirectPage merged = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       var result = SiblingMerger.MergeResult.success(merged, true);
 
       assertTrue(result.success());
@@ -193,9 +193,9 @@ class HOTAdditionalCoverageTest {
     void testGetFillFactor() {
       PageReference leftRef = new PageReference();
       PageReference rightRef = new PageReference();
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       double fillFactor = SiblingMerger.getFillFactor(biNode);
       assertTrue(fillFactor > 0 && fillFactor <= 1.0);
     }
@@ -205,9 +205,9 @@ class HOTAdditionalCoverageTest {
     void testShouldMerge() {
       PageReference leftRef = new PageReference();
       PageReference rightRef = new PageReference();
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       // BiNode with 2 children - check shouldMerge
       boolean shouldMerge = SiblingMerger.shouldMerge(biNode);
       // Just verify it doesn't throw
@@ -239,7 +239,7 @@ class HOTAdditionalCoverageTest {
       assertNotNull(spk);
       spk.setEntry(0, (short) 0x0100);
       spk.setEntry(1, (short) 0x0200);
-      
+
       int mask = spk.search(0xFFFF);
       assertTrue(mask >= 0);
     }
@@ -250,7 +250,7 @@ class HOTAdditionalCoverageTest {
       SparsePartialKeys<Integer> spk = SparsePartialKeys.forInts(4);
       assertNotNull(spk);
       spk.setEntry(0, 0x01000000);
-      
+
       int mask = spk.search(0xFFFFFFFF);
       assertTrue(mask >= 0);
     }
@@ -261,7 +261,7 @@ class HOTAdditionalCoverageTest {
       int byteSize = SparsePartialKeys.estimateSize(16, Byte.class);
       int shortSize = SparsePartialKeys.estimateSize(16, Short.class);
       int intSize = SparsePartialKeys.estimateSize(16, Integer.class);
-      
+
       assertTrue(byteSize > 0);
       assertTrue(shortSize > byteSize);
       assertTrue(intSize > shortSize);
@@ -375,15 +375,8 @@ class HOTAdditionalCoverageTest {
     @Test
     @DisplayName("Find optimal split point with sorted keys")
     void testFindOptimalSplitPoint() {
-      byte[][] keys = new byte[][] {
-          {0x00, 0x01},
-          {0x00, 0x02},
-          {0x00, 0x03},
-          {0x01, 0x00},
-          {0x01, 0x01},
-          {0x01, 0x02}
-      };
-      
+      byte[][] keys = new byte[][] {{0x00, 0x01}, {0x00, 0x02}, {0x00, 0x03}, {0x01, 0x00}, {0x01, 0x01}, {0x01, 0x02}};
+
       int splitPoint = HeightOptimalSplitter.findOptimalSplitPoint(keys);
       assertTrue(splitPoint >= 0 && splitPoint < keys.length);
     }
@@ -393,7 +386,7 @@ class HOTAdditionalCoverageTest {
     void testShouldCreateSpanNode() {
       byte[] leftMax = new byte[] {0x0F};
       byte[] rightMin = new byte[] {0x10};
-      
+
       boolean shouldCreate = HeightOptimalSplitter.shouldCreateSpanNode(leftMax, rightMin, 3);
       // Just verify it doesn't throw and returns a value
       assertNotNull(Boolean.valueOf(shouldCreate));
@@ -406,12 +399,11 @@ class HOTAdditionalCoverageTest {
       leftRef.setKey(100);
       PageReference rightRef = new PageReference();
       rightRef.setKey(200);
-      
+
       byte[] splitKey = new byte[] {0x50};
-      
-      HOTIndirectPage biNode = HeightOptimalSplitter.createBiNode(
-          1L, 1, 7, leftRef, rightRef);
-      
+
+      HOTIndirectPage biNode = HeightOptimalSplitter.createBiNode(1L, 1, 7, leftRef, rightRef);
+
       assertNotNull(biNode);
       assertEquals(HOTIndirectPage.NodeType.BI_NODE, biNode.getNodeType());
     }
@@ -426,9 +418,9 @@ class HOTAdditionalCoverageTest {
     void testIsFull() {
       PageReference leftRef = new PageReference();
       PageReference rightRef = new PageReference();
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       boolean isFull = NodeUpgradeManager.isFull(biNode);
       // BiNode can hold exactly 2 children, so isFull() check depends on implementation
       assertNotNull(Boolean.valueOf(isFull));
@@ -439,9 +431,9 @@ class HOTAdditionalCoverageTest {
     void testIsUnderfilled() {
       PageReference leftRef = new PageReference();
       PageReference rightRef = new PageReference();
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       boolean isUnderfilled = NodeUpgradeManager.isUnderfilled(biNode, 0.5);
       assertFalse(isUnderfilled, "BiNode with 2 children is not underfilled");
     }
@@ -464,7 +456,7 @@ class HOTAdditionalCoverageTest {
       PageReference leftRef2 = new PageReference();
       PageReference rightRef2 = new PageReference();
       HOTIndirectPage node2 = HOTIndirectPage.createBiNode(2L, 1, 0, leftRef2, rightRef2);
-      
+
       boolean shouldMerge = NodeUpgradeManager.shouldMergeToSpanNode(node1, node2);
       assertTrue(shouldMerge, "Two BiNodes should merge to SpanNode");
     }
@@ -481,9 +473,9 @@ class HOTAdditionalCoverageTest {
       leftRef.setKey(1);
       PageReference rightRef = new PageReference();
       rightRef.setKey(2);
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       // BiNode with both children can't be collapsed
       boolean canCollapse = SiblingMerger.canCollapseBiNode(biNode);
       assertFalse(canCollapse);
@@ -496,9 +488,9 @@ class HOTAdditionalCoverageTest {
       leftRef.setKey(1);
       PageReference rightRef = new PageReference();
       rightRef.setKey(2);
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       // BiNode with both children cannot be collapsed
       boolean canCollapse = SiblingMerger.canCollapseBiNode(biNode);
       assertFalse(canCollapse, "BiNode with 2 children cannot be collapsed");
@@ -524,7 +516,7 @@ class HOTAdditionalCoverageTest {
       SparsePartialKeys<Byte> spk = SparsePartialKeys.forBytes(4);
       spk.setEntry(0, (byte) 0x01);
       spk.setEntry(1, (byte) 0x02);
-      
+
       int mask = spk.search(0x00);
       // Zero pattern behavior depends on implementation - just verify it returns
       assertTrue(mask >= 0);
@@ -538,7 +530,7 @@ class HOTAdditionalCoverageTest {
       spk.setEntry(1, (byte) 0x02);
       spk.setEntry(2, (byte) 0x04);
       spk.setEntry(3, (byte) 0x08);
-      
+
       int mask = spk.search(0x02);
       assertTrue((mask & 0x02) != 0, "Should find entry 1");
     }
@@ -557,9 +549,9 @@ class HOTAdditionalCoverageTest {
         refs[i] = new PageReference();
         refs[i].setKey(100 + i);
       }
-      
+
       ChunkDirectory dir = new ChunkDirectory(3, indices, refs);
-      
+
       int chunkIdx = dir.getChunkIndex(1);
       assertEquals(1000, chunkIdx);
     }
@@ -570,9 +562,9 @@ class HOTAdditionalCoverageTest {
       PageReference[] refs = new PageReference[2];
       refs[0] = new PageReference();
       refs[1] = new PageReference();
-      
+
       ChunkDirectory dir = new ChunkDirectory(2, new int[] {0, 1000}, refs);
-      
+
       int[] indices = dir.getChunkIndices();
       assertNotNull(indices);
       assertEquals(0, indices[0]);
@@ -587,9 +579,9 @@ class HOTAdditionalCoverageTest {
       refs[0].setKey(100);
       refs[1] = new PageReference();
       refs[1].setKey(200);
-      
+
       ChunkDirectory dir = new ChunkDirectory(2, new int[] {0, 1000}, refs);
-      
+
       PageReference ref = dir.getChunkRefAtPosition(0);
       assertEquals(100, ref.getKey());
     }
@@ -598,7 +590,7 @@ class HOTAdditionalCoverageTest {
     @DisplayName("Get or create chunk ref")
     void testGetOrCreateChunkRef() {
       ChunkDirectory dir = new ChunkDirectory();
-      
+
       PageReference ref = dir.getOrCreateChunkRef(0);
       assertNotNull(ref);
       assertEquals(1, dir.chunkCount());
@@ -610,9 +602,9 @@ class HOTAdditionalCoverageTest {
       ChunkDirectory dir = new ChunkDirectory();
       PageReference ref = new PageReference();
       ref.setKey(999);
-      
+
       dir.setChunkRef(5, ref);
-      
+
       PageReference retrieved = dir.getChunkRef(5);
       assertNotNull(retrieved);
       assertEquals(999, retrieved.getKey());
@@ -630,7 +622,7 @@ class HOTAdditionalCoverageTest {
     void testIsEmpty() {
       ChunkDirectory empty = new ChunkDirectory();
       assertTrue(empty.isEmpty());
-      
+
       empty.getOrCreateChunkRef(0);
       assertFalse(empty.isEmpty());
     }
@@ -641,7 +633,7 @@ class HOTAdditionalCoverageTest {
       ChunkDirectory dir = new ChunkDirectory();
       dir.getOrCreateChunkRef(0);
       assertTrue(dir.isModified());
-      
+
       dir.clearModified();
       assertFalse(dir.isModified());
     }
@@ -654,10 +646,10 @@ class HOTAdditionalCoverageTest {
       refs[0].setKey(100);
       refs[1] = new PageReference();
       refs[1].setKey(200);
-      
+
       ChunkDirectory original = new ChunkDirectory(2, new int[] {0, 1000}, refs);
       ChunkDirectory copy = original.copy();
-      
+
       assertEquals(original.chunkCount(), copy.chunkCount());
     }
 
@@ -673,12 +665,12 @@ class HOTAdditionalCoverageTest {
     @Test
     @DisplayName("Equals and hashCode")
     void testEqualsHashCode() {
-      PageReference[] refs1 = new PageReference[] { new PageReference() };
-      PageReference[] refs2 = new PageReference[] { new PageReference() };
-      
+      PageReference[] refs1 = new PageReference[] {new PageReference()};
+      PageReference[] refs2 = new PageReference[] {new PageReference()};
+
       ChunkDirectory dir1 = new ChunkDirectory(1, new int[] {0}, refs1);
       ChunkDirectory dir2 = new ChunkDirectory(1, new int[] {0}, refs2);
-      
+
       // Same structure
       assertEquals(dir1.hashCode(), dir2.hashCode());
     }
@@ -693,7 +685,7 @@ class HOTAdditionalCoverageTest {
     void testExtractMask() {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(7);
       byte[] key = new byte[] {(byte) 0x80, 0x00};
-      
+
       int extracted = mapping.extractMask(key);
       assertTrue(extracted >= 0);
     }
@@ -732,7 +724,7 @@ class HOTAdditionalCoverageTest {
     void testIdenticalKeys() {
       byte[] key1 = new byte[] {0x01, 0x02, 0x03};
       byte[] key2 = new byte[] {0x01, 0x02, 0x03};
-      
+
       int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
       assertEquals(-1, bit, "Identical keys should return -1");
     }
@@ -742,7 +734,7 @@ class HOTAdditionalCoverageTest {
     void testDifferentLengthKeys() {
       byte[] key1 = new byte[] {0x01, 0x02};
       byte[] key2 = new byte[] {0x01, 0x02, 0x03};
-      
+
       int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
       assertTrue(bit >= 0, "Different length keys should have a differing bit");
     }
@@ -752,7 +744,7 @@ class HOTAdditionalCoverageTest {
     void testEmptyKeys() {
       byte[] key1 = new byte[0];
       byte[] key2 = new byte[0];
-      
+
       int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
       assertEquals(-1, bit, "Empty keys should return -1");
     }
@@ -762,7 +754,7 @@ class HOTAdditionalCoverageTest {
     void testOneEmptyKey() {
       byte[] key1 = new byte[0];
       byte[] key2 = new byte[] {0x01};
-      
+
       int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
       assertEquals(0, bit, "One empty key should differ at bit 0");
     }

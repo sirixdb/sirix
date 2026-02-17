@@ -284,7 +284,7 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
       final Attribute attribute = (Attribute) it.next();
       final QName attName = attribute.getName();
       wtx.insertAttribute(new QNm(attName.getNamespaceURI(), attName.getPrefix(), attName.getLocalPart()),
-                          attribute.getValue());
+          attribute.getValue());
       wtx.moveToParent();
     }
   }
@@ -311,8 +311,8 @@ public final class XmlShredder extends AbstractShredder implements Callable<Long
     try (final var db = Databases.openXmlDatabase(target)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").build());
       try (final XmlResourceSession resourceSession = db.beginResourceSession("shredded");
-           final XmlNodeTrx wtx = resourceSession.beginNodeTrx();
-           final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
+          final XmlNodeTrx wtx = resourceSession.beginNodeTrx();
+          final FileInputStream fis = new FileInputStream(Paths.get(args[0]).toFile())) {
         final XMLEventReader reader = createFileReader(fis);
         final boolean includeCoPI = args.length == 3 && Boolean.parseBoolean(args[2]);
         final XmlShredder shredder =

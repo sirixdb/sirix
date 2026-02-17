@@ -61,8 +61,8 @@ public final class XMLFun {
     Namespaces.predefine(XMLFun.XML_PREFIX, XMLFun.XML_NSURI);
 
     // sort by document order
-    Functions.predefine(new SortByDocOrder(SortByDocOrder.SORT,
-                                           new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.ITEM_SEQUENCE)));
+    Functions.predefine(
+        new SortByDocOrder(SortByDocOrder.SORT, new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.ITEM_SEQUENCE)));
 
     // store
     Functions.predefine(new Store(false));
@@ -70,20 +70,16 @@ public final class XMLFun {
     Functions.predefine(new Store(Store.STORE, false));
     Functions.predefine(new Store(Store.STORE, true));
     Functions.predefine(new Store(Store.STORE,
-                                  new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
-                                               new SequenceType(AtomicType.STR, Cardinality.One),
-                                               new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-                                               new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
-                                               new SequenceType(AtomicType.BOOL, Cardinality.One),
-                                               new SequenceType(AtomicType.STR, Cardinality.One),
-                                               new SequenceType(AtomicType.DATI, Cardinality.One))));
+        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
+            new SequenceType(AtomicType.BOOL, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.DATI, Cardinality.One))));
     Functions.predefine(new Store(Store.STORE,
-                                  new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
-                                               new SequenceType(AtomicType.STR, Cardinality.One),
-                                               new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-                                               new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
-                                               new SequenceType(AtomicType.BOOL, Cardinality.One),
-                                               new SequenceType(AtomicType.STR, Cardinality.One))));
+        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
+            new SequenceType(AtomicType.BOOL, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One))));
 
     // load
     Functions.predefine(new Load(false));
@@ -91,115 +87,86 @@ public final class XMLFun {
     Functions.predefine(new Load(Load.LOAD, false));
     Functions.predefine(new Load(Load.LOAD, true));
     Functions.predefine(new Load(Load.LOAD,
-                                 new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
-                                               new SequenceType(AtomicType.STR, Cardinality.One),
-                                               new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-                                               new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
-                                               new SequenceType(AtomicType.BOOL, Cardinality.One),
-                                               new SequenceType(AtomicType.STR, Cardinality.One),
-                                               new SequenceType(AtomicType.DATI, Cardinality.One))));
+        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
+            new SequenceType(AtomicType.BOOL, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.DATI, Cardinality.One))));
     Functions.predefine(new Load(Load.LOAD,
-                                 new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
-                                               new SequenceType(AtomicType.STR, Cardinality.One),
-                                               new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-                                               new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
-                                               new SequenceType(AtomicType.BOOL, Cardinality.One),
-                                               new SequenceType(AtomicType.STR, Cardinality.One))));
+        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
+            new SequenceType(AtomicType.BOOL, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One))));
 
     // doc
     Functions.predefine(new Doc(Doc.DOC,
-                                new Signature(SequenceType.NODE,
-                                              new SequenceType(AtomicType.STR, Cardinality.One),
-                                              new SequenceType(AtomicType.STR, Cardinality.One),
-                                              new SequenceType(AtomicType.INT, Cardinality.ZeroOrOne))));
+        new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.INT, Cardinality.ZeroOrOne))));
     Functions.predefine(new Doc(Doc.DOC,
-                                new Signature(SequenceType.NODE,
-                                              new SequenceType(AtomicType.STR, Cardinality.One),
-                                              new SequenceType(AtomicType.STR, Cardinality.One),
-                                              new SequenceType(AtomicType.INT, Cardinality.ZeroOrOne),
-                                              new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
-    Functions.predefine(new Doc(Doc.DOC,
-                                new Signature(SequenceType.NODE,
-                                              new SequenceType(AtomicType.STR, Cardinality.One),
-                                              new SequenceType(AtomicType.STR, Cardinality.One))));
+        new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.INT, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
+    Functions.predefine(new Doc(Doc.DOC, new Signature(SequenceType.NODE,
+        new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One))));
 
     // open
     Functions.predefine(new DocByPointInTime(DocByPointInTime.OPEN,
-                                             new Signature(SequenceType.NODE,
-                                                           new SequenceType(AtomicType.STR, Cardinality.One),
-                                                           new SequenceType(AtomicType.STR, Cardinality.One),
-                                                           new SequenceType(AtomicType.DATI, Cardinality.ZeroOrOne))));
+        new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.DATI, Cardinality.ZeroOrOne))));
     Functions.predefine(new DocByPointInTime(DocByPointInTime.OPEN,
-                                             new Signature(SequenceType.NODE,
-                                                           new SequenceType(AtomicType.STR, Cardinality.One),
-                                                           new SequenceType(AtomicType.STR, Cardinality.One),
-                                                           new SequenceType(AtomicType.DATI, Cardinality.ZeroOrOne),
-                                                           new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
+        new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.DATI, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
 
     // open-revisions
     Functions.predefine(new OpenRevisions(OpenRevisions.OPEN_REVISIONS,
-                                          new Signature(SequenceType.ITEM_SEQUENCE,
-                                                        SequenceType.STRING,
-                                                        SequenceType.STRING,
-                                                        new SequenceType(AtomicType.DATI, Cardinality.One),
-                                                        new SequenceType(AtomicType.DATI, Cardinality.One))));
+        new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.STRING, SequenceType.STRING,
+            new SequenceType(AtomicType.DATI, Cardinality.One), new SequenceType(AtomicType.DATI, Cardinality.One))));
 
     // level-order
-    Functions.predefine(new LevelOrder(LevelOrder.LEVEL_ORDER,
-                                       new Signature(SequenceType.ITEM_SEQUENCE,
-                                                     SequenceType.NODE,
-                                                     new SequenceType(AtomicType.INT, Cardinality.One))));
-    Functions.predefine(new LevelOrder(LevelOrder.LEVEL_ORDER, new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.NODE)));
+    Functions.predefine(new LevelOrder(LevelOrder.LEVEL_ORDER, new Signature(SequenceType.ITEM_SEQUENCE,
+        SequenceType.NODE, new SequenceType(AtomicType.INT, Cardinality.One))));
+    Functions.predefine(
+        new LevelOrder(LevelOrder.LEVEL_ORDER, new Signature(SequenceType.ITEM_SEQUENCE, SequenceType.NODE)));
 
     // get-namespace-count
     Functions.predefine(new GetNamespaceCount(GetNamespaceCount.GET_NAMESPACE_COUNT,
-                                              new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+        new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
     // get-attribute-count
     Functions.predefine(new GetAttributeCount(GetAttributeCount.GET_ATTRIBUTE_COUNT,
-                                              new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+        new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
     // find-name-index
     Functions.predefine(new FindNameIndex(FIND_NAME_INDEX,
-                                          new Signature(SequenceType.INTEGER,
-                                                        SequenceType.NODE,
-                                                        new SequenceType(AtomicType.QNM, Cardinality.One))));
+        new Signature(SequenceType.INTEGER, SequenceType.NODE, new SequenceType(AtomicType.QNM, Cardinality.One))));
 
     // find-path-index
     Functions.predefine(new FindPathIndex(FIND_PATH_INDEX,
-                                          new Signature(SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
+        new Signature(SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
 
     // find-cas-index
     Functions.predefine(new FindCASIndex(FIND_CAS_INDEX,
-                                         new Signature(SequenceType.INTEGER,
-                                                       SequenceType.NODE,
-                                                       SequenceType.STRING,
-                                                       SequenceType.STRING)));
+        new Signature(SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING, SequenceType.STRING)));
 
     // create-name-index
     Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX,
-                                            new Signature(SequenceType.NODE,
-                                                          SequenceType.NODE,
-                                                          new SequenceType(AtomicType.QNM, Cardinality.ZeroOrMany))));
+        new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.QNM, Cardinality.ZeroOrMany))));
     Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX, new Signature(SequenceType.NODE, SequenceType.NODE)));
 
     // create-path-index
     Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX,
-                                            new Signature(SequenceType.NODE,
-                                                          SequenceType.NODE,
-                                                          new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
+        new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
     Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(SequenceType.NODE, SequenceType.NODE)));
 
     // create-cas-index
     Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX,
-                                           new Signature(SequenceType.NODE,
-                                                         SequenceType.NODE,
-                                                         new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-                                                         new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
+        new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))));
     Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX,
-                                           new Signature(SequenceType.NODE,
-                                                         SequenceType.NODE,
-                                                         new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne))));
+        new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne))));
     Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(SequenceType.NODE, SequenceType.NODE)));
 
     // scan indexes
@@ -209,18 +176,12 @@ public final class XMLFun {
     Functions.predefine(new ScanNameIndex());
 
     // diff
-    Functions.predefine(new Diff(Diff.DIFF,
-                                 new Signature(SequenceType.STRING,
-                                               SequenceType.STRING,
-                                               SequenceType.STRING,
-                                               SequenceType.INTEGER,
-                                               SequenceType.INTEGER)));
+    Functions.predefine(new Diff(Diff.DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,
+        SequenceType.INTEGER, SequenceType.INTEGER)));
 
     // import
-    Functions.predefine(new Import(Import.IMPORT,
-                                   new Signature(SequenceType.NODE,
-                                                 new SequenceType(AtomicType.STR, Cardinality.One),
-                                                 new SequenceType(AtomicType.STR, Cardinality.One),
-                                                 new SequenceType(AtomicType.STR, Cardinality.One))));
+    Functions.predefine(
+        new Import(Import.IMPORT, new Signature(SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One))));
   }
 }

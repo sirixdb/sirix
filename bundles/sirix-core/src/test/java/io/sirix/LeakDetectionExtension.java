@@ -12,31 +12,33 @@ import java.util.Set;
 /**
  * JUnit 5 Extension that detects memory leaks (unclosed pages) after each test.
  * <p>
- * Unlike the JUnit 4 Rule, this extension's {@code afterEach} runs AFTER {@code @AfterEach},
- * so it properly detects leaks after the test's cleanup (e.g., database close) has completed.
+ * Unlike the JUnit 4 Rule, this extension's {@code afterEach} runs AFTER {@code @AfterEach}, so it
+ * properly detects leaks after the test's cleanup (e.g., database close) has completed.
  * <p>
  * Usage:
- * <pre>{@code
- * @ExtendWith(LeakDetectionExtension.class)
- * class MyTest {
+ * 
+ * <pre>
+ * {
+ *   &#64;code
+ *   &#64;ExtendWith(LeakDetectionExtension.class)
+ *   class MyTest {
  *     @AfterEach
  *     void tearDown() {
- *         holder.close();  // Runs BEFORE leak detection
+ *       holder.close(); // Runs BEFORE leak detection
  *     }
+ *   }
  * }
- * }</pre>
+ * </pre>
  * <p>
- * This extension:
- * 1. Takes a snapshot of live pages before each test
- * 2. Runs AFTER @AfterEach (after database cleanup)
- * 3. Clears caches and checks for leaked pages
- * 4. Fails the test if real leaks are detected (when -Dsirix.debug.memory.leaks=true)
+ * This extension: 1. Takes a snapshot of live pages before each test 2. Runs AFTER @AfterEach
+ * (after database cleanup) 3. Clears caches and checks for leaked pages 4. Fails the test if real
+ * leaks are detected (when -Dsirix.debug.memory.leaks=true)
  *
  * @author Johannes Lichtenberger
  */
 public class LeakDetectionExtension implements BeforeEachCallback, AfterEachCallback {
 
-  private static final ExtensionContext.Namespace NAMESPACE = 
+  private static final ExtensionContext.Namespace NAMESPACE =
       ExtensionContext.Namespace.create(LeakDetectionExtension.class);
 
   @Override
@@ -44,7 +46,7 @@ public class LeakDetectionExtension implements BeforeEachCallback, AfterEachCall
     if (!KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
       return;
     }
-    
+
     // Store baseline in the extension context (thread-safe per test)
     ExtensionContext.Store store = context.getStore(NAMESPACE);
     store.put("pagesCreatedBefore", KeyValueLeafPage.PAGES_CREATED.get());
@@ -55,7 +57,7 @@ public class LeakDetectionExtension implements BeforeEachCallback, AfterEachCall
   @Override
   public void afterEach(ExtensionContext context) {
     // This runs AFTER @AfterEach, so database should already be closed
-    
+
     // Free any remaining cached pages
     Databases.freeAllocatedMemory();
 
@@ -110,10 +112,14 @@ public class LeakDetectionExtension implements BeforeEachCallback, AfterEachCall
             sb.append("  ... and ").append(newLeaksCount - 10).append(" more\n");
             break;
           }
-          sb.append("  - pageKey=").append(page.getPageKey())
-            .append(", type=").append(page.getIndexType())
-            .append(", rev=").append(page.getRevision())
-            .append(", guardCount=").append(page.getGuardCount())
+          sb.append("  - pageKey=")
+            .append(page.getPageKey())
+            .append(", type=")
+            .append(page.getIndexType())
+            .append(", rev=")
+            .append(page.getRevision())
+            .append(", guardCount=")
+            .append(page.getGuardCount())
             .append("\n");
 
           if (page.getCreationStackTrace() != null) {
@@ -140,6 +146,5 @@ public class LeakDetectionExtension implements BeforeEachCallback, AfterEachCall
     }
   }
 }
-
 
 

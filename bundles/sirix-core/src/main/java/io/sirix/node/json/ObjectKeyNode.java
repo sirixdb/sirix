@@ -44,6 +44,9 @@ import io.sirix.node.SirixDeweyID;
 
 import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.ReusableNodeProxy;
@@ -57,38 +60,40 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 /**
  * Node representing an object key/field.
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
+ * <p>
+ * Uses primitive fields for efficient storage with delta+varint encoding.
+ * </p>
  */
 public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonNode, ReusableNodeProxy {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-  
+
   // Mutable structural fields
   private long parentKey;
   private long pathNodeKey;
   private long rightSiblingKey;
   private long leftSiblingKey;
   private long firstChildKey;
-  
+
   // Name key (hash of the name string)
   private int nameKey;
-  
+
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-  
+
   // Mutable hash and descendant count
   private long hash;
   private long descendantCount;
-  
+
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-  
+
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
-  
+
   // Cache for name (not serialized, only nameKey is)
   private QNm cachedName;
 
@@ -98,12 +103,14 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   private boolean lazyFieldsParsed;
   private boolean hasHash;
 
+  // Fixed-slot lazy support
+  private NodeKindLayout fixedSlotLayout;
+
   /**
    * Primary constructor with all primitive fields.
    */
-  public ObjectKeyNode(long nodeKey, long parentKey, long pathNodeKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long firstChildKey,
-      int nameKey, long descendantCount, long hash,
+  public ObjectKeyNode(long nodeKey, long parentKey, long pathNodeKey, int previousRevision, int lastModifiedRevision,
+      long rightSiblingKey, long leftSiblingKey, long firstChildKey, int nameKey, long descendantCount, long hash,
       LongHashFunction hashFunction, byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -124,9 +131,8 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   /**
    * Constructor with SirixDeweyID instead of byte array.
    */
-  public ObjectKeyNode(long nodeKey, long parentKey, long pathNodeKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long firstChildKey,
-      int nameKey, long descendantCount, long hash,
+  public ObjectKeyNode(long nodeKey, long parentKey, long pathNodeKey, int previousRevision, int lastModifiedRevision,
+      long rightSiblingKey, long leftSiblingKey, long firstChildKey, int nameKey, long descendantCount, long hash,
       LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -158,7 +164,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   public long getParentKey() {
     return parentKey;
   }
-  
+
   public void setParentKey(final long parentKey) {
     this.parentKey = parentKey;
   }
@@ -215,9 +221,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public long computeHash(BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey())
-         .writeLong(getParentKey())
-         .writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
 
     bytes.writeLong(getDescendantCount())
          .writeLong(getLeftSiblingKey())
@@ -296,7 +300,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   public long getRightSiblingKey() {
     return rightSiblingKey;
   }
-  
+
   public void setRightSiblingKey(final long rightSibling) {
     this.rightSiblingKey = rightSibling;
   }
@@ -305,7 +309,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   public long getLeftSiblingKey() {
     return leftSiblingKey;
   }
-  
+
   public void setLeftSiblingKey(final long leftSibling) {
     this.leftSiblingKey = leftSibling;
   }
@@ -314,7 +318,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   public long getFirstChildKey() {
     return firstChildKey;
   }
-  
+
   public void setFirstChildKey(final long firstChild) {
     this.firstChildKey = firstChild;
   }
@@ -364,11 +368,17 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   @Override
   public void decrementDescendantCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     descendantCount--;
   }
 
   @Override
   public void incrementDescendantCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     descendantCount++;
   }
 
@@ -443,29 +453,29 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   /**
-   * Populate this node from a BytesIn source for singleton reuse.
-   * LAZY OPTIMIZATION: Only parses structural fields immediately (NEW ORDER).
+   * Populate this node from a BytesIn source for singleton reuse. LAZY OPTIMIZATION: Only parses
+   * structural fields immediately (NEW ORDER).
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
     this.cachedName = null;
-    
+
     // STRUCTURAL FIELDS - parse immediately (NEW ORDER)
     this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    
+
     // Store for lazy parsing
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
     this.lazyFieldsParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
-    
+
     this.nameKey = 0;
     this.pathNodeKey = 0;
     this.previousRevision = 0;
@@ -473,17 +483,36 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     this.hash = 0;
     this.descendantCount = 0;
   }
-  
+
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.lazySource = slotData;
+    this.fixedSlotLayout = layout;
+    this.lazyFieldsParsed = false;
+  }
+
   private void parseLazyFields() {
     if (lazyFieldsParsed) {
       return;
     }
-    
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.pathNodeKey = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.PATH_NODE_KEY);
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.descendantCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.DESCENDANT_COUNT);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.fixedSlotLayout = null;
+      this.lazyFieldsParsed = true;
+      return;
+    }
+
     if (lazySource == null) {
       lazyFieldsParsed = true;
       return;
     }
-    
+
     BytesIn<?> bytesIn;
     if (lazySource instanceof MemorySegment segment) {
       bytesIn = new MemorySegmentBytesIn(segment);
@@ -494,7 +523,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     } else {
       throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
     }
-    
+
     this.nameKey = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.pathNodeKey = DeltaVarIntCodec.decodeDelta(bytesIn, nodeKey);
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
@@ -507,28 +536,23 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   /**
-   * Create a deep copy snapshot of this node.
-   * Forces parsing of all lazy fields since snapshot must be independent.
+   * Create a deep copy snapshot of this node. Forces parsing of all lazy fields since snapshot must
+   * be independent.
    */
   public ObjectKeyNode toSnapshot() {
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return new ObjectKeyNode(nodeKey, parentKey, pathNodeKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, firstChildKey, nameKey, descendantCount, hash, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+    return new ObjectKeyNode(nodeKey, parentKey, pathNodeKey, previousRevision, lastModifiedRevision, rightSiblingKey,
+        leftSiblingKey, firstChildKey, nameKey, descendantCount, hash, hashFunction, deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null);
   }
 
   public String toString() {
-    return "ObjectKeyNode{" +
-        "nodeKey=" + nodeKey +
-        ", parentKey=" + parentKey +
-        ", nameKey=" + nameKey +
-        ", pathNodeKey=" + pathNodeKey +
-        ", rightSiblingKey=" + rightSiblingKey +
-        ", leftSiblingKey=" + leftSiblingKey +
-        ", firstChildKey=" + firstChildKey +
-        '}';
+    return "ObjectKeyNode{" + "nodeKey=" + nodeKey + ", parentKey=" + parentKey + ", nameKey=" + nameKey
+        + ", pathNodeKey=" + pathNodeKey + ", rightSiblingKey=" + rightSiblingKey + ", leftSiblingKey=" + leftSiblingKey
+        + ", firstChildKey=" + firstChildKey + '}';
   }
 
   public static Funnel<ObjectKeyNode> getFunnel() {

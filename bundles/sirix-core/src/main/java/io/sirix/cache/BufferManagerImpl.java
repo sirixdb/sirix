@@ -14,25 +14,25 @@ import org.slf4j.LoggerFactory;
  * <p>
  * This component manages all page caches for a database, providing:
  * <ul>
- *   <li><b>Record page cache:</b> Full KeyValueLeafPages for data access</li>
- *   <li><b>Fragment cache:</b> Page fragments for versioning reconstruction</li>
- *   <li><b>Page cache:</b> Other page types (NamePage, RevisionRootPage, etc.)</li>
- *   <li><b>Specialized caches:</b> RevisionRootPages, RBTree nodes, Names, PathSummary</li>
+ * <li><b>Record page cache:</b> Full KeyValueLeafPages for data access</li>
+ * <li><b>Fragment cache:</b> Page fragments for versioning reconstruction</li>
+ * <li><b>Page cache:</b> Other page types (NamePage, RevisionRootPage, etc.)</li>
+ * <li><b>Specialized caches:</b> RevisionRootPages, RBTree nodes, Names, PathSummary</li>
  * </ul>
  * <p>
- * The buffer manager coordinates with background ClockSweeper threads for eviction,
- * following the PostgreSQL bgwriter pattern. Eviction uses a second-chance clock
- * algorithm with revision watermark protection for MVCC safety.
+ * The buffer manager coordinates with background ClockSweeper threads for eviction, following the
+ * PostgreSQL bgwriter pattern. Eviction uses a second-chance clock algorithm with revision
+ * watermark protection for MVCC safety.
  * <p>
  * <b>Cache Architecture:</b>
  * <ul>
- *   <li>ShardedPageCache for KeyValueLeafPages (direct eviction control)</li>
- *   <li>Caffeine-based caches for other page types</li>
- *   <li>Global ClockSweeper threads for background eviction</li>
+ * <li>ShardedPageCache for KeyValueLeafPages (direct eviction control)</li>
+ * <li>Caffeine-based caches for other page types</li>
+ * <li>Global ClockSweeper threads for background eviction</li>
  * </ul>
  * <p>
- * <b>Thread Safety:</b> All caches are thread-safe and support concurrent access
- * from multiple transactions and ClockSweeper threads.
+ * <b>Thread Safety:</b> All caches are thread-safe and support concurrent access from multiple
+ * transactions and ClockSweeper threads.
  *
  * @author Johannes Lichtenberger
  * @see ShardedPageCache
@@ -45,7 +45,7 @@ public final class BufferManagerImpl implements BufferManager {
   // Use ShardedPageCache for KeyValueLeafPage caches (direct eviction control)
   private final ShardedPageCache recordPageCache;
   private final ShardedPageCache recordPageFragmentCache;
-  
+
   // Keep Caffeine PageCache for mixed page types (NamePage, RevisionRootPage, etc.)
   private final PageCache pageCache;
 
@@ -53,7 +53,7 @@ public final class BufferManagerImpl implements BufferManager {
   private final RedBlackTreeNodeCache redBlackTreeNodeCache;
   private final NamesCache namesCache;
   private final PathSummaryCache pathSummaryCache;
-  
+
   // GLOBAL ClockSweeper threads (PostgreSQL bgwriter pattern)
   // Started when BufferManager is initialized, run until shutdown
   private final java.util.List<Thread> clockSweeperThreads;
@@ -67,7 +67,8 @@ public final class BufferManagerImpl implements BufferManager {
    *
    * @param maxPageCacheWeight maximum weight in bytes for the metadata page cache
    * @param maxRecordPageCacheWeight maximum weight in bytes for the record page cache
-   * @param maxRecordPageFragmentCacheWeight maximum weight in bytes for the record page fragment cache
+   * @param maxRecordPageFragmentCacheWeight maximum weight in bytes for the record page fragment
+   *        cache
    * @param maxRevisionRootPageCache maximum number of revision root pages to cache
    * @param maxRBTreeNodeCache maximum number of RB-tree nodes to cache
    * @param maxNamesCacheSize maximum number of name entries to cache
@@ -135,9 +136,9 @@ public final class BufferManagerImpl implements BufferManager {
   }
 
   /**
-   * Start global ClockSweeper threads for this BufferManager.
-   * Called once when first database opens. ClockSweepers run until BufferManager shutdown.
-   * This follows PostgreSQL bgwriter pattern - background threads run independently of sessions.
+   * Start global ClockSweeper threads for this BufferManager. Called once when first database opens.
+   * ClockSweepers run until BufferManager shutdown. This follows PostgreSQL bgwriter pattern -
+   * background threads run independently of sessions.
    *
    * @param globalEpochTracker the global epoch tracker for MVCC-aware eviction
    */
@@ -146,58 +147,62 @@ public final class BufferManagerImpl implements BufferManager {
       // Already started
       return;
     }
-    
+
     int sweepIntervalMs = 100; // Sweep every 100ms
-    
+
     // Start ClockSweeper for RecordPageCache (GLOBAL - handles all databases/resources)
     if (recordPageCache instanceof ShardedPageCache recordCache) {
       // Get shard 0 (we only have 1 shard in simplified design)
       ShardedPageCache.Shard shard = recordCache.getShard(new PageReference());
-      
-      ClockSweeper sweeper = new ClockSweeper(
-          shard, recordCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0);  // databaseId=0, resourceId=0 means "all"
-      
+
+      ClockSweeper sweeper = new ClockSweeper(shard, recordCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0); // databaseId=0,
+                                                                                                                 // resourceId=0
+                                                                                                                 // means
+                                                                                                                 // "all"
+
       Thread thread = new Thread(sweeper, "ClockSweeper-RecordPage-GLOBAL");
       thread.setDaemon(true);
       thread.start();
-      
+
       clockSweepers.add(sweeper);
       clockSweeperThreads.add(thread);
-      
+
       LOGGER.info("Started GLOBAL ClockSweeper thread for RecordPageCache");
     }
-    
+
     // Start ClockSweeper for RecordPageFragmentCache (GLOBAL)
     if (recordPageFragmentCache instanceof ShardedPageCache fragmentCache) {
       ShardedPageCache.Shard shard = fragmentCache.getShard(new PageReference());
-      
-      ClockSweeper sweeper = new ClockSweeper(
-          shard, fragmentCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0);  // databaseId=0, resourceId=0 means "all"
-      
+
+      ClockSweeper sweeper = new ClockSweeper(shard, fragmentCache, globalEpochTracker, sweepIntervalMs, 0, 0, 0); // databaseId=0,
+                                                                                                                   // resourceId=0
+                                                                                                                   // means
+                                                                                                                   // "all"
+
       Thread thread = new Thread(sweeper, "ClockSweeper-FragmentPage-GLOBAL");
       thread.setDaemon(true);
       thread.start();
-      
+
       clockSweepers.add(sweeper);
       clockSweeperThreads.add(thread);
-      
+
       LOGGER.info("Started GLOBAL ClockSweeper thread for RecordPageFragmentCache");
     }
   }
-  
+
   /**
-   * Stop all global ClockSweeper threads.
-   * Called when BufferManager is shut down (last database closes) or when clearing all caches.
+   * Stop all global ClockSweeper threads. Called when BufferManager is shut down (last database
+   * closes) or when clearing all caches.
    */
   public synchronized void stopClockSweepers() {
     for (ClockSweeper sweeper : clockSweepers) {
       sweeper.stop();
     }
-    
+
     for (Thread thread : clockSweeperThreads) {
       thread.interrupt();
     }
-    
+
     // Wait for threads to finish (with timeout)
     for (Thread thread : clockSweeperThreads) {
       try {
@@ -206,9 +211,9 @@ public final class BufferManagerImpl implements BufferManager {
         Thread.currentThread().interrupt();
       }
     }
-    
+
     LOGGER.info("Stopped {} GLOBAL ClockSweeper threads", clockSweeperThreads.size());
-    
+
     clockSweepers.clear();
     clockSweeperThreads.clear();
   }
@@ -224,8 +229,8 @@ public final class BufferManagerImpl implements BufferManager {
   /**
    * Clears all caches, closing all cached pages.
    * <p>
-   * This is typically called during database shutdown. ClockSweeper threads
-   * continue running (they handle future evictions as new pages are loaded).
+   * This is typically called during database shutdown. ClockSweeper threads continue running (they
+   * handle future evictions as new pages are loaded).
    */
   @Override
   public void clearAllCaches() {
@@ -237,18 +242,18 @@ public final class BufferManagerImpl implements BufferManager {
     namesCache.clear();
     pathSummaryCache.clear();
   }
-  
+
   @Override
   public void clearCachesForDatabase(long databaseId) {
     // CRITICAL FIX: Remove all pages belonging to this database from global caches
     // This prevents cache pollution when database is removed and recreated with same ID
     // THREAD-SAFE: Collect keys first, then remove atomically to avoid concurrent modification
-    
+
     int removedFromRecordCache = 0;
     int removedFromFragmentCache = 0;
     int removedFromPageCache = 0;
     int removedFromRevisionCache = 0;
-    
+
     // Clear RecordPageCache - close pages BEFORE removing from cache
     var recordKeysToRemove = new java.util.ArrayList<PageReference>();
     for (var entry : recordPageCache.asMap().entrySet()) {
@@ -263,12 +268,12 @@ public final class BufferManagerImpl implements BufferManager {
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }
-        page.close();  // Close page to release memory segments to allocator
+        page.close(); // Close page to release memory segments to allocator
       }
       recordPageCache.remove(key);
       removedFromRecordCache++;
     }
-    
+
     // Clear RecordPageFragmentCache - close fragments BEFORE removing from cache
     var fragmentKeysToRemove = new java.util.ArrayList<PageReference>();
     for (var entry : recordPageFragmentCache.asMap().entrySet()) {
@@ -283,12 +288,12 @@ public final class BufferManagerImpl implements BufferManager {
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }
-        page.close();  // Close fragment to release memory segments to allocator
+        page.close(); // Close fragment to release memory segments to allocator
       }
       recordPageFragmentCache.remove(key);
       removedFromFragmentCache++;
     }
-    
+
     // Clear PageCache
     var pageKeysToRemove = new java.util.ArrayList<PageReference>();
     for (var entry : pageCache.asMap().entrySet()) {
@@ -297,39 +302,39 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : pageKeysToRemove) {
-      pageCache.remove(key);  // Cache.remove() is thread-safe
+      pageCache.remove(key); // Cache.remove() is thread-safe
       removedFromPageCache++;
     }
-    
+
     // Clear RevisionRootPageCache
     var revisionKeysToRemove = new java.util.ArrayList<RevisionRootPageCacheKey>();
     for (var entry : revisionRootPageCache.asMap().entrySet()) {
-      if (entry.getKey().databaseId() == databaseId) {  // Record field access
+      if (entry.getKey().databaseId() == databaseId) { // Record field access
         revisionKeysToRemove.add(entry.getKey());
       }
     }
     for (var key : revisionKeysToRemove) {
-      revisionRootPageCache.remove(key);  // Thread-safe
+      revisionRootPageCache.remove(key); // Thread-safe
       removedFromRevisionCache++;
     }
-    
+
     if (removedFromRecordCache + removedFromFragmentCache + removedFromPageCache + removedFromRevisionCache > 0) {
       LOGGER.debug("Cleared caches for database {}: RecordCache={}, FragmentCache={}, PageCache={}, RevisionCache={}",
           databaseId, removedFromRecordCache, removedFromFragmentCache, removedFromPageCache, removedFromRevisionCache);
     }
   }
-  
+
   @Override
   public void clearCachesForResource(long databaseId, long resourceId) {
     // CRITICAL FIX: Remove all pages belonging to this resource from global caches
     // This prevents cache pollution when resource is closed and recreated with same IDs
     // THREAD-SAFE: Collect keys first, then remove atomically to avoid concurrent modification
-    
+
     int removedFromRecordCache = 0;
     int removedFromFragmentCache = 0;
     int removedFromPageCache = 0;
     int removedFromRevisionCache = 0;
-    
+
     // Clear RecordPageCache - close pages BEFORE removing from cache
     var recordKeysToRemove = new java.util.ArrayList<PageReference>();
     for (var entry : recordPageCache.asMap().entrySet()) {
@@ -345,12 +350,12 @@ public final class BufferManagerImpl implements BufferManager {
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }
-        page.close();  // Close page to release memory segments to allocator
+        page.close(); // Close page to release memory segments to allocator
       }
       recordPageCache.remove(key);
       removedFromRecordCache++;
     }
-    
+
     // Clear RecordPageFragmentCache - close fragments BEFORE removing from cache
     var fragmentKeysToRemove = new java.util.ArrayList<PageReference>();
     for (var entry : recordPageFragmentCache.asMap().entrySet()) {
@@ -366,12 +371,12 @@ public final class BufferManagerImpl implements BufferManager {
         while (page.getGuardCount() > 0) {
           page.releaseGuard();
         }
-        page.close();  // Close fragment to release memory segments to allocator
+        page.close(); // Close fragment to release memory segments to allocator
       }
       recordPageFragmentCache.remove(key);
       removedFromFragmentCache++;
     }
-    
+
     // Clear PageCache
     var pageKeysToRemove = new java.util.ArrayList<PageReference>();
     for (var entry : pageCache.asMap().entrySet()) {
@@ -381,10 +386,10 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : pageKeysToRemove) {
-      pageCache.remove(key);  // Cache.remove() is thread-safe
+      pageCache.remove(key); // Cache.remove() is thread-safe
       removedFromPageCache++;
     }
-    
+
     // Clear RevisionRootPageCache
     var revisionKeysToRemove = new java.util.ArrayList<RevisionRootPageCacheKey>();
     for (var entry : revisionRootPageCache.asMap().entrySet()) {
@@ -394,13 +399,15 @@ public final class BufferManagerImpl implements BufferManager {
       }
     }
     for (var key : revisionKeysToRemove) {
-      revisionRootPageCache.remove(key);  // Thread-safe
+      revisionRootPageCache.remove(key); // Thread-safe
       removedFromRevisionCache++;
     }
-    
+
     if (removedFromRecordCache + removedFromFragmentCache + removedFromPageCache + removedFromRevisionCache > 0) {
-      LOGGER.debug("Cleared caches for resource (db={}, res={}): RecordCache={}, FragmentCache={}, PageCache={}, RevisionCache={}",
-          databaseId, resourceId, removedFromRecordCache, removedFromFragmentCache, removedFromPageCache, removedFromRevisionCache);
+      LOGGER.debug(
+          "Cleared caches for resource (db={}, res={}): RecordCache={}, FragmentCache={}, PageCache={}, RevisionCache={}",
+          databaseId, resourceId, removedFromRecordCache, removedFromFragmentCache, removedFromPageCache,
+          removedFromRevisionCache);
     }
   }
 }

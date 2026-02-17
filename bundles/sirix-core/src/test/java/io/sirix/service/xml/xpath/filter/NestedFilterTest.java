@@ -59,11 +59,11 @@ public class NestedFilterTest {
     holder.getXmlNodeReadTrx().moveTo(9L);
     FilterTest.testFilterConventions(
         new NestedFilter(holder.getXmlNodeReadTrx(), List.of(new ItemFilter(holder.getXmlNodeReadTrx()),
-                                                             new ElementFilter(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "b"))),
+            new ElementFilter(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "b"))),
         true);
     FilterTest.testFilterConventions(
         new NestedFilter(holder.getXmlNodeReadTrx(), List.of(new ItemFilter(holder.getXmlNodeReadTrx()),
-                                                             new AttributeFilter(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "b"))),
+            new AttributeFilter(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "b"))),
         false);
 
     holder.getXmlNodeReadTrx().moveTo(4L);
@@ -75,6 +75,7 @@ public class NestedFilterTest {
     holder.getXmlNodeReadTrx().moveTo(1L);
     holder.getXmlNodeReadTrx().moveToAttribute(0);
     FilterTest.testFilterConventions(new NestedFilter(holder.getXmlNodeReadTrx(),
-        List.of(new AttributeFilter(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "i"))), true);
+        List.of(new AttributeFilter(holder.getXmlNodeReadTrx()), new XmlNameFilter(holder.getXmlNodeReadTrx(), "i"))),
+        true);
   }
 }

@@ -20,8 +20,8 @@ public final class NodeKindLayout {
   private final int[] offsets;
   private final PayloadRef[] payloadRefs;
 
-  private NodeKindLayout(final NodeKind nodeKind, final int fixedSlotSizeInBytes,
-      final boolean fixedSlotSupported, final int[] offsets, final PayloadRef[] payloadRefs) {
+  private NodeKindLayout(final NodeKind nodeKind, final int fixedSlotSizeInBytes, final boolean fixedSlotSupported,
+      final int[] offsets, final PayloadRef[] payloadRefs) {
     this.nodeKind = Objects.requireNonNull(nodeKind);
     this.fixedSlotSizeInBytes = fixedSlotSizeInBytes;
     this.fixedSlotSupported = fixedSlotSupported;

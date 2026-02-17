@@ -74,14 +74,14 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   /**
    * Constructor.
    *
-   * @param resourceStore  the resource store with which this manager has been created
-   * @param resourceConf   {@link DatabaseConfiguration} for general setting about the storage
-   * @param bufferManager  the cache of in-memory pages shared amongst all node transactions
-   * @param storage        the storage itself, used for I/O
-   * @param uberPage       the UberPage, which is the main entry point into a resource
-   * @param writeLock      the write lock, which ensures, that only a single read-write transaction is
-   *                       opened on a resource
-   * @param user           a user, which interacts with SirixDB, might be {@code null}
+   * @param resourceStore the resource store with which this manager has been created
+   * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
+   * @param bufferManager the cache of in-memory pages shared amongst all node transactions
+   * @param storage the storage itself, used for I/O
+   * @param uberPage the UberPage, which is the main entry point into a resource
+   * @param writeLock the write lock, which ensures, that only a single read-write transaction is
+   *        opened on a resource
+   * @param user a user, which interacts with SirixDB, might be {@code null}
    * @param pageTrxFactory A factory that creates new {@link StorageEngineWriter} instances.
    */
   @Inject
@@ -122,20 +122,13 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
 
     // Synchronize commit and other public methods if needed.
     final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
-    final var lock = !autoCommitDelay.isZero() ? new ReentrantLock() : null;
+    final var lock = !autoCommitDelay.isZero()
+        ? new ReentrantLock()
+        : null;
     final var resourceConfig = getResourceConfig();
-    return new JsonNodeTrxImpl(this.databaseName,
-                               this,
-                               nodeReadOnlyTrx,
-                               pathSummaryWriter,
-                               maxNodeCount,
-                               lock,
-                               autoCommitDelay,
-                               new JsonNodeHashing(resourceConfig, nodeReadOnlyTrx, pageTrx),
-                               nodeFactory,
-                               afterCommitState,
-                               new RecordToRevisionsIndex(pageTrx),
-                               isAutoCommitting);
+    return new JsonNodeTrxImpl(this.databaseName, this, nodeReadOnlyTrx, pathSummaryWriter, maxNodeCount, lock,
+        autoCommitDelay, new JsonNodeHashing(resourceConfig, nodeReadOnlyTrx, pageTrx), nodeFactory, afterCommitState,
+        new RecordToRevisionsIndex(pageTrx), isAutoCommitting);
   }
 
   @SuppressWarnings("unchecked")

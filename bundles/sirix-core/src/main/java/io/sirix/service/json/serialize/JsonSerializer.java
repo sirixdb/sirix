@@ -117,21 +117,16 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
    * Private constructor.
    *
    * @param resourceMgr resource manager to read the resource
-   * @param builder     builder of the JSON serializer
+   * @param builder builder of the JSON serializer
    */
   private JsonSerializer(final JsonResourceSession resourceMgr, final Builder builder) {
     super(resourceMgr,
-          builder.maxLevel == Long.MAX_VALUE && builder.maxNodes == Long.MAX_VALUE
-              && builder.maxChildNodes == Long.MAX_VALUE
-              ? null
-              : new JsonMaxLevelMaxNodesMaxChildNodesVisitor(builder.startNodeKey,
-                                                             IncludeSelf.YES,
-                                                             builder.maxLevel,
-                                                             builder.maxNodes,
-                                                             builder.maxChildNodes),
-          builder.startNodeKey,
-          builder.version,
-          builder.versions);
+        builder.maxLevel == Long.MAX_VALUE && builder.maxNodes == Long.MAX_VALUE
+            && builder.maxChildNodes == Long.MAX_VALUE
+                ? null
+                : new JsonMaxLevelMaxNodesMaxChildNodesVisitor(builder.startNodeKey, IncludeSelf.YES, builder.maxLevel,
+                    builder.maxNodes, builder.maxChildNodes),
+        builder.startNodeKey, builder.version, builder.versions);
     out = builder.stream;
     indent = builder.indent;
     indentSpaces = builder.indentSpaces;
@@ -153,13 +148,13 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       this.revisions[0] = builder.version;
       System.arraycopy(builder.versions, 0, this.revisions, 1, builder.versions.length);
     } else {
-      this.revisions = new int[] { builder.version };
+      this.revisions = new int[] {builder.version};
     }
   }
 
   /**
-   * Override call() to delegate to JsonLimitedSerializer when appropriate.
-   * Delegates when maxLevel, maxChildNodes, or maxNodes are set.
+   * Override call() to delegate to JsonLimitedSerializer when appropriate. Delegates when maxLevel,
+   * maxChildNodes, or maxNodes are set.
    */
   @Override
   public Void call() {
@@ -167,26 +162,35 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     boolean hasLevelLimit = maxLevelLimit != Long.MAX_VALUE;
     boolean hasChildLimit = maxChildNodesLimit != Long.MAX_VALUE;
     boolean hasNodeLimit = maxNodesLimit != Long.MAX_VALUE;
-    
+
     if (hasLevelLimit || hasChildLimit || hasNodeLimit) {
       // Use JsonLimitedSerializer for proper limit handling
-      JsonLimitedSerializer.Builder limitedBuilder = new JsonLimitedSerializer.Builder(resourceSession, out, revisions)
-          .startNodeKey(startNodeKey)
-          .maxLevel(hasLevelLimit ? (int) maxLevelLimit : 0)
-          .maxChildren(hasChildLimit ? (int) maxChildNodesLimit : 0)
-          .maxNodes(hasNodeLimit ? maxNodesLimit : 0)
-          .prettyPrintIf(indent)
-          .indentSpaces(indentSpaces)
-          .withMetaData(withMetaData)
-          .withNodeKeyMetaData(withNodeKeyMetaData)
-          .withNodeKeyAndChildCountMetaData(withNodeKeyAndChildNodeKeyMetaData)
-          .serializeTimestamp(serializeTimestamp)
-          .serializeStartNodeWithBrackets(serializeStartNodeWithBrackets)
-          .isXQueryResultSequenceIf(emitXQueryResultSequence);
-      
+      JsonLimitedSerializer.Builder limitedBuilder =
+          new JsonLimitedSerializer.Builder(resourceSession, out, revisions).startNodeKey(startNodeKey)
+                                                                            .maxLevel(hasLevelLimit
+                                                                                ? (int) maxLevelLimit
+                                                                                : 0)
+                                                                            .maxChildren(hasChildLimit
+                                                                                ? (int) maxChildNodesLimit
+                                                                                : 0)
+                                                                            .maxNodes(hasNodeLimit
+                                                                                ? maxNodesLimit
+                                                                                : 0)
+                                                                            .prettyPrintIf(indent)
+                                                                            .indentSpaces(indentSpaces)
+                                                                            .withMetaData(withMetaData)
+                                                                            .withNodeKeyMetaData(withNodeKeyMetaData)
+                                                                            .withNodeKeyAndChildCountMetaData(
+                                                                                withNodeKeyAndChildNodeKeyMetaData)
+                                                                            .serializeTimestamp(serializeTimestamp)
+                                                                            .serializeStartNodeWithBrackets(
+                                                                                serializeStartNodeWithBrackets)
+                                                                            .isXQueryResultSequenceIf(
+                                                                                emitXQueryResultSequence);
+
       return limitedBuilder.build().call();
     }
-    
+
     // Fall back to original AbstractSerializer behavior
     return super.call();
   }
@@ -213,8 +217,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
           appendObjectStart(shouldEmitChildren(hasChildren));
 
-          if (!hasChildren || (visitor != null && ((!hasToSkipSiblings && currentLevel() + 1 > maxLevel()) || (
-              hasToSkipSiblings && currentLevel() > maxLevel())))) {
+          if (!hasChildren || (visitor != null && ((!hasToSkipSiblings && currentLevel() + 1 > maxLevel())
+              || (hasToSkipSiblings && currentLevel() > maxLevel())))) {
             appendObjectEnd(false);
 
             if (withMetaDataField()) {
@@ -229,8 +233,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
           appendArrayStart(shouldEmitChildren(hasChildren));
 
-          if (!hasChildren || (visitor != null && ((!hasToSkipSiblings && currentLevel() + 1 > maxLevel()) || (
-              hasToSkipSiblings && currentLevel() > maxLevel())))) {
+          if (!hasChildren || (visitor != null && ((!hasToSkipSiblings && currentLevel() + 1 > maxLevel())
+              || (hasToSkipSiblings && currentLevel() > maxLevel())))) {
             appendArrayEnd(false);
 
             if (withMetaDataField()) {
@@ -248,8 +252,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
 
           if (withMetaDataField()) {
-            if (rtx.hasLeftSibling() && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
-                && rtx.getNodeKey() == startNodeKey)) {
+            if (rtx.hasLeftSibling()
+                && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
               appendObjectStart(true);
             }
 
@@ -270,7 +274,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
               appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
               if (rtx.getHash() != 0L) {
                 appendSeparator().appendObjectKeyValue(quote("descendantCount"),
-                                                       String.valueOf(rtx.getDescendantCount()));
+                    String.valueOf(rtx.getDescendantCount()));
               }
             }
 
@@ -344,8 +348,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
 
       if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
         appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
-        if (withMetaData || withNodeKeyAndChildNodeKeyMetaData && (rtx.getKind() == NodeKind.OBJECT
-            || rtx.getKind() == NodeKind.ARRAY)) {
+        if (withMetaData || withNodeKeyAndChildNodeKeyMetaData
+            && (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY)) {
           appendSeparator();
         }
       }
@@ -411,8 +415,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       return true;
     }
 
-    return visitor == null || (!hasToSkipSiblings && currentLevel() + 1 <= maxLevel()) || (hasToSkipSiblings
-        && currentLevel() <= maxLevel());
+    return visitor == null || (!hasToSkipSiblings && currentLevel() + 1 <= maxLevel())
+        || (hasToSkipSiblings && currentLevel() <= maxLevel());
   }
 
   @Override
@@ -435,8 +439,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   @Override
   protected void emitEndNode(final JsonNodeReadOnlyTrx rtx, final boolean lastEndNode) {
     try {
-      final var lastVisitResultType =
-          visitor == null ? null : ((JsonMaxLevelMaxNodesMaxChildNodesVisitor) visitor).getLastVisitResultType();
+      final var lastVisitResultType = visitor == null
+          ? null
+          : ((JsonMaxLevelMaxNodesMaxChildNodesVisitor) visitor).getLastVisitResultType();
       switch (rtx.getKind()) {
         case ARRAY -> {
           if (withMetaDataField()) {
@@ -459,8 +464,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
         }
         case OBJECT_KEY -> {
-          if ((withMetaDataField() && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
-              && rtx.getNodeKey() == startNodeKey)) || (hadToAddBracket && rtx.getNodeKey() == startNodeKey)) {
+          if ((withMetaDataField()
+              && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey))
+              || (hadToAddBracket && rtx.getNodeKey() == startNodeKey)) {
             appendObjectEnd(true);
           }
           if (hasToAppendSeparator(rtx, lastVisitResultType, lastEndNode)) {
@@ -485,8 +491,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   @Override
   protected void emitStartDocument() {
     try {
-      final int length =
-          (revisions.length == 1 && revisions[0] < 0) ? session.getMostRecentRevisionNumber() : revisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? session.getMostRecentRevisionNumber()
+          : revisions.length;
 
       if (length > 1) {
         appendObjectStart(true);
@@ -507,8 +514,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   @Override
   protected void emitEndDocument() {
     try {
-      final int length =
-          (revisions.length == 1 && revisions[0] < 0) ? session.getMostRecentRevisionNumber() : revisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? session.getMostRecentRevisionNumber()
+          : revisions.length;
 
       if (length > 1) {
         if (indent) {
@@ -525,18 +533,19 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   @Override
   protected void emitRevisionStartNode(final @NonNull JsonNodeReadOnlyTrx rtx) {
     try {
-      final int length =
-          (revisions.length == 1 && revisions[0] < 0) ? session.getMostRecentRevisionNumber() : revisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? session.getMostRecentRevisionNumber()
+          : revisions.length;
 
       if (emitXQueryResultSequence || length > 1) {
-        appendObjectStart(rtx.hasChildren()).appendObjectKeyValue(quote("revisionNumber"),
-                                                                  Integer.toString(rtx.getRevisionNumber()))
+        appendObjectStart(rtx.hasChildren())
+                                            .appendObjectKeyValue(quote("revisionNumber"),
+                                                Integer.toString(rtx.getRevisionNumber()))
                                             .appendSeparator();
 
         if (serializeTimestamp) {
-          appendObjectKeyValue(quote("revisionTimestamp"),
-                               quote(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC)
-                                                                  .format(rtx.getRevisionTimestamp()))).appendSeparator();
+          appendObjectKeyValue(quote("revisionTimestamp"), quote(DateTimeFormatter.ISO_INSTANT.withZone(
+              ZoneOffset.UTC).format(rtx.getRevisionTimestamp()))).appendSeparator();
         }
 
         appendObjectKey(quote("revision"));
@@ -553,8 +562,9 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   @Override
   protected void emitRevisionEndNode(final @NonNull JsonNodeReadOnlyTrx rtx) {
     try {
-      final int length =
-          (revisions.length == 1 && revisions[0] < 0) ? session.getMostRecentRevisionNumber() : revisions.length;
+      final int length = (revisions.length == 1 && revisions[0] < 0)
+          ? session.getMostRecentRevisionNumber()
+          : revisions.length;
 
       if (emitXQueryResultSequence || length > 1) {
         if (rtx.moveToDocumentRoot() && rtx.hasFirstChild())
@@ -689,7 +699,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
       db.createResource(new ResourceConfiguration.Builder("shredded").build());
 
       try (final JsonResourceSession resMgr = db.beginResourceSession("shredded");
-           final FileWriter outputStream = new FileWriter(target.toFile())) {
+          final FileWriter outputStream = new FileWriter(target.toFile())) {
         final JsonSerializer serializer = JsonSerializer.newBuilder(resMgr, outputStream).build();
         serializer.call();
       }
@@ -701,8 +711,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   /**
    * Constructor, setting the necessary stuff.
    *
-   * @param resMgr    Sirix {@link ResourceSession}
-   * @param stream    {@link OutputStream} to write to
+   * @param resMgr Sirix {@link ResourceSession}
+   * @param stream {@link OutputStream} to write to
    * @param revisions revisions to serialize
    */
   public static Builder newBuilder(final JsonResourceSession resMgr, final Writer stream, final int... revisions) {
@@ -712,11 +722,11 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   /**
    * Constructor.
    *
-   * @param resMgr     Sirix {@link ResourceSession}
-   * @param nodeKey    root node key of subtree to shredder
-   * @param stream     {@link OutputStream} to write to
+   * @param resMgr Sirix {@link ResourceSession}
+   * @param nodeKey root node key of subtree to shredder
+   * @param stream {@link OutputStream} to write to
    * @param properties {@link XmlSerializerProperties} to use
-   * @param revisions  revisions to serialize
+   * @param revisions revisions to serialize
    */
   public static Builder newBuilder(final JsonResourceSession resMgr, final @NonNegative long nodeKey,
       final Writer stream, final JsonSerializerProperties properties, final int... revisions) {
@@ -810,8 +820,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * Constructor, setting the necessary stuff.
      *
      * @param resourceMgr Sirix {@link ResourceSession}
-     * @param stream      {@link OutputStream} to write to
-     * @param revisions   revisions to serialize
+     * @param stream {@link OutputStream} to write to
+     * @param revisions revisions to serialize
      */
     public Builder(final JsonResourceSession resourceMgr, final Appendable stream, final int... revisions) {
       serializeStartNodeWithBrackets = true;
@@ -834,10 +844,10 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
      * Constructor.
      *
      * @param resourceMgr Sirix {@link ResourceSession}
-     * @param nodeKey     root node key of subtree to shredder
-     * @param stream      {@link OutputStream} to write to
-     * @param properties  {@link JsonSerializerProperties} to use
-     * @param revisions   revisions to serialize
+     * @param nodeKey root node key of subtree to shredder
+     * @param stream {@link OutputStream} to write to
+     * @param properties {@link JsonSerializerProperties} to use
+     * @param revisions revisions to serialize
      */
     public Builder(final JsonResourceSession resourceMgr, final @NonNegative long nodeKey, final Writer stream,
         final JsonSerializerProperties properties, final int... revisions) {
@@ -884,7 +894,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     /**
      * If the {@code startNodeKey} denotes an object key node "{}" are added.
      *
-     * @param serializeStartNodeWithBrackets {@code true}, if brackets should be serialized, {@code false otherwise}
+     * @param serializeStartNodeWithBrackets {@code true}, if brackets should be serialized,
+     *        {@code false otherwise}
      * @return this reference
      */
     public Builder serializeStartNodeWithBrackets(final boolean serializeStartNodeWithBrackets) {

@@ -33,7 +33,8 @@ class FixedSlotRecordProjectorTest {
   @Test
   void projectBooleanNodeIntoFixedSlot() {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.BOOLEAN_VALUE);
-    final BooleanNode node = new BooleanNode(42L, 7L, 11, 13, 17L, 19L, 23L, true, LongHashFunction.xx3(), (byte[]) null);
+    final BooleanNode node =
+        new BooleanNode(42L, 7L, 11, 13, 17L, 19L, 23L, true, LongHashFunction.xx3(), (byte[]) null);
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(layout.fixedSlotSizeInBytes());
@@ -53,19 +54,8 @@ class FixedSlotRecordProjectorTest {
   @Test
   void projectObjectKeyNodeIntoFixedSlot() {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.OBJECT_KEY);
-    final ObjectKeyNode node = new ObjectKeyNode(128L,
-                                                 3L,
-                                                 5L,
-                                                 8,
-                                                 9,
-                                                 11L,
-                                                 13L,
-                                                 17L,
-                                                 19,
-                                                 23L,
-                                                 29L,
-                                                 LongHashFunction.xx3(),
-                                                 (byte[]) null);
+    final ObjectKeyNode node =
+        new ObjectKeyNode(128L, 3L, 5L, 8, 9, 11L, 13L, 17L, 19, 23L, 29L, LongHashFunction.xx3(), (byte[]) null);
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(layout.fixedSlotSizeInBytes());
@@ -90,8 +80,8 @@ class FixedSlotRecordProjectorTest {
   void projectStringNodeRoundTrip() {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.STRING_VALUE);
     final byte[] value = "hello world".getBytes(StandardCharsets.UTF_8);
-    final StringNode node = new StringNode(42L, 7L, 11, 13, 17L, 19L, 23L,
-                                           value, LongHashFunction.xx3(), (byte[]) null);
+    final StringNode node =
+        new StringNode(42L, 7L, 11, 13, 17L, 19L, 23L, value, LongHashFunction.xx3(), (byte[]) null);
 
     final int inlinePayload = FixedSlotRecordProjector.computeInlinePayloadLength(node, layout);
     assertEquals(value.length, inlinePayload);
@@ -132,8 +122,8 @@ class FixedSlotRecordProjectorTest {
   void projectObjectStringNodeRoundTrip() {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.OBJECT_STRING_VALUE);
     final byte[] value = "test value".getBytes(StandardCharsets.UTF_8);
-    final ObjectStringNode node = new ObjectStringNode(42L, 7L, 11, 13, 23L,
-                                                       value, LongHashFunction.xx3(), (byte[]) null);
+    final ObjectStringNode node =
+        new ObjectStringNode(42L, 7L, 11, 13, 23L, value, LongHashFunction.xx3(), (byte[]) null);
 
     final int inlinePayload = FixedSlotRecordProjector.computeInlinePayloadLength(node, layout);
     assertEquals(value.length, inlinePayload);
@@ -164,8 +154,7 @@ class FixedSlotRecordProjectorTest {
   @Test
   void projectNumberNodeRoundTrip() {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.NUMBER_VALUE);
-    final NumberNode node = new NumberNode(42L, 7L, 11, 13, 17L, 19L, 23L,
-                                          42.5, LongHashFunction.xx3(), (byte[]) null);
+    final NumberNode node = new NumberNode(42L, 7L, 11, 13, 17L, 19L, 23L, 42.5, LongHashFunction.xx3(), (byte[]) null);
 
     final int inlinePayload = FixedSlotRecordProjector.computeInlinePayloadLength(node, layout);
     assertTrue(inlinePayload > 0);
@@ -200,8 +189,8 @@ class FixedSlotRecordProjectorTest {
   @Test
   void projectObjectNumberNodeRoundTrip() {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.OBJECT_NUMBER_VALUE);
-    final ObjectNumberNode node = new ObjectNumberNode(42L, 7L, 11, 13, 23L,
-                                                       123, LongHashFunction.xx3(), (byte[]) null);
+    final ObjectNumberNode node =
+        new ObjectNumberNode(42L, 7L, 11, 13, 23L, 123, LongHashFunction.xx3(), (byte[]) null);
 
     final int inlinePayload = FixedSlotRecordProjector.computeInlinePayloadLength(node, layout);
     assertTrue(inlinePayload > 0);
@@ -227,8 +216,8 @@ class FixedSlotRecordProjectorTest {
   void projectNumberNodeBigDecimalRoundTrip() {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.NUMBER_VALUE);
     final BigDecimal bigDecimalValue = new BigDecimal("12345678901234567890.12345");
-    final NumberNode node = new NumberNode(42L, 7L, 11, 13, 17L, 19L, 23L,
-                                          bigDecimalValue, LongHashFunction.xx3(), (byte[]) null);
+    final NumberNode node =
+        new NumberNode(42L, 7L, 11, 13, 17L, 19L, 23L, bigDecimalValue, LongHashFunction.xx3(), (byte[]) null);
 
     final int inlinePayload = FixedSlotRecordProjector.computeInlinePayloadLength(node, layout);
     assertTrue(inlinePayload > 0);
@@ -251,9 +240,8 @@ class FixedSlotRecordProjectorTest {
   void projectCompressedStringPreservesFlags() {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.STRING_VALUE);
     final byte[] rawCompressed = {0x01, 0x02, 0x03, 0x04};
-    final StringNode node = new StringNode(42L, 7L, 11, 13, 17L, 19L, 23L,
-                                           rawCompressed, LongHashFunction.xx3(), (byte[]) null,
-                                           true, null);
+    final StringNode node = new StringNode(42L, 7L, 11, 13, 17L, 19L, 23L, rawCompressed, LongHashFunction.xx3(),
+        (byte[]) null, true, null);
 
     final int inlinePayload = FixedSlotRecordProjector.computeInlinePayloadLength(node, layout);
     final int totalSize = layout.fixedSlotSizeInBytes() + inlinePayload;
@@ -287,8 +275,8 @@ class FixedSlotRecordProjectorTest {
   void projectTextNodeRoundTrip() {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.TEXT);
     final byte[] value = "hello xml text".getBytes(StandardCharsets.UTF_8);
-    final TextNode node = new TextNode(42L, 7L, 11, 13, 17L, 19L, 23L,
-                                       value, false, LongHashFunction.xx3(), (byte[]) null);
+    final TextNode node =
+        new TextNode(42L, 7L, 11, 13, 17L, 19L, 23L, value, false, LongHashFunction.xx3(), (byte[]) null);
 
     final int inlinePayload = FixedSlotRecordProjector.computeInlinePayloadLength(node, layout);
     assertEquals(value.length, inlinePayload);
@@ -328,8 +316,8 @@ class FixedSlotRecordProjectorTest {
   void projectTextNodeCompressedRoundTrip() {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.TEXT);
     final byte[] rawCompressed = {0x01, 0x02, 0x03, 0x04};
-    final TextNode node = new TextNode(42L, 7L, 11, 13, 17L, 19L, 23L,
-                                       rawCompressed, true, LongHashFunction.xx3(), (byte[]) null);
+    final TextNode node =
+        new TextNode(42L, 7L, 11, 13, 17L, 19L, 23L, rawCompressed, true, LongHashFunction.xx3(), (byte[]) null);
 
     final int inlinePayload = FixedSlotRecordProjector.computeInlinePayloadLength(node, layout);
     final int totalSize = layout.fixedSlotSizeInBytes() + inlinePayload;
@@ -347,8 +335,8 @@ class FixedSlotRecordProjectorTest {
   void projectCommentNodeRoundTrip() {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.COMMENT);
     final byte[] value = "a comment".getBytes(StandardCharsets.UTF_8);
-    final CommentNode node = new CommentNode(42L, 7L, 11, 13, 17L, 19L, 23L,
-                                             value, false, LongHashFunction.xx3(), (byte[]) null);
+    final CommentNode node =
+        new CommentNode(42L, 7L, 11, 13, 17L, 19L, 23L, value, false, LongHashFunction.xx3(), (byte[]) null);
 
     final int inlinePayload = FixedSlotRecordProjector.computeInlinePayloadLength(node, layout);
     assertEquals(value.length, inlinePayload);
@@ -378,9 +366,8 @@ class FixedSlotRecordProjectorTest {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.ATTRIBUTE);
     final byte[] value = "attr-value".getBytes(StandardCharsets.UTF_8);
     final QNm qNm = new QNm("ns", "prefix", "local");
-    final AttributeNode node = new AttributeNode(42L, 7L, 11, 13,
-        5L, 100, 200, 300, 23L,
-        value, LongHashFunction.xx3(), (byte[]) null, qNm);
+    final AttributeNode node =
+        new AttributeNode(42L, 7L, 11, 13, 5L, 100, 200, 300, 23L, value, LongHashFunction.xx3(), (byte[]) null, qNm);
 
     final int inlinePayload = FixedSlotRecordProjector.computeInlinePayloadLength(node, layout);
     assertEquals(value.length, inlinePayload);
@@ -415,10 +402,7 @@ class FixedSlotRecordProjectorTest {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.PROCESSING_INSTRUCTION);
     final byte[] value = "pi-target data".getBytes(StandardCharsets.UTF_8);
     final QNm qNm = new QNm("", "", "xml-stylesheet");
-    final PINode node = new PINode(42L, 7L, 11, 13,
-        17L, 19L, 31L, 37L,
-        3, 5, 23L, 41L,
-        100, 200, 300, value, false,
+    final PINode node = new PINode(42L, 7L, 11, 13, 17L, 19L, 31L, 37L, 3, 5, 23L, 41L, 100, 200, 300, value, false,
         LongHashFunction.xx3(), (byte[]) null, qNm);
 
     final int inlinePayload = FixedSlotRecordProjector.computeInlinePayloadLength(node, layout);
@@ -460,10 +444,10 @@ class FixedSlotRecordProjectorTest {
   @Test
   void hasSupportedPayloadsAcceptsVectorPayloadRefs() {
     final NodeKindLayout layoutWithAttrs = NodeKindLayout.builder(NodeKind.ELEMENT)
-        .addField(StructuralField.PARENT_KEY)
-        .addField(StructuralField.HASH)
-        .addPayloadRef("attrs", PayloadRefKind.ATTRIBUTE_VECTOR)
-        .build();
+                                                         .addField(StructuralField.PARENT_KEY)
+                                                         .addField(StructuralField.HASH)
+                                                         .addPayloadRef("attrs", PayloadRefKind.ATTRIBUTE_VECTOR)
+                                                         .build();
 
     assertTrue(FixedSlotRecordProjector.hasSupportedPayloads(layoutWithAttrs));
 
@@ -482,18 +466,15 @@ class FixedSlotRecordProjectorTest {
     final LongHashFunction hashFunction = LongHashFunction.xx3();
     final QNm qNm = new QNm("ns", "pfx", "local");
 
-    final LongArrayList attrKeys = new LongArrayList(new long[]{100L, 200L, 300L});
-    final LongArrayList nsKeys = new LongArrayList(new long[]{400L, 500L});
+    final LongArrayList attrKeys = new LongArrayList(new long[] {100L, 200L, 300L});
+    final LongArrayList nsKeys = new LongArrayList(new long[] {400L, 500L});
 
-    final ElementNode node = new ElementNode(
-        42L, 10L, 3, 7, 20L, 30L, 40L, 50L, 5L, 100L,
-        999L, 60L, 11, 22, 33,
+    final ElementNode node = new ElementNode(42L, 10L, 3, 7, 20L, 30L, 40L, 50L, 5L, 100L, 999L, 60L, 11, 22, 33,
         hashFunction, (byte[]) null, attrKeys, nsKeys, qNm);
 
     try (final Arena arena = Arena.ofConfined()) {
-      final int totalSize = layout.fixedSlotSizeInBytes()
-          + node.getAttributeCount() * Long.BYTES
-          + node.getNamespaceCount() * Long.BYTES;
+      final int totalSize =
+          layout.fixedSlotSizeInBytes() + node.getAttributeCount() * Long.BYTES + node.getNamespaceCount() * Long.BYTES;
       final MemorySegment slot = arena.allocate(totalSize);
       assertTrue(FixedSlotRecordProjector.project(node, layout, slot, 0L));
 
@@ -519,12 +500,10 @@ class FixedSlotRecordProjectorTest {
       assertEquals(2 * Long.BYTES, SlotLayoutAccessors.readPayloadLength(slot, layout, 1));
 
       // Populate existing singleton from projected slot
-      final ElementNode populated = new ElementNode(
-          0L, 0L, 0, 0, 0L, 0L, 0L, 0L, 0L, 0L,
-          0L, 0L, 0, 0, 0,
-          hashFunction, (byte[]) null, new LongArrayList(), new LongArrayList(), new QNm(""));
-      assertTrue(FixedSlotRecordMaterializer.populateExisting(
-          populated, NodeKind.ELEMENT, 42L, slot, 0L, (int) slot.byteSize(), null, null));
+      final ElementNode populated = new ElementNode(0L, 0L, 0, 0, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0, 0, 0, hashFunction,
+          (byte[]) null, new LongArrayList(), new LongArrayList(), new QNm(""));
+      assertTrue(FixedSlotRecordMaterializer.populateExisting(populated, NodeKind.ELEMENT, 42L, slot, 0L,
+          (int) slot.byteSize(), null, null));
       assertEquals(42L, populated.getNodeKey());
       assertEquals(10L, populated.getParentKey());
       assertEquals(20L, populated.getRightSiblingKey());
@@ -555,10 +534,8 @@ class FixedSlotRecordProjectorTest {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.ELEMENT);
     final LongHashFunction hashFunction = LongHashFunction.xx3();
 
-    final ElementNode node = new ElementNode(
-        1L, 2L, 1, 1, 3L, 4L, 5L, 6L, 0L, 0L,
-        0L, 7L, 0, 0, 0,
-        hashFunction, (byte[]) null, new LongArrayList(), new LongArrayList(), new QNm(""));
+    final ElementNode node = new ElementNode(1L, 2L, 1, 1, 3L, 4L, 5L, 6L, 0L, 0L, 0L, 7L, 0, 0, 0, hashFunction,
+        (byte[]) null, new LongArrayList(), new LongArrayList(), new QNm(""));
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(layout.fixedSlotSizeInBytes());
@@ -567,12 +544,10 @@ class FixedSlotRecordProjectorTest {
       assertEquals(0, SlotLayoutAccessors.readPayloadLength(slot, layout, 0));
       assertEquals(0, SlotLayoutAccessors.readPayloadLength(slot, layout, 1));
 
-      final ElementNode populated = new ElementNode(
-          0L, 0L, 0, 0, 0L, 0L, 0L, 0L, 0L, 0L,
-          0L, 0L, 0, 0, 0,
-          hashFunction, (byte[]) null, new LongArrayList(), new LongArrayList(), new QNm(""));
-      assertTrue(FixedSlotRecordMaterializer.populateExisting(
-          populated, NodeKind.ELEMENT, 1L, slot, 0L, (int) slot.byteSize(), null, null));
+      final ElementNode populated = new ElementNode(0L, 0L, 0, 0, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0, 0, 0, hashFunction,
+          (byte[]) null, new LongArrayList(), new LongArrayList(), new QNm(""));
+      assertTrue(FixedSlotRecordMaterializer.populateExisting(populated, NodeKind.ELEMENT, 1L, slot, 0L,
+          (int) slot.byteSize(), null, null));
       assertEquals(0, populated.getAttributeCount());
       assertEquals(0, populated.getNamespaceCount());
       assertEquals(2L, populated.getParentKey());
@@ -584,29 +559,24 @@ class FixedSlotRecordProjectorTest {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.ELEMENT);
     final LongHashFunction hashFunction = LongHashFunction.xx3();
 
-    final LongArrayList attrKeys = new LongArrayList(new long[]{10L, 20L});
-    final LongArrayList nsKeys = new LongArrayList(new long[]{30L});
+    final LongArrayList attrKeys = new LongArrayList(new long[] {10L, 20L});
+    final LongArrayList nsKeys = new LongArrayList(new long[] {30L});
 
-    final ElementNode original = new ElementNode(
-        5L, 100L, 2, 4, 101L, 102L, 103L, 104L, 3L, 50L,
-        777L, 105L, 8, 9, 10,
+    final ElementNode original = new ElementNode(5L, 100L, 2, 4, 101L, 102L, 103L, 104L, 3L, 50L, 777L, 105L, 8, 9, 10,
         hashFunction, (byte[]) null, attrKeys, nsKeys, new QNm(""));
 
     try (final Arena arena = Arena.ofConfined()) {
-      final int totalSize = layout.fixedSlotSizeInBytes()
-          + original.getAttributeCount() * Long.BYTES
+      final int totalSize = layout.fixedSlotSizeInBytes() + original.getAttributeCount() * Long.BYTES
           + original.getNamespaceCount() * Long.BYTES;
       final MemorySegment slot = arena.allocate(totalSize);
       assertTrue(FixedSlotRecordProjector.project(original, layout, slot, 0L));
 
       // Populate into an existing singleton
-      final ElementNode singleton = new ElementNode(
-          0L, 0L, 0, 0, 0L, 0L, 0L, 0L, 0L, 0L,
-          0L, 0L, 0, 0, 0,
-          hashFunction, (byte[]) null, new LongArrayList(), new LongArrayList(), new QNm(""));
+      final ElementNode singleton = new ElementNode(0L, 0L, 0, 0, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0, 0, 0, hashFunction,
+          (byte[]) null, new LongArrayList(), new LongArrayList(), new QNm(""));
 
-      assertTrue(FixedSlotRecordMaterializer.populateExisting(
-          singleton, NodeKind.ELEMENT, 5L, slot, 0L, (int) slot.byteSize(), null, null));
+      assertTrue(FixedSlotRecordMaterializer.populateExisting(singleton, NodeKind.ELEMENT, 5L, slot, 0L,
+          (int) slot.byteSize(), null, null));
 
       assertEquals(5L, singleton.getNodeKey());
       assertEquals(100L, singleton.getParentKey());

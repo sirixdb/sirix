@@ -38,25 +38,33 @@ import java.util.List;
 /**
  * Manages node type transitions in HOT (Height Optimized Trie).
  * 
- * <p>Handles upgrades and downgrades between node types:</p>
+ * <p>
+ * Handles upgrades and downgrades between node types:
+ * </p>
  * <ul>
- *   <li>BiNode (2 children, 1 discriminative bit)</li>
- *   <li>SpanNode (2-16 children, 2-4 discriminative bits)</li>
- *   <li>MultiNode (17-256 children, 5-8 discriminative bits)</li>
+ * <li>BiNode (2 children, 1 discriminative bit)</li>
+ * <li>SpanNode (2-16 children, 2-4 discriminative bits)</li>
+ * <li>MultiNode (17-256 children, 5-8 discriminative bits)</li>
  * </ul>
  * 
- * <p><b>Reference:</b> NodeAllocationInformations.hpp defines max 32 entries per node.</p>
+ * <p>
+ * <b>Reference:</b> NodeAllocationInformations.hpp defines max 32 entries per node.
+ * </p>
  * 
- * <p><b>Upgrade Triggers:</b></p>
+ * <p>
+ * <b>Upgrade Triggers:</b>
+ * </p>
  * <ul>
- *   <li>BiNode → SpanNode: When sibling BiNodes share discriminative bits in same byte</li>
- *   <li>SpanNode → MultiNode: When children exceed 16</li>
+ * <li>BiNode → SpanNode: When sibling BiNodes share discriminative bits in same byte</li>
+ * <li>SpanNode → MultiNode: When children exceed 16</li>
  * </ul>
  * 
- * <p><b>Downgrade Triggers:</b></p>
+ * <p>
+ * <b>Downgrade Triggers:</b>
+ * </p>
  * <ul>
- *   <li>SpanNode → BiNode: After merge, only 2 children remain</li>
- *   <li>MultiNode → SpanNode: After delete, children drop to ≤16</li>
+ * <li>SpanNode → BiNode: After merge, only 2 children remain</li>
+ * <li>MultiNode → SpanNode: After delete, children drop to ≤16</li>
  * </ul>
  * 
  * @author Johannes Lichtenberger
@@ -66,13 +74,13 @@ public final class NodeUpgradeManager {
 
   /** Maximum children for BiNode. */
   public static final int BI_NODE_MAX_CHILDREN = 2;
-  
+
   /** Maximum children for SpanNode. */
   public static final int SPAN_NODE_MAX_CHILDREN = 16;
-  
+
   /** Maximum children for MultiNode (and maximum per compound node). */
   public static final int MULTI_NODE_MAX_CHILDREN = 32;
-  
+
   /** Maximum discriminative bits for SpanNode (2^4 = 16 children). */
   public static final int SPAN_NODE_MAX_BITS = 4;
 
@@ -123,16 +131,16 @@ public final class NodeUpgradeManager {
   /**
    * Check if two BiNodes should be merged into a SpanNode.
    * 
-   * <p>Thesis criteria: If sibling BiNodes share discriminative bits in the same byte,
-   * merge into a SpanNode with higher fanout (lower height).</p>
+   * <p>
+   * Thesis criteria: If sibling BiNodes share discriminative bits in the same byte, merge into a
+   * SpanNode with higher fanout (lower height).
+   * </p>
    * 
    * @param biNode1 first BiNode
    * @param biNode2 second BiNode
    * @return true if nodes should be merged into a SpanNode
    */
-  public static boolean shouldMergeToSpanNode(
-      @NonNull HOTIndirectPage biNode1,
-      @NonNull HOTIndirectPage biNode2) {
+  public static boolean shouldMergeToSpanNode(@NonNull HOTIndirectPage biNode1, @NonNull HOTIndirectPage biNode2) {
     if (biNode1.getNodeType() != NodeType.BI_NODE || biNode2.getNodeType() != NodeType.BI_NODE) {
       return false;
     }
@@ -172,17 +180,16 @@ public final class NodeUpgradeManager {
   /**
    * Create a SpanNode by merging multiple BiNodes.
    * 
-   * <p>Reference: NodeMergeInformation.hpp shows how discriminative bits are combined.</p>
+   * <p>
+   * Reference: NodeMergeInformation.hpp shows how discriminative bits are combined.
+   * </p>
    * 
    * @param biNodes list of BiNodes to merge
    * @param newPageKey page key for the new SpanNode
    * @param revision current revision
    * @return the new SpanNode
    */
-  public static HOTIndirectPage mergeToSpanNode(
-      @NonNull List<HOTIndirectPage> biNodes,
-      long newPageKey,
-      int revision) {
+  public static HOTIndirectPage mergeToSpanNode(@NonNull List<HOTIndirectPage> biNodes, long newPageKey, int revision) {
     if (biNodes.isEmpty()) {
       throw new IllegalArgumentException("Cannot merge empty list of BiNodes");
     }
@@ -194,13 +201,12 @@ public final class NodeUpgradeManager {
     // Compute combined discriminative mask
     long combinedMask = 0;
     int initialBytePos = biNodes.get(0).getInitialBytePos();
-    
+
     for (HOTIndirectPage biNode : biNodes) {
       combinedMask |= biNode.getBitMask();
       // Verify all nodes share the same initial byte position
       if (biNode.getInitialBytePos() != initialBytePos) {
-        throw new IllegalArgumentException(
-            "Cannot merge BiNodes with different initial byte positions");
+        throw new IllegalArgumentException("Cannot merge BiNodes with different initial byte positions");
       }
     }
 
@@ -234,13 +240,7 @@ public final class NodeUpgradeManager {
       maxChildHeight = Math.max(maxChildHeight, biNode.getHeight() - 1);
     }
 
-    return HOTIndirectPage.createSpanNode(
-        newPageKey,
-        revision,
-        initialBytePos,
-        combinedMask,
-        partialKeys,
-        childRefs,
+    return HOTIndirectPage.createSpanNode(newPageKey, revision, initialBytePos, combinedMask, partialKeys, childRefs,
         maxChildHeight + 1);
   }
 
@@ -254,17 +254,15 @@ public final class NodeUpgradeManager {
    * @param additionalPartialKey partial key for the additional child
    * @return the new MultiNode
    */
-  public static HOTIndirectPage upgradeToMultiNode(
-      @NonNull HOTIndirectPage spanNode,
-      long newPageKey,
-      int revision,
-      PageReference additionalChild,
-      byte additionalPartialKey) {
+  public static HOTIndirectPage upgradeToMultiNode(@NonNull HOTIndirectPage spanNode, long newPageKey, int revision,
+      PageReference additionalChild, byte additionalPartialKey) {
     if (spanNode.getNodeType() != NodeType.SPAN_NODE) {
       throw new IllegalArgumentException("Can only upgrade SpanNode to MultiNode");
     }
 
-    int newChildCount = spanNode.getNumChildren() + (additionalChild != null ? 1 : 0);
+    int newChildCount = spanNode.getNumChildren() + (additionalChild != null
+        ? 1
+        : 0);
     PageReference[] childRefs = new PageReference[newChildCount];
     byte[] partialKeys = new byte[newChildCount];
 
@@ -280,14 +278,8 @@ public final class NodeUpgradeManager {
       partialKeys[newChildCount - 1] = additionalPartialKey;
     }
 
-    return HOTIndirectPage.createMultiNode(
-        newPageKey,
-        revision,
-        spanNode.getInitialBytePos(),
-        spanNode.getBitMask(),
-        partialKeys,
-        childRefs,
-        spanNode.getHeight());
+    return HOTIndirectPage.createMultiNode(newPageKey, revision, spanNode.getInitialBytePos(), spanNode.getBitMask(),
+        partialKeys, childRefs, spanNode.getHeight());
   }
 
   /**
@@ -298,12 +290,9 @@ public final class NodeUpgradeManager {
    * @param revision current revision
    * @return the new BiNode
    */
-  public static HOTIndirectPage downgradeToNode(
-      @NonNull HOTIndirectPage spanNode,
-      long newPageKey,
-      int revision) {
+  public static HOTIndirectPage downgradeToNode(@NonNull HOTIndirectPage spanNode, long newPageKey, int revision) {
     int numChildren = spanNode.getNumChildren();
-    
+
     if (numChildren > BI_NODE_MAX_CHILDREN) {
       // Still too many children for BiNode, keep as SpanNode but with new key
       return spanNode.copyWithNewPageKey(newPageKey, revision);
@@ -313,18 +302,13 @@ public final class NodeUpgradeManager {
       // Convert to BiNode
       PageReference leftRef = spanNode.getChildReference(0);
       PageReference rightRef = spanNode.getChildReference(1);
-      
+
       // Find the single discriminative bit position
       long mask = spanNode.getBitMask();
       int bitPos = Long.numberOfLeadingZeros(mask);
       int absoluteBitPos = spanNode.getInitialBytePos() * 8 + bitPos;
 
-      return HOTIndirectPage.createBiNode(
-          newPageKey,
-          revision,
-          absoluteBitPos,
-          leftRef,
-          rightRef);
+      return HOTIndirectPage.createBiNode(newPageKey, revision, absoluteBitPos, leftRef, rightRef);
     }
 
     if (numChildren == 1) {
@@ -348,8 +332,10 @@ public final class NodeUpgradeManager {
   /**
    * Check if a node is underfilled (candidate for merge with sibling).
    * 
-   * <p>Reference: HOTSingleThreaded.hpp line 170 checks if total entries after merge
-   * would fit in one node.</p>
+   * <p>
+   * Reference: HOTSingleThreaded.hpp line 170 checks if total entries after merge would fit in one
+   * node.
+   * </p>
    * 
    * @param node the node to check
    * @param minFillFactor minimum fill factor (0.0-1.0)

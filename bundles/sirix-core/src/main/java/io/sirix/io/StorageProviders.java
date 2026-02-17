@@ -42,12 +42,13 @@ import java.util.stream.Collectors;
 /**
  * Registry and factory for storage providers discovered via ServiceLoader.
  *
- * <p>This class discovers {@link StorageProvider} implementations at runtime,
- * allowing enterprise or third-party storage backends to be plugged in without
- * modifying sirix-core.
+ * <p>
+ * This class discovers {@link StorageProvider} implementations at runtime, allowing enterprise or
+ * third-party storage backends to be plugged in without modifying sirix-core.
  *
- * <p>Providers are discovered once at class load time and cached. When multiple
- * providers register the same name, the one with the highest priority wins.
+ * <p>
+ * Providers are discovered once at class load time and cached. When multiple providers register the
+ * same name, the one with the highest priority wins.
  *
  * @author Johannes Lichtenberger
  * @since 2.0.0
@@ -57,8 +58,8 @@ public final class StorageProviders {
   private static final Logger LOGGER = LoggerFactory.getLogger(StorageProviders.class);
 
   /**
-   * Cache of discovered providers, keyed by name.
-   * When multiple providers have the same name, highest priority wins.
+   * Cache of discovered providers, keyed by name. When multiple providers have the same name, highest
+   * priority wins.
    */
   private static final Map<String, StorageProvider> PROVIDERS = new ConcurrentHashMap<>();
 
@@ -72,9 +73,9 @@ public final class StorageProviders {
     ServiceLoader<StorageProvider> loader = ServiceLoader.load(StorageProvider.class);
 
     ALL_PROVIDERS = loader.stream()
-        .map(ServiceLoader.Provider::get)
-        .sorted(Comparator.comparingInt(StorageProvider::getPriority).reversed())
-        .collect(Collectors.toList());
+                          .map(ServiceLoader.Provider::get)
+                          .sorted(Comparator.comparingInt(StorageProvider::getPriority).reversed())
+                          .collect(Collectors.toList());
 
     // Register providers, highest priority wins for each name
     for (StorageProvider provider : ALL_PROVIDERS) {
@@ -85,23 +86,21 @@ public final class StorageProviders {
         PROVIDERS.put(name, provider);
 
         if (provider.isAvailable()) {
-          LOGGER.info("Registered storage provider: {} (priority={}, enterprise={})",
-              name, provider.getPriority(), provider.isEnterprise());
+          LOGGER.info("Registered storage provider: {} (priority={}, enterprise={})", name, provider.getPriority(),
+              provider.isEnterprise());
         } else {
-          LOGGER.debug("Storage provider {} registered but unavailable: {}",
-              name, provider.getUnavailabilityReason());
+          LOGGER.debug("Storage provider {} registered but unavailable: {}", name, provider.getUnavailabilityReason());
         }
       } else {
-        LOGGER.debug("Skipping provider {} with lower priority ({} < {})",
-            provider.getClass().getName(), provider.getPriority(), existing.getPriority());
+        LOGGER.debug("Skipping provider {} with lower priority ({} < {})", provider.getClass().getName(),
+            provider.getPriority(), existing.getPriority());
       }
     }
 
     if (PROVIDERS.isEmpty()) {
       LOGGER.debug("No external storage providers discovered via ServiceLoader");
     } else {
-      LOGGER.info("Discovered {} storage provider(s): {}",
-          PROVIDERS.size(), PROVIDERS.keySet());
+      LOGGER.info("Discovered {} storage provider(s): {}", PROVIDERS.size(), PROVIDERS.keySet());
     }
   }
 
@@ -139,16 +138,15 @@ public final class StorageProviders {
    * @throws IllegalStateException if provider not available
    */
   public static IOStorage createStorage(String name, ResourceConfiguration resourceConfig) {
-    StorageProvider provider = get(name)
-        .orElseThrow(() -> new IllegalArgumentException("Unknown storage provider: " + name));
+    StorageProvider provider =
+        get(name).orElseThrow(() -> new IllegalArgumentException("Unknown storage provider: " + name));
 
     if (!provider.isAvailable()) {
-      throw new IllegalStateException("Storage provider " + name + " is not available: "
-          + provider.getUnavailabilityReason());
+      throw new IllegalStateException(
+          "Storage provider " + name + " is not available: " + provider.getUnavailabilityReason());
     }
 
-    LOGGER.debug("Creating storage via provider: {} (enterprise={})",
-        name, provider.isEnterprise());
+    LOGGER.debug("Creating storage via provider: {} (enterprise={})", name, provider.isEnterprise());
 
     return provider.createStorage(resourceConfig);
   }
@@ -168,10 +166,11 @@ public final class StorageProviders {
    * @return list of available provider names
    */
   public static List<String> getAvailableProviderNames() {
-    return PROVIDERS.entrySet().stream()
-        .filter(e -> e.getValue().isAvailable())
-        .map(Map.Entry::getKey)
-        .collect(Collectors.toList());
+    return PROVIDERS.entrySet()
+                    .stream()
+                    .filter(e -> e.getValue().isAvailable())
+                    .map(Map.Entry::getKey)
+                    .collect(Collectors.toList());
   }
 
   /**
@@ -189,8 +188,7 @@ public final class StorageProviders {
    * @return true if at least one enterprise provider is available
    */
   public static boolean hasEnterpriseProviders() {
-    return ALL_PROVIDERS.stream()
-        .anyMatch(p -> p.isEnterprise() && p.isAvailable());
+    return ALL_PROVIDERS.stream().anyMatch(p -> p.isEnterprise() && p.isAvailable());
   }
 
   /**
@@ -201,12 +199,10 @@ public final class StorageProviders {
     LOGGER.info("Total providers discovered: {}", ALL_PROVIDERS.size());
 
     for (StorageProvider provider : ALL_PROVIDERS) {
-      LOGGER.info("  {} [priority={}, enterprise={}, available={}]{}",
-          provider.getName(),
-          provider.getPriority(),
-          provider.isEnterprise(),
-          provider.isAvailable(),
-          provider.isAvailable() ? "" : " - " + provider.getUnavailabilityReason());
+      LOGGER.info("  {} [priority={}, enterprise={}, available={}]{}", provider.getName(), provider.getPriority(),
+          provider.isEnterprise(), provider.isAvailable(), provider.isAvailable()
+              ? ""
+              : " - " + provider.getUnavailabilityReason());
     }
 
     LOGGER.info("====================================");

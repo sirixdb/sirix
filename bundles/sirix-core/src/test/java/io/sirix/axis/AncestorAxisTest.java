@@ -68,8 +68,7 @@ public class AncestorAxisTest {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveTo(11L);
-    AbsAxisTest.testAxisConventions(
-        new AncestorAxis(rtx, IncludeSelf.YES), new long[] {11L, 9L, 1L});
+    AbsAxisTest.testAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {11L, 9L, 1L});
 
     rtx.moveTo(5L);
     AbsAxisTest.testAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {5L, 1L});

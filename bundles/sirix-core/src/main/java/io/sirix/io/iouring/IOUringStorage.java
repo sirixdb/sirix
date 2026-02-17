@@ -54,7 +54,7 @@ public final class IOUringStorage implements IOStorage {
   private AsyncFile dataFile;
 
   private AsyncFile revisionsOffsetFile;
-  
+
   /**
    * Revision index holder for fast timestamp lookups.
    */
@@ -67,16 +67,15 @@ public final class IOUringStorage implements IOStorage {
    * @param cache the revision file data cache
    * @param revisionIndexHolder the revision index holder
    */
-  public IOUringStorage(final ResourceConfiguration resourceConfig, 
-                        final AsyncCache<Integer, RevisionFileData> cache,
-                        final RevisionIndexHolder revisionIndexHolder) {
+  public IOUringStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache,
+      final RevisionIndexHolder revisionIndexHolder) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     file = resourceConfig.resourcePath;
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
     this.revisionIndexHolder = revisionIndexHolder;
   }
-  
+
   /**
    * Constructor (backward compatibility).
    *
@@ -103,12 +102,8 @@ public final class IOUringStorage implements IOStorage {
       createRevisionsOffsetFileIfNotInitialized(revisionsOffsetFilePath);
       createDataFileIfNotInitialized(dataFilePath);
 
-      return new IOUringReader(dataFile,
-                               revisionsOffsetFile,
-                               new ByteHandlerPipeline(byteHandlerPipeline),
-                               SerializationType.DATA,
-                               new PagePersister(),
-                               cache.synchronous());
+      return new IOUringReader(dataFile, revisionsOffsetFile, new ByteHandlerPipeline(byteHandlerPipeline),
+          SerializationType.DATA, new PagePersister(), cache.synchronous());
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {
@@ -158,22 +153,11 @@ public final class IOUringStorage implements IOStorage {
       final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
       final var pagePersister = new PagePersister();
-      final var reader = new IOUringReader(dataFile,
-                                           revisionsOffsetFile,
-                                           byteHandlePipeline,
-                                           serializationType,
-                                           pagePersister,
-                                           cache.synchronous());
+      final var reader = new IOUringReader(dataFile, revisionsOffsetFile, byteHandlePipeline, serializationType,
+          pagePersister, cache.synchronous());
 
-      return new IOUringWriter(dataFile,
-                               revisionsOffsetFile,
-                               dataFilePath,
-                               revisionsOffsetFilePath,
-                               serializationType,
-                               pagePersister,
-                               cache,
-                               revisionIndexHolder,
-                               reader);
+      return new IOUringWriter(dataFile, revisionsOffsetFile, dataFilePath, revisionsOffsetFilePath, serializationType,
+          pagePersister, cache, revisionIndexHolder, reader);
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {
@@ -231,7 +215,7 @@ public final class IOUringStorage implements IOStorage {
   public ByteHandler getByteHandler() {
     return byteHandlerPipeline;
   }
-  
+
   @Override
   public @NonNull RevisionIndexHolder getRevisionIndexHolder() {
     return revisionIndexHolder;

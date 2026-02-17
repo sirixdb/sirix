@@ -77,8 +77,8 @@ public final class CASPage extends AbstractForwardingPage {
   /**
    * Constructor to set deserialized values for CASpage
    *
-   * @param delegate                        page
-   * @param maxNodeKeys                     Hashmap deserialized
+   * @param delegate page
+   * @param maxNodeKeys Hashmap deserialized
    * @param currentMaxLevelsOfIndirectPages Hashmap deserialized
    */
   CASPage(final Page delegate, final Int2LongMap maxNodeKeys, final Int2IntMap currentMaxLevelsOfIndirectPages) {
@@ -118,11 +118,11 @@ public final class CASPage extends AbstractForwardingPage {
    * Initialize CAS index tree.
    *
    * @param pageReadTrx {@link StorageEngineReader} instance
-   * @param index       the index number
-   * @param log         the transaction intent log
+   * @param index the index number
+   * @param log the transaction intent log
    */
-  public void createCASIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx, final int index,
-      final TransactionIntentLog log) {
+  public void createCASIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
+      final int index, final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
@@ -143,11 +143,13 @@ public final class CASPage extends AbstractForwardingPage {
   /**
    * Initialize HOT (Height Optimized Trie) CAS index tree.
    *
-   * <p>Creates a cache-friendly HOT index instead of the traditional RBTree-based index.</p>
+   * <p>
+   * Creates a cache-friendly HOT index instead of the traditional RBTree-based index.
+   * </p>
    *
    * @param pageReadTrx {@link StorageEngineReader} instance
-   * @param index       the index number
-   * @param log         the transaction intent log
+   * @param index the index number
+   * @param log the transaction intent log
    */
   public void createHOTCASIndexTree(final StorageEngineReader pageReadTrx, final int index,
       final TransactionIntentLog log) {

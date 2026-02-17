@@ -33,8 +33,7 @@ import static java.util.Objects.requireNonNull;
 public class DeleteFMSEVisitor extends AbstractXmlNodeVisitor {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(DeleteFMSEVisitor.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(DeleteFMSEVisitor.class));
 
   /** {@link Matching} reference. */
   private final Matching matching;
@@ -52,8 +51,7 @@ public class DeleteFMSEVisitor extends AbstractXmlNodeVisitor {
    * @param matching {@link Matching} reference
    * @param startKey start key
    */
-  public DeleteFMSEVisitor(final XmlNodeTrx wtx, final Matching matching,
-      @NonNegative final long startKey) {
+  public DeleteFMSEVisitor(final XmlNodeTrx wtx, final Matching matching, @NonNegative final long startKey) {
     this.wtx = requireNonNull(wtx);
     this.matching = requireNonNull(matching);
     checkArgument(startKey >= 0, "start key must be >= 0!");
@@ -72,8 +70,7 @@ public class DeleteFMSEVisitor extends AbstractXmlNodeVisitor {
     } else {
       wtx.moveTo(node.getNodeKey());
       final long nodeKey = node.getNodeKey();
-      final List<Long> keysToDelete =
-          new ArrayList<>(wtx.getAttributeCount() + wtx.getNamespaceCount());
+      final List<Long> keysToDelete = new ArrayList<>(wtx.getAttributeCount() + wtx.getNamespaceCount());
       for (int i = 0, attCount = wtx.getAttributeCount(); i < attCount; i++) {
         wtx.moveToAttribute(i);
         final long attNodeKey = wtx.getNodeKey();
@@ -141,9 +138,9 @@ public class DeleteFMSEVisitor extends AbstractXmlNodeVisitor {
 
   /**
    * Determines if a node must be deleted. If yes, it is deleted and {@code true} is returned. If it
-   * must not be deleted {@code false} is returned. The transaction is moved accordingly in case of
-   * a remove-operation such that the {@link DescendantAxis} can move to the next node after a
-   * delete occurred.
+   * must not be deleted {@code false} is returned. The transaction is moved accordingly in case of a
+   * remove-operation such that the {@link DescendantAxis} can move to the next node after a delete
+   * occurred.
    * 
    * @param node the node to check and possibly delete
    * @return {@code EVisitResult} how to move the transaction subsequently
@@ -154,10 +151,8 @@ public class DeleteFMSEVisitor extends AbstractXmlNodeVisitor {
       final long nodeKey = wtx.getNodeKey();
       boolean removeTextNode = false;
       boolean resetValue = false;
-      if (wtx.hasLeftSibling() && wtx.moveToLeftSibling()
-          && wtx.getKind() == NodeKind.TEXT && wtx.moveToRightSibling()
-          && wtx.hasRightSibling() && wtx.moveToRightSibling()
-          && wtx.getKind() == NodeKind.TEXT) {
+      if (wtx.hasLeftSibling() && wtx.moveToLeftSibling() && wtx.getKind() == NodeKind.TEXT && wtx.moveToRightSibling()
+          && wtx.hasRightSibling() && wtx.moveToRightSibling() && wtx.getKind() == NodeKind.TEXT) {
         final Long partner = matching.partner(wtx.getNodeKey());
         if (partner == null) {
           // Case: Right text node should be deleted (thus, the value must not

@@ -65,7 +65,7 @@ public final class ExcelDiffTest {
    */
   private void test() throws Exception {
     try (final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-         var listFiles = Files.list(ExcelDiffTest.XML_SHEETS)) {
+        var listFiles = Files.list(ExcelDiffTest.XML_SHEETS)) {
       XmlResourceSession resource = database.beginResourceSession(XmlTestHelper.RESOURCE);
       Predicate<Path> fileNameFilter = path -> path.getFileName().toString().endsWith(".xml");
       final List<Path> list = listFiles.filter(fileNameFilter).sorted((first, second) -> {
@@ -87,16 +87,14 @@ public final class ExcelDiffTest {
           if (first) {
             first = false;
             try (final XmlNodeTrx wtx = resource.beginNodeTrx();
-                 final FileInputStream fis = new FileInputStream(file.toFile())) {
-              final XmlShredder shredder = new XmlShredder.Builder(wtx,
-                                                                   XmlShredder.createFileReader(fis),
-                                                                   InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                                                 .build();
+                final FileInputStream fis = new FileInputStream(file.toFile())) {
+              final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
+                  InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
               shredder.call();
             }
           } else {
-            FMSEImport.main(new String[] { PATHS.PATH1.getFile().toAbsolutePath().toString(),
-                file.toAbsolutePath().toString() });
+            FMSEImport.main(
+                new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(), file.toAbsolutePath().toString()});
           }
 
           resource.close();
@@ -109,7 +107,8 @@ public final class ExcelDiffTest {
 
           final Diff diff = new Diff(sBuilder.toString(), out.toString());
           final DetailedDiff detDiff = new DetailedDiff(diff);
-          @SuppressWarnings("unchecked") final List<Difference> differences = detDiff.getAllDifferences();
+          @SuppressWarnings("unchecked")
+          final List<Difference> differences = detDiff.getAllDifferences();
           for (final Difference difference : differences) {
             System.err.println("***********************");
             System.err.println(difference);

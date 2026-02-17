@@ -75,10 +75,8 @@ public class ElementNodeTest {
   @Test
   public void testElementNode() throws IOException {
     // Use a simplified ResourceConfiguration for testing
-    final var config = ResourceConfiguration.newBuilder("test")
-        .hashKind(HashType.ROLLING)
-        .storeChildCount(true)
-        .build();
+    final var config =
+        ResourceConfiguration.newBuilder("test").hashKind(HashType.ROLLING).storeChildCount(true).build();
 
     // Create data in the structural delta/varint format.
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
@@ -90,37 +88,37 @@ public class ElementNodeTest {
     DeltaVarIntCodec.encodeDelta(data, 16L, nodeKey); // leftSiblingKey
     DeltaVarIntCodec.encodeDelta(data, 12L, nodeKey); // firstChildKey
     DeltaVarIntCodec.encodeDelta(data, 12L, nodeKey); // lastChildKey
-    DeltaVarIntCodec.encodeDelta(data, 1L, nodeKey);  // pathNodeKey
-    DeltaVarIntCodec.encodeSigned(data, 18);          // prefixKey
-    DeltaVarIntCodec.encodeSigned(data, 19);          // localNameKey
-    DeltaVarIntCodec.encodeSigned(data, 17);          // uriKey
+    DeltaVarIntCodec.encodeDelta(data, 1L, nodeKey); // pathNodeKey
+    DeltaVarIntCodec.encodeSigned(data, 18); // prefixKey
+    DeltaVarIntCodec.encodeSigned(data, 19); // localNameKey
+    DeltaVarIntCodec.encodeSigned(data, 17); // uriKey
     DeltaVarIntCodec.encodeSigned(data, Constants.NULL_REVISION_NUMBER);
-    DeltaVarIntCodec.encodeSigned(data, 0);           // lastModifiedRevision
+    DeltaVarIntCodec.encodeSigned(data, 0); // lastModifiedRevision
 
     if (config.storeChildCount()) {
-      DeltaVarIntCodec.encodeSigned(data, 1);        // childCount
+      DeltaVarIntCodec.encodeSigned(data, 1); // childCount
     }
     if (config.hashType != HashType.NONE) {
-      data.writeLong(0);                             // hash
-      DeltaVarIntCodec.encodeSigned(data, 0);        // descendantCount
+      data.writeLong(0); // hash
+      DeltaVarIntCodec.encodeSigned(data, 0); // descendantCount
     }
-    DeltaVarIntCodec.encodeSigned(data, 2);          // attribute count
+    DeltaVarIntCodec.encodeSigned(data, 2); // attribute count
     DeltaVarIntCodec.encodeDelta(data, 97L, nodeKey);
     DeltaVarIntCodec.encodeDelta(data, 98L, nodeKey);
-    DeltaVarIntCodec.encodeSigned(data, 2);          // namespace count
+    DeltaVarIntCodec.encodeSigned(data, 2); // namespace count
     DeltaVarIntCodec.encodeDelta(data, 99L, nodeKey);
     DeltaVarIntCodec.encodeDelta(data, 100L, nodeKey);
-    
+
     // Deserialize to create properly initialized node
     var bytesIn = data.asBytesIn();
     bytesIn.readByte(); // Skip NodeKind byte
-    final ElementNode node = (ElementNode) NodeKind.ELEMENT.deserialize(
-        bytesIn, nodeKey, SirixDeweyID.newRootID().toBytes(), config);
-    
+    final ElementNode node =
+        (ElementNode) NodeKind.ELEMENT.deserialize(bytesIn, nodeKey, SirixDeweyID.newRootID().toBytes(), config);
+
     // Compute and set hash
     var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
-    
+
     check(node);
 
     // Serialize and deserialize node.
@@ -129,10 +127,8 @@ public class ElementNodeTest {
     node.getKind().serialize(data2, node, config);
     var bytesIn2 = data2.asBytesIn();
     bytesIn2.readByte(); // Skip NodeKind byte
-    final ElementNode node2 = (ElementNode) NodeKind.ELEMENT.deserialize(bytesIn2,
-                                                                         node.getNodeKey(),
-                                                                         node.getDeweyID().toBytes(),
-                                                                         config);
+    final ElementNode node2 =
+        (ElementNode) NodeKind.ELEMENT.deserialize(bytesIn2, node.getNodeKey(), node.getDeweyID().toBytes(), config);
     check(node2);
   }
 

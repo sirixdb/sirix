@@ -7,14 +7,17 @@ import java.util.Objects;
 /**
  * Primitive-only accessors for fixed-size slot layouts backed by {@link MemorySegment}.
  *
- * <p>This utility is designed for hot paths: no boxing, no temporary object allocation.
+ * <p>
+ * This utility is designed for hot paths: no boxing, no temporary object allocation.
  *
- * <p>Each accessor has two overloads:
+ * <p>
+ * Each accessor has two overloads:
  * <ul>
- *   <li>Without {@code baseOffset} — reads/writes relative to the start of the segment (legacy slice-based API).</li>
- *   <li>With {@code long baseOffset} — reads/writes at {@code baseOffset + fieldOffset}, allowing
- *       callers to pass the full {@code slotMemory} plus an offset instead of allocating an
- *       {@code asSlice()} per call.</li>
+ * <li>Without {@code baseOffset} — reads/writes relative to the start of the segment (legacy
+ * slice-based API).</li>
+ * <li>With {@code long baseOffset} — reads/writes at {@code baseOffset + fieldOffset}, allowing
+ * callers to pass the full {@code slotMemory} plus an offset instead of allocating an
+ * {@code asSlice()} per call.</li>
  * </ul>
  */
 public final class SlotLayoutAccessors {
@@ -22,13 +25,12 @@ public final class SlotLayoutAccessors {
   private static final ValueLayout.OfInt INT_LAYOUT = ValueLayout.JAVA_INT_UNALIGNED;
   private static final ValueLayout.OfByte BYTE_LAYOUT = ValueLayout.JAVA_BYTE;
 
-  private SlotLayoutAccessors() {
-  }
+  private SlotLayoutAccessors() {}
 
   // ── readLongField ──────────────────────────────────────────────────
 
-  public static long readLongField(final MemorySegment slot, final long baseOffset,
-      final NodeKindLayout layout, final StructuralField field) {
+  public static long readLongField(final MemorySegment slot, final long baseOffset, final NodeKindLayout layout,
+      final StructuralField field) {
     final int offset = requiredOffset(layout, field);
     return slot.get(LONG_LAYOUT, baseOffset + offset);
   }
@@ -39,8 +41,8 @@ public final class SlotLayoutAccessors {
 
   // ── writeLongField ─────────────────────────────────────────────────
 
-  public static void writeLongField(final MemorySegment slot, final long baseOffset,
-      final NodeKindLayout layout, final StructuralField field, final long value) {
+  public static void writeLongField(final MemorySegment slot, final long baseOffset, final NodeKindLayout layout,
+      final StructuralField field, final long value) {
     final int offset = requiredOffset(layout, field);
     slot.set(LONG_LAYOUT, baseOffset + offset, value);
   }
@@ -52,8 +54,8 @@ public final class SlotLayoutAccessors {
 
   // ── readIntField ───────────────────────────────────────────────────
 
-  public static int readIntField(final MemorySegment slot, final long baseOffset,
-      final NodeKindLayout layout, final StructuralField field) {
+  public static int readIntField(final MemorySegment slot, final long baseOffset, final NodeKindLayout layout,
+      final StructuralField field) {
     final int offset = requiredOffset(layout, field);
     return slot.get(INT_LAYOUT, baseOffset + offset);
   }
@@ -64,8 +66,8 @@ public final class SlotLayoutAccessors {
 
   // ── writeIntField ──────────────────────────────────────────────────
 
-  public static void writeIntField(final MemorySegment slot, final long baseOffset,
-      final NodeKindLayout layout, final StructuralField field, final int value) {
+  public static void writeIntField(final MemorySegment slot, final long baseOffset, final NodeKindLayout layout,
+      final StructuralField field, final int value) {
     final int offset = requiredOffset(layout, field);
     slot.set(INT_LAYOUT, baseOffset + offset, value);
   }
@@ -77,8 +79,8 @@ public final class SlotLayoutAccessors {
 
   // ── readBooleanField ───────────────────────────────────────────────
 
-  public static boolean readBooleanField(final MemorySegment slot, final long baseOffset,
-      final NodeKindLayout layout, final StructuralField field) {
+  public static boolean readBooleanField(final MemorySegment slot, final long baseOffset, final NodeKindLayout layout,
+      final StructuralField field) {
     final int offset = requiredOffset(layout, field);
     return slot.get(BYTE_LAYOUT, baseOffset + offset) != 0;
   }
@@ -90,10 +92,12 @@ public final class SlotLayoutAccessors {
 
   // ── writeBooleanField ──────────────────────────────────────────────
 
-  public static void writeBooleanField(final MemorySegment slot, final long baseOffset,
-      final NodeKindLayout layout, final StructuralField field, final boolean value) {
+  public static void writeBooleanField(final MemorySegment slot, final long baseOffset, final NodeKindLayout layout,
+      final StructuralField field, final boolean value) {
     final int offset = requiredOffset(layout, field);
-    slot.set(BYTE_LAYOUT, baseOffset + offset, value ? (byte) 1 : (byte) 0);
+    slot.set(BYTE_LAYOUT, baseOffset + offset, value
+        ? (byte) 1
+        : (byte) 0);
   }
 
   public static void writeBooleanField(final MemorySegment slot, final NodeKindLayout layout,
@@ -103,32 +107,34 @@ public final class SlotLayoutAccessors {
 
   // ── readPayloadPointer ─────────────────────────────────────────────
 
-  public static long readPayloadPointer(final MemorySegment slot, final long baseOffset,
-      final NodeKindLayout layout, final int payloadRefIndex) {
+  public static long readPayloadPointer(final MemorySegment slot, final long baseOffset, final NodeKindLayout layout,
+      final int payloadRefIndex) {
     final PayloadRef payloadRef = payloadRef(layout, payloadRefIndex);
     return slot.get(LONG_LAYOUT, baseOffset + payloadRef.pointerOffset());
   }
 
-  public static long readPayloadPointer(final MemorySegment slot, final NodeKindLayout layout, final int payloadRefIndex) {
+  public static long readPayloadPointer(final MemorySegment slot, final NodeKindLayout layout,
+      final int payloadRefIndex) {
     return readPayloadPointer(slot, 0L, layout, payloadRefIndex);
   }
 
   // ── readPayloadLength ──────────────────────────────────────────────
 
-  public static int readPayloadLength(final MemorySegment slot, final long baseOffset,
-      final NodeKindLayout layout, final int payloadRefIndex) {
+  public static int readPayloadLength(final MemorySegment slot, final long baseOffset, final NodeKindLayout layout,
+      final int payloadRefIndex) {
     final PayloadRef payloadRef = payloadRef(layout, payloadRefIndex);
     return slot.get(INT_LAYOUT, baseOffset + payloadRef.lengthOffset());
   }
 
-  public static int readPayloadLength(final MemorySegment slot, final NodeKindLayout layout, final int payloadRefIndex) {
+  public static int readPayloadLength(final MemorySegment slot, final NodeKindLayout layout,
+      final int payloadRefIndex) {
     return readPayloadLength(slot, 0L, layout, payloadRefIndex);
   }
 
   // ── readPayloadFlags ───────────────────────────────────────────────
 
-  public static int readPayloadFlags(final MemorySegment slot, final long baseOffset,
-      final NodeKindLayout layout, final int payloadRefIndex) {
+  public static int readPayloadFlags(final MemorySegment slot, final long baseOffset, final NodeKindLayout layout,
+      final int payloadRefIndex) {
     final PayloadRef payloadRef = payloadRef(layout, payloadRefIndex);
     return slot.get(INT_LAYOUT, baseOffset + payloadRef.flagsOffset());
   }
@@ -139,9 +145,8 @@ public final class SlotLayoutAccessors {
 
   // ── writePayloadRef ────────────────────────────────────────────────
 
-  public static void writePayloadRef(final MemorySegment slot, final long baseOffset,
-      final NodeKindLayout layout, final int payloadRefIndex,
-      final long pointer, final int length, final int flags) {
+  public static void writePayloadRef(final MemorySegment slot, final long baseOffset, final NodeKindLayout layout,
+      final int payloadRefIndex, final long pointer, final int length, final int flags) {
     if (length < 0) {
       throw new IllegalArgumentException("length must be >= 0");
     }
@@ -165,8 +170,7 @@ public final class SlotLayoutAccessors {
     final int offset = Objects.requireNonNull(layout, "layout must not be null")
                               .offsetOfOrMinusOne(Objects.requireNonNull(field, "field must not be null"));
     if (offset < 0) {
-      throw new IllegalArgumentException(
-          "Field " + field + " is not part of layout for " + layout.nodeKind());
+      throw new IllegalArgumentException("Field " + field + " is not part of layout for " + layout.nodeKind());
     }
     return offset;
   }
@@ -174,8 +178,8 @@ public final class SlotLayoutAccessors {
   private static PayloadRef payloadRef(final NodeKindLayout layout, final int payloadRefIndex) {
     Objects.requireNonNull(layout, "layout must not be null");
     if (payloadRefIndex < 0 || payloadRefIndex >= layout.payloadRefCount()) {
-      throw new IllegalArgumentException(
-          "Invalid payloadRefIndex " + payloadRefIndex + " for " + layout.nodeKind() + ", count=" + layout.payloadRefCount());
+      throw new IllegalArgumentException("Invalid payloadRefIndex " + payloadRefIndex + " for " + layout.nodeKind()
+          + ", count=" + layout.payloadRefCount());
     }
     return layout.payloadRef(payloadRefIndex);
   }

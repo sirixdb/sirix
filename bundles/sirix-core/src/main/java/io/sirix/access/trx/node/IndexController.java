@@ -66,7 +66,9 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Fast-path check for path indexes.
    *
-   * <p>Implementations may override with cached constant-time checks.</p>
+   * <p>
+   * Implementations may override with cached constant-time checks.
+   * </p>
    */
   default boolean hasPathIndex() {
     return containsIndex(IndexType.PATH);
@@ -75,7 +77,9 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Fast-path check for CAS indexes.
    *
-   * <p>Implementations may override with cached constant-time checks.</p>
+   * <p>
+   * Implementations may override with cached constant-time checks.
+   * </p>
    */
   default boolean hasCASIndex() {
     return containsIndex(IndexType.CAS);
@@ -84,7 +88,9 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Fast-path check for name indexes.
    *
-   * <p>Implementations may override with cached constant-time checks.</p>
+   * <p>
+   * Implementations may override with cached constant-time checks.
+   * </p>
    */
   default boolean hasNameIndex() {
     return containsIndex(IndexType.NAME);
@@ -155,7 +161,9 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Notify primitive change details to all listening indexes.
    *
-   * <p>Used on write hot paths to avoid immutable-node snapshot materialization.</p>
+   * <p>
+   * Used on write hot paths to avoid immutable-node snapshot materialization.
+   * </p>
    *
    * @param type type of change
    * @param nodeKey node key of the changed node
@@ -164,8 +172,8 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param name optional name (only relevant for name-indexed kinds)
    * @param value optional value (only relevant for value-indexed kinds)
    */
-  void notifyChange(ChangeType type, long nodeKey, NodeKind nodeKind, long pathNodeKey,
-      @Nullable QNm name, @Nullable Str value);
+  void notifyChange(ChangeType type, long nodeKey, NodeKind nodeKind, long pathNodeKey, @Nullable QNm name,
+      @Nullable Str value);
 
   /**
    * Create new indexes.

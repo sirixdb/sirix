@@ -47,11 +47,7 @@ public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheK
   private final com.github.benmanes.caffeine.cache.Cache<RevisionRootPageCacheKey, RevisionRootPage> cache;
 
   public RevisionRootPageCache(final int maxSize) {
-    cache = Caffeine.newBuilder()
-                    .initialCapacity(maxSize)
-                    .maximumSize(maxSize)
-                    .scheduler(scheduler)
-                    .build();
+    cache = Caffeine.newBuilder().initialCapacity(maxSize).maximumSize(maxSize).scheduler(scheduler).build();
   }
 
   @Override
@@ -90,11 +86,10 @@ public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheK
     unswizzlePageReferences(value);
     cache.put(key, value);
   }
-  
+
   /**
-   * Unswizzle all PageReferences in a RevisionRootPage before caching.
-   * This prevents swizzled KeyValueLeafPage instances from being kept alive
-   * by cached RevisionRootPages.
+   * Unswizzle all PageReferences in a RevisionRootPage before caching. This prevents swizzled
+   * KeyValueLeafPage instances from being kept alive by cached RevisionRootPages.
    */
   private void unswizzlePageReferences(RevisionRootPage revisionRootPage) {
     // Unswizzle references to index trees (hold KeyValueLeafPage instances)
@@ -103,31 +98,31 @@ public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheK
       // Unswizzle the NamePage's index tree references (hold KeyValueLeafPage Page 0s)
       unswizzleIndexPageReferences(namePage);
     }
-    
+
     var pathSummaryRef = revisionRootPage.getPathSummaryPageReference();
     if (pathSummaryRef != null && pathSummaryRef.getPage() instanceof PathSummaryPage pathSummaryPage) {
       unswizzleIndexPageReferences(pathSummaryPage);
     }
-    
+
     var casRef = revisionRootPage.getCASPageReference();
     if (casRef != null && casRef.getPage() instanceof CASPage casPage) {
       unswizzleIndexPageReferences(casPage);
     }
-    
+
     var pathRef = revisionRootPage.getPathPageReference();
     if (pathRef != null && pathRef.getPage() instanceof PathPage pathPage) {
       unswizzleIndexPageReferences(pathPage);
     }
-    
+
     var documentRef = revisionRootPage.getIndirectDocumentIndexPageReference();
     if (documentRef != null) {
       documentRef.setPage(null);
     }
   }
-  
+
   /**
-   * Unswizzle PageReferences in index pages (NamePage, PathPage, etc.)
-   * These pages contain references to KeyValueLeafPage instances that need to be unswizzled.
+   * Unswizzle PageReferences in index pages (NamePage, PathPage, etc.) These pages contain references
+   * to KeyValueLeafPage instances that need to be unswizzled.
    */
   private void unswizzleIndexPageReferences(Page indexPage) {
     // Index pages extend AbstractForwardingPage which has getReferences()
@@ -168,6 +163,5 @@ public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheK
   }
 
   @Override
-  public void close() {
-  }
+  public void close() {}
 }

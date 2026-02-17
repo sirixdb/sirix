@@ -55,20 +55,20 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests for flyweight cursor corner cases.
- * These tests verify the save/restore pattern, concurrent axes, and other edge cases.
+ * Tests for flyweight cursor corner cases. These tests verify the save/restore pattern, concurrent
+ * axes, and other edge cases.
  *
  * @author Johannes Lichtenberger
  */
 class FlyweightCursorTest {
 
   private static final String RESOURCE = "testResource";
-  
+
   @TempDir
   Path tempDir;
-  
+
   private Database<JsonResourceSession> database;
-  
+
   @BeforeEach
   void setUp() {
     final var dbPath = tempDir.resolve("testdb");
@@ -90,37 +90,35 @@ class FlyweightCursorTest {
   @Test
   void testSaveRestorePattern() {
     // Create a simple JSON structure
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\": 1, \"b\": 2}"));
       wtx.commit();
     }
 
     // Test save/restore pattern
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
-      
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
+
       // Cast to internal interface to access getCurrentNode/setCurrentNode
       final var internalRtx = (InternalJsonNodeReadOnlyTrx) rtx;
-      
+
       // Move to document root
       rtx.moveToDocumentRoot();
-      assertTrue(rtx.moveToFirstChild());  // Move to object
-      
+      assertTrue(rtx.moveToFirstChild()); // Move to object
+
       // Save current position
       final var savedNode = internalRtx.getCurrentNode();
       final long savedKey = savedNode.getNodeKey();
       final NodeKind savedKind = savedNode.getKind();
-      
+
       // Move away
-      assertTrue(rtx.moveToFirstChild());  // Move to first child of object
+      assertTrue(rtx.moveToFirstChild()); // Move to first child of object
       long newKey = rtx.getNodeKey();
       assertTrue(newKey != savedKey, "Should have moved to different node");
-      
+
       // Verify saved node is still stable (not affected by moveTo)
       assertEquals(savedKey, savedNode.getNodeKey(), "Saved node key should not change");
       assertEquals(savedKind, savedNode.getKind(), "Saved node kind should not change");
-      
+
       // Restore position
       internalRtx.setCurrentNode(savedNode);
       assertEquals(savedKey, rtx.getNodeKey(), "Should be back at saved position");
@@ -133,22 +131,20 @@ class FlyweightCursorTest {
    */
   @Test
   void testGetNodeReturnsConsistentValues() {
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"key\": \"value\"}"));
       wtx.commit();
     }
 
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
-      
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
+
       rtx.moveToDocumentRoot();
       rtx.moveToFirstChild();
-      
+
       // Get two snapshots
       var node1 = rtx.getNode();
       var node2 = rtx.getNode();
-      
+
       // They should be equal in content
       assertEquals(node1.getNodeKey(), node2.getNodeKey());
       assertEquals(node1.getKind(), node2.getKind());
@@ -160,29 +156,27 @@ class FlyweightCursorTest {
    */
   @Test
   void testFlyweightGettersReturnCorrectValues() {
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1, 2, 3]"));
       wtx.commit();
     }
 
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
-      
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
+
       rtx.moveToDocumentRoot();
-      assertTrue(rtx.moveToFirstChild());  // Array
+      assertTrue(rtx.moveToFirstChild()); // Array
       assertEquals(NodeKind.ARRAY, rtx.getKind(), "Should be at Array node");
-      
+
       // Test getters match getNode() values
       var node = rtx.getNode();
       assertEquals(node.getNodeKey(), rtx.getNodeKey());
       assertEquals(node.getParentKey(), rtx.getParentKey());
       assertEquals(node.getKind(), rtx.getKind());
-      
+
       // Move to first child (number 1)
       assertTrue(rtx.moveToFirstChild());
       assertEquals(NodeKind.NUMBER_VALUE, rtx.getKind(), "Should be at Number node");
-      
+
       node = rtx.getNode();
       assertEquals(node.getNodeKey(), rtx.getNodeKey());
       assertEquals(node.getParentKey(), rtx.getParentKey());
@@ -195,23 +189,21 @@ class FlyweightCursorTest {
    */
   @Test
   void testAxisIterationWithFlyweight() {
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\": 1, \"b\": 2, \"c\": 3}"));
       wtx.commit();
     }
 
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
-      
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
+
       rtx.moveToDocumentRoot();
-      rtx.moveToFirstChild();  // Object
+      rtx.moveToFirstChild(); // Object
       assertEquals(NodeKind.OBJECT, rtx.getKind(), "Should be at Object node");
-      
+
       // Verify flyweight values match object-based values
       var objectNode = rtx.getNode();
       assertEquals(objectNode.getNodeKey(), rtx.getNodeKey(), "nodeKey mismatch");
-      
+
       // Iterate over children using ChildAxis
       int count = 0;
       for (var axis = new ChildAxis(rtx); axis.hasNext();) {
@@ -220,7 +212,7 @@ class FlyweightCursorTest {
         assertNotNull(rtx.getKind());
         assertTrue(rtx.getNodeKey() >= 0);
       }
-      
+
       assertEquals(3, count, "Should have 3 object keys");
     }
   }
@@ -230,24 +222,22 @@ class FlyweightCursorTest {
    */
   @Test
   void testDescendantAxisWithFlyweight() {
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"nested\": {\"deep\": 42}}"));
       wtx.commit();
     }
 
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
-      
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
+
       rtx.moveToDocumentRoot();
-      
+
       // Count all descendants
       int count = 0;
       for (var axis = new DescendantAxis(rtx); axis.hasNext();) {
         axis.nextLong();
         count++;
       }
-      
+
       // Should have: object, key "nested", object, key "deep", number 42
       assertTrue(count >= 5, "Should have at least 5 descendants, got: " + count);
     }
@@ -258,27 +248,25 @@ class FlyweightCursorTest {
    */
   @Test
   void testHasMethodsWithFlyweight() {
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1, 2]"));
       wtx.commit();
     }
 
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
-      
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
+
       rtx.moveToDocumentRoot();
       assertTrue(rtx.hasFirstChild(), "Document root should have first child");
-      
-      rtx.moveToFirstChild();  // Array
+
+      rtx.moveToFirstChild(); // Array
       assertTrue(rtx.hasFirstChild(), "Array should have first child");
       assertTrue(rtx.hasParent(), "Array should have parent");
-      
-      rtx.moveToFirstChild();  // First number
+
+      rtx.moveToFirstChild(); // First number
       assertTrue(rtx.hasRightSibling(), "First element should have right sibling");
       assertTrue(rtx.hasParent(), "First element should have parent");
-      
-      rtx.moveToRightSibling();  // Second number
+
+      rtx.moveToRightSibling(); // Second number
       assertTrue(rtx.hasLeftSibling(), "Second element should have left sibling");
     }
   }
@@ -288,22 +276,20 @@ class FlyweightCursorTest {
    */
   @Test
   void testGetNodeKeyWithFlyweight() {
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"x\": 1}"));
       wtx.commit();
     }
 
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
-      
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
+
       rtx.moveToDocumentRoot();
       assertEquals(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), rtx.getNodeKey());
-      
+
       rtx.moveToFirstChild();
       long objectKey = rtx.getNodeKey();
       assertTrue(objectKey > 0, "Object should have positive key");
-      
+
       // Verify it matches getNode()
       assertEquals(objectKey, rtx.getNode().getNodeKey());
     }
@@ -314,8 +300,7 @@ class FlyweightCursorTest {
    */
   @Test
   void testTransactionCloseReleasesResources() {
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"test\": 123}"));
       wtx.commit();
     }
@@ -323,8 +308,8 @@ class FlyweightCursorTest {
     // Open and close transaction multiple times - should not leak resources
     for (int i = 0; i < 10; i++) {
       try (final var session = database.beginResourceSession(RESOURCE);
-           final var rtx = session.beginNodeReadOnlyTrx()) {
-        
+          final var rtx = session.beginNodeReadOnlyTrx()) {
+
         rtx.moveToDocumentRoot();
         rtx.moveToFirstChild();
         // Access some data to ensure flyweight is engaged
@@ -334,7 +319,7 @@ class FlyweightCursorTest {
       }
       // Transaction closed - resources should be released
     }
-    
+
     // If we get here without OOM or errors, resources are being released properly
     assertTrue(true);
   }
@@ -344,34 +329,32 @@ class FlyweightCursorTest {
    */
   @Test
   void testOptimizedTraversalWithCaching() {
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"test\": 123}"));
       wtx.commit();
     }
 
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
-      
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
+
       // Cast to AbstractNodeReadOnlyTrx to access mode checks
       final var abstractRtx = (AbstractNodeReadOnlyTrx<?, ?, ?>) rtx;
-      
+
       // Move to document root
       rtx.moveToDocumentRoot();
-      
+
       // Move to first child (object node)
       assertTrue(rtx.moveToFirstChild());
-      
+
       // Verify we can read data correctly after move
       assertEquals(NodeKind.OBJECT, rtx.getKind());
       assertTrue(rtx.getNodeKey() > 0);
-      
+
       // Move to another node
       assertTrue(rtx.moveToFirstChild());
-      
+
       // Verify data is still correct after subsequent move
       assertTrue(rtx.getNodeKey() > 0);
-      
+
       // Move back to first child to verify cache is working
       rtx.moveToParent();
       assertEquals(NodeKind.OBJECT, rtx.getKind());
@@ -379,54 +362,49 @@ class FlyweightCursorTest {
   }
 
   /**
-   * Test that snapshot obtained via getCurrentNode() is immutable.
-   * The snapshot should not change when the cursor moves to a different node.
+   * Test that snapshot obtained via getCurrentNode() is immutable. The snapshot should not change
+   * when the cursor moves to a different node.
    */
   @Test
   void testSnapshotImmutabilityAfterMove() {
     // Create a JSON structure with multiple nodes
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"first\": 1, \"second\": 2}"));
       wtx.commit();
     }
 
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
-      
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
+
       final var internalRtx = (InternalJsonNodeReadOnlyTrx) rtx;
-      
+
       // Navigate to the first object key
       rtx.moveToDocumentRoot();
-      rtx.moveToFirstChild();  // Object node
-      rtx.moveToFirstChild();  // First object key "first"
-      
+      rtx.moveToFirstChild(); // Object node
+      rtx.moveToFirstChild(); // First object key "first"
+
       // Get a snapshot of the first node
       final var firstSnapshot = internalRtx.getCurrentNode();
       final long firstNodeKey = firstSnapshot.getNodeKey();
       final NodeKind firstKind = firstSnapshot.getKind();
-      
+
       // Verify we have a valid snapshot
       assertNotNull(firstSnapshot);
       assertEquals(NodeKind.OBJECT_KEY, firstKind);
-      
+
       // Move to the next sibling (different node)
       assertTrue(rtx.moveToRightSibling());
-      
-      // Get a snapshot of the second node  
+
+      // Get a snapshot of the second node
       final var secondSnapshot = internalRtx.getCurrentNode();
       final long secondNodeKey = secondSnapshot.getNodeKey();
-      
+
       // Verify it's a different node
-      assertTrue(firstNodeKey != secondNodeKey, 
-          "Node keys should be different after moving to sibling");
-      
+      assertTrue(firstNodeKey != secondNodeKey, "Node keys should be different after moving to sibling");
+
       // CRITICAL: The first snapshot must still have its original values!
       // If using singletons improperly, the first snapshot would now show the second node's data.
-      assertEquals(firstNodeKey, firstSnapshot.getNodeKey(), 
-          "Snapshot node key must be immutable after cursor move");
-      assertEquals(firstKind, firstSnapshot.getKind(),
-          "Snapshot kind must be immutable after cursor move");
+      assertEquals(firstNodeKey, firstSnapshot.getNodeKey(), "Snapshot node key must be immutable after cursor move");
+      assertEquals(firstKind, firstSnapshot.getKind(), "Snapshot kind must be immutable after cursor move");
     }
   }
 
@@ -436,44 +414,39 @@ class FlyweightCursorTest {
   @Test
   void testNestedAxesWithSingletons() {
     // Create a JSON structure with nested data
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
-      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "[{\"a\": 1}, {\"b\": 2}, {\"c\": 3}]"));
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[{\"a\": 1}, {\"b\": 2}, {\"c\": 3}]"));
       wtx.commit();
     }
 
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
-      
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
+
       rtx.moveToDocumentRoot();
-      rtx.moveToFirstChild();  // Array node
-      
+      rtx.moveToFirstChild(); // Array node
+
       int outerCount = 0;
       int innerTotal = 0;
-      
+
       // Outer loop: iterate over array children (objects)
       for (long outerKey : new ChildAxis(rtx)) {
         outerCount++;
         final long savedOuterKey = outerKey;
         final NodeKind savedOuterKind = rtx.getKind();
-        
+
         // Inner loop: iterate over object children (object keys)
         for (long innerKey : new ChildAxis(rtx)) {
           innerTotal++;
           // Inner axis consumes rtx cursor position
         }
-        
+
         // After inner loop, restore to outer position
         rtx.moveTo(savedOuterKey);
-        
+
         // VERIFY: After restoring, we should be back at the same outer node
-        assertEquals(savedOuterKey, rtx.getNodeKey(),
-            "Outer cursor position must be restorable after inner axis");
-        assertEquals(savedOuterKind, rtx.getKind(),
-            "Outer cursor kind must match after restore");
+        assertEquals(savedOuterKey, rtx.getNodeKey(), "Outer cursor position must be restorable after inner axis");
+        assertEquals(savedOuterKind, rtx.getKind(), "Outer cursor kind must match after restore");
       }
-      
+
       // Should have iterated over 3 array children
       assertEquals(3, outerCount, "Should have 3 objects in array");
       // Each object has 1 key, so 3 keys total
@@ -487,23 +460,21 @@ class FlyweightCursorTest {
   @Test
   void testSingletonModeCorrectness() {
     // Create a diverse JSON structure
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
           "{\"str\": \"hello\", \"num\": 42, \"bool\": true, \"null\": null, \"arr\": [1, 2]}"));
       wtx.commit();
     }
 
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
-      
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
+
       int objectKeyCount = 0;
       int stringCount = 0;
       int numberCount = 0;
       int booleanCount = 0;
       int nullCount = 0;
       int arrayCount = 0;
-      
+
       // Traverse all descendants
       for (final long key : new DescendantAxis(rtx)) {
         switch (rtx.getKind()) {
@@ -514,10 +485,11 @@ class FlyweightCursorTest {
           case OBJECT_NULL_VALUE -> nullCount++;
           case ARRAY -> arrayCount++;
           case NUMBER_VALUE -> numberCount++;
-          default -> { /* other node types */ }
+          default -> {
+            /* other node types */ }
         }
       }
-      
+
       // Verify correct traversal
       assertEquals(5, objectKeyCount, "Should have 5 object keys");
       assertEquals(1, stringCount, "Should have 1 string value");
@@ -529,25 +501,23 @@ class FlyweightCursorTest {
   }
 
   /**
-   * Regression test: insertObjectRecordAsLeftSibling must insert at the correct position,
-   * not at the parent. Previously, the singleton cursor alias caused moveTo() after
-   * moveToParent() to navigate to the parent instead of the original node.
+   * Regression test: insertObjectRecordAsLeftSibling must insert at the correct position, not at the
+   * parent. Previously, the singleton cursor alias caused moveTo() after moveToParent() to navigate
+   * to the parent instead of the original node.
    */
   @Test
   void testInsertObjectRecordAsLeftSiblingPosition() {
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       // Create: {"a": "1", "b": "2"}
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\": \"1\", \"b\": \"2\"}"));
       wtx.commit();
     }
 
     // Insert a left sibling of "b"
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
-      wtx.moveToFirstChild();  // Object
-      wtx.moveToFirstChild();  // "a" key
+      wtx.moveToFirstChild(); // Object
+      wtx.moveToFirstChild(); // "a" key
       wtx.moveToRightSibling(); // "b" key
       assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
       assertEquals("b", wtx.getName().getLocalName());
@@ -558,11 +528,10 @@ class FlyweightCursorTest {
     }
 
     // Verify structure: {"a": "1", "inserted": "new", "b": "2"}
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
       rtx.moveToDocumentRoot();
-      rtx.moveToFirstChild();  // Object
-      rtx.moveToFirstChild();  // First key
+      rtx.moveToFirstChild(); // Object
+      rtx.moveToFirstChild(); // First key
 
       assertEquals("a", rtx.getName().getLocalName(), "First key should be 'a'");
       assertTrue(rtx.moveToRightSibling());
@@ -573,24 +542,22 @@ class FlyweightCursorTest {
   }
 
   /**
-   * Regression test: insertObjectRecordAsRightSibling must insert at the correct position.
-   * Same root cause as the left sibling bug — singleton alias after moveToParent().
+   * Regression test: insertObjectRecordAsRightSibling must insert at the correct position. Same root
+   * cause as the left sibling bug — singleton alias after moveToParent().
    */
   @Test
   void testInsertObjectRecordAsRightSiblingPosition() {
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       // Create: {"a": "1", "b": "2"}
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\": \"1\", \"b\": \"2\"}"));
       wtx.commit();
     }
 
     // Insert a right sibling of "a"
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
-      wtx.moveToFirstChild();  // Object
-      wtx.moveToFirstChild();  // "a" key
+      wtx.moveToFirstChild(); // Object
+      wtx.moveToFirstChild(); // "a" key
       assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
       assertEquals("a", wtx.getName().getLocalName());
 
@@ -599,11 +566,10 @@ class FlyweightCursorTest {
     }
 
     // Verify structure: {"a": "1", "inserted": "new", "b": "2"}
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
       rtx.moveToDocumentRoot();
-      rtx.moveToFirstChild();  // Object
-      rtx.moveToFirstChild();  // First key
+      rtx.moveToFirstChild(); // Object
+      rtx.moveToFirstChild(); // First key
 
       assertEquals("a", rtx.getName().getLocalName(), "First key should be 'a'");
       assertTrue(rtx.moveToRightSibling());
@@ -614,27 +580,23 @@ class FlyweightCursorTest {
   }
 
   /**
-   * Regression test: getNode() must return a true immutable snapshot that does not
-   * mutate when the cursor moves. Previously, getNode() used getStructuralNode()
-   * which returned the live mutable singleton, so the "immutable" wrapper would
-   * silently change after cursor movement.
+   * Regression test: getNode() must return a true immutable snapshot that does not mutate when the
+   * cursor moves. Previously, getNode() used getStructuralNode() which returned the live mutable
+   * singleton, so the "immutable" wrapper would silently change after cursor movement.
    */
   @Test
   void testGetNodeReturnsImmutableSnapshotOnCursorMove() {
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
-      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-          "{\"first\": \"hello\", \"second\": \"world\"}"));
+    try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"first\": \"hello\", \"second\": \"world\"}"));
       wtx.commit();
     }
 
-    try (final var session = database.beginResourceSession(RESOURCE);
-         final var rtx = session.beginNodeReadOnlyTrx()) {
+    try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
 
       // Navigate to "first" object key
       rtx.moveToDocumentRoot();
-      rtx.moveToFirstChild();  // Object
-      rtx.moveToFirstChild();  // "first" key
+      rtx.moveToFirstChild(); // Object
+      rtx.moveToFirstChild(); // "first" key
       assertEquals(NodeKind.OBJECT_KEY, rtx.getKind());
 
       // Get immutable snapshot at "first"
@@ -654,14 +616,11 @@ class FlyweightCursorTest {
       assertNotEquals(firstKey, secondKey, "first and second should have different keys");
 
       // CRITICAL: firstNode must still reflect the original "first" key, not "second"
-      assertEquals(firstKey, firstNode.getNodeKey(),
-          "Immutable snapshot must not change after cursor move");
-      assertEquals(firstKind, firstNode.getKind(),
-          "Immutable snapshot kind must not change after cursor move");
+      assertEquals(firstKey, firstNode.getNodeKey(), "Immutable snapshot must not change after cursor move");
+      assertEquals(firstKind, firstNode.getKind(), "Immutable snapshot kind must not change after cursor move");
 
       // Both snapshots must be independent objects (not the same singleton)
-      assertNotSame(firstNode, secondNode,
-          "Different getNode() calls after cursor move must return different objects");
+      assertNotSame(firstNode, secondNode, "Different getNode() calls after cursor move must return different objects");
     }
   }
 }

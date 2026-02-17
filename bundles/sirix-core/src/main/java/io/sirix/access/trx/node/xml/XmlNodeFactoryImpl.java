@@ -79,93 +79,24 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     this.revisionNumber = pageWriteTrx.getRevisionNumber();
     this.reusableElementAttributeKeys = new LongArrayList();
     this.reusableElementNamespaceKeys = new LongArrayList();
-    this.reusableElementNode = new ElementNode(0,
-                                               0,
-                                               Constants.NULL_REVISION_NUMBER,
-                                               revisionNumber,
-                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                               0,
-                                               0,
-                                               0,
-                                               0,
-                                               -1,
-                                               -1,
-                                               -1,
-                                               hashFunction,
-                                               (SirixDeweyID) null,
-                                               reusableElementAttributeKeys,
-                                               reusableElementNamespaceKeys,
-                                               new QNm(""));
-    this.reusableAttributeNode = new AttributeNode(0,
-                                                   0,
-                                                   Constants.NULL_REVISION_NUMBER,
-                                                   revisionNumber,
-                                                   0,
-                                                   -1,
-                                                   -1,
-                                                   -1,
-                                                   0,
-                                                   new byte[0],
-                                                   hashFunction,
-                                                   (SirixDeweyID) null,
-                                                   new QNm(""));
-    this.reusableNamespaceNode = new NamespaceNode(0,
-                                                   0,
-                                                   Constants.NULL_REVISION_NUMBER,
-                                                   revisionNumber,
-                                                   0,
-                                                   -1,
-                                                   -1,
-                                                   -1,
-                                                   0,
-                                                   hashFunction,
-                                                   (SirixDeweyID) null,
-                                                   new QNm(""));
-    this.reusablePINode = new PINode(0,
-                                     0,
-                                     Constants.NULL_REVISION_NUMBER,
-                                     revisionNumber,
-                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                     Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                     0,
-                                     0,
-                                     0,
-                                     0,
-                                     -1,
-                                     -1,
-                                     -1,
-                                     new byte[0],
-                                     false,
-                                     hashFunction,
-                                     (SirixDeweyID) null,
-                                     new QNm(""));
-    this.reusableTextNode = new TextNode(0,
-                                         0,
-                                         Constants.NULL_REVISION_NUMBER,
-                                         revisionNumber,
-                                         Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                         Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                         0,
-                                         new byte[0],
-                                         false,
-                                         hashFunction,
-                                         (SirixDeweyID) null);
-    this.reusableCommentNode = new CommentNode(0,
-                                               0,
-                                               Constants.NULL_REVISION_NUMBER,
-                                               revisionNumber,
-                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                               Fixed.NULL_NODE_KEY.getStandardProperty(),
-                                               0,
-                                               new byte[0],
-                                               false,
-                                               hashFunction,
-                                               (SirixDeweyID) null);
+    this.reusableElementNode = new ElementNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, 0, 0, -1, -1, -1,
+        hashFunction, (SirixDeweyID) null, reusableElementAttributeKeys, reusableElementNamespaceKeys, new QNm(""));
+    this.reusableAttributeNode = new AttributeNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, -1, -1, -1,
+        0, new byte[0], hashFunction, (SirixDeweyID) null, new QNm(""));
+    this.reusableNamespaceNode = new NamespaceNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, -1, -1, -1,
+        0, hashFunction, (SirixDeweyID) null, new QNm(""));
+    this.reusablePINode = new PINode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, 0, 0, -1, -1, -1,
+        new byte[0], false, hashFunction, (SirixDeweyID) null, new QNm(""));
+    this.reusableTextNode =
+        new TextNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, Fixed.NULL_NODE_KEY.getStandardProperty(),
+            Fixed.NULL_NODE_KEY.getStandardProperty(), 0, new byte[0], false, hashFunction, (SirixDeweyID) null);
+    this.reusableCommentNode =
+        new CommentNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, Fixed.NULL_NODE_KEY.getStandardProperty(),
+            Fixed.NULL_NODE_KEY.getStandardProperty(), 0, new byte[0], false, hashFunction, (SirixDeweyID) null);
   }
 
   private long nextNodeKey() {
@@ -207,9 +138,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     return node;
   }
 
-  private PINode bindPINode(final long nodeKey, final long parentKey, final long leftSibKey,
-      final long rightSibKey, final QNm target, final byte[] content, final long pathNodeKey, final int prefixKey,
-      final int localNameKey, final int uriKey, final boolean isCompressed, final SirixDeweyID id) {
+  private PINode bindPINode(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
+      final QNm target, final byte[] content, final long pathNodeKey, final int prefixKey, final int localNameKey,
+      final int uriKey, final boolean isCompressed, final SirixDeweyID id) {
     final PINode node = reusablePINode;
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
@@ -306,16 +237,14 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     // After TIL.put(), PageReference.getPage() returns null
     // Must use pageTrx.getPathSummaryPage() which handles TIL lookups
     final PathSummaryPage pathSummaryPage = pageTrx.getPathSummaryPage(pageTrx.getActualRevisionRootPage());
-    final NodeDelegate nodeDel = new NodeDelegate(
-        pathSummaryPage.getMaxNodeKey(0) + 1, 
-        parentKey, hashFunction, Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
+    final NodeDelegate nodeDel = new NodeDelegate(pathSummaryPage.getMaxNodeKey(0) + 1, parentKey, hashFunction,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
 
-    return pageTrx.createRecord(new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level),
-                                IndexType.PATH_SUMMARY,
-                                0);
+    return pageTrx.createRecord(new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level), IndexType.PATH_SUMMARY,
+        0);
   }
 
   @Override
@@ -325,14 +254,13 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final int uriKey = name.getNamespaceURI() != null && !name.getNamespaceURI().isEmpty()
         ? pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE)
         : -1;
-    final int prefixKey =
-        name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
-                                                                                        NodeKind.ELEMENT) : -1;
+    final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
+        ? pageTrx.createNameKey(name.getPrefix(), NodeKind.ELEMENT)
+        : -1;
     final int localNameKey = pageTrx.createNameKey(name.getLocalName(), NodeKind.ELEMENT);
     final long nodeKey = nextNodeKey();
-    final ElementNode node =
-        bindElementNode(nodeKey, parentKey, leftSibKey, rightSibKey, name, pathNodeKey, prefixKey, localNameKey,
-                        uriKey, id);
+    final ElementNode node = bindElementNode(nodeKey, parentKey, leftSibKey, rightSibKey, name, pathNodeKey, prefixKey,
+        localNameKey, uriKey, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
@@ -340,11 +268,13 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   public TextNode createTextNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
       final @NonNegative long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
     final long nodeKey = nextNodeKey();
-    
+
     // Compress value if needed
     final boolean compression = isCompressed && value.length > 10;
-    final byte[] compressedValue = compression ? Compression.compress(value, Deflater.HUFFMAN_ONLY) : value;
-    
+    final byte[] compressedValue = compression
+        ? Compression.compress(value, Deflater.HUFFMAN_ONLY)
+        : value;
+
     final TextNode node = bindTextNode(nodeKey, parentKey, leftSibKey, rightSibKey, compressedValue, compression, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
@@ -353,9 +283,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   public AttributeNode createAttributeNode(final @NonNegative long parentKey, final @NonNull QNm name,
       final byte[] value, final @NonNegative long pathNodeKey, final SirixDeweyID id) {
     final int uriKey = pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
-    final int prefixKey =
-        name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
-                                                                                        NodeKind.ATTRIBUTE) : -1;
+    final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
+        ? pageTrx.createNameKey(name.getPrefix(), NodeKind.ATTRIBUTE)
+        : -1;
     final int localNameKey = pageTrx.createNameKey(name.getLocalName(), NodeKind.ATTRIBUTE);
     final long nodeKey = nextNodeKey();
     final AttributeNode node =
@@ -367,9 +297,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   public NamespaceNode createNamespaceNode(final @NonNegative long parentKey, final QNm name,
       final @NonNegative long pathNodeKey, final SirixDeweyID id) {
     final int uriKey = pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
-    final int prefixKey =
-        name.getPrefix() != null && !name.getPrefix().isEmpty() ? pageTrx.createNameKey(name.getPrefix(),
-                                                                                        NodeKind.NAMESPACE) : -1;
+    final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
+        ? pageTrx.createNameKey(name.getPrefix(), NodeKind.NAMESPACE)
+        : -1;
 
     final long nodeKey = nextNodeKey();
     final NamespaceNode node = bindNamespaceNode(nodeKey, parentKey, name, pathNodeKey, prefixKey, uriKey, id);
@@ -380,29 +310,18 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   public PINode createPINode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
       final @NonNegative long rightSibKey, final QNm target, final byte[] content, final boolean isCompressed,
       final @NonNegative long pathNodeKey, final SirixDeweyID id) {
-    final int prefixKey =
-        target.getPrefix() != null && !target.getPrefix().isEmpty()
-            ? pageTrx.createNameKey(target.getPrefix(),
-                                    NodeKind.PROCESSING_INSTRUCTION)
-            : -1;
+    final int prefixKey = target.getPrefix() != null && !target.getPrefix().isEmpty()
+        ? pageTrx.createNameKey(target.getPrefix(), NodeKind.PROCESSING_INSTRUCTION)
+        : -1;
     final int localNameKey = pageTrx.createNameKey(target.getLocalName(), NodeKind.PROCESSING_INSTRUCTION);
     final int uriKey = pageTrx.createNameKey(target.getNamespaceURI(), NodeKind.NAMESPACE);
     final long nodeKey = nextNodeKey();
     final boolean compression = isCompressed && content.length > 10;
-    final byte[] compressedContent = compression ? Compression.compress(content, Deflater.HUFFMAN_ONLY) : content;
-    final PINode node =
-        bindPINode(nodeKey,
-                   parentKey,
-                   leftSibKey,
-                   rightSibKey,
-                   target,
-                   compressedContent,
-                   pathNodeKey,
-                   prefixKey,
-                   localNameKey,
-                   uriKey,
-                   compression,
-                   id);
+    final byte[] compressedContent = compression
+        ? Compression.compress(content, Deflater.HUFFMAN_ONLY)
+        : content;
+    final PINode node = bindPINode(nodeKey, parentKey, leftSibKey, rightSibKey, target, compressedContent, pathNodeKey,
+        prefixKey, localNameKey, uriKey, compression, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
@@ -410,11 +329,13 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   public CommentNode createCommentNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
       final @NonNegative long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
     final long nodeKey = nextNodeKey();
-    
+
     // Compress value if needed
     final boolean compression = isCompressed && value.length > 10;
-    final byte[] compressedValue = compression ? Compression.compress(value, Deflater.HUFFMAN_ONLY) : value;
-    
+    final byte[] compressedValue = compression
+        ? Compression.compress(value, Deflater.HUFFMAN_ONLY)
+        : value;
+
     final CommentNode node =
         bindCommentNode(nodeKey, parentKey, leftSibKey, rightSibKey, compressedValue, compression, id);
     return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);

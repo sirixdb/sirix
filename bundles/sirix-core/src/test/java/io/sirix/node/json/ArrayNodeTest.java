@@ -50,10 +50,9 @@ public class ArrayNodeTest {
   @Test
   public void testNode() throws IOException {
     final var hashFunction = LongHashFunction.xx3();
-    final ArrayNode node = new ArrayNode(
-        13L, // nodeKey
+    final ArrayNode node = new ArrayNode(13L, // nodeKey
         14L, // parentKey
-        1L,  // pathNodeKey
+        1L, // pathNodeKey
         Constants.NULL_REVISION_NUMBER, // previousRevision
         0, // lastModifiedRevision
         16L, // rightSiblingKey
@@ -63,23 +62,18 @@ public class ArrayNodeTest {
         0, // childCount
         0, // descendantCount
         0, // hash
-        hashFunction,
-        (byte[]) null // deweyID
+        hashFunction, (byte[]) null // deweyID
     );
     check(node);
 
-    final var config = ResourceConfiguration.newBuilder("test")
-        .hashKind(HashType.NONE)
-        .storeChildCount(false)
-        .build();
+    final var config = ResourceConfiguration.newBuilder("test").hashKind(HashType.NONE).storeChildCount(false).build();
 
     // Serialize and deserialize node.
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     NodeKind.ARRAY.serialize(data, node, config);
-    
+
     var bytesIn = data.asBytesIn();
-    final ArrayNode node2 = (ArrayNode) NodeKind.ARRAY.deserialize(
-        bytesIn, node.getNodeKey(), null, config);
+    final ArrayNode node2 = (ArrayNode) NodeKind.ARRAY.deserialize(bytesIn, node.getNodeKey(), null, config);
     check(node2);
   }
 

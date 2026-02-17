@@ -7,8 +7,7 @@ import io.sirix.query.StructuredDBItem;
 
 import static java.util.Objects.requireNonNull;
 
-public final class AtomicStrJsonDBItem extends Str
-    implements JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
+public final class AtomicStrJsonDBItem extends Str implements JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
 
   /** Sirix {@link JsonNodeReadOnlyTrx}. */
   private final JsonNodeReadOnlyTrx rtx;
@@ -26,8 +25,7 @@ public final class AtomicStrJsonDBItem extends Str
    * @param collection {@link JsonDBCollection} reference
    * @param string the atomic string value delegate
    */
-  public AtomicStrJsonDBItem(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection,
-      final String string) {
+  public AtomicStrJsonDBItem(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection, final String string) {
     super(string);
     this.collection = requireNonNull(collection);
     this.rtx = requireNonNull(rtx);

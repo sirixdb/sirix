@@ -5,9 +5,9 @@ import io.sirix.exception.SirixException;
 /**
  * Interface all shredders have to implement.
  *
- * @author Johannes Lichtenberger, University of Konstanz
- * //todo QName reference
- * @param <T> generic type parameter for start tag/end tags (usually a {@link io.brackit.query.atomic.QNm}
+ * @author Johannes Lichtenberger, University of Konstanz //todo QName reference
+ * @param <T> generic type parameter for start tag/end tags (usually a
+ *        {@link io.brackit.query.atomic.QNm}
  * @param <S> generic type parameter for text nodes (usually a String)
  */
 public interface Shredder<S, T> {

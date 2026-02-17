@@ -51,8 +51,8 @@ public interface ItemList<T extends Node> {
   int addItem(final T pNode);
 
   /**
-   * Returns the item at a given index in the item list. If the given index is the item key, it has
-   * to be negated before.
+   * Returns the item at a given index in the item list. If the given index is the item key, it has to
+   * be negated before.
    * 
    * @param pKey key of the item, that should be returned
    * @return item at the given index

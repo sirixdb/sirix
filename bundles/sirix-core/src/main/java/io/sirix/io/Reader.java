@@ -73,7 +73,7 @@ public interface Reader extends AutoCloseable {
   /**
    * Getting a reference for the given pointer.
    *
-   * @param key    the reference for the page to be determined
+   * @param key the reference for the page to be determined
    * @param resourceConfiguration the resource configuration
    * @return a {@link BitmapReferencesPage} as the base for a page
    * @throws SirixIOException if something bad happens during read
@@ -86,7 +86,7 @@ public interface Reader extends AutoCloseable {
   /**
    * Getting a reference for the given pointer.
    *
-   * @param key                   the reference for the page to be determined
+   * @param key the reference for the page to be determined
    * @param resourceConfiguration the resource configuration
    * @return a {@link BitmapReferencesPage} as the base for a page
    * @throws SirixIOException if something bad happens during read
@@ -104,7 +104,7 @@ public interface Reader extends AutoCloseable {
   /**
    * Read the revision root page.
    *
-   * @param revision    the revision to read
+   * @param revision the revision to read
    * @param resourceConfiguration the resource configuration
    * @return the revision root page
    */

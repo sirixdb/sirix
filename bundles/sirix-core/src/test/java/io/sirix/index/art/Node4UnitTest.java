@@ -7,34 +7,34 @@ import org.junit.jupiter.api.Test;
 
 public class Node4UnitTest extends InnerNodeUnitTest {
 
-	Node4UnitTest() {
-		super(2);
-	}
+  Node4UnitTest() {
+    super(2);
+  }
 
-	@Test
-	public void testGetOnlyChild() {
-		// remove until only one child
-		while (node.size() != 1) {
-			node.removeChild(node.first().uplinkKey());
-		}
+  @Test
+  public void testGetOnlyChild() {
+    // remove until only one child
+    while (node.size() != 1) {
+      node.removeChild(node.first().uplinkKey());
+    }
 
-		byte[] keys = existingKeys();
-		UnsignedBytes.sortDescending(keys);
-		Assert.assertEquals(keys[0], ((Node4) node).getOnlyChildKey());
-	}
+    byte[] keys = existingKeys();
+    UnsignedBytes.sortDescending(keys);
+    Assert.assertEquals(keys[0], ((Node4) node).getOnlyChildKey());
+  }
 
-	@Override
-	@Test
-	public void testShrink() {
-		Assertions.assertThrows(UnsupportedOperationException.class, () -> node.shrink());
-	}
+  @Override
+  @Test
+  public void testShrink() {
+    Assertions.assertThrows(UnsupportedOperationException.class, () -> node.shrink());
+  }
 
-	@Test
-	public void testShouldShrinkAlwaysFalse() {
-		// remove all
-		while (node.size() != 0) {
-			node.removeChild(node.first().uplinkKey());
-		}
-		Assertions.assertFalse(node.shouldShrink());
-	}
+  @Test
+  public void testShouldShrinkAlwaysFalse() {
+    // remove all
+    while (node.size() != 0) {
+      node.removeChild(node.first().uplinkKey());
+    }
+    Assertions.assertFalse(node.shouldShrink());
+  }
 }

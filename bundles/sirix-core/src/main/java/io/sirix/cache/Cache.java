@@ -75,13 +75,13 @@ public interface Cache<K, V> {
   V get(K key);
 
   /**
-   * Lookup a value by key, accepting any object with compatible hashCode/equals.
-   * This follows the Java Collections pattern where Map.get() accepts Object,
-   * enabling zero-allocation lookups with mutable lookup key objects.
+   * Lookup a value by key, accepting any object with compatible hashCode/equals. This follows the
+   * Java Collections pattern where Map.get() accepts Object, enabling zero-allocation lookups with
+   * mutable lookup key objects.
    * <p>
-   * The default implementation casts to K and delegates to {@link #get(Object)}.
-   * Implementations backed by Caffeine or ConcurrentHashMap should override
-   * to directly call getIfPresent(Object) or get(Object) for efficiency.
+   * The default implementation casts to K and delegates to {@link #get(Object)}. Implementations
+   * backed by Caffeine or ConcurrentHashMap should override to directly call getIfPresent(Object) or
+   * get(Object) for efficiency.
    *
    * @param key the key for lookup (must have compatible hashCode/equals with K)
    * @return the value, or null if not present
@@ -131,22 +131,20 @@ public interface Cache<K, V> {
   void remove(K key);
 
   /**
-   * Force synchronous completion of pending maintenance operations.
-   * For Caffeine caches, this processes the async removal listener queue.
-   * Critical for preventing race conditions when pages are removed from cache
-   * and immediately closed by TIL.
+   * Force synchronous completion of pending maintenance operations. For Caffeine caches, this
+   * processes the async removal listener queue. Critical for preventing race conditions when pages
+   * are removed from cache and immediately closed by TIL.
    */
   default void cleanUp() {
     // Default: no-op for caches that don't need it
   }
 
   /**
-   * Get a page and atomically acquire a guard on it (if V is KeyValueLeafPage).
-   * This prevents the race where ClockSweeper evicts a page between
-   * cache lookup and guard acquisition.
+   * Get a page and atomically acquire a guard on it (if V is KeyValueLeafPage). This prevents the
+   * race where ClockSweeper evicts a page between cache lookup and guard acquisition.
    * <p>
-   * Default implementation assumes V is KeyValueLeafPage and uses asMap().compute()
-   * for atomicity. Implementations can override for better performance.
+   * Default implementation assumes V is KeyValueLeafPage and uses asMap().compute() for atomicity.
+   * Implementations can override for better performance.
    *
    * @param key the page reference key
    * @return page with guard already acquired, or null if not in cache or closed
@@ -174,9 +172,8 @@ public interface Cache<K, V> {
   }
 
   /**
-   * Get page from cache or load via loader, atomically acquiring a guard.
-   * Prevents race between cache lookup and guard acquisition.
-   * Also handles weight tracking for ShardedPageCache.
+   * Get page from cache or load via loader, atomically acquiring a guard. Prevents race between cache
+   * lookup and guard acquisition. Also handles weight tracking for ShardedPageCache.
    * <p>
    * This is the preferred method for page access when a loader is available.
    *

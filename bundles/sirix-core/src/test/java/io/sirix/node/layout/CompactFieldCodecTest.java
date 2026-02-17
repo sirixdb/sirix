@@ -39,14 +39,8 @@ final class CompactFieldCodecTest {
   @Test
   void deltaNodeKeyRoundTripWithCornerCases() {
     final long nullNodeKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-    final long[][] cases = {
-        {100L, 101L},
-        {100L, 99L},
-        {100L, 100L},
-        {100L, nullNodeKey},
-        {Long.MAX_VALUE - 2, Long.MAX_VALUE - 1},
-        {Long.MIN_VALUE + 2, Long.MIN_VALUE + 1}
-    };
+    final long[][] cases = {{100L, 101L}, {100L, 99L}, {100L, 100L}, {100L, nullNodeKey},
+        {Long.MAX_VALUE - 2, Long.MAX_VALUE - 1}, {Long.MIN_VALUE + 2, Long.MIN_VALUE + 1}};
 
     for (final long[] sample : cases) {
       final long baseNodeKey = sample[0];

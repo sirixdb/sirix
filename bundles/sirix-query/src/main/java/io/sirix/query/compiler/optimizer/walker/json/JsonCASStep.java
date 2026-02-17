@@ -49,9 +49,9 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
           pathSegment = predicateSegmentNames.removeFirst();
         }
       } else if (pathSegment == null) {
-//        if (pathSteps.get(i + 1).getAxis() == Path.Axis.CHILD_ARRAY) {
-//          level--;
-//        }
+        // if (pathSteps.get(i + 1).getAxis() == Path.Axis.CHILD_ARRAY) {
+        // level--;
+        // }
         break;
       }
     }
@@ -65,10 +65,12 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
 
   @Override
   AST replaceFoundAST(AST astNode, RevisionData revisionData, Map<IndexDef, List<Path<QNm>>> foundIndexDefs,
-      Map<IndexDef, Integer> predicateLevels, Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, AST predicateLeafNode) {
-//    if (this.pathSegmentNamesToArrayIndexes != null && checkIfDifferentPathsAreCompared(pathSegmentNamesToArrayIndexes)) {
-//      return null;
-//    }
+      Map<IndexDef, Integer> predicateLevels, Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes,
+      AST predicateLeafNode) {
+    // if (this.pathSegmentNamesToArrayIndexes != null &&
+    // checkIfDifferentPathsAreCompared(pathSegmentNamesToArrayIndexes)) {
+    // return null;
+    // }
 
     final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
     indexExpr.setProperty("indexType", foundIndexDefs.keySet().iterator().next().getType());
@@ -85,10 +87,8 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
     indexExpr.setProperty("predicateLeafNode", predicateLeafNode);
 
     final var parent = astNode.getParent();
-    indexExpr.setProperty("hasBitArrayValuesFunction",
-                          parent.getType() == XQ.FunctionCall && new QNm(Bits.BIT_NSURI,
-                                                                         Bits.BIT_PREFIX,
-                                                                         "array-values").equals(parent.getValue()));
+    indexExpr.setProperty("hasBitArrayValuesFunction", parent.getType() == XQ.FunctionCall
+        && new QNm(Bits.BIT_NSURI, Bits.BIT_PREFIX, "array-values").equals(parent.getValue()));
 
     if (parent.getType() == XQ.FilterExpr) {
       parent.getParent().replaceChild(parent.getChildIndex(), indexExpr);
@@ -133,17 +133,15 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
             } else if (derefAstNode.getType() == XQ.ContextItemExpr) {
               pathSegmentName = getPathNameFromContextItem(derefAstNode);
 
-              adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName,
-                                                            predicatePathSegmentsToArrayIndexes,
-                                                            Integer.MIN_VALUE);
+              adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName, predicatePathSegmentsToArrayIndexes,
+                  Integer.MIN_VALUE);
 
               return Optional.of(derefAstNode);
             } else {
               pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
 
-              adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName,
-                                                            predicatePathSegmentsToArrayIndexes,
-                                                            Integer.MIN_VALUE);
+              adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName, predicatePathSegmentsToArrayIndexes,
+                  Integer.MIN_VALUE);
 
               return getPredicatePathStep(derefAstNode, predicatePathSegmentsToArrayIndexes);
             }
@@ -151,9 +149,8 @@ public final class JsonCASStep extends AbstractJsonPathWalker {
 
           final var pathSegmentName = derefAstNode.getChild(step.getChildCount() - 1).getStringValue();
 
-          adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName,
-                                                        predicatePathSegmentsToArrayIndexes,
-                                                        ((Int32) indexAstNode.getValue()).intValue());
+          adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName, predicatePathSegmentsToArrayIndexes,
+              ((Int32) indexAstNode.getValue()).intValue());
 
           return getPredicatePathStep(derefAstNode, predicatePathSegmentsToArrayIndexes);
         }

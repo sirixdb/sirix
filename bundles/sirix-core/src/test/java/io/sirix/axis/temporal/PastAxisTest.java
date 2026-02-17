@@ -84,8 +84,8 @@ public final class PastAxisTest {
     }
 
     try (final XmlNodeReadOnlyTrx thirdReader = holder.getResourceSession().beginNodeReadOnlyTrx(3);
-         final XmlNodeReadOnlyTrx fourthReader = holder.getResourceSession().beginNodeReadOnlyTrx(4);
-         final XmlNodeReadOnlyTrx fifthReader = holder.getResourceSession().beginNodeReadOnlyTrx(5)) {
+        final XmlNodeReadOnlyTrx fourthReader = holder.getResourceSession().beginNodeReadOnlyTrx(4);
+        final XmlNodeReadOnlyTrx fifthReader = holder.getResourceSession().beginNodeReadOnlyTrx(5)) {
       thirdReader.moveTo(16);
       fourthReader.moveTo(16);
       fifthReader.moveTo(16);

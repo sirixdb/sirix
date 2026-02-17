@@ -59,7 +59,7 @@ public final class SubtreeBuilder extends AbstractShredder implements NodeSubtre
   public SubtreeBuilder(final XmlDBCollection collection, final XmlNodeTrx wtx, final InsertPosition insertPos,
       final List<NodeSubtreeListener<? super AbstractTemporalNode<XmlDBNode>>> listeners) {
     super(wtx, insertPos);
-    //((InternalXmlNodeTrx) wtx).setBulkInsertion(true);
+    // ((InternalXmlNodeTrx) wtx).setBulkInsertion(true);
     this.collection = requireNonNull(collection);
     subtreeProcessor = new SubtreeProcessor<>(requireNonNull(listeners));
     this.wtx = requireNonNull(wtx);
@@ -132,8 +132,8 @@ public final class SubtreeBuilder extends AbstractShredder implements NodeSubtre
   public void endDocument() throws DocumentException {
     try {
       subtreeProcessor.notifyEndDocument();
-//      ((InternalXmlNodeTrx) wtx).adaptHashesInPostorderTraversal();
-//      ((InternalXmlNodeTrx) wtx).setBulkInsertion(false);
+      // ((InternalXmlNodeTrx) wtx).adaptHashesInPostorderTraversal();
+      // ((InternalXmlNodeTrx) wtx).setBulkInsertion(false);
     } catch (final DocumentException e) {
       subtreeProcessor.notifyFail();
       throw e;

@@ -125,7 +125,9 @@ public final class Util {
     }
 
     for (char c : first.toCharArray()) {
-      final int n = (x[c >> 8] == null) ? 0 : x[c >> 8][c & 0xFF]--;
+      final int n = (x[c >> 8] == null)
+          ? 0
+          : x[c >> 8][c & 0xFF]--;
       if (n > 0) {
         matches++;
       }

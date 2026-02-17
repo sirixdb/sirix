@@ -17,9 +17,11 @@ import io.sirix.index.path.summary.PathSummaryReader;
 /**
  * Factory for creating CAS index builders.
  * 
- * <p>Supports both traditional RBTree and high-performance HOT index backends.
- * The backend is determined by the resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}
- * setting.</p>
+ * <p>
+ * Supports both traditional RBTree and high-performance HOT index backends. The backend is
+ * determined by the resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}
+ * setting.
+ * </p>
  */
 public final class CASIndexBuilderFactory {
 
@@ -32,27 +34,26 @@ public final class CASIndexBuilderFactory {
   /**
    * Creates a CAS index builder using the backend configured for the resource.
    */
-  public CASIndexBuilder create(final StorageEngineWriter pageTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+  public CASIndexBuilder create(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
     return create(pageTrx, pathSummaryReader, indexDef, isHOTEnabled(pageTrx));
   }
 
   /**
    * Creates a CAS index builder with explicit backend selection.
    */
-  public CASIndexBuilder create(final StorageEngineWriter pageTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef, final boolean useHOT) {
+  public CASIndexBuilder create(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef, final boolean useHOT) {
     final var pathSummary = requireNonNull(pathSummaryReader);
     final var paths = requireNonNull(indexDef.getPaths());
     final var type = requireNonNull(indexDef.getContentType());
 
     if (useHOT) {
-      final var hotWriter = HOTIndexWriter.create(
-          pageTrx, CASKeySerializer.INSTANCE, IndexType.CAS, indexDef.getID());
+      final var hotWriter = HOTIndexWriter.create(pageTrx, CASKeySerializer.INSTANCE, IndexType.CAS, indexDef.getID());
       return new CASIndexBuilder(hotWriter, pathSummary, paths, type);
     } else {
-      final var rbTreeWriter =
-          RBTreeWriter.<CASValue, NodeReferences>getInstance(this.databaseType, pageTrx, indexDef.getType(), indexDef.getID());
+      final var rbTreeWriter = RBTreeWriter.<CASValue, NodeReferences>getInstance(this.databaseType, pageTrx,
+          indexDef.getType(), indexDef.getID());
       return new CASIndexBuilder(rbTreeWriter, pathSummary, paths, type);
     }
   }
@@ -66,7 +67,7 @@ public final class CASIndexBuilderFactory {
     if (sysProp != null) {
       return Boolean.parseBoolean(sysProp);
     }
-    
+
     // Fall back to resource configuration
     final var resourceConfig = pageTrx.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;

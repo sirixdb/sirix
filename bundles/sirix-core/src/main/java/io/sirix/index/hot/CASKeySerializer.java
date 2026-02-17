@@ -39,23 +39,27 @@ import static java.util.Objects.requireNonNull;
 /**
  * Order-preserving serializer for CAS (Content-and-Structure) index keys.
  *
- * <p>Serializes {@link CASValue} to bytes such that the byte order matches
- * the natural comparison order defined by {@link CASValue#compareTo(CASValue)}:</p>
+ * <p>
+ * Serializes {@link CASValue} to bytes such that the byte order matches the natural comparison
+ * order defined by {@link CASValue#compareTo(CASValue)}:
+ * </p>
  * <ol>
- *   <li>pathNodeKey (8 bytes, sign-flipped for order preservation)</li>
- *   <li>type ID (2 bytes)</li>
- *   <li>value (N bytes, order-preserving encoding)</li>
+ * <li>pathNodeKey (8 bytes, sign-flipped for order preservation)</li>
+ * <li>type ID (2 bytes)</li>
+ * <li>value (N bytes, order-preserving encoding)</li>
  * </ol>
  *
  * <h2>Order Preservation</h2>
  * <ul>
- *   <li><b>pathNodeKey:</b> XOR with sign bit for unsigned byte comparison</li>
- *   <li><b>Numeric values:</b> IEEE 754 order-preserving encoding</li>
- *   <li><b>String values:</b> UTF-8 (already lexicographically ordered)</li>
+ * <li><b>pathNodeKey:</b> XOR with sign bit for unsigned byte comparison</li>
+ * <li><b>Numeric values:</b> IEEE 754 order-preserving encoding</li>
+ * <li><b>String values:</b> UTF-8 (already lexicographically ordered)</li>
  * </ul>
  *
  * <h2>Zero Allocation</h2>
- * <p>All methods write to caller-provided buffers. No ByteBuffer allocation.</p>
+ * <p>
+ * All methods write to caller-provided buffers. No ByteBuffer allocation.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -127,15 +131,10 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   @Override
   public CASValue deserialize(byte[] bytes, int offset, int length) {
     // Read path node key (8 bytes)
-    long signFlipped =
-        ((long) (bytes[offset]     & 0xFF) << 56) |
-        ((long) (bytes[offset + 1] & 0xFF) << 48) |
-        ((long) (bytes[offset + 2] & 0xFF) << 40) |
-        ((long) (bytes[offset + 3] & 0xFF) << 32) |
-        ((long) (bytes[offset + 4] & 0xFF) << 24) |
-        ((long) (bytes[offset + 5] & 0xFF) << 16) |
-        ((long) (bytes[offset + 6] & 0xFF) << 8)  |
-        ((long) (bytes[offset + 7] & 0xFF));
+    long signFlipped = ((long) (bytes[offset] & 0xFF) << 56) | ((long) (bytes[offset + 1] & 0xFF) << 48)
+        | ((long) (bytes[offset + 2] & 0xFF) << 40) | ((long) (bytes[offset + 3] & 0xFF) << 32)
+        | ((long) (bytes[offset + 4] & 0xFF) << 24) | ((long) (bytes[offset + 5] & 0xFF) << 16)
+        | ((long) (bytes[offset + 6] & 0xFF) << 8) | ((long) (bytes[offset + 7] & 0xFF));
     long pathNodeKey = signFlipped ^ SIGN_FLIP;
 
     // Read type ID (2 bytes)
@@ -151,17 +150,17 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   /**
-   * Maximum bytes available for string value encoding.
-   * Header is 10 bytes (8 for pathNodeKey + 2 for typeId), buffer is 256 bytes.
+   * Maximum bytes available for string value encoding. Header is 10 bytes (8 for pathNodeKey + 2 for
+   * typeId), buffer is 256 bytes.
    */
   private static final int MAX_STRING_VALUE_BYTES = 246;
 
   /**
    * Encodes an atomic value in order-preserving format.
    *
-   * @param value  the atomic value
-   * @param type   the type
-   * @param dest   destination buffer
+   * @param value the atomic value
+   * @param type the type
+   * @param dest destination buffer
    * @param offset offset to write at
    * @return number of bytes written
    */
@@ -170,7 +169,9 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       return encodeNumericOrderPreserving(value, dest, offset);
     } else if (type.instanceOf(Type.BOOL)) {
       // Boolean: 0 for false, 1 for true (already ordered)
-      dest[offset] = value.booleanValue() ? (byte) 1 : (byte) 0;
+      dest[offset] = value.booleanValue()
+          ? (byte) 1
+          : (byte) 0;
       return 1;
     } else {
       // String: UTF-8 is already lexicographically ordered
@@ -187,11 +188,13 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   /**
    * Encodes a numeric value using IEEE 754 order-preserving encoding.
    *
-   * <p>This ensures that byte comparison matches numeric comparison:</p>
+   * <p>
+   * This ensures that byte comparison matches numeric comparison:
+   * </p>
    * <ul>
-   *   <li>NaN is canonicalized to MAX_VALUE (sorts last)</li>
-   *   <li>Positive values: XOR sign bit</li>
-   *   <li>Negative values: XOR all bits</li>
+   * <li>NaN is canonicalized to MAX_VALUE (sorts last)</li>
+   * <li>Positive values: XOR sign bit</li>
+   * <li>Negative values: XOR all bits</li>
    * </ul>
    */
   private int encodeNumericOrderPreserving(Atomic value, byte[] dest, int offset) {
@@ -225,7 +228,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     }
 
     // Write big-endian
-    dest[offset]     = (byte) (bits >>> 56);
+    dest[offset] = (byte) (bits >>> 56);
     dest[offset + 1] = (byte) (bits >>> 48);
     dest[offset + 2] = (byte) (bits >>> 40);
     dest[offset + 3] = (byte) (bits >>> 32);
@@ -281,15 +284,10 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   private static Atomic decodeAtomic(byte[] bytes, int offset, int length, Type type) {
     if (type.isNumeric()) {
       // Decode IEEE 754 order-preserving format
-      long bits =
-          ((long) (bytes[offset]     & 0xFF) << 56) |
-          ((long) (bytes[offset + 1] & 0xFF) << 48) |
-          ((long) (bytes[offset + 2] & 0xFF) << 40) |
-          ((long) (bytes[offset + 3] & 0xFF) << 32) |
-          ((long) (bytes[offset + 4] & 0xFF) << 24) |
-          ((long) (bytes[offset + 5] & 0xFF) << 16) |
-          ((long) (bytes[offset + 6] & 0xFF) << 8)  |
-          ((long) (bytes[offset + 7] & 0xFF));
+      long bits = ((long) (bytes[offset] & 0xFF) << 56) | ((long) (bytes[offset + 1] & 0xFF) << 48)
+          | ((long) (bytes[offset + 2] & 0xFF) << 40) | ((long) (bytes[offset + 3] & 0xFF) << 32)
+          | ((long) (bytes[offset + 4] & 0xFF) << 24) | ((long) (bytes[offset + 5] & 0xFF) << 16)
+          | ((long) (bytes[offset + 6] & 0xFF) << 8) | ((long) (bytes[offset + 7] & 0xFF));
 
       // Reverse the order-preserving transformation
       if ((bits & SIGN_FLIP) != 0) {
@@ -301,7 +299,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       }
 
       double d = Double.longBitsToDouble(bits);
-      
+
       // Return the appropriate type based on the stored type
       if (type.instanceOf(Type.DEC)) {
         return new io.brackit.query.atomic.Dec(java.math.BigDecimal.valueOf(d));

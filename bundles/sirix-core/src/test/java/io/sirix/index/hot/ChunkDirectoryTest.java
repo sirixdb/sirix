@@ -35,7 +35,7 @@ class ChunkDirectoryTest {
     @DisplayName("new directory is empty")
     void testNewDirectoryIsEmpty() {
       ChunkDirectory dir = new ChunkDirectory();
-      
+
       assertEquals(0, dir.chunkCount());
       assertTrue(dir.isEmpty());
       assertFalse(dir.isModified());
@@ -45,7 +45,7 @@ class ChunkDirectoryTest {
     @DisplayName("getChunkRef returns null for non-existent chunk")
     void testGetChunkRefNull() {
       ChunkDirectory dir = new ChunkDirectory();
-      
+
       assertNull(dir.getChunkRef(0));
       assertNull(dir.getChunkRef(10));
     }
@@ -59,9 +59,9 @@ class ChunkDirectoryTest {
     @DisplayName("getOrCreateChunkRef creates new chunk")
     void testGetOrCreateCreatesNew() {
       ChunkDirectory dir = new ChunkDirectory();
-      
+
       PageReference ref = dir.getOrCreateChunkRef(0);
-      
+
       assertNotNull(ref);
       assertEquals(1, dir.chunkCount());
       assertTrue(dir.isModified());
@@ -71,12 +71,12 @@ class ChunkDirectoryTest {
     @DisplayName("getOrCreateChunkRef returns existing chunk")
     void testGetOrCreateReturnsExisting() {
       ChunkDirectory dir = new ChunkDirectory();
-      
+
       PageReference ref1 = dir.getOrCreateChunkRef(0);
       ref1.setKey(1234);
-      
+
       PageReference ref2 = dir.getOrCreateChunkRef(0);
-      
+
       assertSame(ref1, ref2);
       assertEquals(1234, ref2.getKey());
     }
@@ -85,12 +85,12 @@ class ChunkDirectoryTest {
     @DisplayName("chunks are stored in sorted order")
     void testChunksSortedOrder() {
       ChunkDirectory dir = new ChunkDirectory();
-      
+
       dir.getOrCreateChunkRef(5);
       dir.getOrCreateChunkRef(2);
       dir.getOrCreateChunkRef(8);
       dir.getOrCreateChunkRef(1);
-      
+
       assertEquals(4, dir.chunkCount());
       assertEquals(1, dir.getChunkIndex(0));
       assertEquals(2, dir.getChunkIndex(1));
@@ -102,11 +102,11 @@ class ChunkDirectoryTest {
     @DisplayName("setChunkRef sets reference")
     void testSetChunkRef() {
       ChunkDirectory dir = new ChunkDirectory();
-      
+
       PageReference ref = new PageReference();
       ref.setKey(5678);
       dir.setChunkRef(3, ref);
-      
+
       assertEquals(1, dir.chunkCount());
       assertEquals(5678, dir.getChunkRef(3).getKey());
     }
@@ -115,7 +115,7 @@ class ChunkDirectoryTest {
     @DisplayName("negative chunk index throws")
     void testNegativeChunkIndexThrows() {
       ChunkDirectory dir = new ChunkDirectory();
-      
+
       assertThrows(IllegalArgumentException.class, () -> dir.getOrCreateChunkRef(-1));
     }
   }
@@ -130,9 +130,9 @@ class ChunkDirectoryTest {
       ChunkDirectory dir = new ChunkDirectory();
       dir.getOrCreateChunkRef(0);
       assertTrue(dir.isModified());
-      
+
       dir.clearModified();
-      
+
       assertFalse(dir.isModified());
     }
   }
@@ -149,17 +149,17 @@ class ChunkDirectoryTest {
       ref1.setKey(100);
       PageReference ref2 = original.getOrCreateChunkRef(5);
       ref2.setKey(500);
-      
+
       ChunkDirectory copy = original.copy();
-      
+
       assertEquals(original.chunkCount(), copy.chunkCount());
       assertNotSame(original.getChunkRef(0), copy.getChunkRef(0));
       assertEquals(100, copy.getChunkRef(0).getKey());
       assertEquals(500, copy.getChunkRef(5).getKey());
-      
+
       // Modify original
       original.getChunkRef(0).setKey(999);
-      
+
       // Copy should be independent
       assertEquals(100, copy.getChunkRef(0).getKey());
     }
@@ -186,14 +186,14 @@ class ChunkDirectoryTest {
     @DisplayName("serialize empty directory")
     void testSerializeEmpty() {
       ChunkDirectory dir = new ChunkDirectory();
-      
+
       byte[] bytes = new byte[100];
       int written = ChunkDirectorySerializer.serialize(dir, bytes, 0);
-      
+
       assertEquals(4, written); // Just chunkCount
-      
+
       ChunkDirectory deserialized = ChunkDirectorySerializer.deserialize(bytes, 0, written);
-      
+
       assertEquals(0, deserialized.chunkCount());
       assertTrue(deserialized.isEmpty());
     }
@@ -202,24 +202,24 @@ class ChunkDirectoryTest {
     @DisplayName("serialize directory with chunks")
     void testSerializeWithChunks() {
       ChunkDirectory dir = new ChunkDirectory();
-      
+
       PageReference ref1 = dir.getOrCreateChunkRef(0);
       ref1.setKey(100);
-      
+
       PageReference ref2 = dir.getOrCreateChunkRef(5);
       ref2.setKey(500);
-      
+
       PageReference ref3 = dir.getOrCreateChunkRef(10);
       ref3.setKey(1000);
-      
+
       int size = ChunkDirectorySerializer.serializedSize(dir);
       byte[] bytes = new byte[size];
       int written = ChunkDirectorySerializer.serialize(dir, bytes, 0);
-      
+
       assertEquals(size, written);
-      
+
       ChunkDirectory deserialized = ChunkDirectorySerializer.deserialize(bytes, 0, written);
-      
+
       assertEquals(3, deserialized.chunkCount());
       assertEquals(0, deserialized.getChunkIndex(0));
       assertEquals(5, deserialized.getChunkIndex(1));
@@ -235,15 +235,15 @@ class ChunkDirectoryTest {
       ChunkDirectory dir = new ChunkDirectory();
       PageReference ref = dir.getOrCreateChunkRef(3);
       ref.setKey(333);
-      
+
       ByteBuffer buffer = ByteBuffer.allocate(100);
       buffer.order(ByteOrder.LITTLE_ENDIAN);
-      
+
       int written = ChunkDirectorySerializer.serializeToBuffer(dir, buffer);
-      
+
       buffer.flip();
       ChunkDirectory deserialized = ChunkDirectorySerializer.deserializeFromBuffer(buffer);
-      
+
       assertEquals(1, deserialized.chunkCount());
       assertEquals(333, deserialized.getChunkRef(3).getKey());
     }
@@ -254,15 +254,15 @@ class ChunkDirectoryTest {
       ChunkDirectory emptyDir = new ChunkDirectory();
       byte[] emptyBytes = new byte[10];
       ChunkDirectorySerializer.serialize(emptyDir, emptyBytes, 0);
-      
+
       assertTrue(ChunkDirectorySerializer.isTombstone(emptyBytes, 0, 4));
-      
+
       ChunkDirectory nonEmptyDir = new ChunkDirectory();
       nonEmptyDir.getOrCreateChunkRef(0);
       int size = ChunkDirectorySerializer.serializedSize(nonEmptyDir);
       byte[] nonEmptyBytes = new byte[size];
       ChunkDirectorySerializer.serialize(nonEmptyDir, nonEmptyBytes, 0);
-      
+
       assertFalse(ChunkDirectorySerializer.isTombstone(nonEmptyBytes, 0, size));
     }
   }

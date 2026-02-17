@@ -19,7 +19,7 @@ public final class RecordToRevisionsIndex {
   /**
    * Constructor
    *
-   * @param pageTrx  the page trx to create index-entries.
+   * @param pageTrx the page trx to create index-entries.
    */
   public RecordToRevisionsIndex(final StorageEngineWriter pageTrx) {
     this.pageTrx = requireNonNull(pageTrx);
@@ -36,7 +36,7 @@ public final class RecordToRevisionsIndex {
    */
   public void addToRecordToRevisionsIndex(long recordKey) {
     // Add to revision index.
-    final int[] revisions = { pageTrx.getRevisionNumber() };
+    final int[] revisions = {pageTrx.getRevisionNumber()};
     pageTrx.createRecord(new RevisionReferencesNode(recordKey, revisions), IndexType.RECORD_TO_REVISIONS, 0);
   }
 

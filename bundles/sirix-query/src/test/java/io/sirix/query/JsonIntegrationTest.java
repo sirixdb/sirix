@@ -13,9 +13,10 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void testCreateAndRetrieveValueFromCASIndex() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[{"test": "test string"}, "b", {"test": ["a", {"blabla": "test blabla string"}, null, "b", "c"]}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[{"test": "test string"}, "b", {"test": ["a", {"blabla": "test blabla string"}, null, "b", "c"]}]')
+            """;
     final String indexQuery = """
         let $doc := jn:doc('json-path1','mydoc.jn')
         let $stats := jn:create-cas-index($doc, 'xs:string', '//[]')
@@ -29,8 +30,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
         """;
     test(storeQuery, indexQuery, openQuery, """
-      {"nodeKey":14,"node":"b","path":"/[2]/test/[]"}
-      """.strip());
+        {"nodeKey":14,"node":"b","path":"/[2]/test/[]"}
+        """.strip());
   }
 
   @Test
@@ -113,9 +114,10 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void testDescendantDerefExprWithOnePathMatchAndDescendantMatch4() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[{"foo": "test string"},{"foo": [{"test": "foo"}, [{"test": "test blabla string"}]]}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[{"foo": "test string"},{"foo": [{"test": "foo"}, [{"test": "test blabla string"}]]}]')
+            """;
     final String query = """
           let $array := jn:doc('json-path1','mydoc.jn')
           return $array[].foo=>>test
@@ -126,9 +128,10 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void testDescendantDerefExprWithDifferentPathsOnSameLevel() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','{"tada": {"baz": [{"test": "test string"}],"foo": [{"test": "test blabla string"}]}}')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','{"tada": {"baz": [{"test": "test string"}],"foo": [{"test": "test blabla string"}]}}')
+            """;
     final String query = """
           let $array := jn:doc('json-path1','mydoc.jn')
           return $array=>>test
@@ -139,9 +142,10 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void testDescendantDerefExprWithDifferentPathsOnSameLevel2() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[{"baz": [{"test": "test string"}]},{"foo": [{"test": "test blabla string"}]}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[{"baz": [{"test": "test string"}]},{"foo": [{"test": "test blabla string"}]}]')
+            """;
     final String query = """
           let $array := jn:doc('json-path1','mydoc.jn')
           return $array=>>test
@@ -152,9 +156,10 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void testDescendantDerefExprWithDifferentPathsOnSameLevel3() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[{"baz": [{"test": "test string"}]},{"foo": [{"test": "test blabla string"}]}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[{"baz": [{"test": "test string"}]},{"foo": [{"test": "test blabla string"}]}]')
+            """;
     final String query = """
           let $array := jn:doc('json-path1','mydoc.jn')
           return $array[]=>>test
@@ -165,9 +170,10 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void testDescendantDerefExprWithDifferentPaths() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[{"test": "test string"},{"test": [{"test": "test string"},{"test": "test string"}]}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[{"test": "test string"},{"test": [{"test": "test string"},{"test": "test string"}]}]')
+            """;
     final String query = """
           let $array := jn:doc('json-path1','mydoc.jn')
           return $array=>>test
@@ -180,24 +186,27 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void testDescendantDerefExprWithDifferentPaths2() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]}]')
+            """;
     final String query = """
           let $array := jn:doc('json-path1','mydoc.jn')
           return $array=>>test
         """.stripIndent();
-    final String assertion = """
-        "test string" [{"test":"test string"},{"test":{"test":{"test":"test string"}}}] "test string" {"test":{"test":"test string"}} {"test":"test string"} "test string"
-        """.strip();
+    final String assertion =
+        """
+            "test string" [{"test":"test string"},{"test":{"test":{"test":"test string"}}}] "test string" {"test":{"test":"test string"}} {"test":"test string"} "test string"
+            """.strip();
     test(storeQuery, query, assertion);
   }
 
   @Test
   public void testDescendantDerefExprWithDifferentPaths3() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[{"test": "test string"},{"test": [{"test": "test string"},{"test": "test string"}]}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[{"test": "test string"},{"test": [{"test": "test string"},{"test": "test string"}]}]')
+            """;
     final String query = """
           let $array := jn:doc('json-path1','mydoc.jn')
           return $array[]=>>test
@@ -210,39 +219,44 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void testDescendantDerefExprWithDifferentPaths4() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]')
+            """;
     final String query = """
           let $array := jn:doc('json-path1','mydoc.jn')
           return $array[]=>>test
         """.stripIndent();
-    final String assertion = """
-        true "test string" [{"test":"test string"},{"test":{"test":{"test":"test string"}}}] "test string" {"test":{"test":"test string"}} {"test":"test string"} "test string"
-        """.strip();
+    final String assertion =
+        """
+            true "test string" [{"test":"test string"},{"test":{"test":{"test":"test string"}}}] "test string" {"test":{"test":"test string"}} {"test":"test string"} "test string"
+            """.strip();
     test(storeQuery, query, assertion);
   }
 
   @Test
   public void testDescendantDerefExprWithDifferentPaths5() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','{"tztz": [[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]}')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','{"tztz": [[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]}')
+            """;
     final String query = """
           let $array := jn:doc('json-path1','mydoc.jn')
           return $array=>>test
         """.stripIndent();
-    final String assertion = """
-        true "test string" [{"test":"test string"},{"test":{"test":{"test":"test string"}}}] "test string" {"test":{"test":"test string"}} {"test":"test string"} "test string"
-        """.strip();
+    final String assertion =
+        """
+            true "test string" [{"test":"test string"},{"test":{"test":{"test":"test string"}}}] "test string" {"test":{"test":"test string"}} {"test":"test string"} "test string"
+            """.strip();
     test(storeQuery, query, assertion);
   }
 
   @Test
   public void testDescendantDerefExprWithDifferentPaths6() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]')
+            """;
     final String query = """
           let $array := jn:doc('json-path1','mydoc.jn')
           return $array=>>test[].test
@@ -255,24 +269,27 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void testDescendantDerefExprWithDifferentPaths7() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]')
+            """;
     final String query = """
           let $array := jn:doc('json-path1','mydoc.jn')
           return $array=>>test=>>test
         """.stripIndent();
-    final String assertion = """
-        "test string" {"test":{"test":"test string"}} {"test":"test string"} "test string" {"test":"test string"} "test string" "test string"
-        """.strip();
+    final String assertion =
+        """
+            "test string" {"test":{"test":"test string"}} {"test":"test string"} "test string" {"test":"test string"} "test string" "test string"
+            """.strip();
     test(storeQuery, query, assertion);
   }
 
   @Test
   public void testDescendantDerefExprWithDifferentPaths8() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[{"test": "test string"},{"test": [[[{"blabla": "test blabla string"}]],{"blabla": "test blabla string"},[{"blabla": "test blabla string"}]]}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[{"test": "test string"},{"test": [[[{"blabla": "test blabla string"}]],{"blabla": "test blabla string"},[{"blabla": "test blabla string"}]]}]')
+            """;
     final String query = """
           let $array := jn:doc('json-path1','mydoc.jn')
           return $array=>>test=>>blabla
@@ -283,9 +300,10 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void testDerefExprWithDescendantDerefExpr() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','{"tztz": [[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]}')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','{"tztz": [[],[{"test": true}],{"test": "test string"},{"test": [{"test": "test string"},{"test": {"test": {"test": "test string"}}}]},{}]}')
+            """;
     final String query = """
           let $object := jn:doc('json-path1','mydoc.jn')
           return $object.tztz[].test=>>test
@@ -493,33 +511,37 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void testSimpleReplaceValueQuery() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
+            """;
     final String query =
         """
-          for $i in jn:doc('json-path1','mydoc.jn') where deep-equal($i.generic, 2) return replace json value of $i."generic" with 1
-        """;
+              for $i in jn:doc('json-path1','mydoc.jn') where deep-equal($i.generic, 2) return replace json value of $i."generic" with 1
+            """;
     final String openQuery = "jn:doc('json-path1','mydoc.jn')";
-    final String assertion = """
-          [{"generic":1,"location":{"state":"CA","city":"Los Angeles"}},{"generic":1,"location":{"state":"NY","city":"New York"}}]
-        """.strip();
+    final String assertion =
+        """
+              [{"generic":1,"location":{"state":"CA","city":"Los Angeles"}},{"generic":1,"location":{"state":"NY","city":"New York"}}]
+            """.strip();
     test(storeQuery, query, openQuery, assertion);
   }
 
   @Test
   public void testSubtreeReplaceValueQuery() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 2, "location": {"state": "NY", "city": "New York"}}]')
+            """;
     final String query =
         """
-          let $obj := sdb:select-item(jn:doc('json-path1','mydoc.jn'), 2) return replace json value of $obj.location with {"state": "NY", "city": "New York"}
-        """;
+              let $obj := sdb:select-item(jn:doc('json-path1','mydoc.jn'), 2) return replace json value of $obj.location with {"state": "NY", "city": "New York"}
+            """;
     final String openQuery = "jn:doc('json-path1','mydoc.jn')";
-    final String assertion = """
-          [{"generic":1,"location":{"state":"NY","city":"New York"}},{"generic":2,"location":{"state":"NY","city":"New York"}}]
-        """.strip();
+    final String assertion =
+        """
+              [{"generic":1,"location":{"state":"NY","city":"New York"}},{"generic":2,"location":{"state":"NY","city":"New York"}}]
+            """.strip();
     test(storeQuery, query, openQuery, assertion);
   }
 
@@ -543,13 +565,15 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String storeQuery = """
           jn:store('json-path1','mydoc.jn','[]')
         """;
-    final String updateQuery1 = """
-          append json {"generic": 1, "location": {"state": "NY", "ddd": {"sssss": []}, "city": "New York", "foobar": [[],{"bar": true()},[],{}]},"foo":jn:null()} into jn:doc('json-path1','mydoc.jn')
-        """.strip();
+    final String updateQuery1 =
+        """
+              append json {"generic": 1, "location": {"state": "NY", "ddd": {"sssss": []}, "city": "New York", "foobar": [[],{"bar": true()},[],{}]},"foo":jn:null()} into jn:doc('json-path1','mydoc.jn')
+            """.strip();
     final String query = "jn:doc('json-path1','mydoc.jn')";
-    final String assertion = """
-          [{"generic":1,"location":{"state":"NY","ddd":{"sssss":[]},"city":"New York","foobar":[[],{"bar":true},[],{}]},"foo":null}]
-        """.strip();
+    final String assertion =
+        """
+              [{"generic":1,"location":{"state":"NY","ddd":{"sssss":[]},"city":"New York","foobar":[[],{"bar":true},[],{}]},"foo":null}]
+            """.strip();
     test(storeQuery, updateQuery1, query, assertion);
   }
 
@@ -558,12 +582,14 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String storeQuery = """
           jn:store('json-path1','mydoc.jn','[]')
         """;
-    final String updateQuery1 = """
-          append json {"generic": 1, "location": {"state": "NY", "city": "New York"}} into jn:doc('json-path1','mydoc.jn')
-        """.strip();
-    final String updateQuery2 = """
-          insert json {'generic': 1, 'location': {'state': 'CA', 'city': 'Los Angeles'}} into jn:doc('json-path1','mydoc.jn') at position 0
-        """.strip();
+    final String updateQuery1 =
+        """
+              append json {"generic": 1, "location": {"state": "NY", "city": "New York"}} into jn:doc('json-path1','mydoc.jn')
+            """.strip();
+    final String updateQuery2 =
+        """
+              insert json {'generic': 1, 'location': {'state': 'CA', 'city': 'Los Angeles'}} into jn:doc('json-path1','mydoc.jn') at position 0
+            """.strip();
     final String query =
         "let $node := sdb:select-item(jn:doc('json-path1','mydoc.jn'), 1) let $result := for $rev in jn:all-times($node) return if (not(exists(jn:previous($rev)))) then sdb:revision($rev) else if (sdb:hash($rev) ne sdb:hash(jn:previous($rev))) then sdb:revision($rev) else () return for $i in $result order by $i descending return $i";
     final String assertion = """
@@ -574,14 +600,16 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void testArray() throws IOException {
-    final String storeQuery = """
-          jn:store('json-path1','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 1, "location": {"state": "NY", "city": "New York"}}]')
-        """;
+    final String storeQuery =
+        """
+              jn:store('json-path1','mydoc.jn','[{"generic": 1, "location": {"state": "CA", "city": "Los Angeles"}}, {"generic": 1, "location": {"state": "NY", "city": "New York"}}]')
+            """;
     final String query =
         "for $i in jn:doc('json-path1','mydoc.jn') where deep-equal($i.generic, 1) return {$i,'nodeKey': sdb:nodekey($i)}";
-    final String assertion = """
-          {"generic":1,"location":{"state":"CA","city":"Los Angeles"},"nodeKey":2} {"generic":1,"location":{"state":"NY","city":"New York"},"nodeKey":11}
-        """.strip();
+    final String assertion =
+        """
+              {"generic":1,"location":{"state":"CA","city":"Los Angeles"},"nodeKey":2} {"generic":1,"location":{"state":"NY","city":"New York"},"nodeKey":11}
+            """.strip();
     test(storeQuery, query, assertion);
   }
 
@@ -619,10 +647,11 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   public void testInsertObjectIntoObject() throws IOException {
     final String storeQuery =
         "jn:store('json-path1','mydoc.jn','[{\"bla\":true},{\"bar\":\"foobar\"},{\"bla\":null,\"foo\":false,\"baz\":null}]')";
-    final String updateQuery = """
-          let $array := jn:doc('json-path1','mydoc.jn')
-          return (insert json {"tr": true, "baba": [true,false,null,"foo",{"foo":"bar"}]} into $array[2], delete json $array[1])
-        """;
+    final String updateQuery =
+        """
+              let $array := jn:doc('json-path1','mydoc.jn')
+              return (insert json {"tr": true, "baba": [true,false,null,"foo",{"foo":"bar"}]} into $array[2], delete json $array[1])
+            """;
     final String openQuery = "jn:doc('json-path1','mydoc.jn')";
     test(storeQuery, updateQuery, openQuery, """
         [{"bla":true},{"bla":null,"foo":false,"baz":null,"tr":true,"baba":[true,false,null,"foo",{"foo":"bar"}]}]
@@ -652,51 +681,53 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
   @Test
   public void test() throws IOException {
     query("""
-      jn:store('json-path1','mydoc.jn','[{"test": "test string"}]')
-      """.strip());
+        jn:store('json-path1','mydoc.jn','[{"test": "test string"}]')
+        """.strip());
     query("""
-      let $array := jn:doc('json-path1','mydoc.jn')
-      return rename json $array[0].test as "bar"
-      """.strip());
+        let $array := jn:doc('json-path1','mydoc.jn')
+        return rename json $array[0].test as "bar"
+        """.strip());
     query("""
-      let $array := jn:doc('json-path1','mydoc.jn')
-      return replace json value of $array[0].bar with "foobar"
-      """.strip());
+        let $array := jn:doc('json-path1','mydoc.jn')
+        return replace json value of $array[0].bar with "foobar"
+        """.strip());
     query("""
-      let $array := jn:doc('json-path1','mydoc.jn')
-      return insert json {"bla":true} into $array at position 0
-      """.strip());
+        let $array := jn:doc('json-path1','mydoc.jn')
+        return insert json {"bla":true} into $array at position 0
+        """.strip());
     query("""
-      let $array := jn:doc('json-path1','mydoc.jn')
-      return append json {"bla":null} into $array
-      """.strip());
+        let $array := jn:doc('json-path1','mydoc.jn')
+        return append json {"bla":null} into $array
+        """.strip());
     query("""
-      let $array := jn:doc('json-path1','mydoc.jn')
-      return insert json {"foo": not(true), "baz": null} into $array[2]
-      """.strip());
+        let $array := jn:doc('json-path1','mydoc.jn')
+        return insert json {"foo": not(true), "baz": null} into $array[2]
+        """.strip());
     test("jn:doc('json-path1','mydoc.jn')", """
         [{"bla":true},{"bar":"foobar"},{"bla":null,"foo":false,"baz":null}]
         """.strip());
     test("sdb:revision(jn:doc('json-path1','mydoc.jn'))", "6");
-//    test("""
-//      let $nodeKey := sdb:nodekey(jn:doc('json-path1','mydoc.jn')[2])
-//      return jn:diff('json-path1','mydoc.jn',5,6,$nodeKey,5000)
-//      """.strip(), "");
-    test("""
-      let $node := jn:doc('json-path1','mydoc.jn')[1]
-      let $result := for $node-in-rev in jn:all-times($node)
-                     return
-                       if ((not(exists(jn:previous($node-in-rev)))) or (sdb:hash($node-in-rev) ne sdb:hash(jn:previous($node-in-rev)))) then
-                         $node-in-rev
-                       else
-                         ()
-      return [
-        for $node in $result
-        return { "node": $node, "revision": sdb:revision($node) }
-      ]
-      """.strip(), """
-        [{"node":{"test":"test string"},"revision":1},{"node":{"bar":"test string"},"revision":2},{"node":{"bar":"foobar"},"revision":3}]
-        """.strip());
+    // test("""
+    // let $nodeKey := sdb:nodekey(jn:doc('json-path1','mydoc.jn')[2])
+    // return jn:diff('json-path1','mydoc.jn',5,6,$nodeKey,5000)
+    // """.strip(), "");
+    test(
+        """
+            let $node := jn:doc('json-path1','mydoc.jn')[1]
+            let $result := for $node-in-rev in jn:all-times($node)
+                           return
+                             if ((not(exists(jn:previous($node-in-rev)))) or (sdb:hash($node-in-rev) ne sdb:hash(jn:previous($node-in-rev)))) then
+                               $node-in-rev
+                             else
+                               ()
+            return [
+              for $node in $result
+              return { "node": $node, "revision": sdb:revision($node) }
+            ]
+            """.strip(),
+        """
+            [{"node":{"test":"test string"},"revision":1},{"node":{"bar":"test string"},"revision":2},{"node":{"bar":"foobar"},"revision":3}]
+            """.strip());
     query("jn:diff('json-path1','mydoc.jn',1,2)");
   }
 
@@ -819,10 +850,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/statuses/[]/user/entities/url/urls/[]/url') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "for $i in jn:doc('json-path1','mydoc.jn').statuses[].user.entities.url[?$$.urls[].url eq 'https://t.co/TcEE6NS8nD'] order by sdb:nodekey($i) return {\"result\": $i, \"nodekey\": sdb:nodekey($i) }";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting4").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting4").resolve("expectedOutput")));
   }
 
   @Test
@@ -833,10 +862,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, ('/paths/\\/consolidated_screening_list\\/search/get/tags/[]', '/paths/\\/consolidated_screening_list\\/search/get/tags')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').paths.\"/consolidated_screening_list/search\".get.parameters return { \"result\": $result, \"nodekey\": sdb:nodekey($result) }";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting5").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting5").resolve("expectedOutput")));
   }
 
   @Test
@@ -852,10 +879,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
                """.stripIndent();
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting6").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting6").resolve("expectedOutput")));
   }
 
   @Test
@@ -866,10 +891,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/paths/\\/consolidated_screening_list\\/search/get/parameters/[]/name') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').paths.\"/consolidated_screening_list/search\".get[?$$.parameters[].name = 'keyword'] return { \"result\": $result, \"nodekey\": sdb:nodekey($result) }";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting7").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting7").resolve("expectedOutput")));
   }
 
   @Test
@@ -880,10 +903,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, '/paths/\\/consolidated_screening_list\\/search/get/parameters/[]/name') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').paths.\"/consolidated_screening_list/search\".get.parameters[3].name return { \"result\": $result }";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting8").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting8").resolve("expectedOutput")));
   }
 
   @Test
@@ -894,10 +915,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada/[]/foo') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[1].revision.tada[0].foo return { \"result\": $result }";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting9").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting9").resolve("expectedOutput")));
   }
 
   @Test
@@ -908,10 +927,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[1].revision.tada[0] return { \"result\": $result }";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting10").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting10").resolve("expectedOutput")));
   }
 
   @Test
@@ -922,10 +939,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada/[]') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[4] return { \"result\": $result }";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting11").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting11").resolve("expectedOutput")));
   }
 
   @Test
@@ -936,10 +951,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, ('/sirix/[]/revision/tada/[]/foo','/sirix/[]/revision/tada/[]/[]/foo')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[][].foo return $result";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting12").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting12").resolve("expectedOutput")));
   }
 
   @Test
@@ -950,10 +963,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[?$$[][].foo[].baz = 'bar'] return $result";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting13").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting13").resolve("expectedOutput")));
   }
 
   @Test
@@ -963,10 +974,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery = "jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[4][].foo[1].baz";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting14").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting14").resolve("expectedOutput")));
   }
 
   @Test
@@ -976,10 +985,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery = "jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[4][0].foo[1].baz";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting15").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting15").resolve("expectedOutput")));
   }
 
   @Test
@@ -990,10 +997,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $baz := jn:doc('json-path1','mydoc.jn') let $return := $baz.sirix[2].revision.tada[4][0].foo[1].baz return $return";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting16").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting16").resolve("expectedOutput")));
   }
 
   // Same as 6 with one index access
@@ -1010,10 +1015,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
                """.stripIndent();
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting17").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting17").resolve("expectedOutput")));
   }
 
   // Same as 6 without index access
@@ -1030,10 +1033,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
                """.stripIndent();
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting18").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting18").resolve("expectedOutput")));
   }
 
   @Test
@@ -1050,10 +1051,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
                """.stripIndent();
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting19").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting19").resolve("expectedOutput")));
   }
 
   @Test
@@ -1070,10 +1069,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
                """.stripIndent();
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting20").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting20").resolve("expectedOutput")));
   }
 
   @Test
@@ -1084,10 +1081,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[?$$[][].foo[].baz >= 'baa' and $$[][].foo[].baz <= 'brr'] return $result";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting21").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting21").resolve("expectedOutput")));
   }
 
   @Test
@@ -1097,10 +1092,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-name-index($doc, 'foo') return {\"revision\": sdb:commit($doc)}";
     final String openQuery = "let $result := jn:doc('json-path1','mydoc.jn').sirix[].revision.foo return $result";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting22").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting22").resolve("expectedOutput")));
   }
 
   @Test
@@ -1110,10 +1103,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String indexQuery =
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-name-index($doc, 'revision') return {\"revision\": sdb:commit($doc)}";
     final String openQuery = "let $result := jn:doc('json-path1','mydoc.jn').sirix[].revision.foo return $result";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting22").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting22").resolve("expectedOutput")));
   }
 
   @Test
@@ -1124,10 +1115,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[][].foo[].baz[?starts-with($$, 'ba')] return $result";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting24").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting24").resolve("expectedOutput")));
   }
 
   @Test
@@ -1138,10 +1127,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada//[]/foo/[]') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[][].foo[] return $result";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting25").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting25").resolve("expectedOutput")));
   }
 
   @Test
@@ -1150,9 +1137,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String storeQuery = String.format("jn:load('json-path1','mydoc.jn','%s')", docUri);
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[][].foo[] return $result";
-    test(storeQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting26").resolve("expectedOutput")));
+    test(storeQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting26").resolve("expectedOutput")));
   }
 
   @Test
@@ -1161,9 +1147,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String storeQuery = String.format("jn:load('json-path1','mydoc.jn','%s')", docUri);
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[][].foo[][] return $result";
-    test(storeQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting27").resolve("expectedOutput")));
+    test(storeQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting27").resolve("expectedOutput")));
   }
 
   @Test
@@ -1174,10 +1159,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[][].foo[].baz[] return $result";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting28").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting28").resolve("expectedOutput")));
   }
 
   @Test
@@ -1188,10 +1171,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[2].revision[?$$.tada[][].foo[1].baz = 'bar'] return $result";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting29").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting29").resolve("expectedOutput")));
   }
 
   @Test
@@ -1202,10 +1183,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, '/sirix/[]/revision/tada/[]') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[-1] return { \"result\": $result }";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting30").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting30").resolve("expectedOutput")));
   }
 
   @Test
@@ -1219,10 +1198,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         let $pathIndexNumber := jn:find-path-index($doc, '/sirix/[]/revision/tada/[]')
         return jn:scan-path-index($doc, $pathIndexNumber, '/sirix/[]/revision/tada/[]')
         """.strip();
-    test(storeQuery,
-         indexQuery,
-         findAndScanPathIndexQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting31").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, findAndScanPathIndexQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting31").resolve("expectedOutput")));
   }
 
   // Doesn't use the index yet, but it should be possible to use it.
@@ -1234,10 +1211,8 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/sirix/[]/revision/tada//[]/foo/[]/baz') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').sirix[2].revision.tada[4][?$$[].foo[1].baz = 'bar'] return $result";
-    test(storeQuery,
-         indexQuery,
-         openQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting32").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, openQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testNesting32").resolve("expectedOutput")));
   }
 
   @Test
@@ -1246,8 +1221,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "jn:store('json-path1','mydoc.jn','[{\"key\":0},{\"value\":[{\"key\":{\"boolean\":true}},{\"newkey\":\"yes\"}]},{\"key\":\"hey\",\"value\":false}]')";
     final String indexQuery =
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, ('//*', '//[]')) return {\"revision\": sdb:commit($doc)}";
-    final String openQuery =
-        "jn:doc('json-path1','mydoc.jn')[].value[].key[?$$.boolean].nonExistent";
+    final String openQuery = "jn:doc('json-path1','mydoc.jn')[].value[].key[?$$.boolean].nonExistent";
     test(storeQuery, indexQuery, openQuery, "");
   }
 
@@ -1257,14 +1231,14 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "jn:store('json-path1','mydoc.jn','[{\"key\":0},{\"value\":[{\"key\":{\"boolean\":true}},{\"newkey\":\"yes\"}]},{\"key\":\"hey\",\"value\":false}]')";
     final String indexQuery =
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, ('//*', '//[]')) return {\"revision\": sdb:commit($doc)}";
-    final String openQuery =
-        "jn:doc('json-path1','mydoc.jn')[].value[].key.nonExistent";
+    final String openQuery = "jn:doc('json-path1','mydoc.jn')[].value[].key.nonExistent";
     test(storeQuery, indexQuery, openQuery, "");
   }
 
   @Test
   public void testCreateAndScanNameIndex() throws IOException {
-    final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanNameIndex").resolve("multiple-revisions.json").toUri();
+    final URI docUri =
+        JSON_RESOURCE_PATH.resolve("testCreateAndScanNameIndex").resolve("multiple-revisions.json").toUri();
     final String storeQuery = String.format("jn:load('json-path1','mydoc.jn','%s')", docUri);
     final String indexQuery =
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-name-index($doc, ('foo','bar')) return {\"revision\": sdb:commit($doc)}";
@@ -1275,15 +1249,14 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         order by sdb:revision($node), sdb:nodekey($node)
         return {"nodeKey": sdb:nodekey($node), "path": sdb:path($node), "revision": sdb:revision($node)}
         """.strip();
-    test(storeQuery,
-         indexQuery,
-         findAndScanNameIndexQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanNameIndex").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, findAndScanNameIndexQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanNameIndex").resolve("expectedOutput")));
   }
 
   @Test
   public void testCreateAndScanPathIndex() throws IOException {
-    final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanPathIndex").resolve("multiple-revisions.json").toUri();
+    final URI docUri =
+        JSON_RESOURCE_PATH.resolve("testCreateAndScanPathIndex").resolve("multiple-revisions.json").toUri();
     final String storeQuery = String.format("jn:load('json-path1','mydoc.jn','%s')", docUri);
     final String indexQuery = """
         let $doc := jn:doc('json-path1','mydoc.jn')
@@ -1297,15 +1270,14 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         order by sdb:revision($node), sdb:nodekey($node)
         return {"nodeKey": sdb:nodekey($node), "path": sdb:path($node)}
         """.strip();
-    test(storeQuery,
-         indexQuery,
-         findAndScanPathIndexQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanPathIndex").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, findAndScanPathIndexQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanPathIndex").resolve("expectedOutput")));
   }
 
   @Test
   public void testCreateAndScanCASIndex() throws IOException {
-    final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex").resolve("multiple-revisions.json").toUri();
+    final URI docUri =
+        JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex").resolve("multiple-revisions.json").toUri();
     final String storeQuery = String.format("jn:load('json-path1','mydoc.jn','%s')", docUri);
     final String indexQuery = """
         let $doc := jn:doc('json-path1','mydoc.jn')
@@ -1319,15 +1291,14 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         order by sdb:revision($node), sdb:nodekey($node)
         return {"nodeKey": sdb:nodekey($node), "node": $node}
         """.strip();
-    test(storeQuery,
-         indexQuery,
-         findAndScanPathIndexQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, findAndScanPathIndexQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex").resolve("expectedOutput")));
   }
 
   @Test
   public void testCreateAndScanCASIndex2() throws IOException {
-    final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex2").resolve("multiple-revisions.json").toUri();
+    final URI docUri =
+        JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex2").resolve("multiple-revisions.json").toUri();
     final String storeQuery = String.format("jn:load('json-path1','mydoc.jn','%s')", docUri);
     final String indexQuery = """
         let $doc := jn:doc('json-path1','mydoc.jn')
@@ -1341,15 +1312,14 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         order by sdb:revision($node), sdb:nodekey($node)
         return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
         """.strip();
-    test(storeQuery,
-         indexQuery,
-         findAndScanPathIndexQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex2").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, findAndScanPathIndexQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex2").resolve("expectedOutput")));
   }
 
   @Test
   public void testCreateAndScanCASIndex3() throws IOException {
-    final URI docUri = JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex3").resolve("copperfield-book.json").toUri();
+    final URI docUri =
+        JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex3").resolve("copperfield-book.json").toUri();
     final String storeQuery = String.format("jn:load('json-path1','mydoc.jn','%s')", docUri);
     final String indexQuery = """
         let $doc := jn:doc('json-path1','mydoc.jn')
@@ -1363,9 +1333,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         order by sdb:revision($node), sdb:nodekey($node)
         return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
         """.strip();
-    test(storeQuery,
-         indexQuery,
-         findAndScanPathIndexQuery,
-         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex3").resolve("expectedOutput")));
+    test(storeQuery, indexQuery, findAndScanPathIndexQuery,
+        Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex3").resolve("expectedOutput")));
   }
 }

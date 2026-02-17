@@ -29,7 +29,7 @@ public final class JsonObjectKeyDBArray extends AbstractJsonDBArray<JsonObjectKe
   /**
    * Constructor.
    *
-   * @param rtx        {@link JsonNodeReadOnlyTrx} for providing reading access to the underlying node
+   * @param rtx {@link JsonNodeReadOnlyTrx} for providing reading access to the underlying node
    * @param collection {@link JsonDBCollection} reference
    */
   public JsonObjectKeyDBArray(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
@@ -45,7 +45,8 @@ public final class JsonObjectKeyDBArray extends AbstractJsonDBArray<JsonObjectKe
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonObjectKeyArrayStream(new PastAxis<>(rtx.getResourceSession(), rtx, include), collection);
+    return new TemporalSirixJsonObjectKeyArrayStream(new PastAxis<>(rtx.getResourceSession(), rtx, include),
+        collection);
   }
 
   @Override
@@ -54,7 +55,8 @@ public final class JsonObjectKeyDBArray extends AbstractJsonDBArray<JsonObjectKe
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonObjectKeyArrayStream(new FutureAxis<>(rtx.getResourceSession(), rtx, include), collection);
+    return new TemporalSirixJsonObjectKeyArrayStream(new FutureAxis<>(rtx.getResourceSession(), rtx, include),
+        collection);
   }
 
   @Override

@@ -28,8 +28,8 @@ public final class XMLToken {
    * @return result of comparison
    */
   public static boolean valid(final int ch) {
-    return ch >= 0x20 && ch <= 0xD7FF || ch == 0xA || ch == 0x9 || ch == 0xD
-        || ch >= 0xE000 && ch <= 0xFFFD || ch >= 0x10000 && ch <= 0x10ffff;
+    return ch >= 0x20 && ch <= 0xD7FF || ch == 0xA || ch == 0x9 || ch == 0xD || ch >= 0xE000 && ch <= 0xFFFD
+        || ch >= 0x10000 && ch <= 0x10ffff;
   }
 
   /**
@@ -44,11 +44,9 @@ public final class XMLToken {
         ? ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z' || ch == '_'
         : ch < 0x300
             ? ch >= 0xC0 && ch != 0xD7 && ch != 0xF7
-            : ch >= 0x370 && ch <= 0x37D || ch >= 0x37F && ch <= 0x1FFF
-                || ch >= 0x200C && ch <= 0x200D || ch >= 0x2070 && ch <= 0x218F
-                || ch >= 0x2C00 && ch <= 0x2EFF || ch >= 0x3001 && ch <= 0xD7FF
-                || ch >= 0xF900 && ch <= 0xFDCF || ch >= 0xFDF0 && ch <= 0xFFFD
-                || ch >= 0x10000 && ch <= 0xEFFFF;
+            : ch >= 0x370 && ch <= 0x37D || ch >= 0x37F && ch <= 0x1FFF || ch >= 0x200C && ch <= 0x200D
+                || ch >= 0x2070 && ch <= 0x218F || ch >= 0x2C00 && ch <= 0x2EFF || ch >= 0x3001 && ch <= 0xD7FF
+                || ch >= 0xF900 && ch <= 0xFDCF || ch >= 0xFDF0 && ch <= 0xFFFD || ch >= 0x10000 && ch <= 0xEFFFF;
   }
 
   /**
@@ -186,8 +184,8 @@ public final class XMLToken {
   }
 
   /**
-   * Returns the codepoint (unicode value) of the specified token, starting at the specified
-   * position. Returns a unicode replacement character for invalid values.
+   * Returns the codepoint (unicode value) of the specified token, starting at the specified position.
+   * Returns a unicode replacement character for invalid values.
    *
    * @param token token
    * @param pos character position
@@ -209,8 +207,7 @@ public final class XMLToken {
     if (vl == 3)
       return (v & 0x0F) << 12 | (token[pos + 1] & 0x3F) << 6 | token[pos + 2] & 0x3F;
     // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-    return (v & 0x07) << 18 | (token[pos + 1] & 0x3F) << 12 | (token[pos + 2] & 0x3F) << 6
-        | token[pos + 3] & 0x3F;
+    return (v & 0x07) << 18 | (token[pos + 1] & 0x3F) << 12 | (token[pos + 2] & 0x3F) << 6 | token[pos + 3] & 0x3F;
   }
 
   /**

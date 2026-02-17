@@ -206,10 +206,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.state = State.RUNNING;
 
     if (!afterCommitDelay.isZero()) {
-      commitScheduler.scheduleWithFixedDelay(() -> commit("autoCommit", null),
-                                             afterCommitDelay.toMillis(),
-                                             afterCommitDelay.toMillis(),
-                                             TimeUnit.MILLISECONDS);
+      commitScheduler.scheduleWithFixedDelay(() -> commit("autoCommit", null), afterCommitDelay.toMillis(),
+          afterCommitDelay.toMillis(), TimeUnit.MILLISECONDS);
     }
   }
 
@@ -275,7 +273,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // Each ancestor's prepareRecordForModification may overwrite the singleton if same kind.
       final long hashToAdd = startNode.computeHash(nodeHashing.getBytes());
       final boolean startIsStruct = startNode instanceof StructNode;
-      final long startDescendantCount = startIsStruct ? ((StructNode) startNode).getDescendantCount() : 0;
+      final long startDescendantCount = startIsStruct
+          ? ((StructNode) startNode).getDescendantCount()
+          : 0;
       moveToParent();
       while (nodeReadOnlyTrx.hasParent()) {
         moveToParent();
@@ -380,7 +380,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /**
    * Create new instances.
    *
-   * @param trxID     transaction ID
+   * @param trxID transaction ID
    * @param revNumber revision number
    */
   private void reInstantiate(final @NonNegative int trxID, final @NonNegative int revNumber) {
@@ -436,7 +436,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // Close current page transaction.
     final int trxID = getId();
     final int revision = getRevisionNumber();
-    final int revNumber = pageTrx.getUberPage().isBootstrap() ? 0 : revision - 1;
+    final int revNumber = pageTrx.getUberPage().isBootstrap()
+        ? 0
+        : revision - 1;
 
     final UberPage uberPage = pageTrx.rollback();
 
@@ -594,13 +596,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         // Release all state immediately.
         final int trxId = getId();
         nodeReadOnlyTrx.close();
-        
+
         // CRITICAL FIX: Close StorageEngineWriter to trigger TIL.close() and clean up uncommitted pages
         // Without this, TIL instances with uncommitted pages leak
         if (pageTrx != null && !pageTrx.isClosed()) {
           pageTrx.close();
         }
-        
+
         resourceSession.closeWriteTransaction(trxId);
         removeCommitFile();
 

@@ -53,7 +53,7 @@ public final class PredicateFilterAxis extends AbstractAxis {
    * Constructor. Initializes the internal state.
    *
    * @param nodeCursor exclusive (immutable) cursor to iterate with
-   * @param predicate  predicate expression
+   * @param predicate predicate expression
    */
   public PredicateFilterAxis(final NodeCursor nodeCursor, final Axis predicate) {
     super(nodeCursor);

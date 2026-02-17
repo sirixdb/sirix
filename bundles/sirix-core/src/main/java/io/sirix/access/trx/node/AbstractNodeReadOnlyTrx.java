@@ -100,27 +100,27 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * The current node's key (used for delta decoding).
    */
   private long currentNodeKey;
-  
+
   /**
    * The current node's kind.
    */
   private NodeKind currentNodeKind;
-  
+
   /**
-   * Page guard protecting the current page from eviction.
-   * MUST be released when moving to a different node or closing the transaction.
+   * Page guard protecting the current page from eviction. MUST be released when moving to a different
+   * node or closing the transaction.
    */
   private PageGuard currentPageGuard;
-  
+
   /**
-   * The page key of the currently held page guard.
-   * Used to detect same-page moves and avoid guard release/reacquire overhead.
+   * The page key of the currently held page guard. Used to detect same-page moves and avoid guard
+   * release/reacquire overhead.
    */
   private long currentPageKey = -1;
-  
+
   /**
-   * The current page reference (same page as currentPageGuard).
-   * Cached to avoid re-lookup when moving within the same page.
+   * The current page reference (same page as currentPageGuard). Cached to avoid re-lookup when moving
+   * within the same page.
    */
   private KeyValueLeafPage currentPage;
 
@@ -128,10 +128,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * Slot offset of the current singleton node in {@link #currentPage}.
    */
   private int currentSlotOffset = -1;
-  
+
   /**
-   * Reusable BytesIn instance for reading node data.
-   * Avoids allocation on every moveTo() call.
+   * Reusable BytesIn instance for reading node data. Avoids allocation on every moveTo() call.
    */
   private final MemorySegmentBytesIn reusableBytesIn = new MemorySegmentBytesIn(MemorySegment.NULL);
 
@@ -141,8 +140,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   protected final ResourceConfiguration resourceConfig;
 
   /**
-   * Whether singleton-mode hot-path rebinding is enabled for this resource.
-   * JSON and XML resources use singleton rebinding.
+   * Whether singleton-mode hot-path rebinding is enabled for this resource. JSON and XML resources
+   * use singleton rebinding.
    */
   private final boolean singletonOptimizedResource;
 
@@ -152,23 +151,23 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   private final boolean xmlSingletonResource;
 
   /**
-   * Tracks if Dewey bytes are already bound for the current singleton.
-   * Deferred binding avoids a byte[] allocation on every moveTo.
+   * Tracks if Dewey bytes are already bound for the current singleton. Deferred binding avoids a
+   * byte[] allocation on every moveTo.
    */
   private boolean singletonDeweyBound = true;
 
   /**
    * Constructor.
    *
-   * @param trxId               the transaction ID
+   * @param trxId the transaction ID
    * @param pageReadTransaction the underlying read-only page transaction
-   * @param documentNode        the document root node
-   * @param resourceSession     The resource manager for the current transaction
-   * @param itemList            Read-transaction-exclusive item list.
+   * @param documentNode the document root node
+   * @param resourceSession The resource manager for the current transaction
+   * @param itemList Read-transaction-exclusive item list.
    */
-  protected AbstractNodeReadOnlyTrx(final @NonNegative int trxId, final @NonNull StorageEngineReader pageReadTransaction,
-      final @NonNull N documentNode, final InternalResourceSession<T, W> resourceSession,
-      final ItemList<AtomicValue> itemList) {
+  protected AbstractNodeReadOnlyTrx(final @NonNegative int trxId,
+      final @NonNull StorageEngineReader pageReadTransaction, final @NonNull N documentNode,
+      final InternalResourceSession<T, W> resourceSession, final ItemList<AtomicValue> itemList) {
     this.itemList = itemList;
     this.resourceSession = requireNonNull(resourceSession);
     this.id = trxId;
@@ -176,13 +175,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentNode = requireNonNull(documentNode);
     this.isClosed = false;
     this.resourceConfig = resourceSession.getResourceConfig();
-    
+
     // Initialize cursor state from document node.
     this.currentNodeKey = documentNode.getNodeKey();
     this.currentNodeKind = documentNode.getKind();
     this.xmlSingletonResource = documentNode.getKind() == NodeKind.XML_DOCUMENT;
-    this.singletonOptimizedResource = documentNode.getKind() == NodeKind.JSON_DOCUMENT
-        || xmlSingletonResource;
+    this.singletonOptimizedResource = documentNode.getKind() == NodeKind.JSON_DOCUMENT || xmlSingletonResource;
   }
 
   @Override
@@ -198,10 +196,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
     return currentNode;
   }
-  
+
   /**
-   * Create a deep copy snapshot of the current singleton node.
-   * The snapshot is a new object with all values copied, safe to hold across cursor moves.
+   * Create a deep copy snapshot of the current singleton node. The snapshot is a new object with all
+   * values copied, safe to hold across cursor moves.
    *
    * @return a snapshot of the current singleton
    */
@@ -230,7 +228,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       default -> throw new IllegalStateException("Unexpected singleton kind: " + currentNodeKind);
     };
   }
-  
+
   @Override
   public void setCurrentNode(final @Nullable N currentNode) {
     assertNotClosed();
@@ -407,7 +405,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (nodeKey < 0) {
       return moveToItemList(nodeKey);
     }
-    
+
     if (singletonOptimizedResource && pageReadOnlyTrx instanceof NodeStorageEngineReader reader) {
       return moveToSingleton(nodeKey, reader);
     }
@@ -421,7 +419,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   // Each supported JSON/XML node type has a dedicated singleton instance.
 
   private static final QNm EMPTY_QNM = new QNm("");
-  
+
   private ObjectNode singletonObject;
   private ArrayNode singletonArray;
   private ObjectKeyNode singletonObjectKey;
@@ -441,35 +439,34 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   private TextNode singletonText;
   private CommentNode singletonComment;
   private PINode singletonPI;
-  
+
   /**
    * Whether currently in singleton mode (using singleton nodes).
    */
   private boolean singletonMode = false;
-  
+
   /**
    * The current singleton node (set when in singletonMode).
    */
   private ImmutableNode currentSingleton;
 
-  
+
   /**
-   * Move to a node using singleton mode (zero allocation).
-   * Repopulates a mutable singleton instance from serialized data.
-   * NO allocation happens here - only when getCurrentNode() is called.
+   * Move to a node using singleton mode (zero allocation). Repopulates a mutable singleton instance
+   * from serialized data. NO allocation happens here - only when getCurrentNode() is called.
    *
    * @param nodeKey the node key to move to
-   * @param reader  the storage engine reader
+   * @param reader the storage engine reader
    * @return true if the move was successful
    */
   private boolean moveToSingleton(final long nodeKey, final NodeStorageEngineReader reader) {
     // Calculate target page key to check for same-page access
     final long targetPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
     final int slotOffset = StorageEngineReader.recordPageOffset(nodeKey);
-    
+
     MemorySegment data;
     KeyValueLeafPage page;
-    
+
     // OPTIMIZATION: Check if we're moving within the same page
     if (currentPageKey == targetPageKey && currentPage != null && !currentPage.isClosed()) {
       // Same page! Skip guard management entirely
@@ -499,14 +496,14 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         return false;
       }
     }
-    
+
     // Get singleton instance for this node type
     ImmutableNode singleton = getSingletonForKind(kind);
     if (singleton == null) {
       // No singleton for this type (e.g., document root), fall back to legacy
       return moveToLegacy(nodeKey);
     }
-    
+
     // Populate singleton from slot bytes (no allocation on the singleton path).
     // Note: no guard management needed, we're on the same page.
     // Dewey bytes are bound lazily on demand to avoid byte[] allocation per moveTo.
@@ -525,15 +522,15 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentNodeKey = nodeKey;
     this.currentSlotOffset = slotOffset;
     this.singletonDeweyBound = !resourceConfig.areDeweyIDsStored;
-    this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
+    this.currentNode = null; // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
 
     return true;
   }
-  
+
   /**
-   * Slow path for moveToSingleton when moving to a different page.
-   * Handles guard acquisition and release.
+   * Slow path for moveToSingleton when moving to a different page. Handles guard acquisition and
+   * release.
    */
   private boolean moveToSingletonSlowPath(final long nodeKey, final NodeStorageEngineReader reader) {
     // Get raw slot data with full guard management
@@ -560,7 +557,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         return false;
       }
     }
-    
+
     // Get singleton instance for this node type
     ImmutableNode singleton = getSingletonForKind(kind);
     if (singleton == null) {
@@ -568,10 +565,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       slotLocation.guard().close();
       return moveToLegacy(nodeKey);
     }
-    
+
     // Release previous page guard ONLY NOW (after we know the new page is valid)
     releaseCurrentPageGuard();
-    
+
     // Populate singleton from serialized data (NO ALLOCATION)
     // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
     // Dewey bytes are bound lazily on demand to avoid byte[] allocation per moveTo.
@@ -594,15 +591,14 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentNodeKey = nodeKey;
     this.currentSlotOffset = slotLocation.offset();
     this.singletonDeweyBound = !resourceConfig.areDeweyIDsStored;
-    this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
+    this.currentNode = null; // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
-    
+
     return true;
   }
 
   private boolean populateSingletonFromFixedSlot(final ImmutableNode singleton, final NodeKind kind,
-      final MemorySegment slotData, final long nodeKey, final byte[] deweyIdBytes,
-      final KeyValueLeafPage page) {
+      final MemorySegment slotData, final long nodeKey, final byte[] deweyIdBytes, final KeyValueLeafPage page) {
     final NodeKindLayout layout = kind.layoutDescriptor();
     if (!layout.isFixedSlotSupported() || slotData.byteSize() < layout.fixedSlotSizeInBytes()) {
       return false;
@@ -620,10 +616,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setNodeKey(nodeKey);
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
         node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
-        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case XML_DOCUMENT -> {
@@ -633,10 +627,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setNodeKey(nodeKey);
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
         node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
-        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case OBJECT -> {
@@ -645,17 +637,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
-        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case ARRAY -> {
@@ -665,17 +651,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
         node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
-        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case OBJECT_KEY -> {
@@ -684,18 +664,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
         node.setNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.NAME_KEY));
         node.clearCachedName();
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case BOOLEAN_VALUE -> {
@@ -704,14 +679,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setValue(SlotLayoutAccessors.readBooleanField(slotData, layout, StructuralField.BOOLEAN_VALUE));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case NULL_VALUE -> {
@@ -720,13 +692,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case OBJECT_BOOLEAN_VALUE -> {
@@ -735,12 +704,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setValue(SlotLayoutAccessors.readBooleanField(slotData, layout, StructuralField.BOOLEAN_VALUE));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case OBJECT_NULL_VALUE -> {
@@ -749,11 +715,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case NAMESPACE -> {
@@ -762,16 +725,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
         node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
         node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setName(EMPTY_QNM);
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case ELEMENT -> {
@@ -783,21 +742,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
-        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
         node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
-        node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         FixedSlotRecordMaterializer.readInlineVectorPayload(node, slotData, layout, 0, true);
         FixedSlotRecordMaterializer.readInlineVectorPayload(node, slotData, layout, 1, false);
         node.setName(EMPTY_QNM);
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case STRING_VALUE -> {
@@ -808,10 +759,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazySource and
+        // metadataParsed=true
         final long strPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int strLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         final int strFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
@@ -821,8 +770,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         if (strFsstSymbols != null && strFsstSymbols.length > 0) {
           node.setFsstSymbolTable(strFsstSymbols);
         }
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case OBJECT_STRING_VALUE -> {
@@ -831,10 +780,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazySource and
+        // metadataParsed=true
         final long objStrPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int objStrLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         final int objStrFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
@@ -844,8 +791,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         if (objStrFsstSymbols != null && objStrFsstSymbols.length > 0) {
           node.setFsstSymbolTable(objStrFsstSymbols);
         }
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case NUMBER_VALUE -> {
@@ -856,15 +803,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyNumberValue BEFORE setHash — setLazyNumberValue resets hash to 0
+        // setLazyNumberValue BEFORE bindFixedSlotLazy — setLazyNumberValue sets lazySource and
+        // metadataParsed=true
         final long numPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int numLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         node.setLazyNumberValue(slotData, numPointer, numLength);
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case OBJECT_NUMBER_VALUE -> {
@@ -873,15 +818,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyNumberValue BEFORE setHash — setLazyNumberValue resets hash to 0
+        // setLazyNumberValue BEFORE bindFixedSlotLazy — setLazyNumberValue sets lazySource and
+        // metadataParsed=true
         final long objNumPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int objNumLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         node.setLazyNumberValue(slotData, objNumPointer, objNumLength);
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case TEXT -> {
@@ -892,16 +835,14 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazySource and
+        // metadataParsed=true
         final long textPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int textLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         final int textFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
         node.setLazyRawValue(slotData, textPointer, textLength, (textFlags & 1) != 0);
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case COMMENT -> {
@@ -912,16 +853,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazyValueSource
         final long commentPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int commentLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         final int commentFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
         node.setLazyRawValue(slotData, commentPointer, commentLength, (commentFlags & 1) != 0);
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case ATTRIBUTE -> {
@@ -930,20 +868,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
         node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
         node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazyValueSource
         final long attrPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int attrLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         node.setLazyRawValue(slotData, attrPointer, attrLength);
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setName(EMPTY_QNM);
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case PROCESSING_INSTRUCTION -> {
@@ -955,24 +889,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
-        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
         node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
-        node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazyValueSource
         final long piPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int piLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         final int piFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
         node.setLazyRawValue(slotData, piPointer, piLength, (piFlags & 1) != 0);
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setName(EMPTY_QNM);
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       default -> {
@@ -980,10 +906,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       }
     }
   }
-  
+
   /**
-   * Get the singleton instance for a given node kind.
-   * Lazily creates singletons on first use.
+   * Get the singleton instance for a given node kind. Lazily creates singletons on first use.
    *
    * @param kind the node kind
    * @return the singleton instance, or null if not supported
@@ -992,183 +917,132 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     return switch (kind) {
       case OBJECT -> {
         if (singletonObject == null) {
-          singletonObject = new ObjectNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
-              resourceConfig.nodeHashFunction, (byte[]) null);
+          singletonObject =
+              new ObjectNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonObject;
       }
       case ARRAY -> {
         if (singletonArray == null) {
-          singletonArray = new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null);
+          singletonArray =
+              new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonArray;
       }
       case OBJECT_KEY -> {
         if (singletonObjectKey == null) {
-          singletonObjectKey = new ObjectKeyNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null);
+          singletonObjectKey =
+              new ObjectKeyNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonObjectKey;
       }
       case STRING_VALUE -> {
         if (singletonString == null) {
-          singletonString = new StringNode(0, 0, 0, 0, 0, 0, 0, null,
-              resourceConfig.nodeHashFunction, (byte[]) null);
+          singletonString = new StringNode(0, 0, 0, 0, 0, 0, 0, null, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonString;
       }
       case NUMBER_VALUE -> {
         if (singletonNumber == null) {
-          singletonNumber = new NumberNode(0, 0, 0, 0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null);
+          singletonNumber = new NumberNode(0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonNumber;
       }
       case BOOLEAN_VALUE -> {
         if (singletonBoolean == null) {
-          singletonBoolean = new BooleanNode(0, 0, 0, 0, 0, 0, 0, false,
-              resourceConfig.nodeHashFunction, (byte[]) null);
+          singletonBoolean =
+              new BooleanNode(0, 0, 0, 0, 0, 0, 0, false, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonBoolean;
       }
       case NULL_VALUE -> {
         if (singletonNull == null) {
-          singletonNull = new NullNode(0, 0, 0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null);
+          singletonNull = new NullNode(0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonNull;
       }
       case OBJECT_STRING_VALUE -> {
         if (singletonObjectString == null) {
-          singletonObjectString = new ObjectStringNode(0, 0, 0, 0, 0, null,
-              resourceConfig.nodeHashFunction, (byte[]) null);
+          singletonObjectString =
+              new ObjectStringNode(0, 0, 0, 0, 0, null, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonObjectString;
       }
       case OBJECT_NUMBER_VALUE -> {
         if (singletonObjectNumber == null) {
-          singletonObjectNumber = new ObjectNumberNode(0, 0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null);
+          singletonObjectNumber =
+              new ObjectNumberNode(0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonObjectNumber;
       }
       case OBJECT_BOOLEAN_VALUE -> {
         if (singletonObjectBoolean == null) {
-          singletonObjectBoolean = new ObjectBooleanNode(0, 0, 0, 0, 0, false,
-              resourceConfig.nodeHashFunction, (byte[]) null);
+          singletonObjectBoolean =
+              new ObjectBooleanNode(0, 0, 0, 0, 0, false, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonObjectBoolean;
       }
       case OBJECT_NULL_VALUE -> {
         if (singletonObjectNull == null) {
-          singletonObjectNull = new ObjectNullNode(0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null);
+          singletonObjectNull = new ObjectNullNode(0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonObjectNull;
       }
       case JSON_DOCUMENT -> {
         if (singletonJsonDocumentRoot == null) {
           singletonJsonDocumentRoot = new JsonDocumentRootNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-              Fixed.NULL_NODE_KEY.getStandardProperty(),
-              Fixed.NULL_NODE_KEY.getStandardProperty(),
-              0,
-              0,
+              Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0,
               resourceConfig.nodeHashFunction);
         }
         yield singletonJsonDocumentRoot;
       }
       case XML_DOCUMENT -> {
         if (singletonXmlDocumentRoot == null) {
-          singletonXmlDocumentRoot = new XmlDocumentRootNode(
-              Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-              Fixed.NULL_NODE_KEY.getStandardProperty(),
-              Fixed.NULL_NODE_KEY.getStandardProperty(),
-              0,
-              0,
+          singletonXmlDocumentRoot = new XmlDocumentRootNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+              Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0,
               resourceConfig.nodeHashFunction);
         }
         yield singletonXmlDocumentRoot;
       }
       case ELEMENT -> {
         if (singletonElement == null) {
-          singletonElement = new ElementNode(
-              0, 0, 0, 0,
-              0, 0, 0, 0,
-              0, 0, 0,
-              0, 0, 0, 0,
-              resourceConfig.nodeHashFunction,
-              (byte[]) null,
-              null,
-              null,
-              EMPTY_QNM);
+          singletonElement = new ElementNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+              resourceConfig.nodeHashFunction, (byte[]) null, null, null, EMPTY_QNM);
         }
         yield singletonElement;
       }
       case ATTRIBUTE -> {
         if (singletonAttribute == null) {
-          singletonAttribute = new AttributeNode(
-              0, 0, 0, 0,
-              0, 0, 0, 0,
-              0,
-              new byte[0],
-              resourceConfig.nodeHashFunction,
-              (byte[]) null,
-              EMPTY_QNM);
+          singletonAttribute = new AttributeNode(0, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0],
+              resourceConfig.nodeHashFunction, (byte[]) null, EMPTY_QNM);
         }
         yield singletonAttribute;
       }
       case NAMESPACE -> {
         if (singletonNamespace == null) {
-          singletonNamespace = new NamespaceNode(
-              0, 0, 0, 0,
-              0, 0, 0, 0,
-              0,
-              resourceConfig.nodeHashFunction,
-              (byte[]) null,
-              EMPTY_QNM);
+          singletonNamespace =
+              new NamespaceNode(0, 0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null, EMPTY_QNM);
         }
         yield singletonNamespace;
       }
       case TEXT -> {
         if (singletonText == null) {
-          singletonText = new TextNode(
-              0, 0, 0, 0,
-              0, 0,
-              0,
-              new byte[0],
-              false,
-              resourceConfig.nodeHashFunction,
-              (byte[]) null);
+          singletonText =
+              new TextNode(0, 0, 0, 0, 0, 0, 0, new byte[0], false, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonText;
       }
       case COMMENT -> {
         if (singletonComment == null) {
-          singletonComment = new CommentNode(
-              0, 0, 0, 0,
-              0, 0,
-              0,
-              new byte[0],
-              false,
-              resourceConfig.nodeHashFunction,
-              (byte[]) null);
+          singletonComment =
+              new CommentNode(0, 0, 0, 0, 0, 0, 0, new byte[0], false, resourceConfig.nodeHashFunction, (byte[]) null);
         }
         yield singletonComment;
       }
       case PROCESSING_INSTRUCTION -> {
         if (singletonPI == null) {
-          singletonPI = new PINode(
-              0, 0, 0, 0,
-              0, 0, 0, 0,
-              0, 0, 0,
-              0,
-              0, 0, 0,
-              new byte[0],
-              false,
-              resourceConfig.nodeHashFunction,
-              (byte[]) null,
-              EMPTY_QNM);
+          singletonPI = new PINode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0], false,
+              resourceConfig.nodeHashFunction, (byte[]) null, EMPTY_QNM);
         }
         yield singletonPI;
       }
@@ -1176,26 +1050,25 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       default -> null;
     };
   }
-  
+
   /**
    * Populate a singleton node from serialized data.
    *
    * @param singleton the singleton to populate
-   * @param source    the BytesIn source positioned after the kind byte
-   * @param nodeKey   the node key
-   * @param deweyId   the DeweyID bytes
-   * @param kind      the node kind
+   * @param source the BytesIn source positioned after the kind byte
+   * @param nodeKey the node key
+   * @param deweyId the DeweyID bytes
+   * @param kind the node kind
    */
-  private void populateSingleton(ImmutableNode singleton, BytesIn<?> source,
-                                  long nodeKey, byte[] deweyId, NodeKind kind,
-                                  KeyValueLeafPage page) {
+  private void populateSingleton(ImmutableNode singleton, BytesIn<?> source, long nodeKey, byte[] deweyId,
+      NodeKind kind, KeyValueLeafPage page) {
     switch (kind) {
-      case OBJECT -> ((ObjectNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case ARRAY -> ((ArrayNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case OBJECT_KEY -> ((ObjectKeyNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT ->
+        ((ObjectNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case ARRAY ->
+        ((ArrayNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT_KEY ->
+        ((ObjectKeyNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
       case STRING_VALUE -> {
         StringNode stringNode = (StringNode) singleton;
         stringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
@@ -1205,12 +1078,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           stringNode.setFsstSymbolTable(fsstSymbolTable);
         }
       }
-      case NUMBER_VALUE -> ((NumberNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case BOOLEAN_VALUE -> ((BooleanNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case NULL_VALUE -> ((NullNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
+      case NUMBER_VALUE ->
+        ((NumberNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case BOOLEAN_VALUE ->
+        ((BooleanNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case NULL_VALUE ->
+        ((NullNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
       case OBJECT_STRING_VALUE -> {
         ObjectStringNode objectStringNode = (ObjectStringNode) singleton;
         objectStringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
@@ -1226,53 +1099,29 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, resourceConfig);
       case OBJECT_NULL_VALUE -> ((ObjectNullNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
-      case JSON_DOCUMENT -> ((JsonDocumentRootNode) singleton).readFrom(source,
-          nodeKey,
-          deweyId,
-          resourceConfig.nodeHashFunction,
-          resourceConfig);
-      case XML_DOCUMENT -> ((XmlDocumentRootNode) singleton).readFrom(source,
-          nodeKey,
-          deweyId,
-          resourceConfig.nodeHashFunction,
-          resourceConfig);
-      case ELEMENT -> ((ElementNode) singleton).readFrom(source,
-          nodeKey,
-          deweyId,
-          resourceConfig.nodeHashFunction,
-          resourceConfig);
-      case ATTRIBUTE -> ((AttributeNode) singleton).readFrom(source,
-          nodeKey,
-          deweyId,
-          resourceConfig.nodeHashFunction,
-          resourceConfig);
-      case NAMESPACE -> ((NamespaceNode) singleton).readFrom(source,
-          nodeKey,
-          deweyId,
-          resourceConfig.nodeHashFunction,
-          resourceConfig);
-      case TEXT -> ((TextNode) singleton).readFrom(source,
-          nodeKey,
-          deweyId,
-          resourceConfig.nodeHashFunction,
-          resourceConfig);
-      case COMMENT -> ((CommentNode) singleton).readFrom(source,
-          nodeKey,
-          deweyId,
-          resourceConfig.nodeHashFunction,
-          resourceConfig);
-      case PROCESSING_INSTRUCTION -> ((PINode) singleton).readFrom(source,
-          nodeKey,
-          deweyId,
-          resourceConfig.nodeHashFunction,
-          resourceConfig);
+      case JSON_DOCUMENT -> ((JsonDocumentRootNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case XML_DOCUMENT -> ((XmlDocumentRootNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case ELEMENT ->
+        ((ElementNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case ATTRIBUTE ->
+        ((AttributeNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case NAMESPACE ->
+        ((NamespaceNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case TEXT ->
+        ((TextNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case COMMENT ->
+        ((CommentNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case PROCESSING_INSTRUCTION ->
+        ((PINode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
       default -> throw new IllegalStateException("Unexpected singleton kind: " + kind);
     }
   }
 
   /**
-   * Move to an item in the item list (negative keys).
-   * Falls back to object mode since item list uses objects.
+   * Move to an item in the item list (negative keys). Falls back to object mode since item list uses
+   * objects.
    *
    * @param nodeKey the negative node key
    * @return true if the move was successful
@@ -1283,7 +1132,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       if (item != null) {
         // Move succeeded - release previous page guard and switch to object mode.
         releaseCurrentPageGuard();
-        //noinspection unchecked
+        // noinspection unchecked
         setCurrentNode((N) item);
         this.currentNodeKey = nodeKey;
         return true;
@@ -1292,7 +1141,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Item not found - keep the current position unchanged
     return false;
   }
-  
+
   /**
    * Legacy object-based moveTo path.
    *
@@ -1315,16 +1164,15 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         releaseCurrentPageGuard();
         singletonMode = false;
       }
-      //noinspection unchecked
+      // noinspection unchecked
       setCurrentNode((N) newNode);
       this.currentNodeKey = nodeKey;
       return true;
     }
   }
-  
+
   /**
-   * Release the current page guard if one is held.
-   * This allows the page to be evicted if needed.
+   * Release the current page guard if one is held. This allows the page to be evicted if needed.
    */
   protected void releaseCurrentPageGuard() {
     if (currentPageGuard != null) {
@@ -1336,7 +1184,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     currentSlotOffset = -1;
     singletonDeweyBound = true;
   }
-  
+
   @Override
   public boolean moveToRightSibling() {
     assertNotClosed();
@@ -1360,9 +1208,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public long getHash() {
     assertNotClosed();
     if (singletonMode) {
-      return currentSingleton != null ? currentSingleton.getHash() : 0L;
+      return currentSingleton != null
+          ? currentSingleton.getHash()
+          : 0L;
     }
-    return currentNode != null ? currentNode.getHash() : 0L;
+    return currentNode != null
+        ? currentNode.getHash()
+        : 0L;
   }
 
   @Override
@@ -1635,14 +1487,18 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     assertNotClosed();
     if (singletonMode) {
       bindSingletonDeweyBytesIfNeeded();
-      return currentSingleton != null ? currentSingleton.getDeweyID() : null;
+      return currentSingleton != null
+          ? currentSingleton.getDeweyID()
+          : null;
     }
-    return currentNode != null ? currentNode.getDeweyID() : null;
+    return currentNode != null
+        ? currentNode.getDeweyID()
+        : null;
   }
 
   private void bindSingletonDeweyBytesIfNeeded() {
-    if (singletonDeweyBound || currentSingleton == null
-        || !resourceConfig.areDeweyIDsStored || currentPage == null || currentSlotOffset < 0) {
+    if (singletonDeweyBound || currentSingleton == null || !resourceConfig.areDeweyIDsStored || currentPage == null
+        || currentSlotOffset < 0) {
       return;
     }
 
@@ -1689,20 +1545,18 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public boolean isClosed() {
     return isClosed;
   }
-  
+
   /**
-   * Check if singleton mode is currently active.
-   * Package-private for testing purposes.
+   * Check if singleton mode is currently active. Package-private for testing purposes.
    *
    * @return true if singleton mode is active (using mutable singleton nodes)
    */
   boolean isSingletonMode() {
     return singletonMode;
   }
-  
+
   /**
-   * Check if zero-allocation mode is active.
-   * Package-private for testing purposes.
+   * Check if zero-allocation mode is active. Package-private for testing purposes.
    *
    * @return true if zero-allocation mode is active
    */
@@ -1715,7 +1569,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (!isClosed) {
       // Release page guard first to allow page eviction.
       releaseCurrentPageGuard();
-      
+
       // Callback on session to make sure everything is cleaned up.
       resourceSession.closeReadTransaction(id);
 

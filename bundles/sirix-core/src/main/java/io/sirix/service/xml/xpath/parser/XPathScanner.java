@@ -85,9 +85,8 @@ public final class XPathScanner {
   private State mStartState;
 
   /**
-   * Counts the number of nested comments. Is needed to distinguish whether the current token is
-   * part of a comment, or part of the query. If mCommentCount > 0, the current token is part of a
-   * comment.
+   * Counts the number of nested comments. Is needed to distinguish whether the current token is part
+   * of a comment, or part of the query. If mCommentCount > 0, the current token is part of a comment.
    */
   private int mCommentCount;
 
@@ -106,9 +105,9 @@ public final class XPathScanner {
 
   /**
    * Reads the string char by char and returns one token by call. The scanning starts in the start
-   * state, if not further specified before, and specifies the next scanner state and the type of
-   * the future token according to its first char. As soon as the current char does not fit the
-   * conditions for the current token type, the token is generated and returned.
+   * state, if not further specified before, and specifies the next scanner state and the type of the
+   * future token according to its first char. As soon as the current char does not fit the conditions
+   * for the current token type, the token is generated and returned.
    * 
    * @return token the new token
    */
@@ -278,8 +277,7 @@ public final class XPathScanner {
    * @return Returns true, if the character is a first letter.
    */
   private boolean isFirstLetter(final char paramInput) {
-    return (paramInput >= 'a' && paramInput <= 'z') || (paramInput >= 'A' && paramInput <= 'Z')
-        || (paramInput == '_');
+    return (paramInput >= 'a' && paramInput <= 'z') || (paramInput >= 'A' && paramInput <= 'Z') || (paramInput == '_');
   }
 
   /**
@@ -333,8 +331,8 @@ public final class XPathScanner {
   }
 
   /**
-   * Scans text token. A text is everything that with a character. It can contain numbers, all
-   * letters in upper or lower case and underscores.
+   * Scans text token. A text is everything that with a character. It can contain numbers, all letters
+   * in upper or lower case and underscores.
    */
   private void scanText() {
     if (isLetter(mInput)) {
@@ -351,8 +349,7 @@ public final class XPathScanner {
    * Scans special characters that can have more then one digit. E.g. ==, !=, <=, >=, //, .., (:
    */
   private void scanTwoDigitSpecial() {
-    if (mInput == '='
-        && (mType == TokenType.COMP || mType == TokenType.EQ || mType == TokenType.N_EQ)) {
+    if (mInput == '=' && (mType == TokenType.COMP || mType == TokenType.EQ || mType == TokenType.N_EQ)) {
       mOutput.append(mInput);
       mPos++;
     } else if (mInput == '/' && (mType == TokenType.SLASH)) {

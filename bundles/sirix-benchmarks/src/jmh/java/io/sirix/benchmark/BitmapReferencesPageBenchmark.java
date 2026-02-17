@@ -48,10 +48,14 @@ import java.util.concurrent.TimeUnit;
 /**
  * JMH benchmarks for BitmapReferencesPage index() lookup performance.
  * 
- * <p>Compares the optimized POPCNT-based index() implementation against various
- * access patterns and population densities.</p>
+ * <p>
+ * Compares the optimized POPCNT-based index() implementation against various access patterns and
+ * population densities.
+ * </p>
  * 
- * <p>Run with:
+ * <p>
+ * Run with:
+ * 
  * <pre>
  * ./gradlew :sirix-benchmarks:jmh -Pjmh.includes="BitmapReferencesPageBenchmark"
  * </pre>
@@ -63,16 +67,12 @@ import java.util.concurrent.TimeUnit;
 @State(Scope.Thread)
 @Warmup(iterations = 2, time = 1)
 @Measurement(iterations = 3, time = 1)
-@Fork(value = 1, jvmArgs = {
-    "--add-modules=jdk.incubator.vector",
-    "--enable-preview",
-    "--enable-native-access=ALL-UNNAMED"
-})
+@Fork(value = 1,
+    jvmArgs = {"--add-modules=jdk.incubator.vector", "--enable-preview", "--enable-native-access=ALL-UNNAMED"})
 public class BitmapReferencesPageBenchmark {
 
   /**
-   * Number of references populated in the page.
-   * Tests different sparsity levels.
+   * Number of references populated in the page. Tests different sparsity levels.
    */
   @Param({"10", "100", "500", "900"})
   public int populationCount;
@@ -93,9 +93,9 @@ public class BitmapReferencesPageBenchmark {
   public void setup() {
     page = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT);
     Random random = new Random(42);
-    
+
     populatedOffsets = new int[populationCount];
-    
+
     if ("dense".equals(populationPattern)) {
       // Dense: consecutive offsets starting from 0
       for (int i = 0; i < populationCount; i++) {
@@ -108,7 +108,7 @@ public class BitmapReferencesPageBenchmark {
         populatedOffsets[i] = Math.min(i * step, Constants.INP_REFERENCE_COUNT - 1);
       }
     }
-    
+
     // Populate the page
     for (int offset : populatedOffsets) {
       PageReference ref = page.getOrCreateReference(offset);
@@ -116,7 +116,7 @@ public class BitmapReferencesPageBenchmark {
         ref.setLogKey(offset);
       }
     }
-    
+
     // Pre-generate random lookup offsets (only offsets that exist)
     lookupOffsets = new int[1000];
     for (int i = 0; i < lookupOffsets.length; i++) {
@@ -126,8 +126,7 @@ public class BitmapReferencesPageBenchmark {
   }
 
   /**
-   * Benchmark random lookups on the populated page.
-   * This exercises the optimized index() method.
+   * Benchmark random lookups on the populated page. This exercises the optimized index() method.
    */
   @Benchmark
   public PageReference randomLookup() {
@@ -146,8 +145,8 @@ public class BitmapReferencesPageBenchmark {
   }
 
   /**
-   * Benchmark lookup at the last (highest) populated offset.
-   * This is the worst case for the old implementation.
+   * Benchmark lookup at the last (highest) populated offset. This is the worst case for the old
+   * implementation.
    */
   @Benchmark
   public PageReference worstCaseLookup() {

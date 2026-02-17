@@ -74,9 +74,7 @@ public class FunctionAxisTest {
     final AbstractAxis axis3 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:string(//node())");
     assertEquals(true, axis3.hasNext());
     axis3.next();
-    assertEquals(
-        "oops1 foo oops2 bar oops3 oops1 foo oops2 bar oops3 foo bar",
-        holder.getXmlNodeReadTrx().getValue());
+    assertEquals("oops1 foo oops2 bar oops3 oops1 foo oops2 bar oops3 foo bar", holder.getXmlNodeReadTrx().getValue());
     assertEquals(false, axis3.hasNext());
 
     final AbstractAxis axis4 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:string()");
@@ -85,8 +83,7 @@ public class FunctionAxisTest {
     assertEquals("oops1 foo oops2 bar oops3", holder.getXmlNodeReadTrx().getValue());
     assertEquals(false, axis4.hasNext());
 
-    final AbstractAxis axis5 =
-        new XPathAxis(holder.getXmlNodeReadTrx(), "fn:string(./attribute::attribute())");
+    final AbstractAxis axis5 = new XPathAxis(holder.getXmlNodeReadTrx(), "fn:string(./attribute::attribute())");
     assertEquals(true, axis5.hasNext());
     axis5.next();
     assertEquals("j", holder.getXmlNodeReadTrx().getValue());

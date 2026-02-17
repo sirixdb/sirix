@@ -28,8 +28,7 @@ class SirixJsonLazySequence extends LazySequence {
       }
 
       @Override
-      public void close() {
-      }
+      public void close() {}
     };
   }
 }

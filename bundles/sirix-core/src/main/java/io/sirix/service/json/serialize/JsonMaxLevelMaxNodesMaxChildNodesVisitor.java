@@ -162,7 +162,9 @@ public final class JsonMaxLevelMaxNodesMaxChildNodesVisitor implements JsonNodeV
       } else {
         final long nextNodeKey = rightSiblingNodeKeyStack.pop();
         rtx.moveTo(nextNodeKey);
-        currentLevel = startNodeLevel == 0 ? rtx.getDeweyID().getLevel() : rtx.getDeweyID().getLevel() - startNodeLevel + 1;
+        currentLevel = startNodeLevel == 0
+            ? rtx.getDeweyID().getLevel()
+            : rtx.getDeweyID().getLevel() - startNodeLevel + 1;
         rtx.moveTo(node.getNodeKey());
       }
     } else {

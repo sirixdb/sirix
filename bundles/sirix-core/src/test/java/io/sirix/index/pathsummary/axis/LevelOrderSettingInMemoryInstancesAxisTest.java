@@ -30,8 +30,8 @@ public final class LevelOrderSettingInMemoryInstancesAxisTest {
   @Test
   public void testInsertedTestDocument() {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var pathSummary = manager.openPathSummary()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var pathSummary = manager.openPathSummary()) {
       pathSummary.moveToFirstChild();
       final var pathSummaryAxis = new LevelOrderSettingInMemoryInstancesAxis.Builder(pathSummary).includeSelf().build();
 

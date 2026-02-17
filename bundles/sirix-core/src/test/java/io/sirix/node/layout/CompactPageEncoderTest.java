@@ -16,8 +16,7 @@ final class CompactPageEncoderTest {
 
   @Test
   void slotHeaderRoundTrip() {
-    final CompactPageEncoder.SlotHeader header =
-        new CompactPageEncoder.SlotHeader(42L, NodeKind.OBJECT, 96, 128);
+    final CompactPageEncoder.SlotHeader header = new CompactPageEncoder.SlotHeader(42L, NodeKind.OBJECT, 96, 128);
 
     final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     CompactPageEncoder.encodeSlotHeader(sink, header);
@@ -33,8 +32,7 @@ final class CompactPageEncoderTest {
 
   @Test
   void slotHeaderRoundTripWithReusableHeader() {
-    final CompactPageEncoder.SlotHeader header =
-        new CompactPageEncoder.SlotHeader(73L, NodeKind.ELEMENT, 160, 256);
+    final CompactPageEncoder.SlotHeader header = new CompactPageEncoder.SlotHeader(73L, NodeKind.ELEMENT, 160, 256);
 
     final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     CompactPageEncoder.encodeSlotHeader(sink, header);
@@ -52,13 +50,7 @@ final class CompactPageEncoderTest {
   @Test
   void relationshipVectorRoundTripWithNullSentinel() {
     final long baseNodeKey = 512L;
-    final long[] relationships = {
-        513L,
-        511L,
-        512L,
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        600L
-    };
+    final long[] relationships = {513L, 511L, 512L, Fixed.NULL_NODE_KEY.getStandardProperty(), 600L};
 
     final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     CompactPageEncoder.encodeRelationshipVector(sink, baseNodeKey, relationships);
@@ -99,8 +91,7 @@ final class CompactPageEncoderTest {
 
   @Test
   void payloadBlockHeaderRoundTrip() {
-    final CompactPageEncoder.PayloadBlockHeader header =
-        new CompactPageEncoder.PayloadBlockHeader(8192L, 1024, 5);
+    final CompactPageEncoder.PayloadBlockHeader header = new CompactPageEncoder.PayloadBlockHeader(8192L, 1024, 5);
 
     final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     CompactPageEncoder.encodePayloadBlockHeader(sink, header);
@@ -115,8 +106,7 @@ final class CompactPageEncoderTest {
 
   @Test
   void payloadBlockHeaderRoundTripWithReusableHeader() {
-    final CompactPageEncoder.PayloadBlockHeader header =
-        new CompactPageEncoder.PayloadBlockHeader(16384L, 2048, 9);
+    final CompactPageEncoder.PayloadBlockHeader header = new CompactPageEncoder.PayloadBlockHeader(16384L, 2048, 9);
 
     final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     CompactPageEncoder.encodePayloadBlockHeader(sink, header);

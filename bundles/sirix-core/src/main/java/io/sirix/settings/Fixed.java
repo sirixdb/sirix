@@ -52,7 +52,7 @@ public enum Fixed {
 
   /** Null key for nodes. */
   NULL_NODE_KEY(-1L),
-  
+
   /** Invalid key to validate if Json or Xml */
   INVALID_KEY_FOR_TYPE_CHECK(-2L);
 

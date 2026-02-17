@@ -44,8 +44,7 @@ public class StringNodeTest {
   @Test
   public void test() throws IOException {
     final var hashFunction = LongHashFunction.xx3();
-    final StringNode node = new StringNode(
-        13L, // nodeKey
+    final StringNode node = new StringNode(13L, // nodeKey
         14L, // parentKey
         Constants.NULL_REVISION_NUMBER, // previousRevision
         0, // lastModifiedRevision
@@ -53,21 +52,17 @@ public class StringNodeTest {
         15L, // leftSiblingKey
         0, // hash
         "hello world".getBytes(StandardCharsets.UTF_8), // value
-        hashFunction,
-        (byte[]) null // deweyID
+        hashFunction, (byte[]) null // deweyID
     );
     check(node);
 
-    final var config = ResourceConfiguration.newBuilder("test")
-        .hashKind(HashType.NONE)
-        .build();
+    final var config = ResourceConfiguration.newBuilder("test").hashKind(HashType.NONE).build();
 
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     NodeKind.STRING_VALUE.serialize(data, node, config);
-    
+
     var bytesIn = data.asBytesIn();
-    final StringNode node2 = (StringNode) NodeKind.STRING_VALUE.deserialize(
-        bytesIn, node.getNodeKey(), null, config);
+    final StringNode node2 = (StringNode) NodeKind.STRING_VALUE.deserialize(bytesIn, node.getNodeKey(), null, config);
     check(node2);
   }
 

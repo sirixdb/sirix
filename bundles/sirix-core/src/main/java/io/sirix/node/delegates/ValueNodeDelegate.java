@@ -62,8 +62,8 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   /**
    * Constructor
    *
-   * @param nodeDel    {@link NodeDelegate} reference
-   * @param val        the value
+   * @param nodeDel {@link NodeDelegate} reference
+   * @param val the value
    * @param compressed compress value or not
    */
   public ValueNodeDelegate(final NodeDelegate nodeDel, final byte[] val, final boolean compressed) {
@@ -91,7 +91,9 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
 
   @Override
   public byte[] getRawValue() {
-    return compressed ? Compression.decompress(value) : value;
+    return compressed
+        ? Compression.decompress(value)
+        : value;
   }
 
   @Override
@@ -111,7 +113,9 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   @Override
   public void setRawValue(final byte[] value) {
     compressed = new String(value).length() > 10;
-    this.value = compressed ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION) : value;
+    this.value = compressed
+        ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION)
+        : value;
   }
 
   /**

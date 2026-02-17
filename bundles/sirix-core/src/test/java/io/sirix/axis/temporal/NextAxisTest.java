@@ -48,8 +48,7 @@ public final class NextAxisTest {
     final XmlNodeReadOnlyTrx firstRtx = holder.getResourceSession().beginNodeReadOnlyTrx(1);
     final XmlNodeReadOnlyTrx secondRtx = holder.getResourceSession().beginNodeReadOnlyTrx(2);
 
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(secondRtx),
-        null) {
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(secondRtx), null) {
       @Override
       protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
         return new NextAxis<>(firstRtx.getResourceSession(), firstRtx);

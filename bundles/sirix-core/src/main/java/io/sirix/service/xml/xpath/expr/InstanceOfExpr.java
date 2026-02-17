@@ -49,8 +49,7 @@ public class InstanceOfExpr extends AbstractExpression {
    * @param mInputExpr input expression, to test
    * @param mSequenceType sequence type to test whether the input sequence matches to.
    */
-  public InstanceOfExpr(final XmlNodeReadOnlyTrx mRtx, final Axis mInputExpr,
-      final SequenceType mSequenceType) {
+  public InstanceOfExpr(final XmlNodeReadOnlyTrx mRtx, final Axis mInputExpr, final SequenceType mSequenceType) {
 
     super(mRtx);
     this.mInputExpr = mInputExpr;
@@ -109,9 +108,9 @@ public class InstanceOfExpr extends AbstractExpression {
     }
 
     // create result item and move transaction to it.
-    final int itemKey = asXmlNodeReadTrx().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(isInstanceOf)),
-                        asXmlNodeReadTrx().keyForName("xs:boolean")));
+    final int itemKey = asXmlNodeReadTrx().getItemList()
+                                          .addItem(new AtomicValue(TypedValue.getBytes(Boolean.toString(isInstanceOf)),
+                                              asXmlNodeReadTrx().keyForName("xs:boolean")));
     key = itemKey;
 
   }

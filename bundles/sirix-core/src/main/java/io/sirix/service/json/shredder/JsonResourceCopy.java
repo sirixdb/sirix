@@ -52,8 +52,8 @@ import java.util.concurrent.Callable;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Copy a resource or a subtree into another
- * resoure. even copy all changes and revisions between a given revision/transaction.
+ * Copy a resource or a subtree into another resoure. even copy all changes and revisions between a
+ * given revision/transaction.
  */
 public final class JsonResourceCopy implements Callable<Void> {
 
@@ -118,8 +118,8 @@ public final class JsonResourceCopy implements Callable<Void> {
     /**
      * Constructor.
      *
-     * @param wtx    the transaction to write to
-     * @param rtx    the transaction to read from
+     * @param wtx the transaction to write to
+     * @param rtx the transaction to read from
      * @param insert insertion position
      * @throws NullPointerException if one of the arguments is {@code null}
      */
@@ -167,8 +167,8 @@ public final class JsonResourceCopy implements Callable<Void> {
   /**
    * Private constructor.
    *
-   * @param wtx     the transaction used to write
-   * @param rtx     the transaction used to read
+   * @param wtx the transaction used to write
+   * @param rtx the transaction used to read
    * @param builder builder of the JSON resource copy
    */
   private JsonResourceCopy(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx, final Builder builder) {
@@ -195,15 +195,14 @@ public final class JsonResourceCopy implements Callable<Void> {
     if (copyAllRevisionsUpToMostRecent) {
       wtx.commit();
 
-      for (var revision = rtx.getRevisionNumber() + 1;
-           revision <= rtx.getResourceSession().getMostRecentRevisionNumber(); revision++) {
+      for (var revision = rtx.getRevisionNumber() + 1; revision <= rtx.getResourceSession()
+                                                                      .getMostRecentRevisionNumber(); revision++) {
         try (final var rtxOnRevision = readResourceSession.beginNodeReadOnlyTrx(revision)) {
-          final var updateOperationsFile = readResourceSession.getResourceConfig()
-                                                              .getResource()
-                                                              .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-                                                              .resolve(
-                                                                  "diffFromRev" + (revision - 1) + "toRev" + revision
-                                                                      + ".json");
+          final var updateOperationsFile =
+              readResourceSession.getResourceConfig()
+                                 .getResource()
+                                 .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                 .resolve("diffFromRev" + (revision - 1) + "toRev" + revision + ".json");
 
           final JsonElement jsonElement;
 
@@ -286,12 +285,12 @@ public final class JsonResourceCopy implements Callable<Void> {
         case OBJECT -> wtx.replaceObjectRecordValue(ObjectValue.INSTANCE);
         case ARRAY -> wtx.replaceObjectRecordValue(ArrayValue.INSTANCE);
         case OBJECT_NUMBER_VALUE, NUMBER_VALUE ->
-            wtx.replaceObjectRecordValue(new NumberValue(rtxOnRevision.getNumberValue()));
+          wtx.replaceObjectRecordValue(new NumberValue(rtxOnRevision.getNumberValue()));
         case OBJECT_NULL_VALUE, NULL_VALUE -> wtx.replaceObjectRecordValue(NullValue.INSTANCE);
         case OBJECT_STRING_VALUE, STRING_VALUE ->
-            wtx.replaceObjectRecordValue(new StringValue(rtxOnRevision.getValue()));
+          wtx.replaceObjectRecordValue(new StringValue(rtxOnRevision.getValue()));
         case OBJECT_BOOLEAN_VALUE, BOOLEAN_VALUE ->
-            wtx.replaceObjectRecordValue(BooleanValue.of(rtxOnRevision.getBooleanValue()));
+          wtx.replaceObjectRecordValue(BooleanValue.of(rtxOnRevision.getBooleanValue()));
       }
     } else {
       wtx.remove();
@@ -345,7 +344,7 @@ public final class JsonResourceCopy implements Callable<Void> {
 
   private void insert(boolean moveToParent, boolean isFirst, long previousKey) {
     // Iterate over all nodes of the subtree including self.
-    for (final var axis = new DescendantAxis(rtx, IncludeSelf.YES); axis.hasNext(); ) {
+    for (final var axis = new DescendantAxis(rtx, IncludeSelf.YES); axis.hasNext();) {
       final long key = axis.nextLong();
 
       // Process all pending moves to parents.
@@ -448,10 +447,9 @@ public final class JsonResourceCopy implements Callable<Void> {
             case OBJECT -> wtx.insertObjectRecordAsFirstChild(key, ObjectValue.INSTANCE);
             case ARRAY -> wtx.insertObjectRecordAsFirstChild(key, ArrayValue.INSTANCE);
             case OBJECT_BOOLEAN_VALUE ->
-                wtx.insertObjectRecordAsFirstChild(key, BooleanValue.of(rtx.getBooleanValue()));
+              wtx.insertObjectRecordAsFirstChild(key, BooleanValue.of(rtx.getBooleanValue()));
             case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsFirstChild(key, NullValue.INSTANCE);
-            case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsFirstChild(key,
-                                                                           new StringValue(rtx.getValue()));
+            case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsFirstChild(key, new StringValue(rtx.getValue()));
             case OBJECT_NUMBER_VALUE -> wtx.insertObjectRecordAsFirstChild(key, new NumberValue(rtx.getNumberValue()));
           }
           rtx.moveToParent();
@@ -462,10 +460,9 @@ public final class JsonResourceCopy implements Callable<Void> {
             case OBJECT -> wtx.insertObjectRecordAsLeftSibling(key, ObjectValue.INSTANCE);
             case ARRAY -> wtx.insertObjectRecordAsLeftSibling(key, ArrayValue.INSTANCE);
             case OBJECT_BOOLEAN_VALUE ->
-                wtx.insertObjectRecordAsLeftSibling(key, BooleanValue.of(rtx.getBooleanValue()));
+              wtx.insertObjectRecordAsLeftSibling(key, BooleanValue.of(rtx.getBooleanValue()));
             case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, NullValue.INSTANCE);
-            case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsLeftSibling(key,
-                                                                            new StringValue(rtx.getValue()));
+            case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, new StringValue(rtx.getValue()));
             case OBJECT_NUMBER_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, new NumberValue(rtx.getNumberValue()));
           }
           rtx.moveToParent();
@@ -476,12 +473,11 @@ public final class JsonResourceCopy implements Callable<Void> {
             case OBJECT -> wtx.insertObjectRecordAsRightSibling(key, ObjectValue.INSTANCE);
             case ARRAY -> wtx.insertObjectRecordAsRightSibling(key, ArrayValue.INSTANCE);
             case OBJECT_BOOLEAN_VALUE ->
-                wtx.insertObjectRecordAsRightSibling(key, BooleanValue.of(rtx.getBooleanValue()));
+              wtx.insertObjectRecordAsRightSibling(key, BooleanValue.of(rtx.getBooleanValue()));
             case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsRightSibling(key, NullValue.INSTANCE);
-            case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsRightSibling(key,
-                                                                             new StringValue(rtx.getValue()));
+            case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsRightSibling(key, new StringValue(rtx.getValue()));
             case OBJECT_NUMBER_VALUE ->
-                wtx.insertObjectRecordAsRightSibling(key, new NumberValue(rtx.getNumberValue()));
+              wtx.insertObjectRecordAsRightSibling(key, new NumberValue(rtx.getNumberValue()));
           }
           rtx.moveToParent();
         } else {

@@ -13,11 +13,7 @@ public final class NamesCache implements Cache<NamesCacheKey, Names> {
   private final com.github.benmanes.caffeine.cache.Cache<NamesCacheKey, Names> cache;
 
   public NamesCache(final int maxSize) {
-    cache = Caffeine.newBuilder()
-                    .initialCapacity(maxSize)
-                    .maximumSize(maxSize)
-                    .scheduler(scheduler)
-                    .build();
+    cache = Caffeine.newBuilder().initialCapacity(maxSize).maximumSize(maxSize).scheduler(scheduler).build();
   }
 
   @Override
@@ -31,7 +27,8 @@ public final class NamesCache implements Cache<NamesCacheKey, Names> {
   }
 
   @Override
-  public Names get(NamesCacheKey key, BiFunction<? super NamesCacheKey, ? super Names, ? extends Names> mappingFunction) {
+  public Names get(NamesCacheKey key,
+      BiFunction<? super NamesCacheKey, ? super Names, ? extends Names> mappingFunction) {
     return cache.asMap().compute(key, mappingFunction);
   }
 
@@ -66,6 +63,5 @@ public final class NamesCache implements Cache<NamesCacheKey, Names> {
   }
 
   @Override
-  public void close() {
-  }
+  public void close() {}
 }

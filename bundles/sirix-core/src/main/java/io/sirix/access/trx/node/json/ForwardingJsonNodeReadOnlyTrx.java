@@ -23,7 +23,7 @@ import java.util.Optional;
  * @author Joao Sousa
  */
 public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx {
-  
+
   JsonNodeReadOnlyTrx nodeReadOnlyTrxDelegate();
 
   @Override

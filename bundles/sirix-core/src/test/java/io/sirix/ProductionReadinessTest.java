@@ -52,14 +52,15 @@ import static org.junit.jupiter.api.Assertions.fail;
 /**
  * Production readiness tests for SirixDB.
  * 
- * <p>These tests verify critical properties required for production use:
+ * <p>
+ * These tests verify critical properties required for production use:
  * <ul>
- *   <li>ACID transaction properties</li>
- *   <li>Concurrent access correctness</li>
- *   <li>Large data handling</li>
- *   <li>Resource cleanup and leak prevention</li>
- *   <li>Edge case handling</li>
- *   <li>Data integrity verification</li>
+ * <li>ACID transaction properties</li>
+ * <li>Concurrent access correctness</li>
+ * <li>Large data handling</li>
+ * <li>Resource cleanup and leak prevention</li>
+ * <li>Edge case handling</li>
+ * <li>Data integrity verification</li>
  * </ul>
  */
 @DisplayName("Production Readiness Tests")
@@ -120,7 +121,7 @@ class ProductionReadinessTest {
 
         // Write but rollback
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2,3]"), Commit.NO);
           // Explicitly rollback
           wtx.rollback();
@@ -128,10 +129,9 @@ class ProductionReadinessTest {
 
         // After rollback, data should not exist
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
-          assertFalse(rtx.moveToFirstChild(),
-              "Rolled back changes should not persist");
+          assertFalse(rtx.moveToFirstChild(), "Rolled back changes should not persist");
         }
       }
     }
@@ -147,24 +147,24 @@ class ProductionReadinessTest {
 
         // Create initial data - revision 1
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2,3]"), Commit.NO);
           wtx.commit();
         }
 
         // Create revision 2
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.moveToDocumentRoot();
           wtx.moveToFirstChild();
           wtx.moveToLastChild();
           wtx.insertNumberValueAsRightSibling(4);
           wtx.commit();
         }
-        
+
         // Reader on revision 1 should see 3 elements
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           int count = 0;
@@ -175,10 +175,10 @@ class ProductionReadinessTest {
           }
           assertEquals(3, count, "Reader should see consistent snapshot of revision 1");
         }
-        
+
         // Reader on revision 2 should see 4 elements
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(2)) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(2)) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           int count = 0;
@@ -203,14 +203,14 @@ class ProductionReadinessTest {
 
         // Create revision 1
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"counter\":0}"), Commit.NO);
           wtx.commit();
         }
 
         // Create revision 2
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.moveToDocumentRoot();
           if (wtx.moveToFirstChild()) {
             wtx.remove();
@@ -221,7 +221,7 @@ class ProductionReadinessTest {
 
         // Create revision 3
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.moveToDocumentRoot();
           if (wtx.moveToFirstChild()) {
             wtx.remove();
@@ -233,7 +233,7 @@ class ProductionReadinessTest {
         // Read each revision and verify isolation
         for (int rev = 1; rev <= 3; rev++) {
           try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-               JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
+              JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
             rtx.moveToDocumentRoot();
             rtx.moveToFirstChild();
             rtx.moveToFirstChild();
@@ -251,16 +251,15 @@ class ProductionReadinessTest {
     @DisplayName("Durability: Committed data persists after close/reopen")
     void testDurability() throws IOException {
       Path dbPath = tempDir.resolve("db-durability");
-      
+
       // Create and populate database
       Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
       try (Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
         db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME).build());
-        
+
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("{\"persistent\":\"data\",\"number\":42}"), 
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"persistent\":\"data\",\"number\":42}"),
               Commit.NO);
           wtx.commit();
         }
@@ -272,11 +271,11 @@ class ProductionReadinessTest {
       // Reopen and verify data persisted
       try (Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.moveToFirstChild(), "Data should persist after reopen");
           assertEquals(NodeKind.OBJECT, rtx.getKind());
-          
+
           // Verify specific values
           rtx.moveToFirstChild(); // First key
           assertEquals("persistent", rtx.getName().getLocalName());
@@ -305,10 +304,11 @@ class ProductionReadinessTest {
 
         // Create data
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 100; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append(i);
           }
           json.append("]");
@@ -319,7 +319,7 @@ class ProductionReadinessTest {
         // Multiple sequential reads should all see same data
         for (int r = 0; r < 10; r++) {
           try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-               JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+              JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
             rtx.moveToDocumentRoot();
             rtx.moveToFirstChild();
             int count = 0;
@@ -345,10 +345,10 @@ class ProductionReadinessTest {
         db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME).build());
 
         int numRevisions = 20;
-        
+
         for (int rev = 0; rev < numRevisions; rev++) {
           try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
             if (rev == 0) {
               wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[0]"), Commit.NO);
             } else {
@@ -365,7 +365,7 @@ class ProductionReadinessTest {
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
           assertEquals(numRevisions, session.getMostRecentRevisionNumber(),
               "Should have " + numRevisions + " revisions");
-          
+
           for (int rev = 1; rev <= numRevisions; rev++) {
             try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
               rtx.moveToDocumentRoot();
@@ -395,7 +395,7 @@ class ProductionReadinessTest {
 
         // Create revision 1
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2,3,4,5]"), Commit.NO);
           wtx.commit();
         }
@@ -403,7 +403,7 @@ class ProductionReadinessTest {
         // Create revisions 2-5
         for (int rev = 2; rev <= 5; rev++) {
           try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild();
             wtx.moveToLastChild();
@@ -414,7 +414,7 @@ class ProductionReadinessTest {
 
         // Verify revision 1 still has only 5 elements
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           int count = 0;
@@ -428,7 +428,7 @@ class ProductionReadinessTest {
 
         // Verify revision 5 has 9 elements (5 original + 4 added)
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(5)) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(5)) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           int count = 0;
@@ -465,12 +465,12 @@ class ProductionReadinessTest {
 
         // Create large array
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < numElements; i++) {
-            if (i > 0) json.append(",");
-            json.append("{\"id\":").append(i)
-               .append(",\"value\":\"item").append(i).append("\"}");
+            if (i > 0)
+              json.append(",");
+            json.append("{\"id\":").append(i).append(",\"value\":\"item").append(i).append("\"}");
           }
           json.append("]");
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), Commit.NO);
@@ -479,7 +479,7 @@ class ProductionReadinessTest {
 
         // Verify all elements
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           int count = 0;
@@ -507,7 +507,7 @@ class ProductionReadinessTest {
 
         // Create deeply nested structure
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder();
           for (int i = 0; i < depth; i++) {
             json.append("{\"level").append(i).append("\":");
@@ -522,7 +522,7 @@ class ProductionReadinessTest {
 
         // Navigate to deepest level
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           int actualDepth = 0;
           while (rtx.moveToFirstChild()) {
@@ -531,8 +531,7 @@ class ProductionReadinessTest {
             }
           }
           // Account for string value at the end
-          assertTrue(actualDepth >= depth - 1, 
-              "Should be able to navigate deeply nested structure");
+          assertTrue(actualDepth >= depth - 1, "Should be able to navigate deeply nested structure");
         }
       }
     }
@@ -550,10 +549,11 @@ class ProductionReadinessTest {
         db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME).build());
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < numKeys; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"key").append(String.format("%04d", i)).append("\":").append(i);
           }
           json.append("}");
@@ -563,7 +563,7 @@ class ProductionReadinessTest {
 
         // Count keys
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           int count = 0;
@@ -599,9 +599,9 @@ class ProductionReadinessTest {
           if (cycle == 0) {
             db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME).build());
           }
-          
+
           try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
             if (cycle == 0) {
               wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1]"), Commit.NO);
             } else {
@@ -619,8 +619,8 @@ class ProductionReadinessTest {
 
       // Verify data integrity after all cycles
       try (Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-           JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-           JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+          JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
         rtx.moveToDocumentRoot();
         rtx.moveToFirstChild();
         int count = 0;
@@ -644,14 +644,14 @@ class ProductionReadinessTest {
 
         // Create committed data
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2,3]"), Commit.NO);
           wtx.commit();
         }
 
         // Start transaction, make changes, then rollback
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.moveToDocumentRoot();
           wtx.moveToFirstChild();
           wtx.moveToLastChild();
@@ -662,7 +662,7 @@ class ProductionReadinessTest {
 
         // Verify rollback
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           int count = 0;
@@ -696,13 +696,13 @@ class ProductionReadinessTest {
 
         // Empty object
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{}"), Commit.NO);
           wtx.commit();
         }
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.moveToFirstChild());
           assertEquals(NodeKind.OBJECT, rtx.getKind());
@@ -721,13 +721,13 @@ class ProductionReadinessTest {
         db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME).build());
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"), Commit.NO);
           wtx.commit();
         }
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.moveToFirstChild());
           assertEquals(NodeKind.ARRAY, rtx.getKind());
@@ -746,14 +746,13 @@ class ProductionReadinessTest {
         db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME).build());
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("{\"value\":null}"), Commit.NO);
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"value\":null}"), Commit.NO);
           wtx.commit();
         }
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           rtx.moveToFirstChild();
@@ -776,15 +775,14 @@ class ProductionReadinessTest {
         db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME).build());
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("{\"message\":\"" + unicodeValue + "\"}"), 
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"message\":\"" + unicodeValue + "\"}"),
               Commit.NO);
           wtx.commit();
         }
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           rtx.moveToFirstChild();
@@ -805,16 +803,14 @@ class ProductionReadinessTest {
 
         // Use moderately large numbers that JSON can handle reliably
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader(
-                  "{\"large\":1234567890123,\"negative\":-9876543210,\"decimal\":3.141592653589793}"), 
-              Commit.NO);
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+              "{\"large\":1234567890123,\"negative\":-9876543210,\"decimal\":3.141592653589793}"), Commit.NO);
           wtx.commit();
         }
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           rtx.moveToFirstChild();
@@ -834,16 +830,14 @@ class ProductionReadinessTest {
         db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME).build());
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader(
-                  "{\"escaped\":\"line1\\nline2\\ttab\\\"quote\\\\\"}"), 
-              Commit.NO);
+              JsonShredder.createStringReader("{\"escaped\":\"line1\\nline2\\ttab\\\"quote\\\\\"}"), Commit.NO);
           wtx.commit();
         }
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           rtx.moveToFirstChild();
@@ -876,17 +870,16 @@ class ProductionReadinessTest {
 
         try (Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
           db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-              .versioningApproach(versioningType)
-              .maxNumberOfRevisionsToRestore(5)
-              .build());
+                                                 .versioningApproach(versioningType)
+                                                 .maxNumberOfRevisionsToRestore(5)
+                                                 .build());
 
           try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
             // Create 50 revisions
             for (int rev = 0; rev < 50; rev++) {
               try (JsonNodeTrx wtx = session.beginNodeTrx()) {
                 if (rev == 0) {
-                  wtx.insertSubtreeAsFirstChild(
-                      JsonShredder.createStringReader("[0]"), Commit.NO);
+                  wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[0]"), Commit.NO);
                 } else {
                   wtx.moveToDocumentRoot();
                   wtx.moveToFirstChild();
@@ -897,11 +890,10 @@ class ProductionReadinessTest {
               }
             }
 
-            assertEquals(50, session.getMostRecentRevisionNumber(),
-                versioningType + " should have 50 revisions");
+            assertEquals(50, session.getMostRecentRevisionNumber(), versioningType + " should have 50 revisions");
 
             // Verify first, middle, and last revisions
-            for (int rev : new int[]{1, 25, 50}) {
+            for (int rev : new int[] {1, 25, 50}) {
               try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
                 rtx.moveToDocumentRoot();
                 rtx.moveToFirstChild();
@@ -911,8 +903,7 @@ class ProductionReadinessTest {
                     count++;
                   } while (rtx.moveToRightSibling());
                 }
-                assertEquals(rev, count,
-                    versioningType + " revision " + rev + " should have " + rev + " elements");
+                assertEquals(rev, count, versioningType + " revision " + rev + " should have " + rev + " elements");
               }
             }
           }
@@ -942,9 +933,8 @@ class ProductionReadinessTest {
 
         // Create data and collect node keys
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("[1,2,3,{\"key\":\"value\"}]"), Commit.NO);
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2,3,{\"key\":\"value\"}]"), Commit.NO);
           wtx.commit();
 
           // Collect all node keys
@@ -955,15 +945,14 @@ class ProductionReadinessTest {
 
       // Reopen and verify same node keys
       try (Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-           JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-           JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-        
+          JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+          JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+
         Set<Long> reopenedNodeKeys = new HashSet<>();
         rtx.moveToDocumentRoot();
         collectNodeKeysReadOnly(rtx, reopenedNodeKeys);
 
-        assertEquals(nodeKeys, reopenedNodeKeys, 
-            "Node keys should be stable across sessions");
+        assertEquals(nodeKeys, reopenedNodeKeys, "Node keys should be stable across sessions");
       }
     }
 
@@ -997,34 +986,32 @@ class ProductionReadinessTest {
         db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME).build());
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("{\"a\":{\"b\":{\"c\":1}}}"), Commit.NO);
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\":{\"b\":{\"c\":1}}}"), Commit.NO);
           wtx.commit();
         }
 
         try (JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           // Navigate to deepest node
           rtx.moveToDocumentRoot();
           List<Long> pathDown = new ArrayList<>();
-          
+
           while (rtx.moveToFirstChild()) {
             pathDown.add(rtx.getNodeKey());
           }
-          
+
           // Navigate back up
           List<Long> pathUp = new ArrayList<>();
           while (rtx.moveToParent() && !rtx.isDocumentRoot()) {
             pathUp.add(rtx.getNodeKey());
           }
-          
+
           // Paths should be reverse of each other
           Collections.reverse(pathUp);
           // Compare intermediate nodes (exclude the deepest value node)
           pathDown.remove(pathDown.size() - 1);
-          assertEquals(pathDown, pathUp, 
-              "Parent navigation should mirror child navigation");
+          assertEquals(pathDown, pathUp, "Parent navigation should mirror child navigation");
         }
       }
     }

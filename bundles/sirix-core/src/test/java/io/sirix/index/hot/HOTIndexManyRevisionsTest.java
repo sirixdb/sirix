@@ -39,12 +39,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Comprehensive tests for HOT indexes with many revisions (10+) and changing index content.
  * 
- * <p>These tests specifically verify that:
+ * <p>
+ * These tests specifically verify that:
  * <ul>
- *   <li>Index content changes correctly across many revisions</li>
- *   <li>Historical revisions show correct index state at that point in time</li>
- *   <li>RevsToRestore threshold works correctly with index changes</li>
- *   <li>All versioning strategies correctly handle index evolution</li>
+ * <li>Index content changes correctly across many revisions</li>
+ * <li>Historical revisions show correct index state at that point in time</li>
+ * <li>RevsToRestore threshold works correctly with index changes</li>
+ * <li>All versioning strategies correctly handle index evolution</li>
  * </ul>
  */
 @DisplayName("HOT Index Many Revisions Tests")
@@ -118,9 +119,8 @@ class HOTIndexManyRevisionsTest {
       Databases.createJsonDatabase(dbConfig);
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           // Create many revisions with growing arrays
@@ -130,7 +130,8 @@ class HOTIndexManyRevisionsTest {
                 // Initial array
                 StringBuilder json = new StringBuilder("[");
                 for (int i = 0; i < 10; i++) {
-                  if (i > 0) json.append(",");
+                  if (i > 0)
+                    json.append(",");
                   json.append(i);
                 }
                 json.append("]");
@@ -174,9 +175,9 @@ class HOTIndexManyRevisionsTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(3)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(3)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < totalRevisions; rev++) {
@@ -184,7 +185,8 @@ class HOTIndexManyRevisionsTest {
               if (rev == 0) {
                 StringBuilder json = new StringBuilder("[");
                 for (int i = 0; i < 20; i++) {
-                  if (i > 0) json.append(",");
+                  if (i > 0)
+                    json.append(",");
                   json.append(i);
                 }
                 json.append("]");
@@ -209,8 +211,7 @@ class HOTIndexManyRevisionsTest {
               int expectedCount = 20 + (rev - 1) * 3;
               int actualCount = countElements(rtx);
               assertEquals(expectedCount, actualCount,
-                  "INCREMENTAL: Revision " + rev + " (beyond threshold) should have " + 
-                  expectedCount + " elements");
+                  "INCREMENTAL: Revision " + rev + " (beyond threshold) should have " + expectedCount + " elements");
             }
           }
         }
@@ -227,9 +228,9 @@ class HOTIndexManyRevisionsTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.DIFFERENTIAL)
-            .maxNumberOfRevisionsToRestore(4)
-            .build());
+                                                     .versioningApproach(VersioningType.DIFFERENTIAL)
+                                                     .maxNumberOfRevisionsToRestore(4)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < totalRevisions; rev++) {
@@ -237,7 +238,8 @@ class HOTIndexManyRevisionsTest {
               if (rev == 0) {
                 StringBuilder json = new StringBuilder("[");
                 for (int i = 0; i < 15; i++) {
-                  if (i > 0) json.append(",");
+                  if (i > 0)
+                    json.append(",");
                   json.append(i);
                 }
                 json.append("]");
@@ -279,9 +281,9 @@ class HOTIndexManyRevisionsTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-            .maxNumberOfRevisionsToRestore(5)
-            .build());
+                                                     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                     .maxNumberOfRevisionsToRestore(5)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < totalRevisions; rev++) {
@@ -289,7 +291,8 @@ class HOTIndexManyRevisionsTest {
               if (rev == 0) {
                 StringBuilder json = new StringBuilder("[");
                 for (int i = 0; i < 12; i++) {
-                  if (i > 0) json.append(",");
+                  if (i > 0)
+                    json.append(",");
                   json.append(i);
                 }
                 json.append("]");
@@ -342,9 +345,8 @@ class HOTIndexManyRevisionsTest {
       int[] expectedSizes = new int[TOTAL_REVISIONS];
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < TOTAL_REVISIONS; rev++) {
@@ -358,12 +360,15 @@ class HOTIndexManyRevisionsTest {
               }
               // Pattern: base size increases, but every 3rd revision is smaller
               int baseSize = 20 + rev * 2;
-              int size = (rev % 3 == 0 && rev > 0) ? baseSize - 8 : baseSize;
+              int size = (rev % 3 == 0 && rev > 0)
+                  ? baseSize - 8
+                  : baseSize;
               expectedSizes[rev] = size;
-              
+
               StringBuilder json = new StringBuilder("[");
               for (int i = 0; i < size; i++) {
-                if (i > 0) json.append(",");
+                if (i > 0)
+                  json.append(",");
                 json.append(rev * 100 + i);
               }
               json.append("]");
@@ -396,9 +401,9 @@ class HOTIndexManyRevisionsTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.DIFFERENTIAL)
-            .maxNumberOfRevisionsToRestore(3)
-            .build());
+                                                     .versioningApproach(VersioningType.DIFFERENTIAL)
+                                                     .maxNumberOfRevisionsToRestore(3)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < TOTAL_REVISIONS; rev++) {
@@ -411,12 +416,15 @@ class HOTIndexManyRevisionsTest {
                 }
               }
               // Alternating pattern: odd=grow, even=shrink
-              int size = (rev % 2 == 0) ? 25 + rev : 30 + rev * 2;
+              int size = (rev % 2 == 0)
+                  ? 25 + rev
+                  : 30 + rev * 2;
               expectedSizes[rev] = size;
-              
+
               StringBuilder json = new StringBuilder("[");
               for (int i = 0; i < size; i++) {
-                if (i > 0) json.append(",");
+                if (i > 0)
+                  json.append(",");
                 json.append(rev * 100 + i);
               }
               json.append("]");
@@ -474,9 +482,9 @@ class HOTIndexManyRevisionsTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.DIFFERENTIAL)
-            .maxNumberOfRevisionsToRestore(3)
-            .build());
+                                                     .versioningApproach(VersioningType.DIFFERENTIAL)
+                                                     .maxNumberOfRevisionsToRestore(3)
+                                                     .build());
 
         int[] expectedKeys = new int[TOTAL_REVISIONS];
 
@@ -487,7 +495,8 @@ class HOTIndexManyRevisionsTest {
                 // Initial object with 10 keys
                 StringBuilder json = new StringBuilder("{");
                 for (int i = 0; i < 10; i++) {
-                  if (i > 0) json.append(",");
+                  if (i > 0)
+                    json.append(",");
                   json.append("\"key").append(String.format("%03d", i)).append("\":").append(i);
                 }
                 json.append("}");
@@ -502,7 +511,8 @@ class HOTIndexManyRevisionsTest {
                 int keyCount = 10 + rev * 5;
                 StringBuilder json = new StringBuilder("{");
                 for (int i = 0; i < keyCount; i++) {
-                  if (i > 0) json.append(",");
+                  if (i > 0)
+                    json.append(",");
                   json.append("\"key").append(String.format("%03d", i)).append("\":").append(i);
                 }
                 json.append("}");
@@ -537,9 +547,9 @@ class HOTIndexManyRevisionsTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-            .maxNumberOfRevisionsToRestore(4)
-            .build());
+                                                     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                     .maxNumberOfRevisionsToRestore(4)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < TOTAL_REVISIONS; rev++) {
@@ -554,9 +564,15 @@ class HOTIndexManyRevisionsTest {
               }
               StringBuilder json = new StringBuilder("{");
               for (int i = 0; i < KEYS_PER_REVISION; i++) {
-                if (i > 0) json.append(",");
-                json.append("\"key").append(String.format("%03d", i))
-                   .append("\":\"rev").append(rev).append("_val").append(i).append("\"");
+                if (i > 0)
+                  json.append(",");
+                json.append("\"key")
+                    .append(String.format("%03d", i))
+                    .append("\":\"rev")
+                    .append(rev)
+                    .append("_val")
+                    .append(i)
+                    .append("\"");
               }
               json.append("}");
               wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), Commit.NO);
@@ -570,7 +586,7 @@ class HOTIndexManyRevisionsTest {
               int keyCount = countObjectKeys(rtx);
               assertEquals(KEYS_PER_REVISION, keyCount,
                   "SLIDING_SNAPSHOT: Revision " + rev + " should have " + KEYS_PER_REVISION + " keys");
-              
+
               // Verify first key has correct value for this revision
               rtx.moveToDocumentRoot();
               rtx.moveToFirstChild();
@@ -578,9 +594,8 @@ class HOTIndexManyRevisionsTest {
               rtx.moveToFirstChild(); // Value of first key
               if (rtx.getKind() == NodeKind.STRING_VALUE) {
                 String value = rtx.getValue();
-                assertTrue(value.startsWith("rev" + (rev - 1)),
-                    "Revision " + rev + " first value should start with 'rev" + (rev - 1) + 
-                    "' but was '" + value + "'");
+                assertTrue(value.startsWith("rev" + (rev - 1)), "Revision " + rev
+                    + " first value should start with 'rev" + (rev - 1) + "' but was '" + value + "'");
               }
             }
           }
@@ -607,9 +622,8 @@ class HOTIndexManyRevisionsTest {
       final int TOTAL_REVISIONS = 30;
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < TOTAL_REVISIONS; rev++) {
@@ -661,9 +675,9 @@ class HOTIndexManyRevisionsTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < TOTAL_REVISIONS; rev++) {
@@ -686,8 +700,7 @@ class HOTIndexManyRevisionsTest {
           for (int rev = 1; rev <= TOTAL_REVISIONS; rev += 5) {
             try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
               int expected = 3 + (rev - 1);
-              assertEquals(expected, countElements(rtx),
-                  "Revision " + rev + " should have " + expected + " elements");
+              assertEquals(expected, countElements(rtx), "Revision " + rev + " should have " + expected + " elements");
             }
           }
         }

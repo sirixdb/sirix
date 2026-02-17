@@ -166,8 +166,8 @@ public abstract class AbstractObAxis extends AbstractAxis {
   }
 
   /**
-   * Performs the operation on the two input operands. First checks if the types of the operands are
-   * a valid combination for the operation and if so computed the result. Otherwise an XPathError is
+   * Performs the operation on the two input operands. First checks if the types of the operands are a
+   * valid combination for the operation and if so computed the result. Otherwise an XPathError is
    * thrown.
    * 
    * @param mOperand1 first input operand
@@ -175,8 +175,7 @@ public abstract class AbstractObAxis extends AbstractAxis {
    * @return result of the operation
    * @throws SirixXPathException if the operations fails
    */
-  protected abstract Node operate(final AtomicValue mOperand1, final AtomicValue mOperand2)
-      throws SirixXPathException;
+  protected abstract Node operate(final AtomicValue mOperand1, final AtomicValue mOperand2) throws SirixXPathException;
 
   /**
    * Checks if the types of the operands are a valid combination for the operation and if so returns

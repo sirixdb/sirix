@@ -98,10 +98,8 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               final var node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
               trxSet.add(node.getTrx());
 
-              var serializerBuilder =
-                  new JsonSerializer.Builder(node.getTrx().getResourceSession(), out, node.getTrx().getRevisionNumber())
-                      .serializeTimestamp(true)
-                      .isXQueryResultSequence();
+              var serializerBuilder = new JsonSerializer.Builder(node.getTrx().getResourceSession(), out,
+                  node.getTrx().getRevisionNumber()).serializeTimestamp(true).isXQueryResultSequence();
               if (prettyPrint) {
                 serializerBuilder.prettyPrint().withInitialIndent();
               }

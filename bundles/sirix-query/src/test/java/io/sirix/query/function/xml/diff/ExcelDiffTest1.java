@@ -93,16 +93,14 @@ public final class ExcelDiffTest1 {
         if (first) {
           first = false;
           try (final XmlNodeTrx wtx = resourceSession.beginNodeTrx();
-               final FileInputStream fis = new FileInputStream(file.toFile())) {
-            final XmlShredder shredder = new XmlShredder.Builder(wtx,
-                                                                 XmlShredder.createFileReader(fis),
-                                                                 InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                                               .build();
+              final FileInputStream fis = new FileInputStream(file.toFile())) {
+            final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
+                InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
             shredder.call();
           }
         } else {
-          FMSEImport.main(new String[] { PATHS.PATH1.getFile().toAbsolutePath().toString(),
-              file.toAbsolutePath().toString() });
+          FMSEImport.main(
+              new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(), file.toAbsolutePath().toString()});
         }
 
         resourceSession.close();

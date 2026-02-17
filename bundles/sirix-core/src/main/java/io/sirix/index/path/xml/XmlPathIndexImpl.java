@@ -19,8 +19,8 @@ public final class XmlPathIndexImpl implements XmlPathIndex {
   }
 
   @Override
-  public XmlPathIndexBuilder createBuilder(final StorageEngineWriter pageTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+  public XmlPathIndexBuilder createBuilder(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
     final var builderDelegate = pathIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
     return new XmlPathIndexBuilder(builderDelegate);
   }

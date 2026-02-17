@@ -40,7 +40,7 @@ public final class JsonRecordSerializerTest {
       database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build());
 
       try (final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = resmgr.beginNodeTrx()) {
+          final var wtx = resmgr.beginNodeTrx()) {
         final var json = """
                 [{},"bla",{"foo":"bar"},null,[]]
             """.strip();
@@ -64,7 +64,7 @@ public final class JsonRecordSerializerTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
       final var jsonRecordSerializer = new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).build();
       jsonRecordSerializer.call();
@@ -82,7 +82,7 @@ public final class JsonRecordSerializerTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
       // startNodeKey(7) = "bar" ObjectKey, pagination returns its right siblings with parent wrapper
       final var jsonRecordSerializer =
@@ -103,7 +103,7 @@ public final class JsonRecordSerializerTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
       // startNodeKey(15) = "tada" ObjectKey, which is the last child - no right siblings
       final var jsonRecordSerializer =
@@ -122,7 +122,7 @@ public final class JsonRecordSerializerTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
       final var jsonRecordSerializer = new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).maxLevel(1).build();
       jsonRecordSerializer.call();
@@ -140,7 +140,7 @@ public final class JsonRecordSerializerTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
       final var jsonRecordSerializer =
           new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).maxLevel(1).withMetaData(true).build();
@@ -156,10 +156,11 @@ public final class JsonRecordSerializerTest {
   public void serializeArrayWithMaxLevelAndMetaData1() throws IOException {
     Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
 
       try (final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = resmgr.beginNodeTrx()) {
+          final var wtx = resmgr.beginNodeTrx()) {
         final var json = """
                 [{},"bla",{"foo":{"bar": "baz"}},null,[]]
             """.strip();
@@ -181,10 +182,11 @@ public final class JsonRecordSerializerTest {
   public void serializeArrayWithMaxLevelAndMetaData2() throws IOException {
     Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
 
       try (final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = resmgr.beginNodeTrx()) {
+          final var wtx = resmgr.beginNodeTrx()) {
         final var json = """
                 [[],"foo",null,[],{}]
             """.strip();
@@ -206,10 +208,11 @@ public final class JsonRecordSerializerTest {
   public void serializeArrayWithMaxLevelAndMetaData3() throws IOException {
     Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
 
       try (final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = resmgr.beginNodeTrx()) {
+          final var wtx = resmgr.beginNodeTrx()) {
         final var json = """
                 [{},"bla",{"foo":{"bar": "baz"}},null,[]]
             """.strip();
@@ -231,21 +234,25 @@ public final class JsonRecordSerializerTest {
   public void serializeArrayWithMaxLevelAndMetaDataAndLastTopLevelNode() throws IOException {
     Databases.createJsonDatabase(new DatabaseConfiguration(JsonTestHelper.PATHS.PATH1.getFile()));
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).hashKind(HashType.ROLLING).build());
 
       try (final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = resmgr.beginNodeTrx()) {
+          final var wtx = resmgr.beginNodeTrx()) {
         final var json = """
                 [{},"bla",{"foo":{"bar": "baz"}},null,[]]
             """.strip();
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
 
         final var stringWriter = new StringWriter();
-        final var jsonRecordSerializer =
-            new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).startNodeKey(4).maxLevel(1).withMetaData(true).build();
+        final var jsonRecordSerializer = new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).startNodeKey(4)
+                                                                                                  .maxLevel(1)
+                                                                                                  .withMetaData(true)
+                                                                                                  .build();
         jsonRecordSerializer.call();
 
-        final var expected = Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaDataAndLastTopLevelNode.json"));
+        final var expected =
+            Files.readString(JSON.resolve("serializeArrayWithMaxLevelAndMetaDataAndLastTopLevelNode.json"));
 
         assertEquals(expected, stringWriter.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000"));
       }
@@ -257,15 +264,18 @@ public final class JsonRecordSerializerTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+        final var resmgr = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final var stringWriter = new StringWriter();
       // Use startNodeKey pointing to the LAST child (no right sibling) with metadata
-      final var jsonRecordSerializer =
-          new JsonRecordSerializer.Builder(resmgr, 3, stringWriter)
-              .startNodeKey(15)  // Last child of root object
-              .maxLevel(2)
-              .withNodeKeyAndChildCountMetaData(true)
-              .build();
+      final var jsonRecordSerializer = new JsonRecordSerializer.Builder(resmgr, 3, stringWriter).startNodeKey(15) // Last
+                                                                                                                  // child
+                                                                                                                  // of
+                                                                                                                  // root
+                                                                                                                  // object
+                                                                                                .maxLevel(2)
+                                                                                                .withNodeKeyAndChildCountMetaData(
+                                                                                                    true)
+                                                                                                .build();
       jsonRecordSerializer.call();
 
       // Pagination mode with no siblings returns parent metadata wrapper with empty array

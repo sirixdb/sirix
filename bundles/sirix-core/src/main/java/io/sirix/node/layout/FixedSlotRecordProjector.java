@@ -24,8 +24,9 @@ import java.util.Objects;
 /**
  * Projects record structural metadata into a fixed-slot memory layout.
  *
- * <p>The projector writes fixed-width structural fields directly, fills payload reference
- * metadata, and writes inline payload bytes for VALUE_BLOB payloads (strings, numbers).
+ * <p>
+ * The projector writes fixed-width structural fields directly, fills payload reference metadata,
+ * and writes inline payload bytes for VALUE_BLOB payloads (strings, numbers).
  */
 public final class FixedSlotRecordProjector {
 
@@ -39,12 +40,11 @@ public final class FixedSlotRecordProjector {
   private static final ThreadLocal<MemorySegmentBytesOut> NUMBER_BUFFER =
       ThreadLocal.withInitial(() -> new MemorySegmentBytesOut(32));
 
-  private FixedSlotRecordProjector() {
-  }
+  private FixedSlotRecordProjector() {}
 
   /**
-   * Check whether all payload refs in the layout are supported for inline projection.
-   * Supported kinds: VALUE_BLOB, ATTRIBUTE_VECTOR, NAMESPACE_VECTOR.
+   * Check whether all payload refs in the layout are supported for inline projection. Supported
+   * kinds: VALUE_BLOB, ATTRIBUTE_VECTOR, NAMESPACE_VECTOR.
    *
    * @param layout fixed-slot layout descriptor
    * @return {@code true} if all payload refs are supported or there are no payload refs
@@ -52,8 +52,7 @@ public final class FixedSlotRecordProjector {
   public static boolean hasSupportedPayloads(final NodeKindLayout layout) {
     for (int i = 0, refs = layout.payloadRefCount(); i < refs; i++) {
       final PayloadRefKind kind = layout.payloadRef(i).kind();
-      if (kind != PayloadRefKind.VALUE_BLOB
-          && kind != PayloadRefKind.ATTRIBUTE_VECTOR
+      if (kind != PayloadRefKind.VALUE_BLOB && kind != PayloadRefKind.ATTRIBUTE_VECTOR
           && kind != PayloadRefKind.NAMESPACE_VECTOR) {
         return false;
       }
@@ -79,8 +78,7 @@ public final class FixedSlotRecordProjector {
           return -1;
         }
         total += length;
-      } else if (kind == PayloadRefKind.ATTRIBUTE_VECTOR
-          || kind == PayloadRefKind.NAMESPACE_VECTOR) {
+      } else if (kind == PayloadRefKind.ATTRIBUTE_VECTOR || kind == PayloadRefKind.NAMESPACE_VECTOR) {
         final int length = getVectorPayloadLength(record, kind);
         if (length < 0) {
           return -1;
@@ -96,10 +94,11 @@ public final class FixedSlotRecordProjector {
   /**
    * Project a record into the given fixed-slot target at the specified base offset.
    *
-   * <p>For payload-bearing nodes (strings, numbers), the target area starting at {@code baseOffset}
-   * must be sized to include both the fixed-slot header and inline payload bytes. The payload bytes
-   * are written immediately after the header, and the PayloadRef metadata in the header stores
-   * the offset (relative to slot data start) and length.
+   * <p>
+   * For payload-bearing nodes (strings, numbers), the target area starting at {@code baseOffset} must
+   * be sized to include both the fixed-slot header and inline payload bytes. The payload bytes are
+   * written immediately after the header, and the PayloadRef metadata in the header stores the offset
+   * (relative to slot data start) and length.
    *
    * @param record record to project
    * @param layout fixed-slot layout descriptor
@@ -107,8 +106,8 @@ public final class FixedSlotRecordProjector {
    * @param baseOffset absolute byte offset where the slot data begins
    * @return {@code true} if projection succeeded, {@code false} if the record cannot be projected
    */
-  public static boolean project(final DataRecord record, final NodeKindLayout layout,
-      final MemorySegment targetSlot, final long baseOffset) {
+  public static boolean project(final DataRecord record, final NodeKindLayout layout, final MemorySegment targetSlot,
+      final long baseOffset) {
     Objects.requireNonNull(record, "record must not be null");
     Objects.requireNonNull(layout, "layout must not be null");
     Objects.requireNonNull(targetSlot, "targetSlot must not be null");
@@ -131,11 +130,21 @@ public final class FixedSlotRecordProjector {
     // Clear the header portion using bulk copy from pre-zeroed buffer (avoids asSlice allocation).
     MemorySegment.copy(ZERO_BUFFER, 0, targetSlot, baseOffset, headerSize);
 
-    final ImmutableNode immutableNode = record instanceof ImmutableNode node ? node : null;
-    final StructNode structNode = record instanceof StructNode node ? node : null;
-    final NameNode nameNode = record instanceof NameNode node ? node : null;
-    final BooleanValueNode booleanValueNode = record instanceof BooleanValueNode node ? node : null;
-    final ObjectKeyNode objectKeyNode = record instanceof ObjectKeyNode node ? node : null;
+    final ImmutableNode immutableNode = record instanceof ImmutableNode node
+        ? node
+        : null;
+    final StructNode structNode = record instanceof StructNode node
+        ? node
+        : null;
+    final NameNode nameNode = record instanceof NameNode node
+        ? node
+        : null;
+    final BooleanValueNode booleanValueNode = record instanceof BooleanValueNode node
+        ? node
+        : null;
+    final ObjectKeyNode objectKeyNode = record instanceof ObjectKeyNode node
+        ? node
+        : null;
 
     if (!writeCommonFields(record, immutableNode, targetSlot, baseOffset, layout)) {
       return false;
@@ -159,24 +168,19 @@ public final class FixedSlotRecordProjector {
   private static boolean writeCommonFields(final DataRecord record, final ImmutableNode immutableNode,
       final MemorySegment targetSlot, final long baseOffset, final NodeKindLayout layout) {
     if (layout.hasField(StructuralField.PREVIOUS_REVISION)) {
-      SlotLayoutAccessors.writeIntField(targetSlot,
-                                        baseOffset,
-                                        layout,
-                                        StructuralField.PREVIOUS_REVISION,
-                                        record.getPreviousRevisionNumber());
+      SlotLayoutAccessors.writeIntField(targetSlot, baseOffset, layout, StructuralField.PREVIOUS_REVISION,
+          record.getPreviousRevisionNumber());
     }
     if (layout.hasField(StructuralField.LAST_MODIFIED_REVISION)) {
-      SlotLayoutAccessors.writeIntField(targetSlot,
-                                        baseOffset,
-                                        layout,
-                                        StructuralField.LAST_MODIFIED_REVISION,
-                                        record.getLastModifiedRevisionNumber());
+      SlotLayoutAccessors.writeIntField(targetSlot, baseOffset, layout, StructuralField.LAST_MODIFIED_REVISION,
+          record.getLastModifiedRevisionNumber());
     }
     if (layout.hasField(StructuralField.PARENT_KEY)) {
       if (immutableNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.PARENT_KEY, immutableNode.getParentKey());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.PARENT_KEY,
+          immutableNode.getParentKey());
     }
     if (layout.hasField(StructuralField.HASH)) {
       if (immutableNode == null) {
@@ -193,45 +197,43 @@ public final class FixedSlotRecordProjector {
       if (structNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot,
-                                         baseOffset,
-                                         layout,
-                                         StructuralField.RIGHT_SIBLING_KEY,
-                                         structNode.getRightSiblingKey());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY,
+          structNode.getRightSiblingKey());
     }
     if (layout.hasField(StructuralField.LEFT_SIBLING_KEY)) {
       if (structNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY, structNode.getLeftSiblingKey());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY,
+          structNode.getLeftSiblingKey());
     }
     if (layout.hasField(StructuralField.FIRST_CHILD_KEY)) {
       if (structNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.FIRST_CHILD_KEY, structNode.getFirstChildKey());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.FIRST_CHILD_KEY,
+          structNode.getFirstChildKey());
     }
     if (layout.hasField(StructuralField.LAST_CHILD_KEY)) {
       if (structNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.LAST_CHILD_KEY, structNode.getLastChildKey());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.LAST_CHILD_KEY,
+          structNode.getLastChildKey());
     }
     if (layout.hasField(StructuralField.CHILD_COUNT)) {
       if (structNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.CHILD_COUNT, structNode.getChildCount());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.CHILD_COUNT,
+          structNode.getChildCount());
     }
     if (layout.hasField(StructuralField.DESCENDANT_COUNT)) {
       if (structNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot,
-                                         baseOffset,
-                                         layout,
-                                         StructuralField.DESCENDANT_COUNT,
-                                         structNode.getDescendantCount());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.DESCENDANT_COUNT,
+          structNode.getDescendantCount());
     }
     return true;
   }
@@ -242,19 +244,22 @@ public final class FixedSlotRecordProjector {
       if (nameNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.PATH_NODE_KEY, nameNode.getPathNodeKey());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.PATH_NODE_KEY,
+          nameNode.getPathNodeKey());
     }
     if (layout.hasField(StructuralField.PREFIX_KEY)) {
       if (nameNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeIntField(targetSlot, baseOffset, layout, StructuralField.PREFIX_KEY, nameNode.getPrefixKey());
+      SlotLayoutAccessors.writeIntField(targetSlot, baseOffset, layout, StructuralField.PREFIX_KEY,
+          nameNode.getPrefixKey());
     }
     if (layout.hasField(StructuralField.LOCAL_NAME_KEY)) {
       if (nameNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeIntField(targetSlot, baseOffset, layout, StructuralField.LOCAL_NAME_KEY, nameNode.getLocalNameKey());
+      SlotLayoutAccessors.writeIntField(targetSlot, baseOffset, layout, StructuralField.LOCAL_NAME_KEY,
+          nameNode.getLocalNameKey());
     }
     if (layout.hasField(StructuralField.URI_KEY)) {
       if (nameNode == null) {
@@ -266,7 +271,8 @@ public final class FixedSlotRecordProjector {
       if (objectKeyNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeIntField(targetSlot, baseOffset, layout, StructuralField.NAME_KEY, objectKeyNode.getNameKey());
+      SlotLayoutAccessors.writeIntField(targetSlot, baseOffset, layout, StructuralField.NAME_KEY,
+          objectKeyNode.getNameKey());
     }
     return true;
   }
@@ -277,19 +283,16 @@ public final class FixedSlotRecordProjector {
       if (booleanValueNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeBooleanField(targetSlot,
-                                            baseOffset,
-                                            layout,
-                                            StructuralField.BOOLEAN_VALUE,
-                                            booleanValueNode.getValue());
+      SlotLayoutAccessors.writeBooleanField(targetSlot, baseOffset, layout, StructuralField.BOOLEAN_VALUE,
+          booleanValueNode.getValue());
     }
     return true;
   }
 
   /**
-   * Write PayloadRef metadata and inline payload bytes.
-   * Supports VALUE_BLOB (strings, numbers), ATTRIBUTE_VECTOR, and NAMESPACE_VECTOR.
-   * The inline payload is written immediately after the fixed-slot header.
+   * Write PayloadRef metadata and inline payload bytes. Supports VALUE_BLOB (strings, numbers),
+   * ATTRIBUTE_VECTOR, and NAMESPACE_VECTOR. The inline payload is written immediately after the
+   * fixed-slot header.
    */
   private static boolean writeInlinePayloadRefs(final DataRecord record, final MemorySegment targetSlot,
       final long baseOffset, final NodeKindLayout layout) {
@@ -341,19 +344,29 @@ public final class FixedSlotRecordProjector {
 
       if (record instanceof StringNode sn) {
         payloadBytes = sn.getRawValueWithoutDecompression();
-        flags = sn.isCompressed() ? 1 : 0;
+        flags = sn.isCompressed()
+            ? 1
+            : 0;
       } else if (record instanceof ObjectStringNode osn) {
         payloadBytes = osn.getRawValueWithoutDecompression();
-        flags = osn.isCompressed() ? 1 : 0;
+        flags = osn.isCompressed()
+            ? 1
+            : 0;
       } else if (record instanceof TextNode tn) {
         payloadBytes = tn.getRawValueWithoutDecompression();
-        flags = tn.isCompressed() ? 1 : 0;
+        flags = tn.isCompressed()
+            ? 1
+            : 0;
       } else if (record instanceof CommentNode cn) {
         payloadBytes = cn.getRawValueWithoutDecompression();
-        flags = cn.isCompressed() ? 1 : 0;
+        flags = cn.isCompressed()
+            ? 1
+            : 0;
       } else if (record instanceof PINode pi) {
         payloadBytes = pi.getRawValueWithoutDecompression();
-        flags = pi.isCompressed() ? 1 : 0;
+        flags = pi.isCompressed()
+            ? 1
+            : 0;
       } else if (record instanceof AttributeNode an) {
         payloadBytes = an.getRawValueWithoutDecompression();
         flags = 0; // attributes never compressed
@@ -373,7 +386,9 @@ public final class FixedSlotRecordProjector {
         return false;
       }
 
-      final int length = payloadBytes != null ? payloadBytes.length : 0;
+      final int length = payloadBytes != null
+          ? payloadBytes.length
+          : 0;
       SlotLayoutAccessors.writePayloadRef(targetSlot, baseOffset, layout, i, payloadOffset, length, flags);
       if (length > 0) {
         MemorySegment.copy(MemorySegment.ofArray(payloadBytes), 0, targetSlot, baseOffset + payloadOffset, length);
@@ -392,27 +407,39 @@ public final class FixedSlotRecordProjector {
   private static int getValueBlobLength(final DataRecord record) {
     if (record instanceof StringNode sn) {
       final byte[] raw = sn.getRawValueWithoutDecompression();
-      return raw != null ? raw.length : 0;
+      return raw != null
+          ? raw.length
+          : 0;
     }
     if (record instanceof ObjectStringNode osn) {
       final byte[] raw = osn.getRawValueWithoutDecompression();
-      return raw != null ? raw.length : 0;
+      return raw != null
+          ? raw.length
+          : 0;
     }
     if (record instanceof TextNode tn) {
       final byte[] raw = tn.getRawValueWithoutDecompression();
-      return raw != null ? raw.length : 0;
+      return raw != null
+          ? raw.length
+          : 0;
     }
     if (record instanceof CommentNode cn) {
       final byte[] raw = cn.getRawValueWithoutDecompression();
-      return raw != null ? raw.length : 0;
+      return raw != null
+          ? raw.length
+          : 0;
     }
     if (record instanceof PINode pi) {
       final byte[] raw = pi.getRawValueWithoutDecompression();
-      return raw != null ? raw.length : 0;
+      return raw != null
+          ? raw.length
+          : 0;
     }
     if (record instanceof AttributeNode an) {
       final byte[] raw = an.getRawValueWithoutDecompression();
-      return raw != null ? raw.length : 0;
+      return raw != null
+          ? raw.length
+          : 0;
     }
     if (record instanceof NumericValueNode nn) {
       final MemorySegmentBytesOut buf = NUMBER_BUFFER.get();

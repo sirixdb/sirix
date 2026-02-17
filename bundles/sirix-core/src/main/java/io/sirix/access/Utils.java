@@ -18,7 +18,8 @@ public final class Utils {
    * @return a string: [prefix:]localname
    */
   public static String buildName(final QNm qName) {
-    return qName.getPrefix().isEmpty() ? qName.getLocalName()
+    return qName.getPrefix().isEmpty()
+        ? qName.getLocalName()
         : new StringBuilder(qName.getPrefix()).append(":").append(qName.getLocalName()).toString();
   }
 }

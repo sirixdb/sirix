@@ -35,7 +35,8 @@ import java.util.List;
  * Simple immutable data/value/bean class.
  *
  * @param references The page references.
- * @param offsets    The offsets.
+ * @param offsets The offsets.
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
-public record DeserializedReferencesPage4Tuple(List<PageReference> references, ShortList offsets) {}
+public record DeserializedReferencesPage4Tuple(List<PageReference> references, ShortList offsets) {
+}

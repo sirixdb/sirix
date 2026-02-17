@@ -23,7 +23,9 @@ import java.util.Set;
 /**
  * Builder for PATH indexes.
  * 
- * <p>Supports both traditional RBTree and high-performance HOT index backends.</p>
+ * <p>
+ * Supports both traditional RBTree and high-performance HOT index backends.
+ * </p>
  */
 public final class PathIndexBuilder {
 
@@ -34,9 +36,9 @@ public final class PathIndexBuilder {
   private final PathSummaryReader pathSummaryReader;
 
   private final @Nullable RBTreeWriter<Long, NodeReferences> rbTreeWriter;
-  
+
   private final @Nullable HOTLongIndexWriter hotWriter;
-  
+
   private final boolean useHOT;
 
   /**
@@ -54,8 +56,8 @@ public final class PathIndexBuilder {
   /**
    * Constructor with HOT writer (high-performance path).
    */
-  public PathIndexBuilder(final HOTLongIndexWriter hotWriter,
-      final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths) {
+  public PathIndexBuilder(final HOTLongIndexWriter hotWriter, final PathSummaryReader pathSummaryReader,
+      final Set<Path<QNm>> paths) {
     this.pathSummaryReader = pathSummaryReader;
     this.paths = paths;
     this.rbTreeWriter = null;
@@ -99,8 +101,8 @@ public final class PathIndexBuilder {
     }
   }
 
-  private void setNodeReferencesRBTree(final ImmutableNode node, final NodeReferences references, final long pathNodeKey)
-      throws SirixIOException {
+  private void setNodeReferencesRBTree(final ImmutableNode node, final NodeReferences references,
+      final long pathNodeKey) throws SirixIOException {
     assert rbTreeWriter != null;
     rbTreeWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
   }

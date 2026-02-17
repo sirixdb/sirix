@@ -70,17 +70,14 @@ public class PageTest {
     for (final Page handler : handlers) {
       final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
       PageKind.getKind(handler.getClass())
-              .serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
-                             data,
-                             handler,
-                             SerializationType.DATA);
-      //handler.serialize(pageReadTrx, data, SerializationType.DATA);
+              .serializePage(pageReadTrx.getResourceSession().getResourceConfig(), data, handler,
+                  SerializationType.DATA);
+      // handler.serialize(pageReadTrx, data, SerializationType.DATA);
       final var pageBytes = data.toByteArray();
       final Page serializedPage = PageKind.getKind(handler.getClass())
                                           .deserializePage(pageReadTrx.getResourceSession().getResourceConfig(),
-                                                           Bytes.wrapForRead(data.toByteArray()),
-                                                           SerializationType.DATA);
-      //serializedPage.serialize(pageReadTrx, data, SerializationType.DATA);
+                                              Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
+      // serializedPage.serialize(pageReadTrx, data, SerializationType.DATA);
       final var serializedPageBytes = data.toByteArray();
       assertArrayEquals("Check for " + handler.getClass() + " failed.", pageBytes, serializedPageBytes);
     }
@@ -103,11 +100,8 @@ public class PageTest {
 
     // NodePage setup.
     final KeyValueLeafPage nodePage = new KeyValueLeafPage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE),
-                                                           IndexType.DOCUMENT,
-                                                           pageReadTrx.getResourceSession().getResourceConfig(),
-                                                           pageReadTrx.getRevisionNumber(),
-                                                           arena.allocate(SIXTYFOUR_KB),
-                                                           null);
+        IndexType.DOCUMENT, pageReadTrx.getResourceSession().getResourceConfig(), pageReadTrx.getRevisionNumber(),
+        arena.allocate(SIXTYFOUR_KB), null);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();
       nodePage.setRecord(record);
@@ -123,7 +117,7 @@ public class PageTest {
     // PathSummaryPage setup.
     final PathSummaryPage pathSummaryPage = new PathSummaryPage();
 
-    return new Object[][] { { Page.class, new Page[] { indirectPage, namePage, valuePage, pathSummaryPage } } };
+    return new Object[][] {{Page.class, new Page[] {indirectPage, namePage, valuePage, pathSummaryPage}}};
   }
 
   private StorageEngineWriter createPageTrxMock() {

@@ -52,14 +52,16 @@ import static java.util.Objects.requireNonNull;
 /**
  * Abstract base class for HOT index writers.
  *
- * <p>Provides common functionality for tree navigation, split handling,
- * and transaction log management. Subclasses implement key serialization.</p>
+ * <p>
+ * Provides common functionality for tree navigation, split handling, and transaction log
+ * management. Subclasses implement key serialization.
+ * </p>
  *
  * <h2>Zero Allocation Design</h2>
  * <ul>
- *   <li>Thread-local byte buffers for key/value serialization</li>
- *   <li>No Optional - uses @Nullable returns</li>
- *   <li>Pre-allocated traversal state via {@link HOTTrieWriter}</li>
+ * <li>Thread-local byte buffers for key/value serialization</li>
+ * <li>No Optional - uses @Nullable returns</li>
+ * <li>Pre-allocated traversal state via {@link HOTTrieWriter}</li>
  * </ul>
  *
  * @param <K> the key type exposed by the writer
@@ -73,41 +75,34 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Thread-local buffer for value serialization (4KB default).
    */
-  protected static final ThreadLocal<byte[]> VALUE_BUFFER =
-      ThreadLocal.withInitial(() -> new byte[4096]);
+  protected static final ThreadLocal<byte[]> VALUE_BUFFER = ThreadLocal.withInitial(() -> new byte[4096]);
 
   protected final StorageEngineWriter pageTrx;
   protected final IndexType indexType;
   protected final int indexNumber;
-  
+
   /** HOT trie writer for handling page splits. */
   protected final HOTTrieWriter trieWriter;
-  
+
   /** Cached root page reference for the index. */
   protected PageReference rootReference;
 
   /**
-   * Result of navigating to a leaf page, including the path from root.
-   * This is needed for proper split handling.
+   * Result of navigating to a leaf page, including the path from root. This is needed for proper
+   * split handling.
    */
-  protected record LeafNavigationResult(
-      HOTLeafPage leaf,
-      PageReference leafRef,
-      HOTIndirectPage[] pathNodes,
-      PageReference[] pathRefs,
-      int[] pathChildIndices,
-      int pathDepth
-  ) {}
+  protected record LeafNavigationResult(HOTLeafPage leaf, PageReference leafRef, HOTIndirectPage[] pathNodes,
+      PageReference[] pathRefs, int[] pathChildIndices, int pathDepth) {
+  }
 
   /**
    * Protected constructor.
    *
-   * @param pageTrx     the storage engine writer
-   * @param indexType   the index type (PATH, CAS, NAME)
+   * @param pageTrx the storage engine writer
+   * @param indexType the index type (PATH, CAS, NAME)
    * @param indexNumber the index number
    */
-  protected AbstractHOTIndexWriter(StorageEngineWriter pageTrx,
-                                   IndexType indexType, int indexNumber) {
+  protected AbstractHOTIndexWriter(StorageEngineWriter pageTrx, IndexType indexType, int indexNumber) {
     this.pageTrx = requireNonNull(pageTrx);
     this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
@@ -160,7 +155,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Serialize a key to bytes.
    *
-   * @param key    the key to serialize
+   * @param key the key to serialize
    * @param buffer the buffer to write to
    * @param offset the offset in the buffer
    * @return the number of bytes written
@@ -170,8 +165,8 @@ public abstract class AbstractHOTIndexWriter<K> {
   // ===== Common methods =====
 
   /**
-   * Get the root reference for the index from the index page.
-   * This ensures we always use the same reference object as the storage engine.
+   * Get the root reference for the index from the index page. This ensures we always use the same
+   * reference object as the storage engine.
    *
    * @return the root page reference
    */
@@ -224,7 +219,8 @@ public abstract class AbstractHOTIndexWriter<K> {
           pageTrx.appendLogRecord(namePageRef, PageContainer.getInstance(namePage, namePage));
         }
       }
-      default -> { /* ignore */ }
+      default -> {
+        /* ignore */ }
     }
   }
 
@@ -232,45 +228,47 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Navigate to the correct leaf page for a key, tracking the path from root.
    *
    * @param rootRef the root reference (must be obtained ONCE and reused)
-   * @param keyBuf  the key buffer
-   * @param keyLen  the key length
+   * @param keyBuf the key buffer
+   * @param keyLen the key length
    * @return navigation result with leaf and path
    */
   protected LeafNavigationResult getLeafWithPath(PageReference rootRef, byte[] keyBuf, int keyLen) {
     if (rootRef == null) {
       throw new IllegalStateException("HOT index not initialized");
     }
-    
+
     // Use dynamic arrays for deep trees
     ArrayList<HOTIndirectPage> pathNodesList = new ArrayList<>();
     ArrayList<PageReference> pathRefsList = new ArrayList<>();
     ArrayList<Integer> pathChildIndicesList = new ArrayList<>();
-    
+
     PageReference currentRef = rootRef;
-    byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
-    
+    byte[] keySlice = keyLen == keyBuf.length
+        ? keyBuf
+        : Arrays.copyOf(keyBuf, keyLen);
+
     // Check transaction log first (uncommitted modifications)
     PageContainer container = pageTrx.getLog().get(currentRef);
     if (container != null) {
       Page page = container.getModified();
-      
+
       // Navigate through indirect pages, tracking the path
       while (page instanceof HOTIndirectPage indirectPage) {
         pathNodesList.add(indirectPage);
         pathRefsList.add(currentRef);
-        
+
         int childIndex = indirectPage.findChildIndex(keySlice);
         if (childIndex < 0) {
           childIndex = 0; // Default to first child
         }
         pathChildIndicesList.add(childIndex);
-        
+
         PageReference childRef = indirectPage.getChildReference(childIndex);
         if (childRef == null) {
           throw new IllegalStateException("Null child reference in indirect page");
         }
         currentRef = childRef;
-        
+
         // Get child page from log or storage
         PageContainer childContainer = pageTrx.getLog().get(childRef);
         if (childContainer != null) {
@@ -292,7 +290,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           }
         }
       }
-      
+
       if (page instanceof HOTLeafPage hotLeaf) {
         // Convert lists to arrays for return
         int pathDepth = pathNodesList.size();
@@ -302,7 +300,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         return new LeafNavigationResult(hotLeaf, currentRef, pathNodes, pathRefs, pathChildIndices, pathDepth);
       }
     }
-    
+
     // Use storage engine's versioning-aware page loading for committed data
     HOTLeafPage existingLeaf = pageTrx.getHOTLeafPage(indexType, indexNumber);
     if (existingLeaf != null) {
@@ -310,15 +308,14 @@ public abstract class AbstractHOTIndexWriter<K> {
       HOTLeafPage modifiedLeaf = existingLeaf.copy();
       container = PageContainer.getInstance(existingLeaf, modifiedLeaf);
       pageTrx.getLog().put(rootRef, container);
-      return new LeafNavigationResult(modifiedLeaf, rootRef, new HOTIndirectPage[0], new PageReference[0], new int[0], 0);
+      return new LeafNavigationResult(modifiedLeaf, rootRef, new HOTIndirectPage[0], new PageReference[0], new int[0],
+          0);
     }
-    
+
     // Create new leaf page if none exists
-    HOTLeafPage newLeaf = new HOTLeafPage(
-        rootRef.getKey() >= 0 ? rootRef.getKey() : 0,
-        pageTrx.getRevisionNumber(),
-        indexType
-    );
+    HOTLeafPage newLeaf = new HOTLeafPage(rootRef.getKey() >= 0
+        ? rootRef.getKey()
+        : 0, pageTrx.getRevisionNumber(), indexType);
     container = PageContainer.getInstance(newLeaf, newLeaf);
     pageTrx.getLog().put(rootRef, container);
     return new LeafNavigationResult(newLeaf, rootRef, new HOTIndirectPage[0], new PageReference[0], new int[0], 0);
@@ -327,65 +324,53 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Handle insert failure by attempting split and/or compact operations.
    *
-   * @param rootRef   the root reference
+   * @param rootRef the root reference
    * @param navResult the navigation result with leaf and path
-   * @param keyBuf    the key buffer
-   * @param keyLen    the key length
-   * @param valueBuf  the value buffer
-   * @param valueLen  the value length
+   * @param keyBuf the key buffer
+   * @param keyLen the key length
+   * @param valueBuf the value buffer
+   * @param valueLen the value length
    * @return true if insert eventually succeeded
    */
-  protected boolean handleInsertFailure(
-      PageReference rootRef,
-      LeafNavigationResult navResult,
-      byte[] keyBuf, int keyLen,
-      byte[] valueBuf, int valueLen) {
-    
+  protected boolean handleInsertFailure(PageReference rootRef, LeafNavigationResult navResult, byte[] keyBuf,
+      int keyLen, byte[] valueBuf, int valueLen) {
+
     HOTLeafPage leaf = navResult.leaf();
-    
+
     for (int attempt = 0; attempt < MAX_INSERT_RETRIES; attempt++) {
       // Check if the page can be split
       if (leaf.canSplit()) {
         // Handle split using HOTTrieWriter with proper path information
-        byte[] splitKey = trieWriter.handleLeafSplitWithPath(
-            pageTrx,
-            pageTrx.getLog(),
-            leaf,
-            navResult.leafRef(),
-            rootRef,
-            navResult.pathNodes(),
-            navResult.pathRefs(),
-            navResult.pathChildIndices(),
-            navResult.pathDepth()
-        );
-        
+        byte[] splitKey = trieWriter.handleLeafSplitWithPath(pageTrx, pageTrx.getLog(), leaf, navResult.leafRef(),
+            rootRef, navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(), navResult.pathDepth());
+
         // CRITICAL: Mark index page dirty so updated root reference gets persisted
         markIndexPageDirty();
-        
+
         if (splitKey != null) {
           // Split succeeded - re-navigate and retry insert
           navResult = getLeafWithPath(rootRef, keyBuf, keyLen);
           leaf = navResult.leaf();
-          
+
           if (leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
             return true;
           }
         }
         // Split returned null (couldn't split) - fall through to compact
       }
-      
+
       // Try compacting the page to reclaim fragmented space
       int reclaimedSpace = leaf.compact();
       if (reclaimedSpace > 0) {
         // Update the page in the log after compaction
         pageTrx.getLog().put(navResult.leafRef(), PageContainer.getInstance(leaf, leaf));
-        
+
         // Try inserting again after compaction
         if (leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
           return true;
         }
       }
-      
+
       // If neither split nor compact helped on this attempt,
       // re-navigate to get fresh state for next attempt
       if (attempt < MAX_INSERT_RETRIES - 1) {
@@ -393,15 +378,17 @@ public abstract class AbstractHOTIndexWriter<K> {
         leaf = navResult.leaf();
       }
     }
-    
+
     return false;
   }
 
   /**
    * Get the HOT leaf page for reading.
    *
-   * <p>Uses the storage engine's versioning-aware page loading.
-   * Navigates through the tree structure when splits have occurred.</p>
+   * <p>
+   * Uses the storage engine's versioning-aware page loading. Navigates through the tree structure
+   * when splits have occurred.
+   * </p>
    *
    * @param keyBuf the key buffer
    * @return the HOT leaf page, or null if not found
@@ -412,25 +399,25 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (currentRef == null) {
       return null;
     }
-    
+
     // Check transaction log first (uncommitted modifications)
     PageContainer container = pageTrx.getLog().get(currentRef);
     if (container != null) {
       Page page = container.getComplete();
-      
+
       // Navigate through indirect pages
       while (page instanceof HOTIndirectPage indirectPage) {
         int childIndex = indirectPage.findChildIndex(keyBuf);
         if (childIndex < 0) {
           childIndex = 0;
         }
-        
+
         PageReference childRef = indirectPage.getChildReference(childIndex);
         if (childRef == null) {
           return null;
         }
         currentRef = childRef;
-        
+
         PageContainer childContainer = pageTrx.getLog().get(childRef);
         if (childContainer != null) {
           page = childContainer.getComplete();
@@ -440,12 +427,12 @@ public abstract class AbstractHOTIndexWriter<K> {
           page = pageTrx.loadHOTPage(childRef);
         }
       }
-      
+
       if (page instanceof HOTLeafPage hotLeaf) {
         return hotLeaf;
       }
     }
-    
+
     // Use storage engine's versioning-aware page loading for committed data
     return pageTrx.getHOTLeafPage(indexType, indexNumber);
   }
@@ -458,7 +445,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   protected void initializePathIndex() {
     try {
       final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
-      
+
       // CRITICAL: Check if PathPage is already in the transaction log first
       final PageReference pathPageRef = revisionRootPage.getPathPageReference();
       PageContainer pathContainer = pageTrx.getLog().get(pathPageRef);
@@ -469,14 +456,12 @@ public abstract class AbstractHOTIndexWriter<K> {
         pathPage = pageTrx.getPathPage(revisionRootPage);
         pageTrx.appendLogRecord(pathPageRef, PageContainer.getInstance(pathPage, pathPage));
       }
-      
+
       // Get existing reference first to check if index already exists
       PageReference existingRef = pathPage.getOrCreateReference(indexNumber);
-      boolean indexExists = existingRef != null &&
-          (existingRef.getKey() != Constants.NULL_ID_LONG ||
-           existingRef.getLogKey() != Constants.NULL_ID_INT ||
-           existingRef.getPage() != null);
-      
+      boolean indexExists = existingRef != null && (existingRef.getKey() != Constants.NULL_ID_LONG
+          || existingRef.getLogKey() != Constants.NULL_ID_INT || existingRef.getPage() != null);
+
       if (!indexExists) {
         pathPage.createHOTPathIndexTree(pageTrx, indexNumber, pageTrx.getLog());
       }
@@ -494,7 +479,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   protected void initializeCASIndex() {
     try {
       final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
-      
+
       // CRITICAL: Check if CASPage is already in the transaction log first
       final PageReference casPageRef = revisionRootPage.getCASPageReference();
       PageContainer casContainer = pageTrx.getLog().get(casPageRef);
@@ -505,14 +490,12 @@ public abstract class AbstractHOTIndexWriter<K> {
         casPage = pageTrx.getCASPage(revisionRootPage);
         pageTrx.appendLogRecord(casPageRef, PageContainer.getInstance(casPage, casPage));
       }
-      
+
       // Get existing reference first to check if index already exists
       PageReference existingRef = casPage.getOrCreateReference(indexNumber);
-      boolean indexExists = existingRef != null &&
-          (existingRef.getKey() != Constants.NULL_ID_LONG ||
-           existingRef.getLogKey() != Constants.NULL_ID_INT ||
-           existingRef.getPage() != null);
-      
+      boolean indexExists = existingRef != null && (existingRef.getKey() != Constants.NULL_ID_LONG
+          || existingRef.getLogKey() != Constants.NULL_ID_INT || existingRef.getPage() != null);
+
       if (!indexExists) {
         casPage.createHOTCASIndexTree(pageTrx, indexNumber, pageTrx.getLog());
       }
@@ -530,7 +513,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   protected void initializeNameIndex() {
     try {
       final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
-      
+
       // CRITICAL: Check if NamePage is already in the transaction log first
       final PageReference namePageRef = revisionRootPage.getNamePageReference();
       PageContainer nameContainer = pageTrx.getLog().get(namePageRef);
@@ -541,14 +524,12 @@ public abstract class AbstractHOTIndexWriter<K> {
         namePage = pageTrx.getNamePage(revisionRootPage);
         pageTrx.appendLogRecord(namePageRef, PageContainer.getInstance(namePage, namePage));
       }
-      
+
       // Get existing reference first to check if index already exists
       PageReference existingRef = namePage.getOrCreateReference(indexNumber);
-      boolean indexExists = existingRef != null &&
-          (existingRef.getKey() != Constants.NULL_ID_LONG ||
-           existingRef.getLogKey() != Constants.NULL_ID_INT ||
-           existingRef.getPage() != null);
-      
+      boolean indexExists = existingRef != null && (existingRef.getKey() != Constants.NULL_ID_LONG
+          || existingRef.getLogKey() != Constants.NULL_ID_INT || existingRef.getPage() != null);
+
       if (!indexExists) {
         namePage.createHOTNameIndexTree(pageTrx, indexNumber, pageTrx.getLog());
       }
@@ -561,8 +542,8 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Perform the common index operation with the given key and value bytes.
    *
-   * @param keyBuf   the serialized key
-   * @param keyLen   the key length
+   * @param keyBuf the serialized key
+   * @param keyLen the key length
    * @param valueBuf the serialized value
    * @param valueLen the value length
    * @throws SirixIOException if the insert fails after all retry attempts
@@ -573,29 +554,27 @@ public abstract class AbstractHOTIndexWriter<K> {
       throw new SirixIOException("HOT index not initialized for " + indexType);
     }
     PageReference rootRef = rootReference;
-    
+
     LeafNavigationResult navResult = getLeafWithPath(rootRef, keyBuf, keyLen);
     HOTLeafPage leaf = navResult.leaf();
-    
+
     // Merge entry
     boolean success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
-    
+
     // If merge failed, we need to split or compact
     if (!success) {
       success = handleInsertFailure(rootRef, navResult, keyBuf, keyLen, valueBuf, valueLen);
-      
+
       if (!success) {
         // Last resort: check if this is a case of a single huge value
         int entryCount = navResult.leaf().getEntryCount();
         long remainingSpace = navResult.leaf().getRemainingSpace();
         int requiredSpace = 2 + keyLen + 2 + valueLen;
-        
-        throw new SirixIOException(
-            "Failed to insert entry after split/compact attempts. " +
-            "This may indicate a single value that exceeds page capacity. " +
-            "Index: " + indexType + ", entries: " + entryCount +
-            ", remaining space: " + remainingSpace + ", required: " + requiredSpace +
-            ". Consider limiting the number of identical keys or using overflow pages.");
+
+        throw new SirixIOException("Failed to insert entry after split/compact attempts. "
+            + "This may indicate a single value that exceeds page capacity. " + "Index: " + indexType + ", entries: "
+            + entryCount + ", remaining space: " + remainingSpace + ", required: " + requiredSpace
+            + ". Consider limiting the number of identical keys or using overflow pages.");
       }
     }
   }
@@ -603,7 +582,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Get value from a leaf page.
    *
-   * @param leaf   the leaf page
+   * @param leaf the leaf page
    * @param keyBuf the key buffer
    * @return the node references, or null if not found
    */
@@ -634,7 +613,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       VALUE_BUFFER.set(valueBuf);
       valueLen = NodeReferencesSerializer.serialize(value, valueBuf, 0);
     }
-    return new Object[]{valueBuf, valueLen};
+    return new Object[] {valueBuf, valueLen};
   }
 }
 

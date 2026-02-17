@@ -62,8 +62,8 @@ public final class StorageTest {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     Files.createDirectories(XmlTestHelper.PATHS.PATH1.getFile());
-    Files.createDirectories(XmlTestHelper.PATHS.PATH1.getFile()
-                                                     .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()));
+    Files.createDirectories(
+        XmlTestHelper.PATHS.PATH1.getFile().resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()));
     Files.createFile(XmlTestHelper.PATHS.PATH1.getFile()
                                               .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
                                               .resolve("data.sirix"));
@@ -113,8 +113,7 @@ public final class StorageTest {
         try (final Writer writer = handler.createWriter()) {
           pageRef2 = writer.writeUberPageReference(null, pageRef1, page1, bytes).readUberPageReference();
           assertEquals("Check for " + handler.getClass() + " failed.",
-                       ((UberPage) pageRef1.getPage()).getRevisionCount(),
-                       ((UberPage) pageRef2.getPage()).getRevisionCount());
+              ((UberPage) pageRef1.getPage()).getRevisionCount(), ((UberPage) pageRef2.getPage()).getRevisionCount());
         }
 
         // new instance check
@@ -122,8 +121,7 @@ public final class StorageTest {
           final PageReference pageRef3 = reader.readUberPageReference();
           assertEquals("Check for " + handler.getClass() + " failed.", pageRef2.getKey(), pageRef3.getKey());
           assertEquals("Check for " + handler.getClass() + " failed.",
-                       ((UberPage) pageRef2.getPage()).getRevisionCount(),
-                       ((UberPage) pageRef3.getPage()).getRevisionCount());
+              ((UberPage) pageRef2.getPage()).getRevisionCount(), ((UberPage) pageRef3.getPage()).getRevisionCount());
         }
       } finally {
         handler.close();
@@ -139,12 +137,15 @@ public final class StorageTest {
   @DataProvider(name = "instantiateStorages")
   public Object[][] instantiateStorages() {
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile());
-    return new Object[][] { { IOStorage.class, new IOStorage[] {
-        new FileChannelStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
-        new FileStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
-        new MMStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
-        //     new IOUringStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
-        new RAMStorage(resourceConfig.setDatabaseConfiguration(dbConfig)), } } };
+    return new Object[][] {{IOStorage.class,
+        new IOStorage[] {
+            new FileChannelStorage(resourceConfig.setDatabaseConfiguration(dbConfig),
+                Caffeine.newBuilder().buildAsync()),
+            new FileStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
+            new MMStorage(resourceConfig.setDatabaseConfiguration(dbConfig), Caffeine.newBuilder().buildAsync()),
+            // new IOUringStorage(resourceConfig.setDatabaseConfiguration(dbConfig),
+            // Caffeine.newBuilder().buildAsync()),
+            new RAMStorage(resourceConfig.setDatabaseConfiguration(dbConfig)),}}};
   }
 
 }

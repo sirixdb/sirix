@@ -24,7 +24,7 @@ public final class ChildAxisTest {
   public void testChildAxis() {
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final PathSummaryReader pathSummaryReader = session.openPathSummary()) {
+        final PathSummaryReader pathSummaryReader = session.openPathSummary()) {
       pathSummaryReader.moveTo(1);
       final var childAxis = new ChildAxis(pathSummaryReader.getPathNode());
 

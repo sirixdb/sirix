@@ -63,21 +63,15 @@ public class CacheTestHelper {
     PAGE_READ_TRX = Holder.openResourceSession().getResourceSession().beginPageReadOnlyTrx();
     PAGES = new KeyValueLeafPage[LRUCache.CACHE_CAPACITY + 1][VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
-      final KeyValueLeafPage page = new KeyValueLeafPage(i,
-                                                         IndexType.DOCUMENT,
-                                                         PAGE_READ_TRX.getResourceSession().getResourceConfig(),
-                                                         PAGE_READ_TRX.getRevisionNumber(),
-                                                         arena.allocate(SIXTYFOUR_KB),
-                                                         null);
+      final KeyValueLeafPage page =
+          new KeyValueLeafPage(i, IndexType.DOCUMENT, PAGE_READ_TRX.getResourceSession().getResourceConfig(),
+              PAGE_READ_TRX.getRevisionNumber(), arena.allocate(SIXTYFOUR_KB), null);
       final KeyValueLeafPage[] revs = new KeyValueLeafPage[VERSIONSTORESTORE];
 
       for (int j = 0; j < VERSIONSTORESTORE; j++) {
-        PAGES[i][j + 1] = new KeyValueLeafPage(i,
-                                               IndexType.DOCUMENT,
-                                               PAGE_READ_TRX.getResourceSession().getResourceConfig(),
-                                               PAGE_READ_TRX.getRevisionNumber(),
-                                               arena.allocate(SIXTYFOUR_KB),
-                                               null);
+        PAGES[i][j + 1] =
+            new KeyValueLeafPage(i, IndexType.DOCUMENT, PAGE_READ_TRX.getResourceSession().getResourceConfig(),
+                PAGE_READ_TRX.getRevisionNumber(), arena.allocate(SIXTYFOUR_KB), null);
         revs[j] = PAGES[i][j + 1];
       }
       PAGES[i][0] = page;
@@ -86,8 +80,7 @@ public class CacheTestHelper {
   }
 
   /**
-   * Cleanup all pages created during setup.
-   * Must be called after tests to prevent page leaks.
+   * Cleanup all pages created during setup. Must be called after tests to prevent page leaks.
    */
   public static void tearDown() {
     if (PAGES != null) {

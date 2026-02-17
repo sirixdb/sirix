@@ -227,16 +227,16 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
     for (final Path file : files) {
       if (file.getFileName().toString().endsWith(".xml")) {
         try (final XmlNodeTrx wtx = manager.beginNodeTrx();
-             final FileInputStream fis = new FileInputStream(file.toFile())) {
+            final FileInputStream fis = new FileInputStream(file.toFile())) {
           if (first) {
             final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
-                                                                 InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+                InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
             shredder.call();
             first = false;
           } else {
             @SuppressWarnings("deprecation")
             final XMLUpdateShredder shredder = new XMLUpdateShredder(wtx, XmlShredder.createFileReader(fis),
-                                                                     InsertPosition.AS_FIRST_CHILD, file, ShredderCommit.COMMIT);
+                InsertPosition.AS_FIRST_CHILD, file, ShredderCommit.COMMIT);
             shredder.call();
           }
           assertEquals(i, wtx.getRevisionNumber());

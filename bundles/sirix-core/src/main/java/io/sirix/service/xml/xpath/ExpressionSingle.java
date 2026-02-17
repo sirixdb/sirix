@@ -110,7 +110,9 @@ public class ExpressionSingle {
    */
   public Axis getExpr() {
 
-    return (mNumber == 1) ? mFirstAxis : mExpr;
+    return (mNumber == 1)
+        ? mFirstAxis
+        : mExpr;
   }
 
   /**
@@ -124,11 +126,11 @@ public class ExpressionSingle {
   }
 
   /**
-   * Determines for a given string representation of an axis, whether this axis leads to duplicates
-   * in the result sequence or not. Furthermore it determines the new state for the order state that
+   * Determines for a given string representation of an axis, whether this axis leads to duplicates in
+   * the result sequence or not. Furthermore it determines the new state for the order state that
    * specifies, if the result sequence is in document order. This method is implemented according to
-   * the automata in [Hidders, J., Michiels, P., "Avoiding Unnecessary Ordering Operations in
-   * XPath", 2003]
+   * the automata in [Hidders, J., Michiels, P., "Avoiding Unnecessary Ordering Operations in XPath",
+   * 2003]
    * 
    * @param ax name of the current axis
    * @return true, if expression is still duplicate free

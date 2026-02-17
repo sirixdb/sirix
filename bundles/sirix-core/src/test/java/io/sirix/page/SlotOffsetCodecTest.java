@@ -44,14 +44,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * Unit tests for {@link SlotOffsetCodec}.
  * <p>
- * Tests cover:
- * - Empty pages
- * - Single slot
- * - Fully populated pages
- * - Sparse pages
- * - Large offsets (requiring 16+ bits)
- * - Round-trip serialization/deserialization
- * - Bit-packing edge cases
+ * Tests cover: - Empty pages - Single slot - Fully populated pages - Sparse pages - Large offsets
+ * (requiring 16+ bits) - Round-trip serialization/deserialization - Bit-packing edge cases
  */
 public final class SlotOffsetCodecTest {
 
@@ -121,10 +115,8 @@ public final class SlotOffsetCodecTest {
 
     // Verify compression - should be much smaller than 4096 bytes
     int rawSize = Constants.NDP_NODE_COUNT * 4; // 4096 bytes
-    System.out.printf("Full page compression: raw=%d, compressed=%d, ratio=%.1f%%%n",
-                      rawSize,
-                      compressedSize,
-                      (100.0 * compressedSize / rawSize));
+    System.out.printf("Full page compression: raw=%d, compressed=%d, ratio=%.1f%%%n", rawSize, compressedSize,
+        (100.0 * compressedSize / rawSize));
   }
 
   @Test
@@ -155,10 +147,8 @@ public final class SlotOffsetCodecTest {
     assertArrayEquals(slotOffsets, decoded, "Sparse page should round-trip correctly");
 
     int rawSize = Constants.NDP_NODE_COUNT * 4;
-    System.out.printf("Sparse page compression: raw=%d, compressed=%d, ratio=%.1f%%%n",
-                      rawSize,
-                      compressedSize,
-                      (100.0 * compressedSize / rawSize));
+    System.out.printf("Sparse page compression: raw=%d, compressed=%d, ratio=%.1f%%%n", rawSize, compressedSize,
+        (100.0 * compressedSize / rawSize));
   }
 
   @Test
@@ -168,7 +158,7 @@ public final class SlotOffsetCodecTest {
     Arrays.fill(slotOffsets, -1);
 
     slotOffsets[0] = 0;
-    slotOffsets[1] = 65536;  // 2^16
+    slotOffsets[1] = 65536; // 2^16
     slotOffsets[2] = 131072; // 2^17
     slotOffsets[3] = 200000;
 
@@ -227,9 +217,9 @@ public final class SlotOffsetCodecTest {
 
     // Offsets with varying gaps
     slotOffsets[0] = 0;
-    slotOffsets[1] = 10;    // Small gap
-    slotOffsets[2] = 1000;  // Large gap
-    slotOffsets[3] = 1001;  // Tiny gap
+    slotOffsets[1] = 10; // Small gap
+    slotOffsets[2] = 1000; // Large gap
+    slotOffsets[3] = 1001; // Tiny gap
 
     BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     SlotOffsetCodec.encode(sink, slotOffsets, 3);
@@ -243,7 +233,7 @@ public final class SlotOffsetCodecTest {
   @Test
   public void testBitPackingWithVariousBitWidths() {
     // Test bit widths that are commonly used (1-16 bits covers typical offset deltas)
-    int[] bitWidths = { 1, 2, 3, 4, 5, 7, 8, 15, 16 };
+    int[] bitWidths = {1, 2, 3, 4, 5, 7, 8, 15, 16};
 
     for (int bitWidth : bitWidths) {
       // Create values that require exactly bitWidth bits
@@ -267,7 +257,7 @@ public final class SlotOffsetCodecTest {
   @Test
   public void testBitPackingWith32Bits() {
     // Special test for 32-bit values which need careful handling
-    int[] values = { 0, 1, Integer.MAX_VALUE / 2, Integer.MAX_VALUE - 1, Integer.MAX_VALUE };
+    int[] values = {0, 1, Integer.MAX_VALUE / 2, Integer.MAX_VALUE - 1, Integer.MAX_VALUE};
 
     BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     SlotOffsetCodec.writeBitPacked(sink, values, 32);
@@ -336,11 +326,8 @@ public final class SlotOffsetCodecTest {
     assertArrayEquals(slotOffsets, decoded, "Realistic page should round-trip correctly");
 
     double ratio = (100.0 * compressedSize / rawSize);
-    System.out.printf("Realistic page (80%% full): raw=%d, compressed=%d, ratio=%.1f%%, savings=%.1f%%%n",
-                      rawSize,
-                      compressedSize,
-                      ratio,
-                      100 - ratio);
+    System.out.printf("Realistic page (80%% full): raw=%d, compressed=%d, ratio=%.1f%%, savings=%.1f%%%n", rawSize,
+        compressedSize, ratio, 100 - ratio);
 
     // Expect at least 50% compression
     assert compressedSize < rawSize * 0.5 : "Expected at least 50% compression but got " + ratio + "%";
@@ -408,7 +395,5 @@ public final class SlotOffsetCodecTest {
     assertEquals(65535, decoded[Constants.NDP_NODE_COUNT - 1]);
   }
 }
-
-
 
 

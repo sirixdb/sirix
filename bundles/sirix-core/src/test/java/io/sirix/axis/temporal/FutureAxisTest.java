@@ -50,8 +50,8 @@ public final class FutureAxisTest {
     final XmlNodeReadOnlyTrx secondRtx = holder.getResourceSession().beginNodeReadOnlyTrx(2);
     final XmlNodeReadOnlyTrx thirdRtx = holder.getXmlNodeReadTrx();
 
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-        ImmutableList.of(firstRtx, secondRtx, thirdRtx), null) {
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx, secondRtx, thirdRtx),
+        null) {
       @Override
       protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
         return new FutureAxis<>(firstRtx.getResourceSession(), firstRtx, IncludeSelf.YES);
@@ -65,8 +65,7 @@ public final class FutureAxisTest {
     final XmlNodeReadOnlyTrx secondRtx = holder.getResourceSession().beginNodeReadOnlyTrx(2);
     final XmlNodeReadOnlyTrx thirdRtx = holder.getXmlNodeReadTrx();
 
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-        ImmutableList.of(secondRtx, thirdRtx), null) {
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(secondRtx, thirdRtx), null) {
       @Override
       protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
         return new FutureAxis<>(firstRtx.getResourceSession(), firstRtx);
@@ -91,7 +90,7 @@ public final class FutureAxisTest {
     }
 
     try (final XmlNodeReadOnlyTrx thirdReader = holder.getResourceSession().beginNodeReadOnlyTrx(3);
-         final XmlNodeReadOnlyTrx fourthReader = holder.getResourceSession().beginNodeReadOnlyTrx(4)) {
+        final XmlNodeReadOnlyTrx fourthReader = holder.getResourceSession().beginNodeReadOnlyTrx(4)) {
       thirdReader.moveTo(4);
       fourthReader.moveTo(4);
 

@@ -5,8 +5,8 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
- * This is an efficient and memory-saving hash map for storing primitive integers
- * and objects. It extends the {@link IntSet} class.
+ * This is an efficient and memory-saving hash map for storing primitive integers and objects. It
+ * extends the {@link IntSet} class.
  *
  * @param <E> generic value type
  * @author BaseX Team 2005-22, BSD License
@@ -34,10 +34,10 @@ public final class IntObjMap<E> extends IntSet {
   }
 
   /**
-   * Indexes the specified key and stores the associated value.
-   * If the key already exists, the value is updated.
+   * Indexes the specified key and stores the associated value. If the key already exists, the value
+   * is updated.
    *
-   * @param key   key
+   * @param key key
    * @param value value
    * @return old value
    */
@@ -51,10 +51,9 @@ public final class IntObjMap<E> extends IntSet {
   }
 
   /**
-   * Returns the value for the specified key.
-   * Creates a new value if none exists.
+   * Returns the value for the specified key. Creates a new value if none exists.
    *
-   * @param key  key
+   * @param key key
    * @param func function that create a new value
    * @return value
    */

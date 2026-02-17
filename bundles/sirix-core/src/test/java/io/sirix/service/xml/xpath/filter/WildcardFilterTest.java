@@ -51,19 +51,13 @@ public class WildcardFilterTest {
   @Test
   public void testFilterConvetions() throws SirixException {
     holder.getXmlNodeReadTrx().moveTo(9L);
-    FilterTest.testFilterConventions(
-        new WildcardFilter(holder.getXmlNodeReadTrx(), "b", EType.LOCALNAME), true);
+    FilterTest.testFilterConventions(new WildcardFilter(holder.getXmlNodeReadTrx(), "b", EType.LOCALNAME), true);
     holder.getXmlNodeReadTrx().moveToAttribute(0);
-    FilterTest.testFilterConventions(
-        new WildcardFilter(holder.getXmlNodeReadTrx(), "p", EType.PREFIX), true);
+    FilterTest.testFilterConventions(new WildcardFilter(holder.getXmlNodeReadTrx(), "p", EType.PREFIX), true);
     holder.getXmlNodeReadTrx().moveTo(1L);
-    FilterTest.testFilterConventions(
-        new WildcardFilter(holder.getXmlNodeReadTrx(), "p", EType.PREFIX), true);
-    FilterTest.testFilterConventions(
-        new WildcardFilter(holder.getXmlNodeReadTrx(), "a", EType.LOCALNAME), true);
-    FilterTest.testFilterConventions(
-        new WildcardFilter(holder.getXmlNodeReadTrx(), "c", EType.LOCALNAME), false);
-    FilterTest.testFilterConventions(
-        new WildcardFilter(holder.getXmlNodeReadTrx(), "b", EType.PREFIX), false);
+    FilterTest.testFilterConventions(new WildcardFilter(holder.getXmlNodeReadTrx(), "p", EType.PREFIX), true);
+    FilterTest.testFilterConventions(new WildcardFilter(holder.getXmlNodeReadTrx(), "a", EType.LOCALNAME), true);
+    FilterTest.testFilterConventions(new WildcardFilter(holder.getXmlNodeReadTrx(), "c", EType.LOCALNAME), false);
+    FilterTest.testFilterConventions(new WildcardFilter(holder.getXmlNodeReadTrx(), "b", EType.PREFIX), false);
   }
 }

@@ -27,9 +27,9 @@ class PathBasedPoolTest {
   /**
    * Tests that {@link PathBasedPool#putObject(Path, Object)} matches the following requirements:
    * <ul>
-   *     <li>Entries are persisted</li>
-   *     <li>Entries from different keys are independent</li>
-   *     <li>Entries from the same key are grouped in the same {@link Set}</li>
+   * <li>Entries are persisted</li>
+   * <li>Entries from different keys are independent</li>
+   * <li>Entries from the same key are grouped in the same {@link Set}</li>
    * </ul>
    */
   @Test
@@ -74,8 +74,8 @@ class PathBasedPoolTest {
   }
 
   /**
-   * Tests that {@link PathBasedPool#removeObject(Path, Object)} will eliminate the
-   * entry from the pool.
+   * Tests that {@link PathBasedPool#removeObject(Path, Object)} will eliminate the entry from the
+   * pool.
    */
   @Test
   public final void removeShouldEliminateEntries() {

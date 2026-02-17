@@ -18,8 +18,7 @@ import java.util.List;
  */
 public class SubtreeProcessor<E extends Node<E>> {
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(SubtreeProcessor.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(SubtreeProcessor.class));
 
   /** Observers. */
   private final List<NodeSubtreeListener<? super E>> listeners;

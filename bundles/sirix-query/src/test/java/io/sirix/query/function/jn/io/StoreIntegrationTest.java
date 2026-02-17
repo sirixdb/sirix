@@ -30,8 +30,8 @@ public final class StoreIntegrationTest {
   public void test() {
     // Initialize query context and store.
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath.getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       // Use Query to store a JSON string into the store.
       final String query = "jn:store('json-path1','mydoc.jn','[\"bla\", \"blubb\"]')";
@@ -59,7 +59,8 @@ public final class StoreIntegrationTest {
       new Query(chain, queryAddStrings).evaluate(ctx);
 
       // Use Query to add a JSON string to the collection.
-      final String queryAddWithOptions = "jn:store('json-path1',(),('[\"bla\", \"blubb\"]','{\"foo\": true}'),false(),{\"commitMessage\": \"this is the first commit\"})";
+      final String queryAddWithOptions =
+          "jn:store('json-path1',(),('[\"bla\", \"blubb\"]','{\"foo\": true}'),false(),{\"commitMessage\": \"this is the first commit\"})";
       new Query(chain, queryAddWithOptions).evaluate(ctx);
     }
   }

@@ -31,7 +31,9 @@ public final class XmlCASIndexListener implements PathNodeKeyChangeListener {
     } else {
       value = null;
     }
-    listen(type, node.getNodeKey(), node.getKind(), pathNodeKey, null, value == null ? null : new Str(value));
+    listen(type, node.getNodeKey(), node.getKind(), pathNodeKey, null, value == null
+        ? null
+        : new Str(value));
   }
 
   @Override
@@ -41,7 +43,8 @@ public final class XmlCASIndexListener implements PathNodeKeyChangeListener {
       return;
     }
     switch (nodeKind) {
-      case ATTRIBUTE, COMMENT, PROCESSING_INSTRUCTION, TEXT -> indexListenerDelegate.listen(type, nodeKey, pathNodeKey, value);
+      case ATTRIBUTE, COMMENT, PROCESSING_INSTRUCTION, TEXT ->
+        indexListenerDelegate.listen(type, nodeKey, pathNodeKey, value);
       default -> {
       }
     }

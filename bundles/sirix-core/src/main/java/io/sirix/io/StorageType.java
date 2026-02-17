@@ -41,9 +41,10 @@ import java.util.concurrent.ConcurrentMap;
 /**
  * Specific backend types are specified in this enum.
  *
- * <p>External storage providers can be registered via the {@link StorageProvider} SPI.
- * Use {@link #fromString(String)} to resolve provider names, which checks both
- * built-in types and ServiceLoader-discovered providers.
+ * <p>
+ * External storage providers can be registered via the {@link StorageProvider} SPI. Use
+ * {@link #fromString(String)} to resolve provider names, which checks both built-in types and
+ * ServiceLoader-discovered providers.
  *
  * @author Johannes Lichtenberger
  */
@@ -64,8 +65,7 @@ public enum StorageType {
   FILE {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf);
+      final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
       final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
       final var storage = new FileStorage(resourceConf, cache, revisionIndexHolder);
       storage.loadRevisionFileDataIntoMemory(cache);
@@ -80,8 +80,7 @@ public enum StorageType {
   FILE_CHANNEL {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf);
+      final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
       final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
       final var storage = new FileChannelStorage(resourceConf, cache, revisionIndexHolder);
       storage.loadRevisionFileDataIntoMemory(cache);
@@ -96,8 +95,7 @@ public enum StorageType {
   MEMORY_MAPPED {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf);
+      final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
       final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
       final var storage = new MMStorage(resourceConf, cache, revisionIndexHolder);
       storage.loadRevisionFileDataIntoMemory(cache);
@@ -109,8 +107,7 @@ public enum StorageType {
   IO_URING {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      final AsyncCache<Integer, RevisionFileData> cache =
-          getIntegerRevisionFileDataAsyncCache(resourceConf);
+      final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
       final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
       final var storage = new IOUringStorage(resourceConf, cache, revisionIndexHolder);
       storage.loadRevisionFileDataIntoMemory(cache);
@@ -121,20 +118,20 @@ public enum StorageType {
 
   public static final ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> CACHE_REPOSITORY =
       new ConcurrentHashMap<>();
-  
+
   /**
-   * Repository for RevisionIndexHolder instances, keyed by resource path.
-   * Used for fast timestamp-based revision lookups.
+   * Repository for RevisionIndexHolder instances, keyed by resource path. Used for fast
+   * timestamp-based revision lookups.
    */
-  public static final ConcurrentMap<Path, RevisionIndexHolder> REVISION_INDEX_REPOSITORY =
-      new ConcurrentHashMap<>();
+  public static final ConcurrentMap<Path, RevisionIndexHolder> REVISION_INDEX_REPOSITORY = new ConcurrentHashMap<>();
 
   private static final Logger LOGGER = LoggerFactory.getLogger(StorageType.class);
 
   /**
    * Parse a storage type from string.
    *
-   * <p>First checks built-in types, then falls back to ServiceLoader-discovered providers.
+   * <p>
+   * First checks built-in types, then falls back to ServiceLoader-discovered providers.
    *
    * @param storageType the storage type name (case-insensitive)
    * @return the storage type
@@ -156,8 +153,8 @@ public enum StorageType {
     }
 
     throw new IllegalArgumentException("No storage type or provider with name '" + storageType + "' found. "
-        + "Available types: " + java.util.Arrays.toString(values())
-        + ", Available providers: " + StorageProviders.getAvailableProviderNames());
+        + "Available types: " + java.util.Arrays.toString(values()) + ", Available providers: "
+        + StorageProviders.getAvailableProviderNames());
   }
 
   /**
@@ -190,13 +187,14 @@ public enum StorageType {
    * Factory method to retrieve suitable {@link IOStorage} instances based upon the suitable
    * {@link ResourceConfiguration}.
    *
-   * <p>This method first checks for external providers (via ServiceLoader) that might
-   * override or enhance the built-in storage type. This allows enterprise features
-   * like FFM-based io_uring to transparently replace the default implementation.
+   * <p>
+   * This method first checks for external providers (via ServiceLoader) that might override or
+   * enhance the built-in storage type. This allows enterprise features like FFM-based io_uring to
+   * transparently replace the default implementation.
    *
    * @param resourceConf determining the storage
    * @return an implementation of the {@link IOStorage} interface
-   * @throws SirixIOException     if an IO-exception occurs
+   * @throws SirixIOException if an IO-exception occurs
    * @throws NullPointerException if {@code resourceConf} is {@code null}
    */
   public static IOStorage getStorage(final ResourceConfiguration resourceConf) {
@@ -208,8 +206,8 @@ public enum StorageType {
     if (provider.isPresent() && provider.get().isAvailable()) {
       StorageProvider p = provider.get();
       if (p.isEnterprise()) {
-        LOGGER.info("Using enterprise storage provider for {}: {} (priority={})",
-            typeName, p.getClass().getSimpleName(), p.getPriority());
+        LOGGER.info("Using enterprise storage provider for {}: {} (priority={})", typeName,
+            p.getClass().getSimpleName(), p.getPriority());
       }
       return p.createStorage(resourceConf);
     }
@@ -224,7 +222,7 @@ public enum StorageType {
                                                       .resolve(IOStorage.FILENAME);
     return StorageType.CACHE_REPOSITORY.computeIfAbsent(resourcePath, path -> Caffeine.newBuilder().buildAsync());
   }
-  
+
   /**
    * Get or create the RevisionIndexHolder for a resource.
    * 
@@ -234,7 +232,6 @@ public enum StorageType {
   public static RevisionIndexHolder getRevisionIndexHolder(ResourceConfiguration resourceConf) {
     final var resourcePath = resourceConf.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
                                                       .resolve(IOStorage.FILENAME);
-    return StorageType.REVISION_INDEX_REPOSITORY.computeIfAbsent(resourcePath, 
-        path -> new RevisionIndexHolder());
+    return StorageType.REVISION_INDEX_REPOSITORY.computeIfAbsent(resourcePath, path -> new RevisionIndexHolder());
   }
 }

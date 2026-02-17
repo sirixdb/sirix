@@ -35,11 +35,9 @@ import org.junit.Test;
 public class XPathScannerTest {
 
   /** A test query to test the scanner. */
-  private final String mQUERY =
-      "/afFl/Fha:eufh    /789//]@eucbsbcds ==423e+33E" + "[t81sh\n<=@*?<<<><";
+  private final String mQUERY = "/afFl/Fha:eufh    /789//]@eucbsbcds ==423e+33E" + "[t81sh\n<=@*?<<<><";
 
-  private final String mQUERY2 =
-      "(/af::)Fl/Fhae(:uf:(h (:   /:)789:)//]@eucbsbcds ==423" + "[t81sh\n<=*";
+  private final String mQUERY2 = "(/af::)Fl/Fhae(:uf:(h (:   /:)789:)//]@eucbsbcds ==423" + "[t81sh\n<=*";
 
   /** Instance of the scanner that will be tested. */
   private XPathScanner scanner;

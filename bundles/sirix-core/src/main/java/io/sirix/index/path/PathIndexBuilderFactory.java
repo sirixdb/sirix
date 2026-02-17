@@ -16,9 +16,11 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 /**
  * Factory for creating PATH index builders.
  * 
- * <p>Supports both traditional RBTree and high-performance HOT index backends.
- * The backend is determined by the resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}
- * setting.</p>
+ * <p>
+ * Supports both traditional RBTree and high-performance HOT index backends. The backend is
+ * determined by the resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}
+ * setting.
+ * </p>
  */
 public final class PathIndexBuilderFactory {
 
@@ -31,32 +33,32 @@ public final class PathIndexBuilderFactory {
   /**
    * Creates a PATH index builder using the backend configured for the resource.
    */
-  public PathIndexBuilder create(final StorageEngineWriter pageTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+  public PathIndexBuilder create(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
     return create(pageTrx, pathSummaryReader, indexDef, isHOTEnabled(pageTrx));
   }
 
   /**
    * Creates a PATH index builder with explicit backend selection.
    *
-   * @param pageTrx           the storage engine writer
+   * @param pageTrx the storage engine writer
    * @param pathSummaryReader the path summary reader
-   * @param indexDef          the index definition
-   * @param useHOT            true to use HOT, false for RBTree
+   * @param indexDef the index definition
+   * @param useHOT true to use HOT, false for RBTree
    * @return the PATH index builder
    */
-  public PathIndexBuilder create(final StorageEngineWriter pageTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef, final boolean useHOT) {
+  public PathIndexBuilder create(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef, final boolean useHOT) {
     final var pathSummary = requireNonNull(pathSummaryReader);
     final var paths = requireNonNull(indexDef.getPaths());
     assert indexDef.getType() == IndexType.PATH;
-    
+
     if (useHOT) {
       final var hotWriter = HOTLongIndexWriter.create(pageTrx, IndexType.PATH, indexDef.getID());
       return new PathIndexBuilder(hotWriter, pathSummary, paths);
     } else {
-      final var rbTreeWriter = RBTreeWriter.<Long, NodeReferences>getInstance(
-              this.databaseType, pageTrx, indexDef.getType(), indexDef.getID());
+      final var rbTreeWriter = RBTreeWriter.<Long, NodeReferences>getInstance(this.databaseType, pageTrx,
+          indexDef.getType(), indexDef.getID());
       return new PathIndexBuilder(rbTreeWriter, pathSummary, paths);
     }
   }
@@ -70,7 +72,7 @@ public final class PathIndexBuilderFactory {
     if (sysProp != null) {
       return Boolean.parseBoolean(sysProp);
     }
-    
+
     // Fall back to resource configuration
     final var resourceConfig = pageTrx.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;

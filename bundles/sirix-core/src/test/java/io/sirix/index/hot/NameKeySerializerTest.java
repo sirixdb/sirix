@@ -32,10 +32,10 @@ class NameKeySerializerTest {
     void testSimpleQnmRoundtrip() {
       QNm original = new QNm("localName");
       byte[] buffer = new byte[256];
-      
+
       int length = serializer.serialize(original, buffer, 0);
       QNm result = serializer.deserialize(buffer, 0, length);
-      
+
       assertEquals("localName", result.getLocalName());
     }
 
@@ -44,10 +44,10 @@ class NameKeySerializerTest {
     void testPrefixedQnmRoundtrip() {
       QNm original = new QNm(null, "ns", "element");
       byte[] buffer = new byte[256];
-      
+
       int length = serializer.serialize(original, buffer, 0);
       QNm result = serializer.deserialize(buffer, 0, length);
-      
+
       assertEquals("ns", result.getPrefix());
       assertEquals("element", result.getLocalName());
     }
@@ -57,10 +57,10 @@ class NameKeySerializerTest {
     void testNoPrefixQnm() {
       QNm original = new QNm(null, "", "name");
       byte[] buffer = new byte[256];
-      
+
       int length = serializer.serialize(original, buffer, 0);
       QNm result = serializer.deserialize(buffer, 0, length);
-      
+
       assertEquals("", result.getPrefix());
       assertEquals("name", result.getLocalName());
     }
@@ -75,13 +75,13 @@ class NameKeySerializerTest {
     void testOrderByPrefix() {
       QNm a = new QNm(null, "aaa", "name");
       QNm b = new QNm(null, "bbb", "name");
-      
+
       byte[] bufA = new byte[256];
       byte[] bufB = new byte[256];
-      
+
       int lenA = serializer.serialize(a, bufA, 0);
       int lenB = serializer.serialize(b, bufB, 0);
-      
+
       assertTrue(compareBytes(bufA, lenA, bufB, lenB) < 0, "aaa:name < bbb:name");
     }
 
@@ -90,13 +90,13 @@ class NameKeySerializerTest {
     void testOrderByLocalName() {
       QNm a = new QNm(null, "ns", "alpha");
       QNm b = new QNm(null, "ns", "beta");
-      
+
       byte[] bufA = new byte[256];
       byte[] bufB = new byte[256];
-      
+
       int lenA = serializer.serialize(a, bufA, 0);
       int lenB = serializer.serialize(b, bufB, 0);
-      
+
       assertTrue(compareBytes(bufA, lenA, bufB, lenB) < 0, "ns:alpha < ns:beta");
     }
 
@@ -105,15 +105,14 @@ class NameKeySerializerTest {
     void testEmptyPrefixOrder() {
       QNm noPrefix = new QNm(null, "", "name");
       QNm withPrefix = new QNm(null, "a", "name");
-      
+
       byte[] bufNo = new byte[256];
       byte[] bufWith = new byte[256];
-      
+
       int lenNo = serializer.serialize(noPrefix, bufNo, 0);
       int lenWith = serializer.serialize(withPrefix, bufWith, 0);
-      
-      assertTrue(compareBytes(bufNo, lenNo, bufWith, lenWith) < 0, 
-          "empty prefix < 'a' prefix");
+
+      assertTrue(compareBytes(bufNo, lenNo, bufWith, lenWith) < 0, "empty prefix < 'a' prefix");
     }
   }
 
@@ -126,10 +125,10 @@ class NameKeySerializerTest {
     void testUnicodeLocalName() {
       QNm original = new QNm(null, "", "日本語");
       byte[] buffer = new byte[256];
-      
+
       int length = serializer.serialize(original, buffer, 0);
       QNm result = serializer.deserialize(buffer, 0, length);
-      
+
       assertEquals("日本語", result.getLocalName());
     }
 
@@ -138,10 +137,10 @@ class NameKeySerializerTest {
     void testUnicodePrefixAndLocal() {
       QNm original = new QNm(null, "前缀", "名称");
       byte[] buffer = new byte[256];
-      
+
       int length = serializer.serialize(original, buffer, 0);
       QNm result = serializer.deserialize(buffer, 0, length);
-      
+
       assertEquals("前缀", result.getPrefix());
       assertEquals("名称", result.getLocalName());
     }
@@ -156,9 +155,8 @@ class NameKeySerializerTest {
     @Test
     @DisplayName("Invalid serialization without separator throws")
     void testInvalidDeserialization() {
-      byte[] buffer = new byte[]{'a', 'b', 'c'}; // No separator
-      assertThrows(IllegalArgumentException.class, 
-          () -> serializer.deserialize(buffer, 0, buffer.length));
+      byte[] buffer = new byte[] {'a', 'b', 'c'}; // No separator
+      assertThrows(IllegalArgumentException.class, () -> serializer.deserialize(buffer, 0, buffer.length));
     }
 
     @Test
@@ -168,10 +166,10 @@ class NameKeySerializerTest {
       String longLocal = "b".repeat(100);
       QNm original = new QNm(null, longPrefix, longLocal);
       byte[] buffer = new byte[256];
-      
+
       int length = serializer.serialize(original, buffer, 0);
       QNm result = serializer.deserialize(buffer, 0, length);
-      
+
       assertEquals(longPrefix, result.getPrefix());
       assertEquals(longLocal, result.getLocalName());
     }

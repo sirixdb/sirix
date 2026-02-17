@@ -67,8 +67,8 @@ public final class ScanCASIndex extends AbstractScanIndex {
 
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND, "Index no %s for collection %s and document %s not found.",
-                               idx, doc.getCollection().getName(),
-                               doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
+          idx, doc.getCollection().getName(),
+          doc.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     if (indexDef.getType() != IndexType.CAS) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
@@ -78,7 +78,7 @@ public final class ScanCASIndex extends AbstractScanIndex {
 
     final Type keyType = indexDef.getContentType();
     final Atomic key = Cast.cast(sctx, (Atomic) args[2], keyType, true);
-    final String[] searchModes = { "<", "<=", "==", ">", ">=" };
+    final String[] searchModes = {"<", "<=", "==", ">", ">="};
     final String searchMode = FunUtil.getString(args, 3, "$search-mode", "==", searchModes, true);
 
     final SearchMode mode = switch (searchMode) {
@@ -89,7 +89,7 @@ public final class ScanCASIndex extends AbstractScanIndex {
       case ">=" -> SearchMode.GREATER_OR_EQUAL;
       default ->
         // May never happen.
-          SearchMode.EQUAL;
+        SearchMode.EQUAL;
     };
 
     final String paths = FunUtil.getString(args, 5, "$paths", null, null, false);

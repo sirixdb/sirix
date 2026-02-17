@@ -54,9 +54,9 @@ public final class PagePersister {
   /**
    * Deserialize page with optional DecompressionResult for zero-copy support.
    * 
-   * <p>When decompressionResult is provided, KeyValueLeafPages can take ownership
-   * of the decompression buffer and use it directly as slotMemory, eliminating
-   * per-slot copy operations.
+   * <p>
+   * When decompressionResult is provided, KeyValueLeafPages can take ownership of the decompression
+   * buffer and use it directly as slotMemory, eliminating per-slot copy operations.
    *
    * @param resourceConfiguration the resource configuration
    * @param source source to read from
@@ -65,12 +65,10 @@ public final class PagePersister {
    * @return {@link Page} instance
    * @throws IOException if an exception during deserialization of a page occurs
    */
-  public @NonNull Page deserializePage(
-      final ResourceConfiguration resourceConfiguration, 
-      final BytesIn<?> source,
-      final SerializationType type,
-      final ByteHandler.DecompressionResult decompressionResult) throws IOException {
-    return PageKind.getKind(source.readByte()).deserializePage(resourceConfiguration, source, type, decompressionResult);
+  public @NonNull Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
+      final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) throws IOException {
+    return PageKind.getKind(source.readByte())
+                   .deserializePage(resourceConfiguration, source, type, decompressionResult);
   }
 
   /**

@@ -50,28 +50,28 @@ public interface Page extends AutoCloseable {
    */
   default void commit(StorageEngineWriter pageWriteTrx) {
     final var references = getReferences();
-    //    final var log = pageWriteTrx.getLog();
-    //    final List<CompletableFuture<Void>> futures = new ArrayList<>(references.size());
-    //    for (final PageReference reference : references) {
-    //      if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
-    //          || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
-    //        final PageContainer container = log.get(reference, pageWriteTrx);
+    // final var log = pageWriteTrx.getLog();
+    // final List<CompletableFuture<Void>> futures = new ArrayList<>(references.size());
+    // for (final PageReference reference : references) {
+    // if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
+    // || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
+    // final PageContainer container = log.get(reference, pageWriteTrx);
     //
-    //        assert container != null;
+    // assert container != null;
     //
-    //        final Page page = container.getModified();
+    // final Page page = container.getModified();
     //
-    //        assert page != null;
+    // assert page != null;
     //
-    //        if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
-    //          final var byteBufferBytes = Bytes.elasticByteBuffer(10_000);
-    //          futures.add(CompletableFuture.runAsync(() -> unorderedKeyValuePage.serialize(byteBufferBytes,
-    //                                                                                       SerializationType.DATA)));
-    //        }
-    //      }
-    //    }
+    // if (page instanceof UnorderedKeyValuePage unorderedKeyValuePage) {
+    // final var byteBufferBytes = Bytes.elasticByteBuffer(10_000);
+    // futures.add(CompletableFuture.runAsync(() -> unorderedKeyValuePage.serialize(byteBufferBytes,
+    // SerializationType.DATA)));
+    // }
+    // }
+    // }
     //
-    //    CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()])).join();
+    // CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()])).join();
 
     for (final PageReference reference : references) {
       if (reference.getLogKey() != Constants.NULL_ID_INT) {
@@ -91,7 +91,7 @@ public interface Page extends AutoCloseable {
   /**
    * Set the reference at the specified offset
    *
-   * @param offset        the offset
+   * @param offset the offset
    * @param pageReference the page reference
    * @return {@code true}, if the page is already full, {@code false} otherwise
    */

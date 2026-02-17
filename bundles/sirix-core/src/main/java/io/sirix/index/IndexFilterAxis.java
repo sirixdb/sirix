@@ -10,8 +10,7 @@ import com.google.common.collect.AbstractIterator;
 
 import static java.util.Objects.requireNonNull;
 
-public final class IndexFilterAxis<K extends Comparable<? super K>>
-    extends AbstractIterator<NodeReferences> {
+public final class IndexFilterAxis<K extends Comparable<? super K>> extends AbstractIterator<NodeReferences> {
 
   private final RBTreeReader<K, NodeReferences> treeReader;
 

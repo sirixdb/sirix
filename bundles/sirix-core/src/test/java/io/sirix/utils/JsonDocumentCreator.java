@@ -37,14 +37,16 @@ import static org.junit.Assert.assertTrue;
  * This class creates a JSON test document.
  * </p>
  *
- * <pre><code>
+ * <pre>
+ * <code>
  * {
  *   "foo": ["bar", null, 2.33],
  *   "bar": { "hello": "world", "helloo": true },
  *   "baz": "hello",
  *   "tada": [{"foo":"bar"},{"baz":false},"boo",{},[]]
  * }
- * </code></pre>
+ * </code>
+ * </pre>
  */
 public final class JsonDocumentCreator {
 
@@ -83,8 +85,7 @@ public final class JsonDocumentCreator {
     wtx.insertObjectRecordAsRightSibling("bar", new ObjectValue())
        .insertObjectRecordAsFirstChild("hello", new StringValue("world"))
        .moveToParent();
-    wtx.insertObjectRecordAsRightSibling("helloo", new BooleanValue(true))
-       .moveToParent();
+    wtx.insertObjectRecordAsRightSibling("helloo", new BooleanValue(true)).moveToParent();
     wtx.moveToParent();
     wtx.moveToParent();
 
@@ -102,9 +103,7 @@ public final class JsonDocumentCreator {
 
     assert wtx.isObject();
 
-    wtx.insertObjectAsRightSibling()
-       .insertObjectRecordAsFirstChild("baz", new BooleanValue(false))
-       .moveToParent();
+    wtx.insertObjectAsRightSibling().insertObjectRecordAsFirstChild("baz", new BooleanValue(false)).moveToParent();
     wtx.moveToParent();
 
     assert wtx.isObject();

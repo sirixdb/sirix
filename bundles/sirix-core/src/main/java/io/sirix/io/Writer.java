@@ -49,9 +49,9 @@ public interface Writer extends Reader {
    * Writing a page related to the reference.
    *
    * @param resourceConfiguration the resource configuration
-   * @param pageReference         that points to a page
-   * @param page                  the page to write
-   * @param bufferedBytes         the bytes to write
+   * @param pageReference that points to a page
+   * @param page the page to write
+   * @param bufferedBytes the bytes to write
    * @return this writer instance
    * @throws SirixIOException exception to be thrown if something bad happens
    */
@@ -62,9 +62,9 @@ public interface Writer extends Reader {
    * Write beacon for the first reference.
    *
    * @param resourceConfiguration the resource configuration
-   * @param pageReference         that points to the beacon
-   * @param page                  the page to write
-   * @param bufferedBytes         the bytes to write
+   * @param pageReference that points to the beacon
+   * @param page the page to write
+   * @param bufferedBytes the bytes to write
    * @return this writer instance
    * @throws SirixIOException if an I/O error occured
    */
@@ -85,9 +85,9 @@ public interface Writer extends Reader {
   Writer truncate();
 
   /**
-   * Force all pending writes to durable storage.
-   * This is a single fsync barrier that ensures all written data is persisted.
-   * Should be called once at the end of a commit after all pages and uberpage beacons are written.
+   * Force all pending writes to durable storage. This is a single fsync barrier that ensures all
+   * written data is persisted. Should be called once at the end of a commit after all pages and
+   * uberpage beacons are written.
    *
    * @throws SirixIOException if an I/O error occurs during force
    */

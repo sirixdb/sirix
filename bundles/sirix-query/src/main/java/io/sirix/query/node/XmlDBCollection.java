@@ -72,7 +72,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   /**
    * Constructor.
    *
-   * @param name     collection name
+   * @param name collection name
    * @param database Sirix {@link Database} reference
    */
   public XmlDBCollection(final String name, final Database<XmlResourceSession> database) {
@@ -166,7 +166,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
       return createXmlDBNode(revision, resName);
     } else {
       return documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resName, revision),
-                                                      (unused) -> createXmlDBNode(revision, resName));
+          (unused) -> createXmlDBNode(revision, resName));
     }
   }
 
@@ -214,7 +214,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
         return createXmlDBNode(revision, resourceName);
       } else {
         return documentDataToXmlDBNodes.computeIfAbsent(new DocumentData(resourceName, revision),
-                                                        (unused) -> createXmlDBNode(revision, resourceName));
+            (unused) -> createXmlDBNode(revision, resourceName));
       }
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
@@ -223,7 +223,9 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
 
   private XmlDBNode createXmlDBNode(int revision, @NonNull String resourceName) {
     final XmlResourceSession manager = database.beginResourceSession(resourceName);
-    final int version = revision == -1 ? manager.getMostRecentRevisionNumber() : revision;
+    final int version = revision == -1
+        ? manager.getMostRecentRevisionNumber()
+        : revision;
     final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
     return new XmlDBNode(rtx, this);
   }

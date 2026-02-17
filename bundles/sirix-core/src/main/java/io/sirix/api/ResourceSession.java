@@ -46,9 +46,9 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * <p>
- * Each resource is bound to a {@code ResourceManager}. Reader-only transactions and the single read/write transaction can then be started from
- * this instance. There can only be one write transaction at a time. However, multiple read-only
- * transactions can coexist concurrently.
+ * Each resource is bound to a {@code ResourceManager}. Reader-only transactions and the single
+ * read/write transaction can then be started from this instance. There can only be one write
+ * transaction at a time. However, multiple read-only transactions can coexist concurrently.
  * </p>
  *
  * @author Sebastian Graf, University of Konstanz
@@ -84,7 +84,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Get the history, that is the metadata informations about the revisions.
    *
    * @param fromRevision start revision (must be bigger than {@code toRevision})
-   * @param toRevision   start revision (must be lower than {@code fromRevision})
+   * @param toRevision start revision (must be lower than {@code fromRevision})
    * @return the history
    */
   List<RevisionInfo> getHistory(int fromRevision, int toRevision);
@@ -139,7 +139,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    *
    * @param revision revision number
    * @return new {@link StorageEngineWriter} instance
-   * @throws SirixException           if Sirix fails to create a new instance
+   * @throws SirixException if Sirix fails to create a new instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
   StorageEngineWriter beginPageTrx(@NonNegative int revision);
@@ -150,8 +150,8 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param revision revision to read from denoted by the revision number.
    * @return instance of a class, which implements the {@link XmlNodeReadOnlyTrx} interface
    * @throws IllegalArgumentException if {@code revision < 0}
-   * @throws SirixThreadedException   if the thread is interrupted
-   * @throws SirixUsageException      if the number of read-transactions is exceeded for a defined time
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
    */
   R beginNodeReadOnlyTrx(@NonNegative int revision);
 
@@ -161,8 +161,8 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param pointInTime the point in time
    * @return instance of a class, which implements the {@link XmlNodeReadOnlyTrx} interface
    * @throws IllegalArgumentException if {@code revision < 0}
-   * @throws SirixThreadedException   if the thread is interrupted
-   * @throws SirixUsageException      if the number of read-transactions is exceeded for a defined time
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of read-transactions is exceeded for a defined time
    */
   R beginNodeReadOnlyTrx(@NonNull Instant pointInTime);
 
@@ -172,18 +172,18 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @param afterCommitState determines if the transaction keeps running after committing or not
    * @return instance of a class, which implements the {@link XmlNodeTrx} interface
    * @throws SirixThreadedException if the thread is interrupted
-   * @throws SirixUsageException    if the number of write-transactions is exceeded for a defined time
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    */
   W beginNodeTrx(@NonNull AfterCommitState afterCommitState);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
    *
-   * @param maxNodes         count of node modifications after which a commit is issued
+   * @param maxNodes count of node modifications after which a commit is issued
    * @param afterCommitState determines if the transaction keeps running after committing or not
    * @return instance of a class, which implements the {@link XmlNodeTrx} interface
-   * @throws SirixThreadedException   if the thread is interrupted
-   * @throws SirixUsageException      if the number of write-transactions is exceeded for a defined time
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    */
   W beginNodeTrx(@NonNegative int maxNodes, @NonNull AfterCommitState afterCommitState);
@@ -191,38 +191,39 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Begin exclusive read/write transaction with auto commit.
    *
-   * @param maxTime          time after which a commit is issued
-   * @param timeUnit         unit used for time
+   * @param maxTime time after which a commit is issued
+   * @param timeUnit unit used for time
    * @param afterCommitState determines if the transaction keeps running after committing or not
    * @return instance of a class, which implements the {@link XmlNodeTrx} interface
-   * @throws SirixThreadedException   if the thread is interrupted
-   * @throws SirixUsageException      if the number of write-transactions is exceeded for a defined time
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxTime < 0}
-   * @throws NullPointerException     if {@code timeUnit} is {@code null}
+   * @throws NullPointerException if {@code timeUnit} is {@code null}
    */
   W beginNodeTrx(@NonNegative int maxTime, @NonNull TimeUnit timeUnit, @NonNull AfterCommitState afterCommitState);
 
   /**
    * Begin exclusive read/write transaction with auto commit.
    *
-   * @param maxNodes         count of node modifications after which a commit is issued
-   * @param maxTime          time after which a commit is issued
-   * @param timeUnit         unit used for time
+   * @param maxNodes count of node modifications after which a commit is issued
+   * @param maxTime time after which a commit is issued
+   * @param timeUnit unit used for time
    * @param afterCommitState determines if the transaction keeps running after committing or not
    * @return instance of a class, which implements the {@link XmlNodeTrx} interface
-   * @throws SirixThreadedException   if the thread is interrupted
-   * @throws SirixUsageException      if the number of write-transactions is exceeded for a defined time
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
-   * @throws NullPointerException     if {@code timeUnit} is {@code null}
+   * @throws NullPointerException if {@code timeUnit} is {@code null}
    */
-  W beginNodeTrx(@NonNegative int maxNodes, @NonNegative int maxTime, @NonNull TimeUnit timeUnit, @NonNull AfterCommitState afterCommitState);
+  W beginNodeTrx(@NonNegative int maxNodes, @NonNegative int maxTime, @NonNull TimeUnit timeUnit,
+      @NonNull AfterCommitState afterCommitState);
 
   /**
    * Begin exclusive read/write transaction without auto commit.
    *
    * @return instance of a class, which implements the {@link XmlNodeTrx} interface
    * @throws SirixThreadedException if the thread is interrupted
-   * @throws SirixUsageException    if the number of write-transactions is exceeded for a defined time
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    */
   W beginNodeTrx();
 
@@ -231,8 +232,8 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    *
    * @param maxNodes count of node modifications after which a commit is issued
    * @return instance of a class, which implements the {@link XmlNodeTrx} interface
-   * @throws SirixThreadedException   if the thread is interrupted
-   * @throws SirixUsageException      if the number of write-transactions is exceeded for a defined time
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
    */
   W beginNodeTrx(@NonNegative int maxNodes);
@@ -240,13 +241,13 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Begin exclusive read/write transaction with auto commit.
    *
-   * @param maxTime  time after which a commit is issued
+   * @param maxTime time after which a commit is issued
    * @param timeUnit unit used for time
    * @return instance of a class, which implements the {@link XmlNodeTrx} interface
-   * @throws SirixThreadedException   if the thread is interrupted
-   * @throws SirixUsageException      if the number of write-transactions is exceeded for a defined time
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxTime < 0}
-   * @throws NullPointerException     if {@code timeUnit} is {@code null}
+   * @throws NullPointerException if {@code timeUnit} is {@code null}
    */
   W beginNodeTrx(@NonNegative int maxTime, @NonNull TimeUnit timeUnit);
 
@@ -255,12 +256,12 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    *
    * @param maxNodeCount count of node modifications after which a commit is issued
    * @param timeUnit unit used for time
-   * @param maxTime  time after which a commit is issued
+   * @param maxTime time after which a commit is issued
    * @return instance of a class, which implements the {@link XmlNodeTrx} interface
-   * @throws SirixThreadedException   if the thread is interrupted
-   * @throws SirixUsageException      if the number of write-transactions is exceeded for a defined time
+   * @throws SirixThreadedException if the thread is interrupted
+   * @throws SirixUsageException if the number of write-transactions is exceeded for a defined time
    * @throws IllegalArgumentException if {@code maxNodes < 0}
-   * @throws NullPointerException     if {@code timeUnit} is {@code null}
+   * @throws NullPointerException if {@code timeUnit} is {@code null}
    */
   W beginNodeTrx(@NonNegative int maxNodeCount, @NonNegative int maxTime, @NonNull TimeUnit timeUnit);
 
@@ -326,7 +327,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Get the index controller.
    *
-   * @param <C>      Instance of IndexController
+   * @param <C> Instance of IndexController
    * @param revision the revision number
    * @return the {@link XmlIndexController} instance
    */
@@ -335,7 +336,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   /**
    * Get the index controller.
    *
-   * @param <C>      The index Controller
+   * @param <C> The index Controller
    * @param revision the revision
    * @return the {@link XmlIndexController} instance
    */
@@ -356,13 +357,13 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    */
   boolean hasRunningNodeWriteTrx();
 
-//  /**
-//   * Get a read-only transaction for a specific revision, if it exists.
-//   *
-//   * @param revision the revision number
-//   * @return optional read-only transaction
-//   */
-//  Optional<R> getNodeReadTrxByRevisionNumber(final int revision);
+  // /**
+  // * Get a read-only transaction for a specific revision, if it exists.
+  // *
+  // * @param revision the revision number
+  // * @return optional read-only transaction
+  // */
+  // Optional<R> getNodeReadTrxByRevisionNumber(final int revision);
 
   /**
    * Get the user associated with the current ressource manager session.

@@ -33,7 +33,9 @@ import java.util.Set;
 /**
  * Builder for CAS indexes.
  * 
- * <p>Supports both traditional RBTree and high-performance HOT index backends.</p>
+ * <p>
+ * Supports both traditional RBTree and high-performance HOT index backends.
+ * </p>
  */
 public final class CASIndexBuilder {
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(CASIndexBuilder.class));
@@ -61,8 +63,8 @@ public final class CASIndexBuilder {
   /**
    * Constructor with HOT writer (high-performance path).
    */
-  public CASIndexBuilder(final HOTIndexWriter<CASValue> hotWriter,
-      final PathSummaryReader pathSummaryReader, final Set<Path<QNm>> paths, final Type type) {
+  public CASIndexBuilder(final HOTIndexWriter<CASValue> hotWriter, final PathSummaryReader pathSummaryReader,
+      final Set<Path<QNm>> paths, final Type type) {
     this.pathSummaryReader = pathSummaryReader;
     this.paths = paths;
     this.rbTreeWriter = null;
@@ -77,10 +79,10 @@ public final class CASIndexBuilder {
         final Str strValue = switch (node) {
           case ImmutableValueNode immutableValueNode -> new Str(immutableValueNode.getValue());
           case ImmutableObjectNumberNode immutableObjectNumberNode ->
-              new Str(String.valueOf(immutableObjectNumberNode.getValue()));
+            new Str(String.valueOf(immutableObjectNumberNode.getValue()));
           case ImmutableNumberNode immutableNumberNode -> new Str(String.valueOf(immutableNumberNode.getValue()));
           case ImmutableObjectBooleanNode immutableObjectBooleanNode ->
-              new Str(String.valueOf(immutableObjectBooleanNode.getValue()));
+            new Str(String.valueOf(immutableObjectBooleanNode.getValue()));
           case ImmutableBooleanNode immutableBooleanNode -> new Str(String.valueOf(immutableBooleanNode.getValue()));
           case null, default -> throw new IllegalStateException("Value not supported.");
         };

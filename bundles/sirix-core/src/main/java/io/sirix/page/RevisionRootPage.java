@@ -172,17 +172,20 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   /**
    * Constructor to deserialized the page.
    *
-   * @param delegate                                        Page
-   * @param revision                                        int revision
-   * @param maxNodeKeyInDocumentIndex                       Last allocated node key.
-   * @param maxNodeKeyInChangedNodesIndex                   Last allocated node key.
-   * @param maxNodeKeyInRecordToRevisionsIndex              Last allocated node key.
-   * @param revisionTimestamp                               Timestamp of revision.
-   * @param commitMessage                                   Optional commit message.
-   * @param currentMaxLevelOfDocumentIndexIndirectPages     Current maximum level of indirect pages in the document index tree.
-   * @param currentMaxLevelOfChangedNodesIndirectPages      Current maximum level of indirect pages in the document index tree.
-   * @param currentMaxLevelOfRecordToRevisionsIndirectPages Current maximum level of indirect pages in the document index tree.
-   * @param user                                            which committed or is probably committing the revision
+   * @param delegate Page
+   * @param revision int revision
+   * @param maxNodeKeyInDocumentIndex Last allocated node key.
+   * @param maxNodeKeyInChangedNodesIndex Last allocated node key.
+   * @param maxNodeKeyInRecordToRevisionsIndex Last allocated node key.
+   * @param revisionTimestamp Timestamp of revision.
+   * @param commitMessage Optional commit message.
+   * @param currentMaxLevelOfDocumentIndexIndirectPages Current maximum level of indirect pages in the
+   *        document index tree.
+   * @param currentMaxLevelOfChangedNodesIndirectPages Current maximum level of indirect pages in the
+   *        document index tree.
+   * @param currentMaxLevelOfRecordToRevisionsIndirectPages Current maximum level of indirect pages in
+   *        the document index tree.
+   * @param user which committed or is probably committing the revision
    */
   RevisionRootPage(final Page delegate, final int revision, final long maxNodeKeyInDocumentIndex,
       final long maxNodeKeyInChangedNodesIndex, final long maxNodeKeyInRecordToRevisionsIndex,
@@ -206,7 +209,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Clone revision root page.
    *
    * @param committedRevisionRootPage page to clone
-   * @param representRev              revision number to use
+   * @param representRev revision number to use
    */
   public RevisionRootPage(final RevisionRootPage committedRevisionRootPage, final @NonNegative int representRev) {
     final Page pageDelegate = committedRevisionRootPage.delegate();
@@ -403,6 +406,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
   /***
    * This value is used to serialize Page
+   * 
    * @return commitTimestamp
    */
 
@@ -473,8 +477,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Initialize document index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx  {@link StorageEngineReader} instance
-   * @param log          the transaction intent log
+   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param log the transaction intent log
    */
   public void createDocumentIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
       final TransactionIntentLog log) {
@@ -490,8 +494,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Initialize record to revisions index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx  {@link StorageEngineReader} instance
-   * @param log          the transaction intent log
+   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param log the transaction intent log
    */
   public void createChangedNodesIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
       final TransactionIntentLog log) {
@@ -507,8 +511,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Initialize changed records index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx  {@link StorageEngineReader} instance
-   * @param log          the transaction intent log
+   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param log the transaction intent log
    */
   public void createRecordToRevisionsIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
       final TransactionIntentLog log) {

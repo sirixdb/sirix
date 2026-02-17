@@ -56,8 +56,8 @@ public final class WildcardFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
    * @param rtx transaction to operate on
    * @param knownPart part of the qualified name that is specified. This can be either the namespace
    *        prefix, or the local name
-   * @param type defines, if the specified part is the prefix, or the local name (true, if it is
-   *        the local name)
+   * @param type defines, if the specified part is the prefix, or the local name (true, if it is the
+   *        local name)
    */
   public WildcardFilter(final XmlNodeReadOnlyTrx rtx, final String knownPart, final EType type) {
     super(rtx);

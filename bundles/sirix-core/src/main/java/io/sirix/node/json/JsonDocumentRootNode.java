@@ -35,7 +35,12 @@ import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.settings.Fixed;
+
+import java.lang.foreign.MemorySegment;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -44,47 +49,54 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  * Node representing the root of a JSON document. This node is guaranteed to exist in revision 0 and
  * cannot be removed.
  *
- * <p>Uses primitive fields for efficient storage following the ObjectNode pattern.
- * Document root has fixed values for nodeKey (0), parentKey (-1), and no siblings.</p>
+ * <p>
+ * Uses primitive fields for efficient storage following the ObjectNode pattern. Document root has
+ * fixed values for nodeKey (0), parentKey (-1), and no siblings.
+ * </p>
  */
 public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode {
 
   // === STRUCTURAL FIELDS (immediate) ===
-  
+
   /** The unique node key (always 0 for document root). */
   private long nodeKey;
-  
+
   /** First child key. */
   private long firstChildKey;
-  
+
   /** Last child key (same as first for document root). */
   private long lastChildKey;
 
   // === METADATA FIELDS (lazy) ===
-  
+
   /** Child count. */
   private long childCount;
-  
+
   /** Descendant count. */
   private long descendantCount;
-  
+
   /** The hash code of the node. */
   private long hash;
 
   // === NON-SERIALIZED FIELDS ===
-  
+
   /** Hash function for computing node hashes. */
   private LongHashFunction hashFunction;
-  
+
   /** DeweyID support (always root ID for document root). */
   private SirixDeweyID sirixDeweyID;
-  
+
   /** DeweyID as bytes. */
   private byte[] deweyIDBytes;
 
+  // Fixed-slot lazy support
+  private Object lazySource;
+  private NodeKindLayout fixedSlotLayout;
+  private boolean lazyFieldsParsed = true;
+
   /**
-   * Primary constructor with all primitive fields.
-   * Used by deserialization (NodeKind.JSON_DOCUMENT.deserialize).
+   * Primary constructor with all primitive fields. Used by deserialization
+   * (NodeKind.JSON_DOCUMENT.deserialize).
    *
    * @param nodeKey the node key (always 0 for document root)
    * @param firstChildKey the first child key
@@ -93,8 +105,8 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
    * @param descendantCount the descendant count
    * @param hashFunction the hash function
    */
-  public JsonDocumentRootNode(long nodeKey, long firstChildKey, long lastChildKey,
-      long childCount, long descendantCount, LongHashFunction hashFunction) {
+  public JsonDocumentRootNode(long nodeKey, long firstChildKey, long lastChildKey, long childCount,
+      long descendantCount, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.firstChildKey = firstChildKey;
     this.lastChildKey = lastChildKey;
@@ -115,9 +127,8 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
    * @param hashFunction the hash function
    * @param deweyID the DeweyID
    */
-  public JsonDocumentRootNode(long nodeKey, long firstChildKey, long lastChildKey,
-      long childCount, long descendantCount, LongHashFunction hashFunction,
-      SirixDeweyID deweyID) {
+  public JsonDocumentRootNode(long nodeKey, long firstChildKey, long lastChildKey, long childCount,
+      long descendantCount, LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.firstChildKey = firstChildKey;
     this.lastChildKey = lastChildKey;
@@ -219,6 +230,8 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
   @Override
   public long getChildCount() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     return childCount;
   }
 
@@ -228,16 +241,22 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
   @Override
   public void incrementChildCount() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     childCount++;
   }
 
   @Override
   public void decrementChildCount() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     childCount--;
   }
 
   @Override
   public long getDescendantCount() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     return descendantCount;
   }
 
@@ -248,11 +267,15 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
   @Override
   public void incrementDescendantCount() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     descendantCount++;
   }
 
   @Override
   public void decrementDescendantCount() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     descendantCount--;
   }
 
@@ -261,11 +284,9 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
     if (hashFunction == null) {
       return 0L;
     }
-    
+
     bytes.clear();
-    bytes.writeLong(nodeKey)
-         .writeLong(getParentKey())
-         .writeByte(getKind().getId());
+    bytes.writeLong(nodeKey).writeLong(getParentKey()).writeByte(getKind().getId());
 
     bytes.writeLong(childCount)
          .writeLong(descendantCount)
@@ -290,6 +311,8 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
   @Override
   public long getHash() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     return hash;
   }
 
@@ -368,19 +391,46 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   /**
    * Populate this node from a BytesIn source for singleton reuse.
    */
-  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
-      LongHashFunction hashFunction, ResourceConfiguration config) {
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId, LongHashFunction hashFunction,
+      ResourceConfiguration config) {
     final long firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
 
     this.nodeKey = Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
     this.firstChildKey = firstChildKey;
     this.lastChildKey = firstChildKey;
-    this.childCount = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty() ? 0L : 1L;
+    this.childCount = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
+        ? 0L
+        : 1L;
     this.descendantCount = DeltaVarIntCodec.decodeSignedLong(source);
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
     this.hash = 0L;
+  }
+
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.lazySource = slotData;
+    this.fixedSlotLayout = layout;
+    this.lazyFieldsParsed = false;
+  }
+
+  private void parseLazyFields() {
+    if (lazyFieldsParsed) {
+      return;
+    }
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.childCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.CHILD_COUNT);
+      this.descendantCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.DESCENDANT_COUNT);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.fixedSlotLayout = null;
+      this.lazyFieldsParsed = true;
+      return;
+    }
+
+    this.lazyFieldsParsed = true;
   }
 
   /**
@@ -389,8 +439,10 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
    * @return a new instance with copied values
    */
   public JsonDocumentRootNode toSnapshot() {
-    final JsonDocumentRootNode snapshot = new JsonDocumentRootNode(
-        nodeKey, firstChildKey, lastChildKey, childCount, descendantCount, hashFunction);
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    final JsonDocumentRootNode snapshot =
+        new JsonDocumentRootNode(nodeKey, firstChildKey, lastChildKey, childCount, descendantCount, hashFunction);
     snapshot.hash = this.hash;
     if (deweyIDBytes != null) {
       snapshot.deweyIDBytes = deweyIDBytes.clone();

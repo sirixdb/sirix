@@ -21,8 +21,7 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   /**
    * Constructor for use by subclasses.
    */
-  protected AbstractForwardingStorageEngineWriter() {
-  }
+  protected AbstractForwardingStorageEngineWriter() {}
 
   @Override
   public int getRevisionToRepresent() {
@@ -35,13 +34,14 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
-  public <V extends DataRecord> V createRecord(@NonNull V record, @NonNull IndexType indexType, @NonNegative int index) {
+  public <V extends DataRecord> V createRecord(@NonNull V record, @NonNull IndexType indexType,
+      @NonNegative int index) {
     return delegate().createRecord(record, indexType, index);
   }
 
   @Override
-  public <V extends DataRecord> V prepareRecordForModification(@NonNegative long recordKey, @NonNull IndexType indexType,
-      @NonNegative int index) {
+  public <V extends DataRecord> V prepareRecordForModification(@NonNegative long recordKey,
+      @NonNull IndexType indexType, @NonNegative int index) {
     return delegate().prepareRecordForModification(recordKey, indexType, index);
   }
 

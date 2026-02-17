@@ -46,12 +46,14 @@ import io.sirix.cache.LinuxMemorySegmentAllocator;
 /**
  * Tests for multi-layer HOTIndirectPage navigation.
  * 
- * <p>These tests specifically target the uncovered methods:</p>
+ * <p>
+ * These tests specifically target the uncovered methods:
+ * </p>
  * <ul>
- *   <li>{@code HOTLongIndexWriter.initializeHOTIndex}</li>
- *   <li>{@code HeightOptimalSplitter.splitLeafPage}</li>
- *   <li>{@code HOTIndexWriter.navigateThroughIndirectPage}</li>
- *   <li>{@code HOTIndexWriter.navigateToLeaf}</li>
+ * <li>{@code HOTLongIndexWriter.initializeHOTIndex}</li>
+ * <li>{@code HeightOptimalSplitter.splitLeafPage}</li>
+ * <li>{@code HOTIndexWriter.navigateThroughIndirectPage}</li>
+ * <li>{@code HOTIndexWriter.navigateToLeaf}</li>
  * </ul>
  */
 @DisplayName("HOT Multi-Layer IndirectPage Tests")
@@ -94,24 +96,24 @@ class HOTMultiLayerIndirectPageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create CAS index
           final var pathToValue = parse("/data/[]/value", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
           // Insert a LOT of data to force page splits (triggers HeightOptimalSplitter)
           StringBuilder json = new StringBuilder("{\"data\": [");
           for (int i = 0; i < 5000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"value\": ").append(i).append("}");
           }
           json.append("]}");
@@ -120,12 +122,8 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Verify data was indexed - 5000 entries (0-4999), query >= 0, expect 5000 entries
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/data/[]/value"),
-                  new Int32(0),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/data/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long totalNodeRefs = 0;
           while (casIndex.hasNext()) {
@@ -134,7 +132,7 @@ class HOTMultiLayerIndirectPageTest {
           }
           // With fixed HOTIndirectPage serialization, all 5000 entries should be found
           // Accept 90% as threshold while investigating remaining issues
-          assertTrue(totalNodeRefs >= 4500, 
+          assertTrue(totalNodeRefs >= 4500,
               "Should find at least 4500 node references (90% of 5000), got " + totalNodeRefs);
           System.out.println("testSplitLeafPageViaE2E: Found " + totalNodeRefs + " / 5000 expected entries");
         }
@@ -148,24 +146,24 @@ class HOTMultiLayerIndirectPageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create CAS index on a deeply nested path to exercise more complex key patterns
           final var pathToScore = parse("/items/[]/nested/score", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.DBL,
-              Collections.singleton(pathToScore), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.DBL, Collections.singleton(pathToScore), 0, IndexDef.DbType.JSON);
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
           // Insert with varied numeric values to create diverse discriminative bit patterns
           StringBuilder json = new StringBuilder("{\"items\": [");
           for (int i = 0; i < 3000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             // Use different ranges to create varied bit patterns
             double value = (i % 100) * 0.01 + (i / 100) * 10.0;
             json.append("{\"nested\": {\"score\": ").append(value).append("}}");
@@ -176,12 +174,8 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Query to verify index works - use GREATER search to find all entries
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/items/[]/nested/score"),
-                  new Dbl(0.0),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/items/[]/nested/score"), new Dbl(0.0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {
@@ -205,24 +199,23 @@ class HOTMultiLayerIndirectPageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create PATH index - this triggers HOTLongIndexWriter.initializeHOTIndex
           final var pathToId = parse("/data/[]/id", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var pathIndexDef = IndexDefs.createPathIdxDef(
-              Collections.singleton(pathToId), 0, IndexDef.DbType.JSON);
+          final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToId), 0, IndexDef.DbType.JSON);
           indexController.createIndexes(Set.of(pathIndexDef), wtx);
 
           // Insert data with many entries to trigger internal paths
           StringBuilder json = new StringBuilder("{\"data\": [");
           for (int i = 0; i < 500; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"id\": ").append(i).append("}");
           }
           json.append("]}");
@@ -231,9 +224,8 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Query the index to verify it works
-          var pathIndex = indexController.openPathIndex(
-              wtx.getPageTrx(), pathIndexDef, indexController.createPathFilter(
-                  Set.of("/data/[]/id"), wtx));
+          var pathIndex = indexController.openPathIndex(wtx.getPageTrx(), pathIndexDef,
+              indexController.createPathFilter(Set.of("/data/[]/id"), wtx));
 
           int count = 0;
           while (pathIndex.hasNext()) {
@@ -252,12 +244,11 @@ class HOTMultiLayerIndirectPageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create NAME index - also triggers initialization
@@ -267,19 +258,20 @@ class HOTMultiLayerIndirectPageTest {
           // Insert data with many different field names to exercise the index
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 200; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"field").append(i).append("\": ").append(i);
           }
           json.append("}");
 
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
-          
+
           // Just verify data was indexed - don't query (name index requires filter)
         }
       }
     }
-    
+
     @Test
     @DisplayName("Test HOTLongIndexWriter with CAS index for code coverage")
     @Timeout(value = 120, unit = TimeUnit.SECONDS)
@@ -287,44 +279,41 @@ class HOTMultiLayerIndirectPageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create CAS index
           final var pathToId = parse("/records/[]/id", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToId), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToId), 0, IndexDef.DbType.JSON);
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
           // Insert large dataset
           StringBuilder json = new StringBuilder("{\"records\": [");
           for (int i = 0; i < 3000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"id\": ").append(i).append("}");
           }
           json.append("]}");
 
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
-          
+
           // Query the CAS index with various search modes
-          for (SearchMode mode : new SearchMode[]{SearchMode.EQUAL, SearchMode.GREATER, SearchMode.LOWER}) {
-            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-                indexController.createCASFilter(
-                    Set.of("/records/[]/id"),
-                    new Int32(1500),
-                    mode,
-                    new JsonPCRCollector(wtx)));
+          for (SearchMode mode : new SearchMode[] {SearchMode.EQUAL, SearchMode.GREATER, SearchMode.LOWER}) {
+            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+                Set.of("/records/[]/id"), new Int32(1500), mode, new JsonPCRCollector(wtx)));
             int count = 0;
             while (casIndex.hasNext()) {
               casIndex.next();
               count++;
-              if (count > 50) break;
+              if (count > 50)
+                break;
             }
             // Just verify it runs without error
           }
@@ -344,38 +333,34 @@ class HOTMultiLayerIndirectPageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create CAS index on a path
           final var pathToValue = parse("/items/[]/value", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
           // Insert all data in one go to force large index
           StringBuilder json = new StringBuilder("{\"items\": [");
           for (int i = 0; i < 10000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"value\": ").append(i).append("}");
           }
           json.append("]}");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
 
           // Now query with range - 10000 entries (0-9999), query >= 5000, expect 5000 entries
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/items/[]/value"),
-                  new Int32(5000),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/items/[]/value"), new Int32(5000), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long totalNodeRefs = 0;
           while (casIndex.hasNext()) {
@@ -383,8 +368,7 @@ class HOTMultiLayerIndirectPageTest {
             totalNodeRefs += refs.getNodeKeys().getLongCardinality();
           }
           // TODO: Full multi-level HOT tree persistence requires additional work
-          assertTrue(totalNodeRefs > 0, 
-              "Should find some node references from HOT index");
+          assertTrue(totalNodeRefs > 0, "Should find some node references from HOT index");
         }
       }
     }
@@ -396,23 +380,23 @@ class HOTMultiLayerIndirectPageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         // Create multiple revisions in a single session
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
           final var pathToScore = parse("/records/[]/score", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToScore), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToScore), 0, IndexDef.DbType.JSON);
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
           // Insert large initial dataset
           StringBuilder json = new StringBuilder("{\"records\": [");
           for (int i = 0; i < 5000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"score\": ").append(i).append("}");
           }
           json.append("]}");
@@ -421,12 +405,8 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Query to verify - 5000 entries (0-4999), query >= 2500, expect 2500 entries
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/records/[]/score"),
-                  new Int32(2500),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/records/[]/score"), new Int32(2500), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long totalNodeRefs = 0;
           while (casIndex.hasNext()) {
@@ -434,8 +414,7 @@ class HOTMultiLayerIndirectPageTest {
             totalNodeRefs += refs.getNodeKeys().getLongCardinality();
           }
           // TODO: Full multi-level HOT tree persistence requires additional work
-          assertTrue(totalNodeRefs > 0, 
-              "Should find some node references from HOT index");
+          assertTrue(totalNodeRefs > 0, "Should find some node references from HOT index");
         }
       }
     }
@@ -453,24 +432,24 @@ class HOTMultiLayerIndirectPageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create CAS index
           final var pathToValue = parse("/entries/[]/key", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
           // Insert VERY large dataset to force multiple page splits and indirect pages
           StringBuilder json = new StringBuilder("{\"entries\": [");
           for (int i = 0; i < 15000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"key\": ").append(i).append("}");
           }
           json.append("]}");
@@ -482,15 +461,11 @@ class HOTMultiLayerIndirectPageTest {
           // 15000 entries (0-14999), expected counts: start 0 -> 15000, start 5000 -> 10000, etc.
           int[] starts = {0, 5000, 10000, 14000};
           long[] expectedCounts = {15000, 10000, 5000, 1000};
-          
+
           for (int i = 0; i < starts.length; i++) {
             int start = starts[i];
-            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-                indexController.createCASFilter(
-                    Set.of("/entries/[]/key"),
-                    new Int32(start),
-                    SearchMode.GREATER_OR_EQUAL,
-                    new JsonPCRCollector(wtx)));
+            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+                Set.of("/entries/[]/key"), new Int32(start), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
             long totalNodeRefs = 0;
             while (casIndex.hasNext()) {
@@ -498,8 +473,7 @@ class HOTMultiLayerIndirectPageTest {
               totalNodeRefs += refs.getNodeKeys().getLongCardinality();
             }
             // TODO: Full multi-level HOT tree persistence requires additional work
-            assertTrue(totalNodeRefs > 0, 
-                "Should find some node refs for start=" + start);
+            assertTrue(totalNodeRefs > 0, "Should find some node refs for start=" + start);
           }
         }
       }
@@ -512,29 +486,26 @@ class HOTMultiLayerIndirectPageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create PATH index
           final var pathToId = parse("/data/id", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var pathIndexDef = IndexDefs.createPathIdxDef(
-              Collections.singleton(pathToId), 0, IndexDef.DbType.JSON);
+          final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(pathToId), 0, IndexDef.DbType.JSON);
           indexController.createIndexes(Set.of(pathIndexDef), wtx);
 
           // Insert data
-          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"data\": {\"id\": 42}}"), 
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"data\": {\"id\": 42}}"),
               JsonNodeTrx.Commit.NO);
           wtx.commit();
 
           // Access via HOTLongIndexReader
-          var longReader = HOTLongIndexReader.create(
-              wtx.getPageTrx(), pathIndexDef.getType(), pathIndexDef.getID());
-          
+          var longReader = HOTLongIndexReader.create(wtx.getPageTrx(), pathIndexDef.getType(), pathIndexDef.getID());
+
           // Test get method - should have exactly 1 entry for path /data/id
           var iterator = longReader.iterator();
           int count = 0;
@@ -559,24 +530,24 @@ class HOTMultiLayerIndirectPageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create CAS index
           final var pathToId = parse("/records/[]/id", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToId), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToId), 0, IndexDef.DbType.JSON);
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
           // Insert a huge amount of data to force page splits
           StringBuilder json = new StringBuilder("{\"records\": [");
           for (int i = 0; i < 10000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"id\": ").append(i).append("}");
           }
           json.append("]}");
@@ -585,12 +556,8 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Query with range - 10000 entries (0-9999), query > 5000, expect 4999 entries
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/records/[]/id"),
-                  new Int32(5000),
-                  SearchMode.GREATER,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/records/[]/id"), new Int32(5000), SearchMode.GREATER, new JsonPCRCollector(wtx)));
 
           long totalNodeRefs = 0;
           while (casIndex.hasNext()) {
@@ -598,8 +565,7 @@ class HOTMultiLayerIndirectPageTest {
             totalNodeRefs += refs.getNodeKeys().getLongCardinality();
           }
           // TODO: Full multi-level HOT tree persistence requires additional work
-          assertTrue(totalNodeRefs > 0, 
-              "Should find some node references from HOT index");
+          assertTrue(totalNodeRefs > 0, "Should find some node references from HOT index");
         }
       }
     }

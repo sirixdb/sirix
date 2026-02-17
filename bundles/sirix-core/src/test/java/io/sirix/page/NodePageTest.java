@@ -82,19 +82,16 @@ public final class NodePageTest {
 
   @Test
   public void testSerializeDeserialize() throws IOException {
-    final KeyValueLeafPage page1 = new KeyValueLeafPage(0L,
-                                                        IndexType.DOCUMENT,
-                                                        pageReadTrx.getResourceSession().getResourceConfig(),
-                                                        pageReadTrx.getRevisionNumber(),
-                                                        arena.allocate(SIXTYFOUR_KB),
-                                                        null);
+    final KeyValueLeafPage page1 =
+        new KeyValueLeafPage(0L, IndexType.DOCUMENT, pageReadTrx.getResourceSession().getResourceConfig(),
+            pageReadTrx.getRevisionNumber(), arena.allocate(SIXTYFOUR_KB), null);
     KeyValueLeafPage page2 = null;
     try {
       assertEquals(0L, page1.getPageKey());
 
       // Create ResourceConfiguration for testing
       final var config = pageReadTrx.getResourceSession().getResourceConfig();
-      
+
       // Create ElementNode with primitive fields
       final LongArrayList attributeKeys = new LongArrayList();
       attributeKeys.add(88L);
@@ -102,46 +99,43 @@ public final class NodePageTest {
       final LongArrayList namespaceKeys = new LongArrayList();
       namespaceKeys.add(99L);
       namespaceKeys.add(98L);
-      
-      final ElementNode node1 = new ElementNode(
-          0L,                                              // nodeKey
-          1L,                                              // parentKey
-          Constants.NULL_REVISION_NUMBER,                  // previousRevision
-          0,                                               // lastModifiedRevision
-          4L,                                              // rightSiblingKey
-          3L,                                              // leftSiblingKey
-          12L,                                             // firstChildKey
-          12L,                                             // lastChildKey
-          config.storeChildCount() ? 1L : 0L,              // childCount
-          0L,                                              // descendantCount
-          0L,                                              // hash
-          1L,                                              // pathNodeKey
-          6,                                               // prefixKey
-          7,                                               // localNameKey
-          5,                                               // uriKey
-          config.nodeHashFunction,                         // hashFunction
-          SirixDeweyID.newRootID(),                        // deweyID
-          attributeKeys,                                   // attributeKeys
-          namespaceKeys,                                   // namespaceKeys
+
+      final ElementNode node1 = new ElementNode(0L, // nodeKey
+          1L, // parentKey
+          Constants.NULL_REVISION_NUMBER, // previousRevision
+          0, // lastModifiedRevision
+          4L, // rightSiblingKey
+          3L, // leftSiblingKey
+          12L, // firstChildKey
+          12L, // lastChildKey
+          config.storeChildCount()
+              ? 1L
+              : 0L, // childCount
+          0L, // descendantCount
+          0L, // hash
+          1L, // pathNodeKey
+          6, // prefixKey
+          7, // localNameKey
+          5, // uriKey
+          config.nodeHashFunction, // hashFunction
+          SirixDeweyID.newRootID(), // deweyID
+          attributeKeys, // attributeKeys
+          namespaceKeys, // namespaceKeys
           new QNm("a", "b", "c"));
-      
+
       // Compute and set hash
       var bytes = Bytes.elasticOffHeapByteBuffer();
       node1.setHash(node1.computeHash(bytes));
-      
+
       assertEquals(0L, node1.getNodeKey());
       page1.setRecord(node1);
 
       final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
       final PagePersister pagePersister = new PagePersister();
-      pagePersister.serializePage(pageReadTrx.getResourceSession().getResourceConfig(),
-                                  data,
-                                  page1,
-                                  SerializationType.DATA);
-      page2 =
-          (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx.getResourceSession().getResourceConfig(),
-                                                           Bytes.wrapForRead(data.toByteArray()),
-                                                           SerializationType.DATA);
+      pagePersister.serializePage(pageReadTrx.getResourceSession().getResourceConfig(), data, page1,
+          SerializationType.DATA);
+      page2 = (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx.getResourceSession().getResourceConfig(),
+          Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
       // assertEquals(position, out.position());
       final ElementNode element = (ElementNode) pageReadTrx.getValue(page2, 0L);
 

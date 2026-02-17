@@ -75,7 +75,7 @@ class HOTDirectApiTest {
       for (int children = 2; children <= 32; children++) {
         var type = NodeUpgradeManager.determineNodeType(children);
         assertNotNull(type);
-        
+
         if (children <= 2) {
           assertEquals(HOTIndirectPage.NodeType.BI_NODE, type);
         } else if (children <= 16) {
@@ -109,10 +109,10 @@ class HOTDirectApiTest {
       PageReference lr = new PageReference();
       PageReference rr = new PageReference();
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, lr, rr);
-      
+
       boolean isFull = NodeUpgradeManager.isFull(biNode);
       boolean isUnder = NodeUpgradeManager.isUnderfilled(biNode, 0.5);
-      
+
       // BiNode with 2 children has 100% fill
       assertNotNull(Boolean.valueOf(isFull));
       assertNotNull(Boolean.valueOf(isUnder));
@@ -125,10 +125,10 @@ class HOTDirectApiTest {
         partialKeys[i] = (byte) i;
       }
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(2L, 1, (byte) 0, 0b1111L, partialKeys, children);
-      
+
       boolean spanFull = NodeUpgradeManager.isFull(spanNode);
       boolean spanUnder = NodeUpgradeManager.isUnderfilled(spanNode, 0.5);
-      
+
       assertNotNull(Boolean.valueOf(spanFull));
       assertNotNull(Boolean.valueOf(spanUnder));
     }
@@ -153,7 +153,7 @@ class HOTDirectApiTest {
       for (int i = 0; i < 64; i++) {
         keys[i] = new byte[] {(byte) (i * 4)};
       }
-      
+
       int splitPoint = HeightOptimalSplitter.findOptimalSplitPoint(keys);
       assertTrue(splitPoint > 0 && splitPoint < 64, "Split should be in middle region");
     }
@@ -170,7 +170,7 @@ class HOTDirectApiTest {
       for (int i = 0; i < 16; i++) {
         keys[16 + i] = new byte[] {(byte) (0xF0 + i)};
       }
-      
+
       int splitPoint = HeightOptimalSplitter.findOptimalSplitPoint(keys);
       assertTrue(splitPoint >= 0 && splitPoint < 32);
     }
@@ -301,7 +301,7 @@ class HOTDirectApiTest {
       for (int bitPos = 0; bitPos < 32; bitPos++) {
         PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(bitPos);
         assertNotNull(mapping);
-        
+
         int msb = mapping.getMostSignificantBitIndex();
         int lsb = mapping.getLeastSignificantBitIndex();
         assertTrue(msb >= 0);
@@ -313,18 +313,18 @@ class HOTDirectApiTest {
     @DisplayName("Test multi-bit mapping with withAdditionalBit")
     void testMultiBitMapping() {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(0);
-      
+
       for (int bit = 8; bit <= 56; bit += 8) {
         mapping = PartialKeyMapping.withAdditionalBit(mapping, bit);
         assertNotNull(mapping);
       }
-      
+
       // Extract from 8-byte key
       byte[] key = new byte[8];
       for (int i = 0; i < 8; i++) {
         key[i] = (byte) (0x80 >> (i % 8));
       }
-      
+
       int extracted = mapping.extractMask(key);
       assertTrue(extracted >= 0);
     }
@@ -335,7 +335,7 @@ class HOTDirectApiTest {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(0);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 8);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 16);
-      
+
       for (int bitIdx = 0; bitIdx < 24; bitIdx++) {
         int mask = mapping.getMaskFor(bitIdx);
         assertTrue(mask >= 0);
@@ -346,11 +346,11 @@ class HOTDirectApiTest {
     @DisplayName("Test getPrefixBitsMask")
     void testGetPrefixBitsMask() {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(7);
-      
+
       int prefix0 = mapping.getPrefixBitsMask(0);
       int prefix4 = mapping.getPrefixBitsMask(4);
       int prefix8 = mapping.getPrefixBitsMask(8);
-      
+
       assertTrue(prefix0 >= 0);
       assertTrue(prefix4 >= 0);
       assertTrue(prefix8 >= 0);
@@ -422,7 +422,7 @@ class HOTDirectApiTest {
     @DisplayName("Test setNumEntries")
     void testSetNumEntries() {
       SparsePartialKeys<Byte> spk = SparsePartialKeys.forBytes(32);
-      
+
       for (int numEntries : new int[] {1, 8, 16, 32}) {
         spk.setNumEntries(numEntries);
         // Just verify no exception
@@ -439,7 +439,7 @@ class HOTDirectApiTest {
     @DisplayName("Test full directory lifecycle")
     void testFullLifecycle() {
       ChunkDirectory dir = new ChunkDirectory();
-      
+
       // Initially empty
       assertTrue(dir.isEmpty());
       assertFalse(dir.isModified());
@@ -480,12 +480,12 @@ class HOTDirectApiTest {
     @DisplayName("Test setChunkRef and getChunkRef")
     void testSetGetChunkRef() {
       ChunkDirectory dir = new ChunkDirectory();
-      
+
       for (int idx = 0; idx < 20; idx++) {
         PageReference ref = new PageReference();
         ref.setKey(1000 + idx);
         dir.setChunkRef(idx, ref);
-        
+
         PageReference retrieved = dir.getChunkRef(idx);
         assertNotNull(retrieved);
         assertEquals(1000 + idx, retrieved.getKey());
@@ -522,7 +522,7 @@ class HOTDirectApiTest {
       for (int bytePos = 0; bytePos < 8; bytePos++) {
         byte[] key1 = new byte[8];
         byte[] key2 = new byte[8];
-        key2[bytePos] = 0x01;  // Bit 7 of this byte differs
+        key2[bytePos] = 0x01; // Bit 7 of this byte differs
 
         int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
         assertEquals(bytePos * 8 + 7, bit);

@@ -5,14 +5,14 @@ import io.sirix.index.IndexType;
 /**
  * Mutable lookup key for RedBlackTree index cache lookups.
  * <p>
- * This class is designed to be reused via ThreadLocal to avoid allocation
- * on every cache lookup during tree traversal. It has hashCode/equals
- * compatible with the immutable {@link RBIndexKey} record.
+ * This class is designed to be reused via ThreadLocal to avoid allocation on every cache lookup
+ * during tree traversal. It has hashCode/equals compatible with the immutable {@link RBIndexKey}
+ * record.
  * </p>
  * <p>
- * <b>IMPORTANT:</b> This class must NOT be used as a key for cache insertions
- * (put operations). Only the immutable {@link RBIndexKey} record should be
- * used for insertions to ensure cache integrity.
+ * <b>IMPORTANT:</b> This class must NOT be used as a key for cache insertions (put operations).
+ * Only the immutable {@link RBIndexKey} record should be used for insertions to ensure cache
+ * integrity.
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -37,16 +37,16 @@ public final class RBIndexKeyLookup {
   /**
    * Set all fields at once for reuse.
    *
-   * @param databaseId     the database ID
-   * @param resourceId     the resource ID
-   * @param nodeKey        the node key
+   * @param databaseId the database ID
+   * @param resourceId the resource ID
+   * @param nodeKey the node key
    * @param revisionNumber the revision number
-   * @param indexType      the index type
-   * @param indexNumber    the index number
+   * @param indexType the index type
+   * @param indexNumber the index number
    * @return this instance for method chaining
    */
-  public RBIndexKeyLookup setAll(long databaseId, long resourceId, long nodeKey,
-                                  int revisionNumber, IndexType indexType, int indexNumber) {
+  public RBIndexKeyLookup setAll(long databaseId, long resourceId, long nodeKey, int revisionNumber,
+      IndexType indexType, int indexNumber) {
     this.databaseId = databaseId;
     this.resourceId = resourceId;
     this.nodeKey = nodeKey;
@@ -94,8 +94,8 @@ public final class RBIndexKeyLookup {
   }
 
   /**
-   * Hash code compatible with {@link RBIndexKey} record.
-   * This follows the same algorithm as the auto-generated record hashCode.
+   * Hash code compatible with {@link RBIndexKey} record. This follows the same algorithm as the
+   * auto-generated record hashCode.
    */
   @Override
   public int hashCode() {
@@ -103,14 +103,16 @@ public final class RBIndexKeyLookup {
     result = 31 * result + Long.hashCode(resourceId);
     result = 31 * result + Long.hashCode(nodeKey);
     result = 31 * result + revisionNumber;
-    result = 31 * result + (indexType != null ? indexType.hashCode() : 0);
+    result = 31 * result + (indexType != null
+        ? indexType.hashCode()
+        : 0);
     result = 31 * result + indexNumber;
     return result;
   }
 
   /**
-   * Equals implementation compatible with {@link RBIndexKey} record.
-   * Supports equality checks with both RBIndexKeyLookup and RBIndexKey.
+   * Equals implementation compatible with {@link RBIndexKey} record. Supports equality checks with
+   * both RBIndexKeyLookup and RBIndexKey.
    */
   @Override
   public boolean equals(Object obj) {
@@ -118,19 +120,12 @@ public final class RBIndexKeyLookup {
       return true;
     }
     if (obj instanceof RBIndexKeyLookup other) {
-      return databaseId == other.databaseId
-          && resourceId == other.resourceId
-          && nodeKey == other.nodeKey
-          && revisionNumber == other.revisionNumber
-          && indexType == other.indexType
-          && indexNumber == other.indexNumber;
+      return databaseId == other.databaseId && resourceId == other.resourceId && nodeKey == other.nodeKey
+          && revisionNumber == other.revisionNumber && indexType == other.indexType && indexNumber == other.indexNumber;
     }
     if (obj instanceof RBIndexKey other) {
-      return databaseId == other.databaseId()
-          && resourceId == other.resourceId()
-          && nodeKey == other.nodeKey()
-          && revisionNumber == other.revisionNumber()
-          && indexType == other.indexType()
+      return databaseId == other.databaseId() && resourceId == other.resourceId() && nodeKey == other.nodeKey()
+          && revisionNumber == other.revisionNumber() && indexType == other.indexType()
           && indexNumber == other.indexNumber();
     }
     return false;
@@ -138,13 +133,7 @@ public final class RBIndexKeyLookup {
 
   @Override
   public String toString() {
-    return "RBIndexKeyLookup[" +
-        "databaseId=" + databaseId +
-        ", resourceId=" + resourceId +
-        ", nodeKey=" + nodeKey +
-        ", revisionNumber=" + revisionNumber +
-        ", indexType=" + indexType +
-        ", indexNumber=" + indexNumber +
-        ']';
+    return "RBIndexKeyLookup[" + "databaseId=" + databaseId + ", resourceId=" + resourceId + ", nodeKey=" + nodeKey
+        + ", revisionNumber=" + revisionNumber + ", indexType=" + indexType + ", indexNumber=" + indexNumber + ']';
   }
 }

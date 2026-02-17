@@ -21,10 +21,11 @@ public final class Array {
   public static final double RESIZE_CAPACITY = 1.5;
 
   /** Private constructor. */
-  private Array() { }
+  private Array() {}
 
   /**
    * Copies the specified array.
+   * 
    * @param array array to be copied
    * @param size new array size
    * @return new array
@@ -37,6 +38,7 @@ public final class Array {
 
   /**
    * Copies the specified array.
+   * 
    * @param array array to be copied
    * @param size new array size
    * @return new array
@@ -49,6 +51,7 @@ public final class Array {
 
   /**
    * Copies the specified array.
+   * 
    * @param array array to be copied
    * @param size new array size
    * @return new array
@@ -61,6 +64,7 @@ public final class Array {
 
   /**
    * Adds an entry to the end of an array and returns the new array.
+   * 
    * @param array array to be resized
    * @param entry entry to be added
    * @param <T> array type
@@ -75,6 +79,7 @@ public final class Array {
 
   /**
    * Adds an entry to the end of an array and returns the new array.
+   * 
    * @param array array to be resized
    * @param entry entry to be added
    * @return array
@@ -88,6 +93,7 @@ public final class Array {
 
   /**
    * Inserts entries into an array.
+   * 
    * @param array array
    * @param index insertion index
    * @param add number of entries to add
@@ -97,11 +103,13 @@ public final class Array {
   public static void insert(final Object array, final int index, final int add, final int length,
       final Object entries) {
     System.arraycopy(array, index, array, index + add, length - index);
-    if(entries != null) copyFromStart(entries, add, array, index);
+    if (entries != null)
+      copyFromStart(entries, add, array, index);
   }
 
   /**
    * Removes entries inside an array.
+   * 
    * @param array array
    * @param index index of first entry to be removed
    * @param del number of entries to remove
@@ -113,19 +121,21 @@ public final class Array {
 
   /**
    * Copies first entries from one array to another array.
+   * 
    * @param array source array
    * @param index index of source array
    * @param length number of array entries to be copied
    * @param target target array
    * @param trgIndex index of target array
    */
-  public static void copy(final Object array, final int index, final int length,
-      final Object target, final int trgIndex) {
+  public static void copy(final Object array, final int index, final int length, final Object target,
+      final int trgIndex) {
     System.arraycopy(array, index, target, trgIndex, length);
   }
 
   /**
    * Copies first entries from one array to another array.
+   * 
    * @param source source array
    * @param length number of array entries to be copied
    * @param target target array
@@ -136,30 +146,31 @@ public final class Array {
 
   /**
    * Copies first entries from one array to another array.
+   * 
    * @param source source array
    * @param length number of array entries to be copied
    * @param target target array
    * @param index target index
    */
-  public static void copyFromStart(final Object source, final int length, final Object target,
-      final int index) {
+  public static void copyFromStart(final Object source, final int length, final Object target, final int index) {
     System.arraycopy(source, 0, target, index, length);
   }
 
   /**
    * Copies first entries from one array to beginning of another array.
+   * 
    * @param source source array
    * @param index index of first entry to copy
    * @param length number of array entries to be copied
    * @param target target array
    */
-  public static void copyToStart(final Object source, final int index, final int length,
-      final Object target) {
+  public static void copyToStart(final Object source, final int index, final int length, final Object target) {
     System.arraycopy(source, index, target, 0, length);
   }
 
   /**
    * Copies entries from one array to another array.
+   * 
    * @param <T> object type
    * @param source source array
    * @param target target array
@@ -172,6 +183,7 @@ public final class Array {
 
   /**
    * Removes an array entry at the specified position.
+   * 
    * @param array array to be resized
    * @param index index of entry
    * @param <T> array type
@@ -186,17 +198,21 @@ public final class Array {
 
   /**
    * Returns an initial array capacity, which will not exceed {@link #MAX_CAPACITY}.
+   * 
    * @param size size expected result size (ignored if negative)
    * @return capacity
    */
   public static int initialCapacity(final long size) {
-    return size < 0 ? INITIAL_CAPACITY : (int) Math.min(MAX_CAPACITY, size);
+    return size < 0
+        ? INITIAL_CAPACITY
+        : (int) Math.min(MAX_CAPACITY, size);
   }
 
   /**
-   * Returns a value for a new array size, which will always be larger than the old size.
-   * The returned value will not exceed the maximum allowed array size.
-   * If the maximum is reached, an exception is thrown.
+   * Returns a value for a new array size, which will always be larger than the old size. The returned
+   * value will not exceed the maximum allowed array size. If the maximum is reached, an exception is
+   * thrown.
+   * 
    * @param size old array capacity
    * @return new capacity
    */
@@ -205,9 +221,10 @@ public final class Array {
   }
 
   /**
-   * Returns a value for a new array size, which will always be larger than the old size.
-   * The returned value will not exceed the maximum allowed array size.
-   * If the maximum is reached, an exception is thrown.
+   * Returns a value for a new array size, which will always be larger than the old size. The returned
+   * value will not exceed the maximum allowed array size. If the maximum is reached, an exception is
+   * thrown.
+   * 
    * @param size old array capacity
    * @param factor resize factor; must be larger than or equal to 1
    * @return new capacity
@@ -218,27 +235,34 @@ public final class Array {
 
   /**
    * Raises an exception if the specified size exceeds the maximum array size.
+   * 
    * @param size array capacity
    * @return argument as integer, or {@code 0} if the argument is negative
    */
   public static int checkCapacity(final long size) {
-    if(size > MAX_SIZE) throw new ArrayIndexOutOfBoundsException("Maximum array size reached.");
+    if (size > MAX_SIZE)
+      throw new ArrayIndexOutOfBoundsException("Maximum array size reached.");
     return Math.max(0, (int) size);
   }
 
   /**
    * Compares two arrays for equality.
+   * 
    * @param arr1 first array (can be {@code null})
    * @param arr2 second array (can be {@code null})
    * @return result of check
    */
   public static boolean equals(final Object[] arr1, final Object[] arr2) {
-    if(arr1 == arr2) return true;
-    if(arr1 == null || arr2 == null) return false;
+    if (arr1 == arr2)
+      return true;
+    if (arr1 == null || arr2 == null)
+      return false;
     final int al = arr1.length;
-    if(al != arr2.length) return false;
-    for(int a = 0; a < al; a++) {
-      if(!Objects.equals(arr1[a], arr2[a])) return false;
+    if (al != arr2.length)
+      return false;
+    for (int a = 0; a < al; a++) {
+      if (!Objects.equals(arr1[a], arr2[a]))
+        return false;
     }
     return true;
   }

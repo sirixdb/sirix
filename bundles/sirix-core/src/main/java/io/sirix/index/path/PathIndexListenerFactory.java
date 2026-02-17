@@ -15,16 +15,18 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 /**
  * Factory for creating PATH index listeners.
  * 
- * <p>Supports both traditional RBTree and high-performance HOT index backends.
- * The backend is determined by the resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}
- * setting.</p>
+ * <p>
+ * Supports both traditional RBTree and high-performance HOT index backends. The backend is
+ * determined by the resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}
+ * setting.
+ * </p>
  */
 public final class PathIndexListenerFactory {
 
   /**
-   * System property to override HOT indexes globally (for testing).
-   * Set -Dsirix.index.useHOT=true to enable regardless of resource configuration.
-   * If not set, the resource configuration's indexBackendType is used.
+   * System property to override HOT indexes globally (for testing). Set -Dsirix.index.useHOT=true to
+   * enable regardless of resource configuration. If not set, the resource configuration's
+   * indexBackendType is used.
    */
   public static final String USE_HOT_PROPERTY = "sirix.index.useHOT";
 
@@ -37,11 +39,13 @@ public final class PathIndexListenerFactory {
   /**
    * Creates a PATH index listener using the backend configured for the resource.
    * 
-   * <p>The backend type is determined by checking:
+   * <p>
+   * The backend type is determined by checking:
    * <ol>
-   *   <li>The system property {@code sirix.index.useHOT} (for testing override)</li>
-   *   <li>The resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}</li>
-   * </ol></p>
+   * <li>The system property {@code sirix.index.useHOT} (for testing override)</li>
+   * <li>The resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}</li>
+   * </ol>
+   * </p>
    */
   public PathIndexListener create(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
@@ -51,10 +55,10 @@ public final class PathIndexListenerFactory {
   /**
    * Creates a PATH index listener with explicit backend selection.
    *
-   * @param pageTrx         the storage engine writer
+   * @param pageTrx the storage engine writer
    * @param pathSummaryReader the path summary reader
-   * @param indexDef        the index definition
-   * @param useHOT          true to use HOT, false for RBTree
+   * @param indexDef the index definition
+   * @param useHOT true to use HOT, false for RBTree
    * @return the PATH index listener
    */
   public PathIndexListener create(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
@@ -66,10 +70,8 @@ public final class PathIndexListenerFactory {
       final var hotWriter = HOTLongIndexWriter.create(pageTrx, IndexType.PATH, indexDef.getID());
       return new PathIndexListener(paths, pathSummary, hotWriter);
     } else {
-      final var rbTreeWriter = RBTreeWriter.<Long, NodeReferences>getInstance(this.databaseType,
-                                                                               pageTrx,
-                                                                               indexDef.getType(),
-                                                                               indexDef.getID());
+      final var rbTreeWriter = RBTreeWriter.<Long, NodeReferences>getInstance(this.databaseType, pageTrx,
+          indexDef.getType(), indexDef.getID());
       return new PathIndexListener(paths, pathSummary, rbTreeWriter);
     }
   }
@@ -77,11 +79,13 @@ public final class PathIndexListenerFactory {
   /**
    * Checks if HOT indexes should be used for the given transaction.
    * 
-   * <p>Priority:
+   * <p>
+   * Priority:
    * <ol>
-   *   <li>System property override (for testing)</li>
-   *   <li>Resource configuration setting</li>
-   * </ol></p>
+   * <li>System property override (for testing)</li>
+   * <li>Resource configuration setting</li>
+   * </ol>
+   * </p>
    *
    * @param pageTrx the storage engine writer providing access to resource configuration
    * @return true if HOT should be used
@@ -92,7 +96,7 @@ public final class PathIndexListenerFactory {
     if (sysProp != null) {
       return Boolean.parseBoolean(sysProp);
     }
-    
+
     // Fall back to resource configuration
     final var resourceConfig = pageTrx.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;
@@ -102,7 +106,8 @@ public final class PathIndexListenerFactory {
    * Checks if HOT indexes are enabled globally via system property.
    * 
    * @return true if HOT is enabled via system property
-   * @deprecated Use {@link #isHOTEnabled(StorageEngineWriter)} for proper resource-aware configuration
+   * @deprecated Use {@link #isHOTEnabled(StorageEngineWriter)} for proper resource-aware
+   *             configuration
    */
   @Deprecated
   public static boolean isHOTEnabled() {

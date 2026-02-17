@@ -38,7 +38,8 @@ import io.sirix.service.xml.shredder.XmlShredder;
  *
  * <p>
  * The following figure describes the created test document (see <code>xml/test.xml</code>). The
- * nodes are described as follows:</p>
+ * nodes are described as follows:
+ * </p>
  *
  * <ul>
  * <li><code>Kind.ROOT: doc()</code></li>
@@ -324,6 +325,7 @@ public final class XmlDocumentCreator {
 
   /**
    * Create revisioned document.
+   * 
    * @param database the database to create the revisioned document from
    * @throws SirixException if shredding fails
    */

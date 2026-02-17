@@ -40,15 +40,18 @@ import java.util.BitSet;
 /**
  * Codec for compressing slot offset arrays using bit-packing.
  *
- * <p>This compression technique is inspired by best practices from DuckDB, RocksDB,
- * and Apache Parquet. It achieves significant space savings compared to raw int[1024] arrays:</p>
+ * <p>
+ * This compression technique is inspired by best practices from DuckDB, RocksDB, and Apache
+ * Parquet. It achieves significant space savings compared to raw int[1024] arrays:
+ * </p>
  * <ul>
- *   <li>Sparse pages (10% full): ~95% savings</li>
- *   <li>Realistic pages (80% full): ~50% savings</li>
- *   <li>Full pages: ~50% savings</li>
+ * <li>Sparse pages (10% full): ~95% savings</li>
+ * <li>Realistic pages (80% full): ~50% savings</li>
+ * <li>Full pages: ~50% savings</li>
  * </ul>
  *
  * <h2>Format</h2>
+ * 
  * <pre>
  * ┌─────────────────────────────────────────────────────────────────┐
  * │                    Compressed Slot Offsets                       │
@@ -60,46 +63,45 @@ import java.util.BitSet;
  *
  * <h2>Algorithm</h2>
  * <ol>
- *   <li>Build a presence bitmap indicating which slots are populated (offset >= 0)</li>
- *   <li>Extract populated offsets in slot order</li>
- *   <li>Determine minimum bit width needed to represent max offset</li>
- *   <li>Bit-pack all offsets using the computed bit width</li>
+ * <li>Build a presence bitmap indicating which slots are populated (offset >= 0)</li>
+ * <li>Extract populated offsets in slot order</li>
+ * <li>Determine minimum bit width needed to represent max offset</li>
+ * <li>Bit-pack all offsets using the computed bit width</li>
  * </ol>
  *
- * <p>Note: Delta encoding is not used because slot offsets are not guaranteed to be
- * monotonically increasing when iterated in slot order.</p>
+ * <p>
+ * Note: Delta encoding is not used because slot offsets are not guaranteed to be monotonically
+ * increasing when iterated in slot order.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
 public final class SlotOffsetCodec {
 
   /**
-   * ThreadLocal buffer for reading packed bytes during decode.
-   * Sized to handle worst case: 1024 slots × 32 bits = 4096 bytes.
-   * Avoids allocation on every page read (critical read path).
+   * ThreadLocal buffer for reading packed bytes during decode. Sized to handle worst case: 1024 slots
+   * × 32 bits = 4096 bytes. Avoids allocation on every page read (critical read path).
    */
-  private static final ThreadLocal<byte[]> DECODE_BUFFER = ThreadLocal.withInitial(
-      () -> new byte[Constants.NDP_NODE_COUNT * 4]); // 4KB max
+  private static final ThreadLocal<byte[]> DECODE_BUFFER =
+      ThreadLocal.withInitial(() -> new byte[Constants.NDP_NODE_COUNT * 4]); // 4KB max
 
   /**
-   * ThreadLocal buffer for writing packed bytes during encode.
-   * Avoids allocation on every page write.
+   * ThreadLocal buffer for writing packed bytes during encode. Avoids allocation on every page write.
    */
-  private static final ThreadLocal<byte[]> ENCODE_BUFFER = ThreadLocal.withInitial(
-      () -> new byte[Constants.NDP_NODE_COUNT * 4]); // 4KB max
+  private static final ThreadLocal<byte[]> ENCODE_BUFFER =
+      ThreadLocal.withInitial(() -> new byte[Constants.NDP_NODE_COUNT * 4]); // 4KB max
 
   /**
-   * ThreadLocal BitSet for encode operations.
-   * Reused across calls to avoid allocation.
+   * ThreadLocal BitSet for encode operations. Reused across calls to avoid allocation.
    */
-  private static final ThreadLocal<BitSet> ENCODE_BITSET = ThreadLocal.withInitial(
-      () -> new BitSet(Constants.NDP_NODE_COUNT));
+  private static final ThreadLocal<BitSet> ENCODE_BITSET =
+      ThreadLocal.withInitial(() -> new BitSet(Constants.NDP_NODE_COUNT));
 
   /**
    * ThreadLocal array for populated offsets during encode.
    */
-  private static final ThreadLocal<int[]> ENCODE_OFFSETS = ThreadLocal.withInitial(
-      () -> new int[Constants.NDP_NODE_COUNT]);
+  private static final ThreadLocal<int[]> ENCODE_OFFSETS =
+      ThreadLocal.withInitial(() -> new int[Constants.NDP_NODE_COUNT]);
 
   private SlotOffsetCodec() {
     throw new AssertionError("May not be instantiated!");
@@ -108,12 +110,14 @@ public final class SlotOffsetCodec {
   /**
    * Encode slot offsets using bit-packing.
    *
-   * <p>Format: [presence bitmap][bitWidth (1B)][bit-packed offsets]</p>
+   * <p>
+   * Format: [presence bitmap][bitWidth (1B)][bit-packed offsets]
+   * </p>
    *
-   * @param sink          the output to write compressed data to
-   * @param slotOffsets   the slot offset array (length must be Constants.NDP_NODE_COUNT)
+   * @param sink the output to write compressed data to
+   * @param slotOffsets the slot offset array (length must be Constants.NDP_NODE_COUNT)
    * @param lastSlotIndex unused, kept for API compatibility
-   * @throws NullPointerException     if sink or slotOffsets is null
+   * @throws NullPointerException if sink or slotOffsets is null
    * @throws IllegalArgumentException if slotOffsets.length != Constants.NDP_NODE_COUNT
    */
   public static void encode(final BytesOut<?> sink, final int[] slotOffsets, final int lastSlotIndex) {
@@ -173,8 +177,12 @@ public final class SlotOffsetCodec {
   /**
    * Decode compressed slot offsets back to int[1024] array.
    *
-   * <p>Empty slots are marked with -1.</p>
-   * <p>Optimized to avoid intermediate array allocation by reading directly into sparse result.</p>
+   * <p>
+   * Empty slots are marked with -1.
+   * </p>
+   * <p>
+   * Optimized to avoid intermediate array allocation by reading directly into sparse result.
+   * </p>
    *
    * @param source the input to read compressed data from
    * @return the decoded slot offset array of length Constants.NDP_NODE_COUNT
@@ -206,10 +214,12 @@ public final class SlotOffsetCodec {
   /**
    * Pack integers using exactly bitWidth bits each.
    *
-   * <p>Values are packed in little-endian bit order within each byte.</p>
+   * <p>
+   * Values are packed in little-endian bit order within each byte.
+   * </p>
    *
-   * @param sink     the output to write packed data to
-   * @param values   the integer values to pack (all values used)
+   * @param sink the output to write packed data to
+   * @param values the integer values to pack (all values used)
    * @param bitWidth the number of bits to use per value (1-32)
    */
   static void writeBitPacked(final BytesOut<?> sink, final int[] values, final int bitWidth) {
@@ -219,12 +229,16 @@ public final class SlotOffsetCodec {
   /**
    * Pack integers using exactly bitWidth bits each.
    *
-   * <p>Values are packed in little-endian bit order within each byte.</p>
-   * <p>Uses ThreadLocal buffer to avoid allocation on hot path.</p>
+   * <p>
+   * Values are packed in little-endian bit order within each byte.
+   * </p>
+   * <p>
+   * Uses ThreadLocal buffer to avoid allocation on hot path.
+   * </p>
    *
-   * @param sink     the output to write packed data to
-   * @param values   the integer values to pack
-   * @param count    the number of values to pack from the array
+   * @param sink the output to write packed data to
+   * @param values the integer values to pack
+   * @param count the number of values to pack from the array
    * @param bitWidth the number of bits to use per value (1-32)
    */
   static void writeBitPacked(final BytesOut<?> sink, final int[] values, final int count, final int bitWidth) {
@@ -263,18 +277,18 @@ public final class SlotOffsetCodec {
   /**
    * Unpack integers from bitWidth-bit packed format directly into sparse result array.
    * <p>
-   * Optimized to avoid intermediate array allocation by writing directly to
-   * the positions indicated by the presence BitSet.
+   * Optimized to avoid intermediate array allocation by writing directly to the positions indicated
+   * by the presence BitSet.
    * </p>
    *
-   * @param source      the input to read packed data from
-   * @param presence    BitSet indicating which slots are populated
-   * @param result      the sparse result array to write values into
-   * @param count       the number of integers to unpack
-   * @param bitWidth    the number of bits per value (1-32)
+   * @param source the input to read packed data from
+   * @param presence BitSet indicating which slots are populated
+   * @param result the sparse result array to write values into
+   * @param count the number of integers to unpack
+   * @param bitWidth the number of bits per value (1-32)
    */
-  private static void readBitPackedDirect(final BytesIn<?> source, final BitSet presence,
-                                          final int[] result, final int count, final int bitWidth) {
+  private static void readBitPackedDirect(final BytesIn<?> source, final BitSet presence, final int[] result,
+      final int count, final int bitWidth) {
     if (count == 0) {
       return;
     }
@@ -287,7 +301,9 @@ public final class SlotOffsetCodec {
     source.read(packed, 0, totalBytes);
 
     int bitPos = 0;
-    final int mask = (bitWidth == 32) ? -1 : (1 << bitWidth) - 1;
+    final int mask = (bitWidth == 32)
+        ? -1
+        : (1 << bitWidth) - 1;
 
     // Iterate through presence bits and write directly to result positions
     for (int slotIndex = presence.nextSetBit(0); slotIndex >= 0; slotIndex = presence.nextSetBit(slotIndex + 1)) {
@@ -307,10 +323,12 @@ public final class SlotOffsetCodec {
 
   /**
    * Unpack integers from bitWidth-bit packed format.
-   * <p>Uses ThreadLocal buffer to avoid allocation on hot path.</p>
+   * <p>
+   * Uses ThreadLocal buffer to avoid allocation on hot path.
+   * </p>
    *
-   * @param source   the input to read packed data from
-   * @param count    the number of integers to unpack
+   * @param source the input to read packed data from
+   * @param count the number of integers to unpack
    * @param bitWidth the number of bits per value (1-32)
    * @return the unpacked integer values
    */
@@ -328,7 +346,9 @@ public final class SlotOffsetCodec {
 
     final int[] values = new int[count];
     int bitPos = 0;
-    final int mask = (bitWidth == 32) ? -1 : (1 << bitWidth) - 1;
+    final int mask = (bitWidth == 32)
+        ? -1
+        : (1 << bitWidth) - 1;
 
     for (int i = 0; i < count; i++) {
       final int bytePos = bitPos / 8;
@@ -347,7 +367,5 @@ public final class SlotOffsetCodec {
     return values;
   }
 }
-
-
 
 

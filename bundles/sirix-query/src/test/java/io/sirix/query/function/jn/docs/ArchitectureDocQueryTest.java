@@ -22,8 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests for all XQuery examples in docs/ARCHITECTURE.md.
- * These tests verify that the documentation examples actually run.
+ * Tests for all XQuery examples in docs/ARCHITECTURE.md. These tests verify that the documentation
+ * examples actually run.
  */
 public final class ArchitectureDocQueryTest {
 
@@ -40,8 +40,8 @@ public final class ArchitectureDocQueryTest {
   }
 
   /**
-   * Tests for Problem 1: "What did my data look like last Tuesday at 3pm?"
-   * Query: Point-in-time access via revision number
+   * Tests for Problem 1: "What did my data look like last Tuesday at 3pm?" Query: Point-in-time
+   * access via revision number
    */
   @Nested
   @DisplayName("Problem 1: Point-in-time query")
@@ -51,8 +51,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Query state at specific revision using jn:doc with revision")
     void testQueryAtRevision() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Create initial data (revision 1)
         final var storeQuery = """
@@ -73,16 +73,14 @@ public final class ArchitectureDocQueryTest {
         new Query(chain, updateQuery).evaluate(ctx);
 
         // Query revision 1 - should have original price
-        final var queryRev1 = 
-            "let $catalog := jn:doc('shop', 'products', 1) " +
-            "for $p in $catalog.products[] where $p.sku eq \"SKU-12345\" return $p.price";
+        final var queryRev1 = "let $catalog := jn:doc('shop', 'products', 1) "
+            + "for $p in $catalog.products[] where $p.sku eq \"SKU-12345\" return $p.price";
         final var result1 = executeQuery(chain, ctx, queryRev1);
         assertTrue(result1.contains("99.99"), "Revision 1 should have original price 99.99, got: " + result1);
 
         // Query revision 2 - should have updated price
-        final var queryRev2 = 
-            "let $catalog := jn:doc('shop', 'products', 2) " +
-            "for $p in $catalog.products[] where $p.sku eq \"SKU-12345\" return $p.price";
+        final var queryRev2 = "let $catalog := jn:doc('shop', 'products', 2) "
+            + "for $p in $catalog.products[] where $p.sku eq \"SKU-12345\" return $p.price";
         final var result2 = executeQuery(chain, ctx, queryRev2);
         assertTrue(result2.contains("129.99"), "Revision 2 should have updated price 129.99, got: " + result2);
       }
@@ -90,8 +88,8 @@ public final class ArchitectureDocQueryTest {
   }
 
   /**
-   * Tests for Problem 2: "Show me what changed between two points in time"
-   * Query: Diff between revisions
+   * Tests for Problem 2: "Show me what changed between two points in time" Query: Diff between
+   * revisions
    */
   @Nested
   @DisplayName("Problem 2: Diff between revisions")
@@ -100,12 +98,11 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Get structured diff between two revisions")
     void testDiffBetweenRevisions() {
-      try (final var store = BasicJsonDBStore.newBuilder()
-                                             .location(SIRIX_DB_PATH.getParent())
-                                             .storeDeweyIds(true)
-                                             .build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      try (
+          final var store =
+              BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).storeDeweyIds(true).build();
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Create initial config (revision 1)
         final var storeQuery = """
@@ -137,8 +134,8 @@ public final class ArchitectureDocQueryTest {
   }
 
   /**
-   * Tests for Problem 3: "Track how this specific record evolved"
-   * Query: jn:all-times with sdb:revision
+   * Tests for Problem 3: "Track how this specific record evolved" Query: jn:all-times with
+   * sdb:revision
    */
   @Nested
   @DisplayName("Problem 3: Track record evolution")
@@ -148,8 +145,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Track node across all revisions with jn:all-times")
     void testAllTimesQuery() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Create initial data (revision 1)
         final var storeQuery = """
@@ -180,8 +177,7 @@ public final class ArchitectureDocQueryTest {
 
         final var result = executeQuery(chain, ctx, evolutionQuery);
         assertNotNull(result);
-        assertTrue(result.contains("high") || result.contains("critical"), 
-            "Should contain allergy data: " + result);
+        assertTrue(result.contains("high") || result.contains("critical"), "Should contain allergy data: " + result);
       }
     }
 
@@ -189,8 +185,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Get hash of node with sdb:hash")
     void testHashFunction() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Create data
         final var storeQuery = "jn:store('testdb', 'testres', '{\"data\": {\"value\": 100}}')";
@@ -206,8 +202,8 @@ public final class ArchitectureDocQueryTest {
   }
 
   /**
-   * Tests for Problem 4: "Find records that were added after a specific date"
-   * Query: Using jn:previous to detect new records
+   * Tests for Problem 4: "Find records that were added after a specific date" Query: Using
+   * jn:previous to detect new records
    */
   @Nested
   @DisplayName("Problem 4: Records added after date")
@@ -217,8 +213,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Detect new records with jn:previous returning empty")
     void testDetectNewRecords() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Create initial accounts (revision 1)
         final var storeQuery = """
@@ -252,8 +248,8 @@ public final class ArchitectureDocQueryTest {
   }
 
   /**
-   * Tests for Problem 5: "Access old revision by node key"
-   * Query: sdb:select-item with stable node key
+   * Tests for Problem 5: "Access old revision by node key" Query: sdb:select-item with stable node
+   * key
    */
   @Nested
   @DisplayName("Problem 5: Access old revision by node key")
@@ -263,8 +259,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Get node key with sdb:nodekey")
     void testGetNodeKey() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Create data
         final var storeQuery = "jn:store('mydb', 'myresource', '{\"field\": \"value\"}')";
@@ -282,8 +278,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Select item by node key with sdb:select-item")
     void testSelectItemByNodeKey() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Create data
         final var storeQuery = "jn:store('mydb', 'myresource', '{\"field\": \"original\"}')";
@@ -315,8 +311,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Compare data across revisions")
     void testCrossRevisionComparison() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Create products (revision 1)
         final var storeQuery = """
@@ -338,12 +334,12 @@ public final class ArchitectureDocQueryTest {
         final var revQuery = "sdb:revision(jn:doc('shop', 'products'))";
         final var revResult = executeQuery(chain, ctx, revQuery);
         assertTrue(revResult.contains("2"), "Should be at revision 2: " + revResult);
-        
+
         // Verify prices in each revision using for loop to avoid optimizer issue
         final var rev1Query = "for $p in jn:doc('shop', 'products', 1).products[] return $p.price";
         final var rev1Result = executeQuery(chain, ctx, rev1Query);
         assertTrue(rev1Result.contains("100"), "Revision 1 should have price 100: " + rev1Result);
-        
+
         final var rev2Query = "for $p in jn:doc('shop', 'products').products[] return $p.price";
         final var rev2Result = executeQuery(chain, ctx, rev2Query);
         assertTrue(rev2Result.contains("120"), "Revision 2 should have price 120: " + rev2Result);
@@ -362,8 +358,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Get revision number with sdb:revision")
     void testGetRevision() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         final var storeQuery = "jn:store('testdb', 'testres', '{\"data\": 1}')";
         new Query(chain, storeQuery).evaluate(ctx);
@@ -382,8 +378,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Get timestamp with sdb:timestamp")
     void testGetTimestamp() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         final var storeQuery = "jn:store('testdb', 'testres', '{\"data\": 1}')";
         new Query(chain, storeQuery).evaluate(ctx);
@@ -407,8 +403,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Navigate with jn:previous")
     void testJnPrevious() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Create revision 1
         final var storeQuery = "jn:store('testdb', 'testres', '{\"value\": \"v1\"}')";
@@ -426,9 +422,9 @@ public final class ArchitectureDocQueryTest {
             """;
 
         final var result = executeQuery(chain, ctx, prevQuery);
-        assertTrue(result.contains("\"currentRev\":2") || result.contains("\"currentRev\": 2"), 
+        assertTrue(result.contains("\"currentRev\":2") || result.contains("\"currentRev\": 2"),
             "Current should be revision 2: " + result);
-        assertTrue(result.contains("\"prevRev\":1") || result.contains("\"prevRev\": 1"), 
+        assertTrue(result.contains("\"prevRev\":1") || result.contains("\"prevRev\": 1"),
             "Previous should be revision 1: " + result);
       }
     }
@@ -437,8 +433,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Navigate with jn:next")
     void testJnNext() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Create revision 1
         final var storeQuery = "jn:store('testdb', 'testres', '{\"value\": \"v1\"}')";
@@ -456,9 +452,9 @@ public final class ArchitectureDocQueryTest {
             """;
 
         final var result = executeQuery(chain, ctx, nextQuery);
-        assertTrue(result.contains("\"oldRev\":1") || result.contains("\"oldRev\": 1"), 
+        assertTrue(result.contains("\"oldRev\":1") || result.contains("\"oldRev\": 1"),
             "Old should be revision 1: " + result);
-        assertTrue(result.contains("\"nextRev\":2") || result.contains("\"nextRev\": 2"), 
+        assertTrue(result.contains("\"nextRev\":2") || result.contains("\"nextRev\": 2"),
             "Next should be revision 2: " + result);
       }
     }
@@ -467,8 +463,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Find first existing with jn:first-existing")
     void testFirstExisting() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Create revision 1
         final var storeQuery = "jn:store('testdb', 'testres', '{\"items\": [1]}')";
@@ -491,8 +487,8 @@ public final class ArchitectureDocQueryTest {
     @DisplayName("Find last existing with jn:last-existing")
     void testLastExisting() {
       try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
-           final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var ctx = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Create revision 1
         final var storeQuery = "jn:store('testdb', 'testres', '{\"items\": [1, 2]}')";

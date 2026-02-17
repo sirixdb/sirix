@@ -39,8 +39,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
   /**
    * Constructor for use by subclasses.
    */
-  protected AbstractForwardingPage() {
-  }
+  protected AbstractForwardingPage() {}
 
   @Override
   protected abstract Page delegate();

@@ -24,7 +24,9 @@ import java.util.Set;
 /**
  * Listener for CAS (Content-and-Structure) index changes.
  * 
- * <p>Supports both traditional RBTree and high-performance HOT index backends.</p>
+ * <p>
+ * Supports both traditional RBTree and high-performance HOT index backends.
+ * </p>
  */
 public final class CASIndexListener {
 
@@ -51,8 +53,8 @@ public final class CASIndexListener {
   /**
    * Constructor with HOT writer (high-performance path).
    */
-  public CASIndexListener(final PathSummaryReader pathSummaryReader,
-      final HOTIndexWriter<CASValue> hotWriter, final Set<Path<QNm>> paths, final Type type) {
+  public CASIndexListener(final PathSummaryReader pathSummaryReader, final HOTIndexWriter<CASValue> hotWriter,
+      final Set<Path<QNm>> paths, final Type type) {
     this.pathSummaryReader = pathSummaryReader;
     this.rbTreeWriter = null;
     this.hotWriter = hotWriter;
@@ -61,11 +63,13 @@ public final class CASIndexListener {
     this.useHOT = true;
   }
 
-  public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey, final Str value) {
+  public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey,
+      final Str value) {
     listen(type, node.getNodeKey(), pathNodeKey, value);
   }
 
-  public void listen(final IndexController.ChangeType type, final long nodeKey, final long pathNodeKey, final Str value) {
+  public void listen(final IndexController.ChangeType type, final long nodeKey, final long pathNodeKey,
+      final Str value) {
     var hasMoved = pathSummaryReader.moveTo(pathNodeKey);
     assert hasMoved;
     switch (type) {
@@ -129,14 +133,12 @@ public final class CASIndexListener {
     }
   }
 
-  private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references,
-      final CASValue indexValue) {
+  private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references, final CASValue indexValue) {
     assert rbTreeWriter != null;
     rbTreeWriter.index(indexValue, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
   }
 
-  private void setNodeReferencesHOT(final long nodeKey, final NodeReferences references,
-      final CASValue indexValue) {
+  private void setNodeReferencesHOT(final long nodeKey, final NodeReferences references, final CASValue indexValue) {
     assert hotWriter != null;
     hotWriter.index(indexValue, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
   }

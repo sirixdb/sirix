@@ -61,8 +61,7 @@ public final class SubCost01 implements SubstitutionCost {
    * @return the cost of a given subsitution d(i,j) where d(i,j) = 1 if i!=j, 0 if i==j
    */
   @Override
-  public float getCost(final String str1, final int string1Index, final String str2,
-      final int string2Index) {
+  public float getCost(final String str1, final int string1Index, final String str2, final int string2Index) {
     if (str1.charAt(string1Index) == str2.charAt(string2Index)) {
       return 0.0f;
     } else {

@@ -108,8 +108,8 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
- * Implements the {@link StorageEngineWriter} interface to provide write capabilities to the persistent storage
- * layer.
+ * Implements the {@link StorageEngineWriter} interface to provide write capabilities to the
+ * persistent storage layer.
  * </p>
  *
  * @author Marc Kramis, Seabix AG
@@ -122,6 +122,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /**
    * Debug flag for memory leak tracking.
+   * 
    * @see DiagnosticSettings#MEMORY_LEAK_TRACKING
    */
   private static final boolean DEBUG_MEMORY_LEAKS = DiagnosticSettings.MEMORY_LEAK_TRACKING;
@@ -142,7 +143,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Transaction intent log.
    */
   TransactionIntentLog log;
-  
+
   /**
    * Last reference to the actual revRoot.
    */
@@ -159,8 +160,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private volatile boolean isClosed;
 
   /**
-   * Pending fsync future for async durability.
-   * For auto-commit mode, fsync runs in background; next commit waits for it.
+   * Pending fsync future for async durability. For auto-commit mode, fsync runs in background; next
+   * commit waits for it.
    */
   private volatile java.util.concurrent.CompletableFuture<Void> pendingFsync;
 
@@ -173,10 +174,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * The indirect page trie writer - manages the trie structure of IndirectPages.
    */
   private final TrieWriter trieWriter;
-  
+
   /**
-   * The HOT trie writer - manages HOT (Height Optimized Trie) structure.
-   * Used for cache-friendly secondary indexes (PATH, CAS, NAME).
+   * The HOT trie writer - manages HOT (Height Optimized Trie) structure. Used for cache-friendly
+   * secondary indexes (PATH, CAS, NAME).
    */
   private final HOTTrieWriter hotTrieWriter;
 
@@ -184,7 +185,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * The revision to represent.
    */
   private final int representRevision;
-  
+
   /**
    * Trie type for routing page operations.
    */
@@ -201,7 +202,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private final boolean isBoundToNodeTrx;
 
   private record IndexLogKeyToPageContainer(IndexType indexType, long recordPageKey, int indexNumber,
-                                            int revisionNumber, PageContainer pageContainer) {
+      int revisionNumber, PageContainer pageContainer) {
   }
 
   /**
@@ -245,18 +246,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Constructor.
    *
-   * @param writer            the page writer
-   * @param log               the transaction intent log
-   * @param revisionRootPage  the revision root page
-   * @param pageRtx           the page reading transaction used as a delegate
-   * @param indexController   the index controller, which is used to update indexes
+   * @param writer the page writer
+   * @param log the transaction intent log
+   * @param revisionRootPage the revision root page
+   * @param pageRtx the page reading transaction used as a delegate
+   * @param indexController the index controller, which is used to update indexes
    * @param representRevision the revision to represent
-   * @param isBoundToNodeTrx  {@code true} if this page write trx will be bound to a node trx,
-   *                          {@code false} otherwise
+   * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
+   *        {@code false} otherwise
    */
-  NodeStorageEngineWriter(final Writer writer, final TransactionIntentLog log,
-      final RevisionRootPage revisionRootPage, final NodeStorageEngineReader pageRtx,
-      final IndexController<?, ?> indexController, final int representRevision, final boolean isBoundToNodeTrx) {
+  NodeStorageEngineWriter(final Writer writer, final TransactionIntentLog log, final RevisionRootPage revisionRootPage,
+      final NodeStorageEngineReader pageRtx, final IndexController<?, ?> indexController, final int representRevision,
+      final boolean isBoundToNodeTrx) {
     this.trieWriter = new TrieWriter();
     this.hotTrieWriter = new HOTTrieWriter();
     storagePageReaderWriter = requireNonNull(writer);
@@ -287,18 +288,22 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
     };
   }
-  
+
   /**
    * Determine which trie type to use for the given index.
    * 
-   * <p>Currently all indexes use KEYED_TRIE. HOT is available but requires
-   * HOTLeafPage to implement setRecord()/getRecord() compatible with existing API.</p>
+   * <p>
+   * Currently all indexes use KEYED_TRIE. HOT is available but requires HOTLeafPage to implement
+   * setRecord()/getRecord() compatible with existing API.
+   * </p>
    * 
-   * <p>TODO to enable HOT:</p>
+   * <p>
+   * TODO to enable HOT:
+   * </p>
    * <ul>
-   *   <li>Implement HOTLeafPage.setRecord() to store DataRecords</li>
-   *   <li>Implement HOTLeafPage.getRecord() to retrieve DataRecords</li>
-   *   <li>Bridge between HOT key-value storage and DataRecord storage</li>
+   * <li>Implement HOTLeafPage.setRecord() to store DataRecords</li>
+   * <li>Implement HOTLeafPage.getRecord() to retrieve DataRecords</li>
+   * <li>Bridge between HOT key-value storage and DataRecord storage</li>
    * </ul>
    *
    * @param indexType the index type
@@ -310,13 +315,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // HOT is not yet fully integrated with DataRecord storage.
     // HOTLeafPage needs to implement setRecord()/getRecord() to be compatible.
     // Once implemented, enable with:
-    //   return switch (indexType) {
-    //     case PATH, CAS, NAME -> TrieType.HOT;
-    //     default -> TrieType.KEYED_TRIE;
-    //   };
+    // return switch (indexType) {
+    // case PATH, CAS, NAME -> TrieType.HOT;
+    // default -> TrieType.KEYED_TRIE;
+    // };
     return TrieType.KEYED_TRIE;
   }
-  
+
   /**
    * Get the HOT trie writer for HOT index operations.
    * 
@@ -385,7 +390,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             if (FixedSlotRecordMaterializer.populateExisting(singleton, nodeKind, recordKey,
                 modifiedLeafPage.getSlotMemory(), dataOffset, dataLength, deweyIdBytes,
                 pageRtx.getResourceSession().getResourceConfig())) {
-              return singleton;  // Zero-allocation hot path
+              return singleton; // Zero-allocation hot path
             }
           }
         }
@@ -402,9 +407,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Fall back to complete (on-disk) page.
     final DataRecord oldRecord = pageRtx.getValue(cont.getCompleteAsKeyValuePage(), recordKey);
     if (oldRecord == null) {
-      throw new SirixIOException(
-          "Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType + ") (index: "
-              + index + ")");
+      throw new SirixIOException("Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType
+          + ") (index: " + index + ")");
     }
     record = oldRecord;
 
@@ -487,12 +491,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     final int recordOffset = StorageEngineReader.recordPageOffset(record.getNodeKey());
     long dataOffset = modifiedLeafPage.getSlotDataOffset(recordOffset);
-    int dataLength = (dataOffset >= 0) ? modifiedLeafPage.getSlotDataLength(recordOffset) : -1;
+    int dataLength = (dataOffset >= 0)
+        ? modifiedLeafPage.getSlotDataLength(recordOffset)
+        : -1;
     if (dataOffset < 0 || dataLength != totalSlotSize) {
       final MemorySegment projectionBuffer = ensureFixedSlotProjectionBuffer(totalSlotSize);
       modifiedLeafPage.setSlot(projectionBuffer.asSlice(0, totalSlotSize), recordOffset);
       dataOffset = modifiedLeafPage.getSlotDataOffset(recordOffset);
-      dataLength = (dataOffset >= 0) ? modifiedLeafPage.getSlotDataLength(recordOffset) : -1;
+      dataLength = (dataOffset >= 0)
+          ? modifiedLeafPage.getSlotDataLength(recordOffset)
+          : -1;
       if (dataOffset < 0 || dataLength != totalSlotSize) {
         return false;
       }
@@ -531,7 +539,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     // Allocate record key and increment record count.
     // For RECORD_TO_REVISIONS: Use the record's own nodeKey (document node key) for page allocation.
-    // This is critical because later lookups via prepareRecordForModification use the document node key.
+    // This is critical because later lookups via prepareRecordForModification use the document node
+    // key.
     // Using an auto-allocated key would cause a mismatch where the record can't be found.
     // $CASES-OMITTED$
     final long createdRecordKey = switch (indexType) {
@@ -539,7 +548,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case CHANGED_NODES -> newRevisionRootPage.incrementAndGetMaxNodeKeyInChangedNodesIndex();
       case RECORD_TO_REVISIONS -> {
         // CRITICAL FIX: Use the document node key for page allocation, not an auto-allocated key.
-        // The RevisionReferencesNode stores document node key as its nodeKey, and we need to 
+        // The RevisionReferencesNode stores document node key as its nodeKey, and we need to
         // be able to look it up later using that same key in prepareRecordForModification.
         // Still update max key for proper tracking.
         long documentNodeKey = record.getNodeKey();
@@ -636,9 +645,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private DataRecord materializeDetachedRecord(final java.lang.foreign.MemorySegment serializedRecord,
       final DataRecord sourceRecord, final ResourceConfiguration resourceConfiguration) {
     return resourceConfiguration.recordPersister.deserialize(new MemorySegmentBytesIn(serializedRecord),
-                                                             sourceRecord.getNodeKey(),
-                                                             sourceRecord.getDeweyIDAsBytes(),
-                                                             resourceConfiguration);
+        sourceRecord.getNodeKey(), sourceRecord.getDeweyIDAsBytes(), resourceConfiguration);
   }
 
   @Override
@@ -652,12 +659,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       throw new IllegalStateException("Node not found: " + recordKey);
     }
 
-    final Node delNode = new DeletedNode(new NodeDelegate(node.getNodeKey(),
-                                                          -1,
-                                                          null,
-                                                          -1,
-                                                          pageRtx.getRevisionNumber(),
-                                                          (SirixDeweyID) null));
+    final Node delNode = new DeletedNode(
+        new NodeDelegate(node.getNodeKey(), -1, null, -1, pageRtx.getRevisionNumber(), (SirixDeweyID) null));
     cont.getModifiedAsKeyValuePage().setRecord(delNode);
     cont.getCompleteAsKeyValuePage().setRecord(delNode);
   }
@@ -686,7 +689,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
-  private RecordFetchResult getRecordForWriteAccess(final KeyValuePage<? extends DataRecord> page, final long recordKey) {
+  private RecordFetchResult getRecordForWriteAccess(final KeyValuePage<? extends DataRecord> page,
+      final long recordKey) {
     final int recordOffset = StorageEngineReader.recordPageOffset(recordKey);
     final DataRecord cachedRecord = page.getRecord(recordOffset);
     if (cachedRecord != null) {
@@ -696,8 +700,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (page instanceof KeyValueLeafPage leafPage && leafPage.isFixedSlotFormat(recordOffset)) {
       final NodeKind nodeKind = leafPage.getFixedSlotNodeKind(recordOffset);
       if (nodeKind == null) {
-        throw new IllegalStateException(
-            "Fixed-slot bitmap set but node kind metadata is missing (key=" + recordKey + ", slot=" + recordOffset + ").");
+        throw new IllegalStateException("Fixed-slot bitmap set but node kind metadata is missing (key=" + recordKey
+            + ", slot=" + recordOffset + ").");
       }
 
       final MemorySegment fixedSlotBytes = leafPage.getSlot(recordOffset);
@@ -707,21 +711,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
 
       final byte[] deweyIdBytes = leafPage.getDeweyIdAsByteArray(recordOffset);
-      final DataRecord materialized =
-          FixedSlotRecordMaterializer.materialize(nodeKind,
-                                                  recordKey,
-                                                  fixedSlotBytes,
-                                                  deweyIdBytes,
-                                                  pageRtx.getResourceSession().getResourceConfig());
+      final DataRecord materialized = FixedSlotRecordMaterializer.materialize(nodeKind, recordKey, fixedSlotBytes,
+          deweyIdBytes, pageRtx.getResourceSession().getResourceConfig());
       if (materialized == null) {
-        throw new IllegalStateException(
-            "Unsupported fixed-slot write-path materialization for node kind "
-                + nodeKind
-                + " (key="
-                + recordKey
-                + ", slot="
-                + recordOffset
-                + ").");
+        throw new IllegalStateException("Unsupported fixed-slot write-path materialization for node kind " + nodeKind
+            + " (key=" + recordKey + ", slot=" + recordOffset + ").");
       }
       return new RecordFetchResult(materialized);
     }
@@ -733,16 +727,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public String getName(final int nameKey, @NonNull final NodeKind nodeKind) {
     pageRtx.assertNotClosed();
     final NamePage currentNamePage = getNamePage(newRevisionRootPage);
-    return (currentNamePage == null || currentNamePage.getName(nameKey, nodeKind, pageRtx) == null) ? pageRtx.getName(
-        nameKey,
-        nodeKind) : currentNamePage.getName(nameKey, nodeKind, pageRtx);
+    return (currentNamePage == null || currentNamePage.getName(nameKey, nodeKind, pageRtx) == null)
+        ? pageRtx.getName(nameKey, nodeKind)
+        : currentNamePage.getName(nameKey, nodeKind, pageRtx);
   }
 
   @Override
   public int createNameKey(final @Nullable String name, @NonNull final NodeKind nodeKind) {
     pageRtx.assertNotClosed();
     requireNonNull(nodeKind);
-    final String string = name == null ? "" : name;
+    final String string = name == null
+        ? ""
+        : name;
     final NamePage namePage = getNamePage(newRevisionRootPage);
     return namePage.setName(string, nodeKind, this);
   }
@@ -768,13 +764,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // DIAGNOSTIC: Track page closes during commit
     if (DEBUG_MEMORY_LEAKS && container.getComplete() instanceof KeyValueLeafPage completePage) {
       LOGGER.debug("[WRITER-COMMIT] Closing complete page: pageKey={}, indexType={}, instance={}",
-                   completePage.getPageKey(), completePage.getIndexType(), System.identityHashCode(completePage));
+          completePage.getPageKey(), completePage.getIndexType(), System.identityHashCode(completePage));
     }
     container.getComplete().close();
-    
+
     if (DEBUG_MEMORY_LEAKS && page instanceof KeyValueLeafPage kvPage) {
-      LOGGER.debug("[WRITER-COMMIT] Closing modified page: pageKey={}, indexType={}, instance={}",
-                   kvPage.getPageKey(), kvPage.getIndexType(), System.identityHashCode(kvPage));
+      LOGGER.debug("[WRITER-COMMIT] Closing modified page: pageKey={}, indexType={}, instance={}", kvPage.getPageKey(),
+          kvPage.getIndexType(), System.identityHashCode(kvPage));
     }
     page.close();
 
@@ -784,7 +780,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public UberPage commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
-                         final boolean isAutoCommitting) {
+      final boolean isAutoCommitting) {
     pageRtx.assertNotClosed();
 
     pageRtx.resourceSession.getCommitLock().lock();
@@ -796,9 +792,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Issues with windows that it's not created in the first time?
       createIfAbsent(commitFile);
 
-      final PageReference uberPageReference = new PageReference()
-          .setDatabaseId(pageRtx.getDatabaseId())
-          .setResourceId(pageRtx.getResourceId());
+      final PageReference uberPageReference =
+          new PageReference().setDatabaseId(pageRtx.getDatabaseId()).setResourceId(pageRtx.getResourceId());
       final UberPage uberPage = pageRtx.getUberPage();
       uberPageReference.setPage(uberPage);
 
@@ -819,10 +814,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
 
       // Write pages to storage (previous fsync complete, safe to write)
-      storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(),
-                                                     uberPageReference,
-                                                     uberPage,
-                                                     bufferBytes);
+      storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(), uberPageReference,
+          uberPage, bufferBytes);
 
       if (isAutoCommitting) {
         // Auto-commit mode: fsync runs asynchronously for better throughput
@@ -843,17 +836,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // CRITICAL: Release current page guard BEFORE TIL.clear()
       // If guard is on a TIL page, the page won't close (guardCount > 0 check)
       pageRtx.closeCurrentPageGuard();
-      
+
       if (DEBUG_MEMORY_LEAKS) {
         LOGGER.debug("[WRITER-COMMIT] Clearing TIL with {} entries before commit", log.size());
       }
-      
+
       // Clear TransactionIntentLog - closes all modified pages
       log.clear();
-      
+
       // Clear local cache (pages are already handled by log.clear())
       pageContainerCache.clear();
-      
+
       // Null out cache references since pages have been returned to pool
       mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
       secondMostRecentPageContainer = mostRecentPageContainer;
@@ -885,9 +878,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private void serializeIndexDefinitions(int revision) {
     if (!indexController.getIndexes().getIndexDefs().isEmpty()) {
-      final Path indexes = pageRtx.getResourceSession()
-                                  .getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                                                   .resolve(revision + ".xml");
+      final Path indexes = pageRtx.getResourceSession().getResourceConfig().resourcePath.resolve(
+          ResourceConfiguration.ResourcePaths.INDEXES.getPath()).resolve(revision + ".xml");
 
       try (final OutputStream out = newOutputStream(indexes, CREATE)) {
         indexController.serialize(out);
@@ -898,8 +890,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Threshold for switching from sequential to parallel processing.
-   * For small commits, parallel stream overhead exceeds benefits.
+   * Threshold for switching from sequential to parallel processing. For small commits, parallel
+   * stream overhead exceeds benefits.
    */
   private static final int PARALLEL_SERIALIZATION_THRESHOLD = 4;
 
@@ -915,8 +907,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     // Adaptive: use sequential for small commits to avoid parallel stream overhead
     var stream = keyValuePages.size() < PARALLEL_SERIALIZATION_THRESHOLD
-                 ? keyValuePages.stream()
-                 : keyValuePages.parallelStream();
+        ? keyValuePages.stream()
+        : keyValuePages.parallelStream();
 
     stream.forEach(page -> {
       // Use pooled buffer instead of creating new Arena.ofAuto() per page
@@ -934,7 +926,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private UberPage readUberPage() {
     return (UberPage) storagePageReaderWriter.read(storagePageReaderWriter.readUberPageReference(),
-                                                   getResourceSession().getResourceConfig());
+        getResourceSession().getResourceConfig());
   }
 
   private void createIfAbsent(final Path file) {
@@ -955,24 +947,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public UberPage rollback() {
     pageRtx.assertNotClosed();
-    
+
     if (DEBUG_MEMORY_LEAKS) {
       LOGGER.debug("[WRITER-ROLLBACK] Rolling back transaction with {} TIL entries", log.size());
     }
-    
+
     // CRITICAL: Release current page guard BEFORE TIL.clear()
     // If guard is on a TIL page, the page won't close (guardCount > 0 check)
     pageRtx.closeCurrentPageGuard();
-    
+
     // Clear TransactionIntentLog - closes all modified pages
     log.clear();
-    
+
     // Clear local cache and reset references (pages already handled by log.clear())
     pageContainerCache.clear();
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer = mostRecentPageContainer;
     mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
-    
+
     return readUberPage();
   }
 
@@ -1004,47 +996,45 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // CRITICAL: Close pageRtx FIRST to release guards BEFORE TIL tries to close pages
       // If guards are active when TIL.close() runs, pages won't close (guardCount > 0 check)
       pageRtx.close();
-      
+
       // Now TIL can close pages (guards released)
       log.close();
-      
+
       // CRITICAL FIX: Clear cache AFTER log.close() to avoid OOM
       // log.close() needs the cache entries to properly unpin/close pages
       // Once closed, we must drop references to allow GC
-      
+
       // CRITICAL: Close pages in pageContainerCache that are NOT in TIL or cache
       // This handles pages that were cached but TIL was cleared (e.g., after commit)
       for (PageContainer container : pageContainerCache.values()) {
         closeOrphanedPagesInContainer(container);
       }
-      
+
       pageContainerCache.clear();
       mostRecentPageContainer = null;
       secondMostRecentPageContainer = null;
       mostRecentPathSummaryPageContainer = null;
-      
+
       isClosed = true;
     }
   }
-  
+
   /**
-   * Close orphaned pages in a container (pages not in cache).
-   * If page is in cache, cache will manage it - we just drop our reference.
-   * If page is NOT in cache, we must release guard and close it.
+   * Close orphaned pages in a container (pages not in cache). If page is in cache, cache will manage
+   * it - we just drop our reference. If page is NOT in cache, we must release guard and close it.
    */
   private void closeOrphanedPagesInContainer(PageContainer container) {
     if (container == null) {
       return;
     }
-    
+
     if (container.getComplete() instanceof KeyValueLeafPage completePage && !completePage.isClosed()) {
       // Check if page is in cache
-      PageReference ref = new PageReference()
-          .setKey(completePage.getPageKey())
-          .setDatabaseId(pageRtx.getDatabaseId())
-          .setResourceId(pageRtx.getResourceId());
+      PageReference ref = new PageReference().setKey(completePage.getPageKey())
+                                             .setDatabaseId(pageRtx.getDatabaseId())
+                                             .setResourceId(pageRtx.getResourceId());
       KeyValueLeafPage cachedPage = pageRtx.getBufferManager().getRecordPageCache().get(ref);
-      
+
       if (cachedPage != completePage) {
         // Page is NOT in cache - orphaned, must release guard and close
         if (completePage.getGuardCount() > 0) {
@@ -1054,16 +1044,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       // If page IS in cache, cache will manage it - just drop our reference
     }
-    
-    if (container.getModified() instanceof KeyValueLeafPage modifiedPage 
-        && modifiedPage != container.getComplete() && !modifiedPage.isClosed()) {
+
+    if (container.getModified() instanceof KeyValueLeafPage modifiedPage && modifiedPage != container.getComplete()
+        && !modifiedPage.isClosed()) {
       // Check if page is in cache
-      PageReference ref = new PageReference()
-          .setKey(modifiedPage.getPageKey())
-          .setDatabaseId(pageRtx.getDatabaseId())
-          .setResourceId(pageRtx.getResourceId());
+      PageReference ref = new PageReference().setKey(modifiedPage.getPageKey())
+                                             .setDatabaseId(pageRtx.getDatabaseId())
+                                             .setResourceId(pageRtx.getResourceId());
       KeyValueLeafPage cachedPage = pageRtx.getBufferManager().getRecordPageCache().get(ref);
-      
+
       if (cachedPage != modifiedPage) {
         // Page is NOT in cache - orphaned, must release guard and close
         if (modifiedPage.getGuardCount() > 0) {
@@ -1089,43 +1078,39 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return pageContainer;
     }
 
-    return pageContainerCache.computeIfAbsent(new IndexLogKey(indexType,
-                                                              recordPageKey,
-                                                              indexNumber,
-                                                              newRevisionRootPage.getRevision()), _ -> {
-      final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
-      final var leafPageReference =
-          pageRtx.getLeafPageReference(pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);
-      return log.get(leafPageReference);
-    });
+    return pageContainerCache.computeIfAbsent(
+        new IndexLogKey(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision()), _ -> {
+          final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
+          final var leafPageReference =
+              pageRtx.getLeafPageReference(pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);
+          return log.get(leafPageReference);
+        });
   }
 
   @Nullable
   private PageContainer getMostRecentPageContainer(IndexType indexType, long recordPageKey,
       @NonNegative int indexNumber, @NonNegative int revisionNumber) {
     if (indexType == IndexType.PATH_SUMMARY) {
-      return mostRecentPathSummaryPageContainer != null
-          && mostRecentPathSummaryPageContainer.indexType == indexType
+      return mostRecentPathSummaryPageContainer != null && mostRecentPathSummaryPageContainer.indexType == indexType
           && mostRecentPathSummaryPageContainer.indexNumber == indexNumber
           && mostRecentPathSummaryPageContainer.recordPageKey == recordPageKey
           && mostRecentPathSummaryPageContainer.revisionNumber == revisionNumber
-          ? mostRecentPathSummaryPageContainer.pageContainer
-          : null;
+              ? mostRecentPathSummaryPageContainer.pageContainer
+              : null;
     }
 
-    var pageContainer =
-        mostRecentPageContainer != null
-            && mostRecentPageContainer.indexType == indexType && mostRecentPageContainer.recordPageKey == recordPageKey
-            && mostRecentPageContainer.indexNumber == indexNumber
-            && mostRecentPageContainer.revisionNumber == revisionNumber ? mostRecentPageContainer.pageContainer : null;
+    var pageContainer = mostRecentPageContainer != null && mostRecentPageContainer.indexType == indexType
+        && mostRecentPageContainer.recordPageKey == recordPageKey && mostRecentPageContainer.indexNumber == indexNumber
+        && mostRecentPageContainer.revisionNumber == revisionNumber
+            ? mostRecentPageContainer.pageContainer
+            : null;
     if (pageContainer == null) {
-      pageContainer = secondMostRecentPageContainer != null
-          && secondMostRecentPageContainer.indexType == indexType
+      pageContainer = secondMostRecentPageContainer != null && secondMostRecentPageContainer.indexType == indexType
           && secondMostRecentPageContainer.recordPageKey == recordPageKey
           && secondMostRecentPageContainer.indexNumber == indexNumber
           && secondMostRecentPageContainer.revisionNumber == revisionNumber
-          ? secondMostRecentPageContainer.pageContainer
-          : null;
+              ? secondMostRecentPageContainer.pageContainer
+              : null;
     }
     return pageContainer;
   }
@@ -1134,25 +1119,25 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Prepare record page.
    *
    * @param recordPageKey the key of the record page
-   * @param indexNumber   the index number if it's a record-page of an index, {@code -1}, else
-   * @param indexType     the index type
+   * @param indexNumber the index number if it's a record-page of an index, {@code -1}, else
+   * @param indexType the index type
    * @return {@link PageContainer} instance
    * @throws SirixIOException if an I/O error occurs
    */
   private PageContainer prepareRecordPage(final @NonNegative long recordPageKey, final int indexNumber,
       final IndexType indexType) {
     assert indexType != null;
-    
+
     // Route to appropriate trie implementation
     TrieType trieType = getTrieType(indexType, indexNumber);
     if (trieType == TrieType.HOT) {
       return prepareRecordPageViaHOT(recordPageKey, indexNumber, indexType);
     }
-    
+
     // Traditional KEYED_TRIE path (bit-decomposed)
     return prepareRecordPageViaKeyedTrie(recordPageKey, indexNumber, indexType);
   }
-  
+
   /**
    * Prepare record page using traditional bit-decomposed KEYED_TRIE.
    */
@@ -1171,14 +1156,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final PageReference pageReference = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
 
       // Get the reference to the unordered key/value page storing the records.
-      final PageReference reference = trieWriter.prepareLeafOfTree(this,
-                                                                     log,
-                                                                     getUberPage().getPageCountExp(indexType),
-                                                                     pageReference,
-                                                                     recordPageKey,
-                                                                     indexNumber,
-                                                                     indexType,
-                                                                     newRevisionRootPage);
+      final PageReference reference = trieWriter.prepareLeafOfTree(this, log, getUberPage().getPageCountExp(indexType),
+          pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);
 
       var pageContainer = log.get(reference);
 
@@ -1188,40 +1167,31 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       if (reference.getKey() == Constants.NULL_ID_LONG) {
         // Direct allocation (no pool)
-        final MemorySegmentAllocator allocator = OS.isWindows() 
-            ? WindowsMemorySegmentAllocator.getInstance() 
+        final MemorySegmentAllocator allocator = OS.isWindows()
+            ? WindowsMemorySegmentAllocator.getInstance()
             : LinuxMemorySegmentAllocator.getInstance();
-        
-        final KeyValueLeafPage completePage = new KeyValueLeafPage(
-            recordPageKey,
-            indexType,
-            getResourceSession().getResourceConfig(),
-            pageRtx.getRevisionNumber(),
-            allocator.allocate(SIXTYFOUR_KB),
-            getResourceSession().getResourceConfig().areDeweyIDsStored 
-                ? allocator.allocate(SIXTYFOUR_KB) 
+
+        final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey, indexType,
+            getResourceSession().getResourceConfig(), pageRtx.getRevisionNumber(), allocator.allocate(SIXTYFOUR_KB),
+            getResourceSession().getResourceConfig().areDeweyIDsStored
+                ? allocator.allocate(SIXTYFOUR_KB)
                 : null,
-            false  // Memory from allocator - release on close()
+            false // Memory from allocator - release on close()
         );
-        
-        final KeyValueLeafPage modifyPage = new KeyValueLeafPage(
-            recordPageKey,
-            indexType,
-            getResourceSession().getResourceConfig(),
-            pageRtx.getRevisionNumber(),
-            allocator.allocate(SIXTYFOUR_KB),
-            getResourceSession().getResourceConfig().areDeweyIDsStored 
-                ? allocator.allocate(SIXTYFOUR_KB) 
+
+        final KeyValueLeafPage modifyPage = new KeyValueLeafPage(recordPageKey, indexType,
+            getResourceSession().getResourceConfig(), pageRtx.getRevisionNumber(), allocator.allocate(SIXTYFOUR_KB),
+            getResourceSession().getResourceConfig().areDeweyIDsStored
+                ? allocator.allocate(SIXTYFOUR_KB)
                 : null,
-            false  // Memory from allocator - release on close()
+            false // Memory from allocator - release on close()
         );
-        
+
         if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-          LOGGER.debug("[WRITER-CREATE] Created Page 0 pair: indexType={}, rev={}, complete={}, modify={}",
-                       indexType, pageRtx.getRevisionNumber(), 
-                       System.identityHashCode(completePage), System.identityHashCode(modifyPage));
+          LOGGER.debug("[WRITER-CREATE] Created Page 0 pair: indexType={}, rev={}, complete={}, modify={}", indexType,
+              pageRtx.getRevisionNumber(), System.identityHashCode(completePage), System.identityHashCode(modifyPage));
         }
-        
+
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
         appendLogRecord(reference, pageContainer);
         return pageContainer;
@@ -1231,35 +1201,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
     };
 
-    var currPageContainer = pageContainerCache.computeIfAbsent(new IndexLogKey(indexType,
-                                                                               recordPageKey,
-                                                                               indexNumber,
-                                                                               newRevisionRootPage.getRevision()),
-                                                               fetchPageContainer);
+    var currPageContainer = pageContainerCache.computeIfAbsent(
+        new IndexLogKey(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision()), fetchPageContainer);
 
     if (indexType == IndexType.PATH_SUMMARY) {
-      mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(indexType,
-                                                                          recordPageKey,
-                                                                          indexNumber,
-                                                                          newRevisionRootPage.getRevision(),
-                                                                          currPageContainer);
+      mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(indexType, recordPageKey, indexNumber,
+          newRevisionRootPage.getRevision(), currPageContainer);
     } else {
       secondMostRecentPageContainer = mostRecentPageContainer;
-      mostRecentPageContainer = new IndexLogKeyToPageContainer(indexType,
-                                                               recordPageKey,
-                                                               indexNumber,
-                                                               newRevisionRootPage.getRevision(),
-                                                               currPageContainer);
+      mostRecentPageContainer = new IndexLogKeyToPageContainer(indexType, recordPageKey, indexNumber,
+          newRevisionRootPage.getRevision(), currPageContainer);
     }
 
     return currPageContainer;
   }
-  
+
   /**
    * Prepare record page using HOT (Height Optimized Trie).
    * 
-   * <p>This method uses the HOTTrieWriter for cache-friendly secondary index operations.
-   * HOT uses semantic byte[] keys instead of bit-decomposed numeric keys.</p>
+   * <p>
+   * This method uses the HOTTrieWriter for cache-friendly secondary index operations. HOT uses
+   * semantic byte[] keys instead of bit-decomposed numeric keys.
+   * </p>
    *
    * @param recordPageKey the record page key (used as fallback key encoding)
    * @param indexNumber the index number
@@ -1268,46 +1231,48 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private PageContainer prepareRecordPageViaHOT(final @NonNegative long recordPageKey, final int indexNumber,
       final IndexType indexType) {
-    
+
     // Get the root reference for this index
     final PageReference rootRef = pageRtx.getPageReference(newRevisionRootPage, indexType, indexNumber);
-    
+
     // Encode the recordPageKey as a byte[] key for HOT navigation
     // For proper integration, the caller should pass the semantic key directly
     // This is a compatibility bridge for the existing API
     byte[] key = encodeRecordPageKeyForHOT(recordPageKey);
-    
+
     // Use HOT trie writer to navigate and prepare the leaf
-    PageContainer container = hotTrieWriter.prepareKeyedLeafForModification(
-        this, log, rootRef, key, indexType, indexNumber);
-    
+    PageContainer container =
+        hotTrieWriter.prepareKeyedLeafForModification(this, log, rootRef, key, indexType, indexNumber);
+
     if (container != null) {
       return container;
     }
-    
-    // Fallback: If HOT navigation fails (e.g., empty tree), 
+
+    // Fallback: If HOT navigation fails (e.g., empty tree),
     // create a new HOT leaf page
     HOTLeafPage newLeaf = new HOTLeafPage(recordPageKey, pageRtx.getRevisionNumber(), indexType);
     container = PageContainer.getInstance(newLeaf, newLeaf);
-    
+
     PageReference newRef = new PageReference();
     newRef.setKey(recordPageKey);
     log.put(newRef, container);
-    
+
     // Update root reference to point to new leaf
     if (rootRef.getKey() == Constants.NULL_ID_LONG) {
       rootRef.setKey(recordPageKey);
       log.put(rootRef, container);
     }
-    
+
     return container;
   }
-  
+
   /**
    * Encode a recordPageKey as a byte[] for HOT navigation.
    * 
-   * <p>This is a compatibility bridge. For optimal performance, callers should
-   * pass semantic keys directly to HOT methods.</p>
+   * <p>
+   * This is a compatibility bridge. For optimal performance, callers should pass semantic keys
+   * directly to HOT methods.
+   * </p>
    *
    * @param recordPageKey the numeric page key
    * @return the key as a byte array (big-endian)
@@ -1335,15 +1300,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public PageContainer dereferenceRecordPageForModification(final PageReference reference) {
     final VersioningType versioningType = pageRtx.resourceSession.getResourceConfig().versioningType;
     final int mileStoneRevision = pageRtx.resourceSession.getResourceConfig().maxNumberOfRevisionsToRestore;
-    
+
     // FULL versioning: Release any reader guard before loading for modification
     // This prevents double-guarding when the page is already in RecordPageCache from a read
     if (versioningType == VersioningType.FULL) {
       pageRtx.closeCurrentPageGuard();
     }
-    
+
     final var result = pageRtx.getPageFragments(reference);
-    
+
     // All fragments are guarded by getPageFragments() to prevent eviction during combining
     try {
       return versioningType.combineRecordPagesForModification(result.pages(), mileStoneRevision, this, reference, log);
@@ -1356,11 +1321,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         // (which is fine - they'll release when done). For other versioning types,
         // fragments should have exactly 1 guard from getPageFragments.
         if (versioningType != VersioningType.FULL) {
-          assert kvPage.getGuardCount() == 0 : 
-              "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
+          assert kvPage.getGuardCount() == 0
+              : "Fragment should have guardCount=0 after release, but has " + kvPage.getGuardCount();
         }
       }
-      // Note: Fragments remain in cache for potential reuse. ClockSweeper will evict them when appropriate.
+      // Note: Fragments remain in cache for potential reuse. ClockSweeper will evict them when
+      // appropriate.
     }
   }
 
@@ -1373,11 +1339,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public @Nullable HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber) {
     pageRtx.assertNotClosed();
-    
+
     // CRITICAL: Use newRevisionRootPage (not the delegate's rootPage) because
     // HOT pages are stored against the new revision's PathPage/CASPage/NamePage references.
     final RevisionRootPage actualRootPage = newRevisionRootPage;
-    
+
     // Get the root reference for the index from the NEW revision root page
     final PageReference rootRef = switch (indexType) {
       case PATH -> {
@@ -1403,11 +1369,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       default -> null;
     };
-    
+
     if (rootRef == null) {
       return null;
     }
-    
+
     // Check transaction log for uncommitted pages (this is the key for write transactions!)
     final PageContainer container = log.get(rootRef);
     if (container != null) {
@@ -1421,29 +1387,29 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         return hotLeaf;
       }
     }
-    
+
     // Check if page is swizzled (directly on reference)
     if (rootRef.getPage() instanceof HOTLeafPage hotLeaf) {
       return hotLeaf;
     }
-    
+
     // For uncommitted pages with no storage key, we're done
     if (rootRef.getKey() < 0 && rootRef.getLogKey() < 0) {
       return null;
     }
-    
+
     // Try buffer cache or load from storage (for previously committed data)
     return pageRtx.getHOTLeafPage(indexType, indexNumber);
   }
-  
+
   @Override
   public io.sirix.page.interfaces.@Nullable Page loadHOTPage(@NonNull PageReference reference) {
     pageRtx.assertNotClosed();
-    
+
     if (reference == null) {
       return null;
     }
-    
+
     // Check transaction log first for uncommitted pages
     final PageContainer container = log.get(reference);
     if (container != null) {
@@ -1456,7 +1422,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         return complete;
       }
     }
-    
+
     // Delegate to the reader
     return pageRtx.loadHOTPage(reference);
   }
@@ -1472,7 +1438,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public StorageEngineWriter appendLogRecord(@NonNull final PageReference reference, @NonNull final PageContainer pageContainer) {
+  public StorageEngineWriter appendLogRecord(@NonNull final PageReference reference,
+      @NonNull final PageContainer pageContainer) {
     requireNonNull(pageContainer);
     log.put(reference, pageContainer);
     return this;
@@ -1499,20 +1466,21 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public CommitCredentials getCommitCredentials() {
     return pageRtx.getCommitCredentials();
   }
-  
+
   @Override
   @SuppressWarnings("deprecation")
   protected void finalize() {
     // DIAGNOSTIC: Detect if NodeStorageEngineWriter is GC'd without being closed
     if (!isClosed && KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      LOGGER.warn("⚠️  NodeStorageEngineWriter FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL", 
+      LOGGER.warn(
+          "⚠️  NodeStorageEngineWriter FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL",
           pageRtx.getTrxId(), System.identityHashCode(this), System.identityHashCode(log), log.getList().size());
     }
   }
-  
+
   /**
-   * Acquire a guard on the page containing the current node.
-   * This is needed when holding a reference to a node across cursor movements.
+   * Acquire a guard on the page containing the current node. This is needed when holding a reference
+   * to a node across cursor movements.
    *
    * @return a PageGuard that must be closed when done with the node
    */
@@ -1526,12 +1494,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
     return new PageGuard(currentPage);
   }
-  
+
   private static final QNm EMPTY_QNM = new QNm("");
 
   /**
-   * Get or lazily create a write-path singleton for the given node kind.
-   * Returns null for unsupported kinds (non-XML/JSON).
+   * Get or lazily create a write-path singleton for the given node kind. Returns null for unsupported
+   * kinds (non-XML/JSON).
    */
   private DataRecord getOrCreateWriteSingleton(final NodeKind kind) {
     final var hashFunction = pageRtx.getResourceSession().getResourceConfig().nodeHashFunction;
@@ -1616,8 +1584,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       case ELEMENT -> {
         if (writeElementSingleton == null) {
-          writeElementSingleton = new ElementNode(0, 0, 0, 0, 0, 0, 0, 0,
-              0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null, null, null, EMPTY_QNM);
+          writeElementSingleton = new ElementNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction,
+              (byte[]) null, null, null, EMPTY_QNM);
         }
         yield writeElementSingleton;
       }
@@ -1635,20 +1603,22 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       case ATTRIBUTE -> {
         if (writeAttributeSingleton == null) {
-          writeAttributeSingleton = new AttributeNode(0, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0], hashFunction, (byte[]) null, EMPTY_QNM);
+          writeAttributeSingleton =
+              new AttributeNode(0, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0], hashFunction, (byte[]) null, EMPTY_QNM);
         }
         yield writeAttributeSingleton;
       }
       case NAMESPACE -> {
         if (writeNamespaceSingleton == null) {
-          writeNamespaceSingleton = new NamespaceNode(0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null, EMPTY_QNM);
+          writeNamespaceSingleton =
+              new NamespaceNode(0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null, EMPTY_QNM);
         }
         yield writeNamespaceSingleton;
       }
       case PROCESSING_INSTRUCTION -> {
         if (writePISingleton == null) {
-          writePISingleton = new PINode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-              new byte[0], false, hashFunction, (byte[]) null, EMPTY_QNM);
+          writePISingleton = new PINode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0], false, hashFunction,
+              (byte[]) null, EMPTY_QNM);
         }
         yield writePISingleton;
       }
@@ -1659,27 +1629,34 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Package-private helper class for managing the trie structure of IndirectPages.
    * 
-   * <p>Sirix uses a trie (not a B+tree) to organize IndirectPages. Page keys are
-   * decomposed bit-by-bit to determine the path through the trie levels.
-   * This enables efficient navigation and modification of the multi-level page structure.</p>
+   * <p>
+   * Sirix uses a trie (not a B+tree) to organize IndirectPages. Page keys are decomposed bit-by-bit
+   * to determine the path through the trie levels. This enables efficient navigation and modification
+   * of the multi-level page structure.
+   * </p>
    * 
-   * <p>For example, with pageKey=1024 and level exponents [10, 10, 10]:
+   * <p>
+   * For example, with pageKey=1024 and level exponents [10, 10, 10]:
    * <ul>
-   *   <li>Level 0: offset = 1024 >> 10 = 1</li>
-   *   <li>Level 1: offset = (1024 - 1024) >> 0 = 0</li>
+   * <li>Level 0: offset = 1024 >> 10 = 1</li>
+   * <li>Level 1: offset = (1024 - 1024) >> 0 = 0</li>
    * </ul>
    * </p>
    * 
-   * <p>This class creates new IndirectPages as needed when navigating to leaves,
-   * and manages the transaction intent log for all modified pages.</p>
+   * <p>
+   * This class creates new IndirectPages as needed when navigating to leaves, and manages the
+   * transaction intent log for all modified pages.
+   * </p>
    *
-   * <p>Note: Package-private access is needed for StorageEngineWriterFactory to call preparePreviousRevisionRootPage()
-   * before NodeStorageEngineWriter is constructed.</p>
+   * <p>
+   * Note: Package-private access is needed for StorageEngineWriterFactory to call
+   * preparePreviousRevisionRootPage() before NodeStorageEngineWriter is constructed.
+   * </p>
    *
    * @author Johannes Lichtenberger
    */
   static final class TrieWriter {
-    
+
     /**
      * Prepare the previous revision root page and retrieve the next {@link RevisionRootPage}.
      *
@@ -1701,9 +1678,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         revisionRootPage = new RevisionRootPage(pageRtx.loadRevRoot(baseRevision), representRevision + 1);
 
         // Link the prepared revision root nodePageReference with the prepared indirect tree.
-        final var revRootRef = new PageReference()
-            .setDatabaseId(pageRtx.getDatabaseId())
-            .setResourceId(pageRtx.getResourceId());
+        final var revRootRef =
+            new PageReference().setDatabaseId(pageRtx.getDatabaseId()).setResourceId(pageRtx.getResourceId());
         log.put(revRootRef, PageContainer.getInstance(revisionRootPage, revisionRootPage));
       }
 
@@ -1716,7 +1692,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
      *
      * @param pageRtx the page reading transaction
      * @param log the transaction intent log
-     * @param inpLevelPageCountExp array which holds the maximum number of indirect page references per trie level
+     * @param inpLevelPageCountExp array which holds the maximum number of indirect page references per
+     *        trie level
      * @param startReference the reference to start the trie traversal from
      * @param pageKey page key to lookup (decomposed bit-by-bit)
      * @param index the index number or {@code -1} if a regular record page should be prepared
@@ -1752,9 +1729,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
         // Create new page reference, add it to the transaction-log and reassign it in the root pages
         // of the trie.
-        final PageReference newPageReference = new PageReference()
-            .setDatabaseId(pageRtx.getDatabaseId())
-            .setResourceId(pageRtx.getResourceId());
+        final PageReference newPageReference =
+            new PageReference().setDatabaseId(pageRtx.getDatabaseId()).setResourceId(pageRtx.getResourceId());
         log.put(newPageReference, PageContainer.getInstance(page, page));
         setNewIndirectPage(pageRtx, revisionRootPage, indexType, index, newPageReference);
 
@@ -1762,8 +1738,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
 
       // Iterate through all levels using bit-decomposition.
-      for (int level = inpLevelPageCountExp.length - maxHeight, height = inpLevelPageCountExp.length;
-           level < height; level++) {
+      for (int level = inpLevelPageCountExp.length - maxHeight,
+          height = inpLevelPageCountExp.length; level < height; level++) {
         offset = (int) (levelKey >> inpLevelPageCountExp[level]);
         levelKey -= (long) offset << inpLevelPageCountExp[level];
         final IndirectPage page = prepareIndirectPage(pageRtx, log, reference);
@@ -1775,8 +1751,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     /**
-     * Prepare indirect page, that is getting the referenced indirect page or creating a new page
-     * and putting the whole path into the log.
+     * Prepare indirect page, that is getting the referenced indirect page or creating a new page and
+     * putting the whole path into the log.
      *
      * @param pageRtx the page reading transaction
      * @param log the transaction intent log
@@ -1786,7 +1762,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     IndirectPage prepareIndirectPage(final StorageEngineReader pageRtx, final TransactionIntentLog log,
         final PageReference reference) {
       final PageContainer cont = log.get(reference);
-      IndirectPage page = cont == null ? null : (IndirectPage) cont.getComplete();
+      IndirectPage page = cont == null
+          ? null
+          : (IndirectPage) cont.getComplete();
       if (page == null) {
         if (reference.getKey() == Constants.NULL_ID_LONG) {
           page = new IndirectPage();
@@ -1814,7 +1792,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         case NAME -> pageRtx.getNamePage(revisionRoot).setOrCreateReference(index, pageReference);
         case PATH_SUMMARY -> pageRtx.getPathSummaryPage(revisionRoot).setOrCreateReference(index, pageReference);
         default ->
-            throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
+          throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
       }
     }
 
@@ -1832,9 +1810,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         case PATH -> pageRtx.getPathPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
         case NAME -> pageRtx.getNamePage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
         case PATH_SUMMARY ->
-            pageRtx.getPathSummaryPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+          pageRtx.getPathSummaryPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
         default ->
-            throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
+          throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
       };
     }
   }

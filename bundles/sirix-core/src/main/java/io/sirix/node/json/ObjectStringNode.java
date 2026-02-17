@@ -45,6 +45,9 @@ import io.sirix.node.SirixDeweyID;
 import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
@@ -59,7 +62,9 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 /**
  * JSON Object String node (direct child of ObjectKeyNode, no siblings).
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
+ * <p>
+ * Uses primitive fields for efficient storage with delta+varint encoding.
+ * </p>
  * 
  * @author Johannes Lichtenberger
  */
@@ -67,23 +72,23 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-  
+
   // Mutable structural fields (only parent, no siblings for object values)
   private long parentKey;
-  
+
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-  
+
   // Mutable hash
   private long hash;
-  
+
   // String value (stored as bytes)
   private byte[] value;
-  
+
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-  
+
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
@@ -98,37 +103,36 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   // Lazy parsing state (for singleton reuse optimization)
   // Two-stage lazy parsing: metadata (cheap) vs value (expensive byte[] allocation)
-  private Object lazySource;            // Source for lazy parsing (MemorySegment or byte[])
-  private long lazyOffset;              // Offset where lazy metadata fields start
-  private boolean metadataParsed;       // Whether prevRev, lastModRev, hash are parsed
-  private boolean valueParsed;          // Whether value byte[] is parsed
-  private boolean hasHash;              // Whether hash is stored (from config)
-  private long valueOffset;             // Offset where value starts (after metadata)
+  private Object lazySource; // Source for lazy parsing (MemorySegment or byte[])
+  private long lazyOffset; // Offset where lazy metadata fields start
+  private boolean metadataParsed; // Whether prevRev, lastModRev, hash are parsed
+  private boolean valueParsed; // Whether value byte[] is parsed
+  private boolean hasHash; // Whether hash is stored (from config)
+  private long valueOffset; // Offset where value starts (after metadata)
 
   // Fixed-slot value encoding state (for read path via populateSingletonFromFixedSlot)
-  private boolean fixedValueEncoding;   // Whether value comes from fixed-slot inline payload
-  private int fixedValueLength;         // Length of inline payload bytes
+  private boolean fixedValueEncoding; // Whether value comes from fixed-slot inline payload
+  private int fixedValueLength; // Length of inline payload bytes
   private boolean fixedValueCompressed; // Whether inline payload is FSST compressed
 
+  // Fixed-slot lazy metadata support
+  private NodeKindLayout fixedSlotLayout;
+
   /**
-   * Primary constructor with all primitive fields.
-   * All fields are already parsed - no lazy loading needed.
+   * Primary constructor with all primitive fields. All fields are already parsed - no lazy loading
+   * needed.
    */
-  public ObjectStringNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long hash, byte[] value,
-      LongHashFunction hashFunction, byte[] deweyID) {
-    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, hash, value,
-        hashFunction, deweyID, false, null);
+  public ObjectStringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long hash,
+      byte[] value, LongHashFunction hashFunction, byte[] deweyID) {
+    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, hash, value, hashFunction, deweyID, false, null);
   }
 
   /**
-   * Primary constructor with all primitive fields and compression support.
-   * All fields are already parsed - no lazy loading needed.
+   * Primary constructor with all primitive fields and compression support. All fields are already
+   * parsed - no lazy loading needed.
    */
-  public ObjectStringNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long hash, byte[] value,
-      LongHashFunction hashFunction, byte[] deweyID,
-      boolean isCompressed, byte[] fsstSymbolTable) {
+  public ObjectStringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long hash,
+      byte[] value, LongHashFunction hashFunction, byte[] deweyID, boolean isCompressed, byte[] fsstSymbolTable) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -145,24 +149,20 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   }
 
   /**
-   * Constructor with SirixDeweyID instead of byte array.
-   * All fields are already parsed - no lazy loading needed.
+   * Constructor with SirixDeweyID instead of byte array. All fields are already parsed - no lazy
+   * loading needed.
    */
-  public ObjectStringNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long hash, byte[] value,
-      LongHashFunction hashFunction, SirixDeweyID deweyID) {
-    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, hash, value,
-        hashFunction, deweyID, false, null);
+  public ObjectStringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long hash,
+      byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
+    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, hash, value, hashFunction, deweyID, false, null);
   }
 
   /**
-   * Constructor with SirixDeweyID and compression support.
-   * All fields are already parsed - no lazy loading needed.
+   * Constructor with SirixDeweyID and compression support. All fields are already parsed - no lazy
+   * loading needed.
    */
-  public ObjectStringNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long hash, byte[] value,
-      LongHashFunction hashFunction, SirixDeweyID deweyID,
-      boolean isCompressed, byte[] fsstSymbolTable) {
+  public ObjectStringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long hash,
+      byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID, boolean isCompressed, byte[] fsstSymbolTable) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -192,7 +192,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   public long getParentKey() {
     return parentKey;
   }
-  
+
   public void setParentKey(final long parentKey) {
     this.parentKey = parentKey;
   }
@@ -242,9 +242,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   @Override
   public long computeHash(final BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey())
-         .writeLong(getParentKey())
-         .writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
 
     bytes.writeUtf8(getValue());
 
@@ -255,42 +253,42 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   public long getRightSiblingKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setRightSiblingKey(final long rightSibling) {}
 
   @Override
   public long getLeftSiblingKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setLeftSiblingKey(final long leftSibling) {}
 
   @Override
   public long getFirstChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setFirstChildKey(final long firstChild) {}
 
   @Override
   public long getLastChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setLastChildKey(final long lastChild) {}
 
   @Override
   public long getChildCount() {
     return 0;
   }
-  
+
   public void setChildCount(final long childCount) {}
 
   @Override
   public long getDescendantCount() {
     return 0;
   }
-  
+
   public void setDescendantCount(final long descendantCount) {}
 
   @Override
@@ -302,12 +300,14 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     if (isCompressed && decodedValue == null && value != null) {
       decodedValue = FSSTCompressor.decode(value, fsstSymbolTable);
     }
-    return isCompressed ? decodedValue : value;
+    return isCompressed
+        ? decodedValue
+        : value;
   }
 
   /**
-   * Get the raw (possibly compressed) value bytes without FSST decoding.
-   * Use this for serialization to preserve compression.
+   * Get the raw (possibly compressed) value bytes without FSST decoding. Use this for serialization
+   * to preserve compression.
    * 
    * @return the raw bytes as stored, possibly FSST compressed
    */
@@ -449,20 +449,20 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   }
 
   /**
-   * Populate this node from a BytesIn source for singleton reuse.
-   * LAZY OPTIMIZATION: Only parses structural field (parentKey) immediately.
-   * Two-stage lazy parsing: metadata (cheap) vs value (expensive byte[] allocation).
+   * Populate this node from a BytesIn source for singleton reuse. LAZY OPTIMIZATION: Only parses
+   * structural field (parentKey) immediately. Two-stage lazy parsing: metadata (cheap) vs value
+   * (expensive byte[] allocation).
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
-    
+
     // STRUCTURAL FIELD - parse immediately (parentKey is the only one for leaf nodes)
     this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    
+
     // Store state for lazy parsing - DON'T parse remaining fields yet
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
@@ -470,18 +470,18 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.valueParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
     this.valueOffset = 0;
-    
+
     // Initialize lazy fields to defaults (will be populated on demand)
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.hash = 0;
     this.value = null;
   }
-  
+
   /**
-   * Populate this singleton from fixed-slot inline payload (zero allocation).
-   * Sets up lazy value parsing from the fixed-slot MemorySegment.
-   * CRITICAL: Resets hash to 0 — caller MUST call setHash() AFTER this method.
+   * Populate this singleton from fixed-slot inline payload (zero allocation). Sets up lazy value
+   * parsing from the fixed-slot MemorySegment. CRITICAL: Resets hash to 0 — caller MUST call
+   * setHash() AFTER this method.
    *
    * @param source the slot data (MemorySegment) containing inline payload
    * @param valueOffset byte offset within source where payload bytes start
@@ -503,21 +503,34 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.hash = 0L;
   }
 
-  /**
-   * Parse metadata fields on demand (cheap - just varints and optionally a long).
-   */
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.fixedSlotLayout = layout;
+    this.metadataParsed = false;
+  }
+
   private void parseMetadataFields() {
     if (metadataParsed) {
       return;
     }
-    
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.fixedSlotLayout = null;
+      this.metadataParsed = true;
+      return;
+    }
+
     if (lazySource == null) {
       metadataParsed = true;
       return;
     }
-    
+
     BytesIn<?> bytesIn = createBytesIn(lazyOffset);
-    
+
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     if (hasHash) {
@@ -526,7 +539,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
-  
+
   /**
    * Parse value field on demand (expensive - allocates byte[]).
    */
@@ -567,7 +580,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     bytesIn.read(this.value);
     this.valueParsed = true;
   }
-  
+
   private BytesIn<?> createBytesIn(long offset) {
     if (lazySource instanceof MemorySegment segment) {
       var bytesIn = new MemorySegmentBytesIn(segment);
@@ -583,8 +596,8 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   }
 
   /**
-   * Create a deep copy snapshot of this node.
-   * Forces parsing of all lazy fields since snapshot must be independent.
+   * Create a deep copy snapshot of this node. Forces parsing of all lazy fields since snapshot must
+   * be independent.
    */
   public ObjectStringNode toSnapshot() {
     if (!metadataParsed) {
@@ -593,10 +606,15 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     if (!valueParsed) {
       parseValueField();
     }
-    return new ObjectStringNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        hash, value != null ? value.clone() : null, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null,
-        isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
+    return new ObjectStringNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, hash, value != null
+        ? value.clone()
+        : null, hashFunction,
+        deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null,
+        isCompressed, fsstSymbolTable != null
+            ? fsstSymbolTable.clone()
+            : null);
   }
 
   @Override
@@ -641,8 +659,6 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     if (!(obj instanceof final ObjectStringNode other))
       return false;
 
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey
-        && Objects.equal(getValue(), other.getValue());
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && Objects.equal(getValue(), other.getValue());
   }
 }

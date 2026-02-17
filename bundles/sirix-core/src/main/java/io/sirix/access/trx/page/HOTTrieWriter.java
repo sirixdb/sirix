@@ -52,22 +52,29 @@ import java.util.Objects;
 /**
  * HOT trie writer for HOT (Height Optimized Trie) navigation.
  * 
- * <p>This class provides an alternative to the bit-decomposition approach of {@code TrieWriter}
- * using semantic key-based navigation with HOT compound nodes.</p>
+ * <p>
+ * This class provides an alternative to the bit-decomposition approach of {@code TrieWriter} using
+ * semantic key-based navigation with HOT compound nodes.
+ * </p>
  * 
- * <p><b>Key Features:</b></p>
+ * <p>
+ * <b>Key Features:</b>
+ * </p>
  * <ul>
- *   <li>Zero allocations on hot path (pre-allocated arrays instead of Deque)</li>
- *   <li>SIMD-optimized child lookup via HOTIndirectPage</li>
- *   <li>COW propagation using parent path tracking</li>
- *   <li>Integration with existing versioning infrastructure</li>
+ * <li>Zero allocations on hot path (pre-allocated arrays instead of Deque)</li>
+ * <li>SIMD-optimized child lookup via HOTIndirectPage</li>
+ * <li>COW propagation using parent path tracking</li>
+ * <li>Integration with existing versioning infrastructure</li>
  * </ul>
  * 
- * <p><b>Usage:</b></p>
+ * <p>
+ * <b>Usage:</b>
+ * </p>
+ * 
  * <pre>{@code
  * HOTTrieWriter writer = new HOTTrieWriter();
- * PageContainer container = writer.prepareKeyedLeafForModification(
- *     pageRtx, log, startReference, key, indexType, indexNumber);
+ * PageContainer container =
+ *     writer.prepareKeyedLeafForModification(pageRtx, log, startReference, key, indexType, indexNumber);
  * HOTLeafPage leaf = (HOTLeafPage) container.getModified();
  * leaf.put(key, value);
  * }</pre>
@@ -80,32 +87,32 @@ public final class HOTTrieWriter {
 
   /** Maximum tree height - increased to handle unbalanced trees during inserts. */
   private static final int MAX_TREE_HEIGHT = 64;
-  
+
   /** Memory segment allocator. */
   @SuppressWarnings("unused")
   private final MemorySegmentAllocator allocator;
-  
+
   /** Counter for generating page keys (temporary - will be replaced with proper key allocation). */
   private long nextPageKey = 1000000L; // Start high to avoid conflicts
-  
+
   // ===== Pre-allocated COW path - ZERO allocations on hot path! =====
   private final PageReference[] cowPathRefs = new PageReference[MAX_TREE_HEIGHT];
   private final HOTIndirectPage[] cowPathNodes = new HOTIndirectPage[MAX_TREE_HEIGHT];
   private final int[] cowPathChildIndices = new int[MAX_TREE_HEIGHT];
   private int cowPathDepth = 0;
-  
+
   /**
    * Create a new HOTTrieWriter.
    */
   public HOTTrieWriter() {
-    this.allocator = OS.isWindows() 
-        ? WindowsMemorySegmentAllocator.getInstance() 
+    this.allocator = OS.isWindows()
+        ? WindowsMemorySegmentAllocator.getInstance()
         : LinuxMemorySegmentAllocator.getInstance();
   }
-  
+
   /**
-   * Navigate keyed trie (HOT) to find or create leaf page for given key.
-   * Analogous to TrieWriter.prepareLeafOfTree() but uses semantic key navigation.
+   * Navigate keyed trie (HOT) to find or create leaf page for given key. Analogous to
+   * TrieWriter.prepareLeafOfTree() but uses semantic key navigation.
    *
    * @param pageRtx storage engine writer
    * @param log transaction intent log
@@ -115,45 +122,41 @@ public final class HOTTrieWriter {
    * @param indexNumber the index number
    * @return PageContainer with complete and modifying HOTLeafPage, or null if not found
    */
-  public @Nullable PageContainer prepareKeyedLeafForModification(
-      @NonNull StorageEngineWriter pageRtx,
-      @NonNull TransactionIntentLog log,
-      @NonNull PageReference startReference,
-      byte[] key,
-      @NonNull IndexType indexType,
-      int indexNumber) {
-    
+  public @Nullable PageContainer prepareKeyedLeafForModification(@NonNull StorageEngineWriter pageRtx,
+      @NonNull TransactionIntentLog log, @NonNull PageReference startReference, byte[] key,
+      @NonNull IndexType indexType, int indexNumber) {
+
     Objects.requireNonNull(pageRtx);
     Objects.requireNonNull(log);
     Objects.requireNonNull(startReference);
     Objects.requireNonNull(key);
     Objects.requireNonNull(indexType);
-    
+
     // Reset COW path (no allocation!)
     cowPathDepth = 0;
-    
+
     // Check if already in log (modified this transaction)
     PageContainer cached = log.get(startReference);
     if (cached != null) {
       return navigateWithinCachedTree(cached, key, pageRtx, log, indexType, indexNumber);
     }
-    
+
     // Navigate HOT trie, COW'ing along the path (uses pre-allocated arrays)
     PageReference leafRef = navigateToLeaf(pageRtx, startReference, key, log);
-    
+
     if (leafRef == null) {
       // Key not found, need to create new leaf
       return createNewLeaf(pageRtx, log, startReference, key, indexType, indexNumber);
     }
-    
+
     // Get leaf page through versioning pipeline
     return dereferenceHOTLeafForModification(pageRtx, leafRef, log);
   }
-  
+
   /**
-   * Navigate through keyed trie (HOT) compound nodes to reach leaf.
-   * Each node type uses discriminative bits for child-finding (SIMD-optimized).
-   * Uses pre-allocated cowPath arrays - ZERO allocations!
+   * Navigate through keyed trie (HOT) compound nodes to reach leaf. Each node type uses
+   * discriminative bits for child-finding (SIMD-optimized). Uses pre-allocated cowPath arrays - ZERO
+   * allocations!
    *
    * @param pageRtx the storage engine reader
    * @param startReference the starting reference
@@ -161,14 +164,11 @@ public final class HOTTrieWriter {
    * @param log the transaction intent log
    * @return the leaf page reference, or null if not found
    */
-  private @Nullable PageReference navigateToLeaf(
-      @NonNull StorageEngineReader pageRtx,
-      @NonNull PageReference startReference,
-      byte[] key,
-      @NonNull TransactionIntentLog log) {
-    
+  private @Nullable PageReference navigateToLeaf(@NonNull StorageEngineReader pageRtx,
+      @NonNull PageReference startReference, byte[] key, @NonNull TransactionIntentLog log) {
+
     PageReference currentRef = startReference;
-    
+
     while (true) {
       // Check log first
       PageContainer container = log.get(currentRef);
@@ -178,38 +178,38 @@ public final class HOTTrieWriter {
       } else {
         page = loadPage(pageRtx, currentRef);
       }
-      
+
       if (page == null) {
         return null; // Empty trie
       }
-      
+
       // Use pageKind check instead of instanceof (faster!)
       if (page instanceof HOTLeafPage) {
         return currentRef;
       }
-      
+
       if (!(page instanceof HOTIndirectPage hotNode)) {
         return null; // Unexpected page type
       }
-      
+
       // Find child reference using HOT node type-specific logic
       int childIndex = hotNode.findChildIndex(key);
       if (childIndex < 0) {
         return null; // Key not found
       }
-      
+
       PageReference childRef = hotNode.getChildReference(childIndex);
       if (childRef == null) {
         return null;
       }
-      
+
       // Record path for COW propagation (no allocation!)
       pushCowPath(currentRef, hotNode, childIndex);
-      
+
       currentRef = childRef;
     }
   }
-  
+
   /**
    * Flyweight push for COW path - no allocation!
    */
@@ -222,7 +222,7 @@ public final class HOTTrieWriter {
     cowPathChildIndices[cowPathDepth] = childIdx;
     cowPathDepth++;
   }
-  
+
   /**
    * Clear COW path references (allows GC but no allocation).
    */
@@ -233,93 +233,83 @@ public final class HOTTrieWriter {
     }
     cowPathDepth = 0;
   }
-  
+
   /**
-   * Dereference HOT leaf page for modification using versioning pipeline.
-   * Uses pre-allocated cowPath arrays - ZERO allocations except for page copies!
+   * Dereference HOT leaf page for modification using versioning pipeline. Uses pre-allocated cowPath
+   * arrays - ZERO allocations except for page copies!
    */
-  private @Nullable PageContainer dereferenceHOTLeafForModification(
-      @NonNull StorageEngineWriter pageRtx,
-      @NonNull PageReference leafRef,
-      @NonNull TransactionIntentLog log) {
-    
+  private @Nullable PageContainer dereferenceHOTLeafForModification(@NonNull StorageEngineWriter pageRtx,
+      @NonNull PageReference leafRef, @NonNull TransactionIntentLog log) {
+
     // Check if already in log
     PageContainer existing = log.get(leafRef);
     if (existing != null) {
       return existing;
     }
-    
+
     // Load the leaf page
     Page page = loadPage(pageRtx, leafRef);
     if (!(page instanceof HOTLeafPage hotLeaf)) {
       clearCowPath();
       return null;
     }
-    
+
     // Create COW copy for modification
     // For HOTLeafPage, we need to create a new instance with same data
-    HOTLeafPage modifiedLeaf = new HOTLeafPage(
-        hotLeaf.getPageKey(),
-        pageRtx.getRevisionNumber(),
-        hotLeaf.getIndexType()
-    );
-    
+    HOTLeafPage modifiedLeaf =
+        new HOTLeafPage(hotLeaf.getPageKey(), pageRtx.getRevisionNumber(), hotLeaf.getIndexType());
+
     // Copy existing entries (this is the unavoidable COW cost)
     // TODO: Implement proper entry copying when HOTLeafPage has more methods
-    
+
     PageContainer leafContainer = PageContainer.getInstance(hotLeaf, modifiedLeaf);
     log.put(leafRef, leafContainer);
-    
+
     // Propagate COW up the path
     propagateCOW(log, leafRef);
-    
+
     // Clear references to allow GC
     clearCowPath();
-    
+
     return leafContainer;
   }
-  
+
   /**
-   * Propagate copy-on-write changes up to ancestors.
-   * Each modified HOTIndirectPage gets a new copy in the log.
-   * Uses pre-allocated cowPath arrays - ZERO allocations except for page copies!
+   * Propagate copy-on-write changes up to ancestors. Each modified HOTIndirectPage gets a new copy in
+   * the log. Uses pre-allocated cowPath arrays - ZERO allocations except for page copies!
    */
   private void propagateCOW(@NonNull TransactionIntentLog log, PageReference modifiedChildRef) {
     PageReference childRef = modifiedChildRef;
-    
+
     // Iterate backwards through pre-allocated arrays (no iterator allocation!)
     for (int i = cowPathDepth - 1; i >= 0; i--) {
       PageReference parentRef = cowPathRefs[i];
       HOTIndirectPage parentNode = cowPathNodes[i];
       int childIndex = cowPathChildIndices[i];
-      
+
       // COW the parent node (this allocation is unavoidable - it's the copy!)
       HOTIndirectPage newParent = parentNode.copyWithUpdatedChild(childIndex, childRef);
-      
+
       // Update log
       log.put(parentRef, PageContainer.getInstance(newParent, newParent));
-      
+
       childRef = parentRef;
     }
   }
-  
+
   /**
    * Navigate within a cached tree that's already been modified.
    */
-  private @Nullable PageContainer navigateWithinCachedTree(
-      @NonNull PageContainer cached,
-      byte[] key,
-      @NonNull StorageEngineWriter pageRtx,
-      @NonNull TransactionIntentLog log,
-      @NonNull IndexType indexType,
+  private @Nullable PageContainer navigateWithinCachedTree(@NonNull PageContainer cached, byte[] key,
+      @NonNull StorageEngineWriter pageRtx, @NonNull TransactionIntentLog log, @NonNull IndexType indexType,
       int indexNumber) {
-    
+
     Page page = cached.getModified();
-    
+
     if (page instanceof HOTLeafPage) {
       return cached;
     }
-    
+
     if (page instanceof HOTIndirectPage hotNode) {
       int childIndex = hotNode.findChildIndex(key);
       if (childIndex >= 0) {
@@ -332,33 +322,28 @@ public final class HOTTrieWriter {
         }
       }
     }
-    
+
     // Not found in cached tree, need to load
     return null;
   }
-  
+
   /**
    * Create a new leaf page for a key that doesn't exist yet.
    */
-  private @Nullable PageContainer createNewLeaf(
-      @NonNull StorageEngineWriter pageRtx,
-      @NonNull TransactionIntentLog log,
-      @NonNull PageReference startReference,
-      byte[] key,
-      @NonNull IndexType indexType,
-      int indexNumber) {
-    
+  private @Nullable PageContainer createNewLeaf(@NonNull StorageEngineWriter pageRtx, @NonNull TransactionIntentLog log,
+      @NonNull PageReference startReference, byte[] key, @NonNull IndexType indexType, int indexNumber) {
+
     // Create new HOTLeafPage
     // TODO: Replace with proper page key allocation from RevisionRootPage
     long newPageKey = nextPageKey++;
     HOTLeafPage newLeaf = new HOTLeafPage(newPageKey, pageRtx.getRevisionNumber(), indexType);
-    
+
     PageReference newRef = new PageReference();
     newRef.setKey(newPageKey);
-    
+
     PageContainer container = PageContainer.getInstance(newLeaf, newLeaf);
     log.put(newRef, container);
-    
+
     // If this is the first page (empty root), update the root reference
     if (cowPathDepth == 0) {
       // Update start reference to point to new leaf
@@ -370,11 +355,11 @@ public final class HOTTrieWriter {
       // For now, just propagate the COW
       propagateCOW(log, newRef);
     }
-    
+
     clearCowPath();
     return container;
   }
-  
+
   /**
    * Load a page from storage.
    */
@@ -386,10 +371,10 @@ public final class HOTTrieWriter {
     // For now, return null - actual implementation would use pageRtx
     return null;
   }
-  
+
   /**
-   * Handle leaf split - creates new HOTLeafPage and updates parent.
-   * Uses pre-allocated cowPath arrays - no Deque allocation!
+   * Handle leaf split - creates new HOTLeafPage and updates parent. Uses pre-allocated cowPath arrays
+   * - no Deque allocation!
    *
    * @param pageRtx the storage engine writer
    * @param log the transaction intent log
@@ -398,58 +383,51 @@ public final class HOTTrieWriter {
    * @param rootReference the root reference for the index (to update if root splits)
    * @return the split key that separates the two pages
    */
-  public byte[] handleLeafSplit(
-      @NonNull StorageEngineWriter pageRtx,
-      @NonNull TransactionIntentLog log,
-      @NonNull HOTLeafPage fullPage,
-      @NonNull PageReference pageRef,
-      @NonNull PageReference rootReference) {
+  public byte[] handleLeafSplit(@NonNull StorageEngineWriter pageRtx, @NonNull TransactionIntentLog log,
+      @NonNull HOTLeafPage fullPage, @NonNull PageReference pageRef, @NonNull PageReference rootReference) {
     // Delegate to the path-aware version with empty path (root level split)
-    return handleLeafSplitWithPath(pageRtx, log, fullPage, pageRef, rootReference,
-        new HOTIndirectPage[MAX_TREE_HEIGHT], new PageReference[MAX_TREE_HEIGHT], new int[MAX_TREE_HEIGHT], 0);
+    return handleLeafSplitWithPath(pageRtx, log, fullPage, pageRef, rootReference, new HOTIndirectPage[MAX_TREE_HEIGHT],
+        new PageReference[MAX_TREE_HEIGHT], new int[MAX_TREE_HEIGHT], 0);
   }
-  
+
   /**
    * Handle leaf page split with explicit path information.
    *
-   * <p>This method properly handles splits at any level of the tree by accepting
-   * the navigation path from root to the splitting leaf.</p>
+   * <p>
+   * This method properly handles splits at any level of the tree by accepting the navigation path
+   * from root to the splitting leaf.
+   * </p>
    *
-   * <p><b>Edge Case:</b> When the page has only 1 entry (common with many identical
-   * keys that get merged), splitting won't help. In this case, the method attempts
-   * to compact the page to free fragmented space. If that still doesn't help,
-   * the method returns {@code null} to signal that the caller needs to handle
-   * this differently (e.g., using overflow pages for large values).</p>
+   * <p>
+   * <b>Edge Case:</b> When the page has only 1 entry (common with many identical keys that get
+   * merged), splitting won't help. In this case, the method attempts to compact the page to free
+   * fragmented space. If that still doesn't help, the method returns {@code null} to signal that the
+   * caller needs to handle this differently (e.g., using overflow pages for large values).
+   * </p>
    *
-   * @param pageRtx       the storage engine writer
-   * @param log           the transaction intent log
-   * @param fullPage      the full page that needs splitting
-   * @param leafRef       the reference to the leaf being split
+   * @param pageRtx the storage engine writer
+   * @param log the transaction intent log
+   * @param fullPage the full page that needs splitting
+   * @param leafRef the reference to the leaf being split
    * @param rootReference the root reference for the index
-   * @param pathNodes     the indirect page nodes on the path from root to leaf
-   * @param pathRefs      the page references on the path from root to leaf
+   * @param pathNodes the indirect page nodes on the path from root to leaf
+   * @param pathRefs the page references on the path from root to leaf
    * @param pathChildIndices the child indices taken at each level
-   * @param pathDepth     the depth of the path (0 means leaf is at root)
-   * @return the split key that separates the two pages, or {@code null} if
-   *         the page cannot be split (e.g., only 1 entry with large merged value)
+   * @param pathDepth the depth of the path (0 means leaf is at root)
+   * @return the split key that separates the two pages, or {@code null} if the page cannot be split
+   *         (e.g., only 1 entry with large merged value)
    */
-  public @Nullable byte[] handleLeafSplitWithPath(
-      @NonNull StorageEngineWriter pageRtx,
-      @NonNull TransactionIntentLog log,
-      @NonNull HOTLeafPage fullPage,
-      @NonNull PageReference leafRef,
-      @NonNull PageReference rootReference,
-      HOTIndirectPage[] pathNodes,
-      PageReference[] pathRefs,
-      int[] pathChildIndices,
-      int pathDepth) {
-    
+  public @Nullable byte[] handleLeafSplitWithPath(@NonNull StorageEngineWriter pageRtx,
+      @NonNull TransactionIntentLog log, @NonNull HOTLeafPage fullPage, @NonNull PageReference leafRef,
+      @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+      int[] pathChildIndices, int pathDepth) {
+
     Objects.requireNonNull(pageRtx);
     Objects.requireNonNull(log);
     Objects.requireNonNull(fullPage);
     Objects.requireNonNull(leafRef);
     Objects.requireNonNull(rootReference);
-    
+
     // Check if page can be split
     if (!fullPage.canSplit()) {
       // Try compacting the page first to free fragmented space
@@ -464,22 +442,18 @@ public final class HOTTrieWriter {
       // Splitting won't help - caller needs to use overflow pages
       return null;
     }
-    
+
     // Allocate new page key for right sibling
     long newPageKey = nextPageKey++;
     long newRootPageKey = nextPageKey++;
-    
+
     // Create new HOTLeafPage with off-heap segment
-    HOTLeafPage rightPage = new HOTLeafPage(
-        newPageKey,
-        pageRtx.getRevisionNumber(),
-        fullPage.getIndexType()
-    );
-    
+    HOTLeafPage rightPage = new HOTLeafPage(newPageKey, pageRtx.getRevisionNumber(), fullPage.getIndexType());
+
     // Use HeightOptimalSplitter for proper height-optimal splitting
-    HeightOptimalSplitter.SplitResult splitResult = HeightOptimalSplitter.splitLeafPage(
-        fullPage, rightPage, newRootPageKey, pageRtx.getRevisionNumber());
-    
+    HeightOptimalSplitter.SplitResult splitResult =
+        HeightOptimalSplitter.splitLeafPage(fullPage, rightPage, newRootPageKey, pageRtx.getRevisionNumber());
+
     // Handle case where split failed (e.g., single large entry)
     if (splitResult == null) {
       // Close the unused right page to release memory
@@ -489,25 +463,24 @@ public final class HOTTrieWriter {
       log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
       return null;
     }
-    
+
     // Get the split key from boundary (first key in right page after split)
     byte[] splitKey = rightPage.getFirstKey();
-    
+
     // Create reference for the new right page
     PageReference rightRef = splitResult.rightChild();
     rightRef.setKey(newPageKey);
     log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
-    
+
     // Update the original leaf page reference in the log
     log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
-    
+
     // Now we need to update the parent structure
     if (pathDepth > 0) {
       // Has a parent - update the parent to include the new child
       int parentIdx = pathDepth - 1;
-      updateParentForSplitWithPath(pageRtx, log, pathRefs[parentIdx], pathNodes[parentIdx],
-          pathChildIndices[parentIdx], leafRef, rightRef, splitKey, rootReference,
-          pathNodes, pathRefs, pathChildIndices, parentIdx);
+      updateParentForSplitWithPath(pageRtx, log, pathRefs[parentIdx], pathNodes[parentIdx], pathChildIndices[parentIdx],
+          leafRef, rightRef, splitKey, rootReference, pathNodes, pathRefs, pathChildIndices, parentIdx);
     } else {
       // Root split - create new BiNode as root
       // CRITICAL: When pathDepth=0, leafRef may be the same object as rootReference.
@@ -522,94 +495,85 @@ public final class HOTTrieWriter {
       } else {
         leftChildRef = leafRef;
       }
-      
+
       HOTIndirectPage newRoot = splitResult.newRoot();
       newRoot.setChildReference(0, leftChildRef);
       newRoot.setChildReference(1, rightRef);
-      
+
       rootReference.setKey(newRootPageKey);
       rootReference.setPage(newRoot);
       log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
     }
-    
+
     return splitKey;
   }
-  
+
   /**
-     * Integrate a BiNode (from a split) into the tree structure.
+   * Integrate a BiNode (from a split) into the tree structure.
    * 
-   * <p>Reference: HOTSingleThreaded.hpp integrateBiNodeIntoTree() lines 493-547.
-   * This implements the height-optimal integration strategy:</p>
+   * <p>
+   * Reference: HOTSingleThreaded.hpp integrateBiNodeIntoTree() lines 493-547. This implements the
+   * height-optimal integration strategy:
+   * </p>
    * <ol>
-   *   <li>If parent.height > splitEntries.height: create intermediate node</li>
-   *   <li>If parent NOT full (< 32 entries): expand parent by adding entry</li>
-   *   <li>If parent IS full: split parent and recurse up</li>
+   * <li>If parent.height > splitEntries.height: create intermediate node</li>
+   * <li>If parent NOT full (< 32 entries): expand parent by adding entry</li>
+   * <li>If parent IS full: split parent and recurse up</li>
    * </ol>
    */
-  private void updateParentForSplitWithPath(
-      @NonNull StorageEngineWriter pageRtx,
-      @NonNull TransactionIntentLog log,
-      @NonNull PageReference parentRef,
-      @NonNull HOTIndirectPage parent,
-      int originalChildIndex,
-      @NonNull PageReference leftChild,
-      @NonNull PageReference rightChild,
-      byte[] splitKey,
-      @NonNull PageReference rootReference,
-      HOTIndirectPage[] pathNodes,
-      PageReference[] pathRefs,
-      int[] pathChildIndices,
-      int currentPathIdx) {
-    
+  private void updateParentForSplitWithPath(@NonNull StorageEngineWriter pageRtx, @NonNull TransactionIntentLog log,
+      @NonNull PageReference parentRef, @NonNull HOTIndirectPage parent, int originalChildIndex,
+      @NonNull PageReference leftChild, @NonNull PageReference rightChild, byte[] splitKey,
+      @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+      int[] pathChildIndices, int currentPathIdx) {
+
     // Compute discriminative bit between the two split children
     byte[] leftMax = getLastKeyFromChild(leftChild);
     byte[] rightMin = getFirstKeyFromChild(rightChild);
     int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
-    
+
     // Compute the height of the split entries (BiNode containing the split children)
     int leftHeight = getHeightFromChild(leftChild);
     int rightHeight = getHeightFromChild(rightChild);
     int splitEntriesHeight = Math.max(leftHeight, rightHeight) + 1;
-    
+
     // Reference line 502: if parent.height > splitEntries.height, create intermediate node
     if (parent.getHeight() > splitEntriesHeight) {
       // Create intermediate BiNode at current position and update parent's child
       long newBiNodePageKey = nextPageKey++;
-      HOTIndirectPage newBiNode = HOTIndirectPage.createBiNode(
-          newBiNodePageKey, pageRtx.getRevisionNumber(), discriminativeBit,
-          leftChild, rightChild, splitEntriesHeight);
-      
+      HOTIndirectPage newBiNode = HOTIndirectPage.createBiNode(newBiNodePageKey, pageRtx.getRevisionNumber(),
+          discriminativeBit, leftChild, rightChild, splitEntriesHeight);
+
       PageReference newBiNodeRef = new PageReference();
       newBiNodeRef.setKey(newBiNodePageKey);
       newBiNodeRef.setPage(newBiNode);
       log.put(newBiNodeRef, PageContainer.getInstance(newBiNode, newBiNode));
-      
-      HOTIndirectPage updatedParent = parent.withUpdatedChild(originalChildIndex, newBiNodeRef, pageRtx.getRevisionNumber());
+
+      HOTIndirectPage updatedParent =
+          parent.withUpdatedChild(originalChildIndex, newBiNodeRef, pageRtx.getRevisionNumber());
       log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
     } else {
       // parent.height == splitEntries.height: integrate into parent
       // Reference lines 504-546
-      
+
       int currentNumChildren = parent.getNumChildren();
-      
+
       // Reference line 516: if parent NOT full, add entry
       // Maximum is 32 entries per node (reference: MAXIMUM_NUMBER_NODE_ENTRIES = 32)
       if (currentNumChildren < NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
         // Parent has space - expand by adding the new entry
         // This replaces one child with two children
-        HOTIndirectPage expandedParent = expandParentNode(
-            parent, originalChildIndex, leftChild, rightChild,
+        HOTIndirectPage expandedParent = expandParentNode(parent, originalChildIndex, leftChild, rightChild,
             discriminativeBit, pageRtx.getRevisionNumber());
         log.put(parentRef, PageContainer.getInstance(expandedParent, expandedParent));
       } else {
         // Reference lines 520-536: parent is FULL - split and recurse
-        splitParentAndRecurse(pageRtx, log, parentRef, parent, originalChildIndex,
-            leftChild, rightChild, discriminativeBit, rootReference,
-            pathNodes, pathRefs, pathChildIndices, currentPathIdx);
+        splitParentAndRecurse(pageRtx, log, parentRef, parent, originalChildIndex, leftChild, rightChild,
+            discriminativeBit, rootReference, pathNodes, pathRefs, pathChildIndices, currentPathIdx);
       }
     }
   }
-  
+
   /**
    * Get height from a child reference.
    */
@@ -622,20 +586,18 @@ public final class HOTTrieWriter {
     }
     return 0;
   }
-  
+
   /**
-   * Expand a parent node by replacing one child with two children (from a split).
-   * Reference: parentNode.addEntry() in HOTSingleThreaded.hpp
+   * Expand a parent node by replacing one child with two children (from a split). Reference:
+   * parentNode.addEntry() in HOTSingleThreaded.hpp
    */
-  private HOTIndirectPage expandParentNode(
-      HOTIndirectPage parent, int splitChildIndex,
-      PageReference leftChild, PageReference rightChild,
-      int discriminativeBit, int revision) {
-    
+  private HOTIndirectPage expandParentNode(HOTIndirectPage parent, int splitChildIndex, PageReference leftChild,
+      PageReference rightChild, int discriminativeBit, int revision) {
+
     int numChildren = parent.getNumChildren();
     int newNumChildren = numChildren + 1;
     PageReference[] newChildren = new PageReference[newNumChildren];
-    
+
     // Copy children, replacing split child with left+right
     int j = 0;
     for (int i = 0; i < numChildren; i++) {
@@ -646,38 +608,39 @@ public final class HOTTrieWriter {
         newChildren[j++] = parent.getChildReference(i);
       }
     }
-    
+
     // Compute discriminative bits and partial keys for navigation
     byte initialBytePos = computeInitialBytePos(newChildren);
     long bitMask = computeBitMaskForChildren(newChildren, initialBytePos);
     byte[] partialKeys = computePartialKeysForChildren(newChildren, initialBytePos, bitMask);
-    
+
     // Create appropriate node type based on child count
     if (newNumChildren <= 2) {
-      return HOTIndirectPage.createBiNode(parent.getPageKey(), revision, discriminativeBit,
-          newChildren[0], newChildren[1], parent.getHeight());
+      return HOTIndirectPage.createBiNode(parent.getPageKey(), revision, discriminativeBit, newChildren[0],
+          newChildren[1], parent.getHeight());
     } else if (newNumChildren <= 16) {
-      return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
-          initialBytePos, bitMask, partialKeys, newChildren, parent.getHeight());
+      return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision, initialBytePos, bitMask, partialKeys,
+          newChildren, parent.getHeight());
     } else {
-      return HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
-          initialBytePos, bitMask, partialKeys, newChildren, parent.getHeight());
+      return HOTIndirectPage.createMultiNode(parent.getPageKey(), revision, initialBytePos, bitMask, partialKeys,
+          newChildren, parent.getHeight());
     }
   }
-  
+
   /**
    * Compute initial byte position from children keys.
    */
   private byte computeInitialBytePos(PageReference[] children) {
-    if (children.length < 2) return 0;
-    
+    if (children.length < 2)
+      return 0;
+
     // Find the first discriminative byte position
     byte[] first = getFirstKeyFromChild(children[0]);
     byte[] second = getFirstKeyFromChild(children[1]);
     int bit = DiscriminativeBitComputer.computeDifferingBit(first, second);
     return (byte) (bit / 8);
   }
-  
+
   /**
    * Compute bit mask that covers all discriminative bits for the children.
    */
@@ -686,8 +649,9 @@ public final class HOTTrieWriter {
     for (int i = 0; i < children.length - 1; i++) {
       byte[] key1 = getLastKeyFromChild(children[i]);
       byte[] key2 = getFirstKeyFromChild(children[i + 1]);
-      if (key1.length == 0 || key2.length == 0) continue;
-      
+      if (key1.length == 0 || key2.length == 0)
+        continue;
+
       int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
       int byteOffset = bit / 8 - (initialBytePos & 0xFF);
       if (byteOffset >= 0 && byteOffset < 8) {
@@ -695,9 +659,11 @@ public final class HOTTrieWriter {
         mask |= 1L << (byteOffset * 8 + bitInByte);
       }
     }
-    return mask != 0 ? mask : 1L;
+    return mask != 0
+        ? mask
+        : 1L;
   }
-  
+
   /**
    * Compute partial keys for all children based on the bit mask.
    */
@@ -709,41 +675,33 @@ public final class HOTTrieWriter {
     }
     return partialKeys;
   }
-  
+
   /**
    * Split a full parent node and recurse up the tree.
    * 
-   * <p>Reference: HOTSingleThreadedNode.hpp lines 549-565 (split function).
-   * Uses the MOST SIGNIFICANT discriminative bit to split entries into two groups:
-   * - "Smaller" entries: those with MSB=0
-   * - "Larger" entries: those with MSB=1</p>
+   * <p>
+   * Reference: HOTSingleThreadedNode.hpp lines 549-565 (split function). Uses the MOST SIGNIFICANT
+   * discriminative bit to split entries into two groups: - "Smaller" entries: those with MSB=0 -
+   * "Larger" entries: those with MSB=1
+   * </p>
    */
-  private void splitParentAndRecurse(
-      @NonNull StorageEngineWriter pageRtx,
-      @NonNull TransactionIntentLog log,
-      @NonNull PageReference parentRef,
-      @NonNull HOTIndirectPage parent,
-      int originalChildIndex,
-      @NonNull PageReference leftChild,
-      @NonNull PageReference rightChild,
-      int discriminativeBit,
-      @NonNull PageReference rootReference,
-      HOTIndirectPage[] pathNodes,
-      PageReference[] pathRefs,
-      int[] pathChildIndices,
-      int currentPathIdx) {
-    
+  private void splitParentAndRecurse(@NonNull StorageEngineWriter pageRtx, @NonNull TransactionIntentLog log,
+      @NonNull PageReference parentRef, @NonNull HOTIndirectPage parent, int originalChildIndex,
+      @NonNull PageReference leftChild, @NonNull PageReference rightChild, int discriminativeBit,
+      @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+      int[] pathChildIndices, int currentPathIdx) {
+
     int numChildren = parent.getNumChildren();
-    
+
     // Reference: getMaskForLargerEntries() finds entries with MSB set
     // The MSB (most significant bit) determines the split boundary
     // Find the split point based on the most significant discriminative bit
     int msbPosition = findMostSignificantDiscriminativeBitPosition(parent);
-    
+
     // Build arrays of children with MSB=0 ("smaller") and MSB=1 ("larger")
     java.util.List<PageReference> smallerChildren = new java.util.ArrayList<>();
     java.util.List<PageReference> largerChildren = new java.util.ArrayList<>();
-    
+
     for (int i = 0; i < numChildren; i++) {
       if (i == originalChildIndex) {
         // Replace the original child with the split children
@@ -752,7 +710,7 @@ public final class HOTTrieWriter {
         byte[] rightKey = getFirstKeyFromChild(rightChild);
         boolean leftHasMsbSet = hasBitSet(leftKey, msbPosition);
         boolean rightHasMsbSet = hasBitSet(rightKey, msbPosition);
-        
+
         if (!leftHasMsbSet) {
           smallerChildren.add(leftChild);
         } else {
@@ -773,62 +731,60 @@ public final class HOTTrieWriter {
         }
       }
     }
-    
+
     // Ensure we have entries in both halves (fallback to half split if needed)
     if (smallerChildren.isEmpty() || largerChildren.isEmpty()) {
       // Fall back to simple half split
-      splitParentHalfAndRecurse(pageRtx, log, parentRef, parent, originalChildIndex,
-          leftChild, rightChild, rootReference, pathNodes, pathRefs, pathChildIndices, currentPathIdx);
+      splitParentHalfAndRecurse(pageRtx, log, parentRef, parent, originalChildIndex, leftChild, rightChild,
+          rootReference, pathNodes, pathRefs, pathChildIndices, currentPathIdx);
       return;
     }
-    
+
     PageReference[] leftChildren = smallerChildren.toArray(PageReference[]::new);
     PageReference[] rightChildren = largerChildren.toArray(PageReference[]::new);
-    
+
     // Create left node (entries with MSB=0)
-    HOTIndirectPage leftNode = createNodeFromChildren(leftChildren, parent.getPageKey(),
-        pageRtx.getRevisionNumber(), parent.getHeight());
+    HOTIndirectPage leftNode =
+        createNodeFromChildren(leftChildren, parent.getPageKey(), pageRtx.getRevisionNumber(), parent.getHeight());
     PageReference leftNodeRef = new PageReference();
     leftNodeRef.setKey(parent.getPageKey());
     leftNodeRef.setPage(leftNode);
     log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
-    
+
     // Create right node (entries with MSB=1) - new page key
     long rightPageKey = nextPageKey++;
-    HOTIndirectPage rightNode = createNodeFromChildren(rightChildren, rightPageKey,
-        pageRtx.getRevisionNumber(), parent.getHeight());
+    HOTIndirectPage rightNode =
+        createNodeFromChildren(rightChildren, rightPageKey, pageRtx.getRevisionNumber(), parent.getHeight());
     PageReference rightNodeRef = new PageReference();
     rightNodeRef.setKey(rightPageKey);
     rightNodeRef.setPage(rightNode);
     log.put(rightNodeRef, PageContainer.getInstance(rightNode, rightNode));
-    
+
     // The split bit becomes the new root's discriminative bit
     // Reference: uses mMostSignificantDiscriminativeBitIndex for new BiNode
     int newRootDiscrimBit = msbPosition;
-    
+
     // Recurse up to integrate [leftNode, rightNode] into grandparent
     if (currentPathIdx > 0) {
       int grandparentIdx = currentPathIdx - 1;
       updateParentForSplitWithPath(pageRtx, log, pathRefs[grandparentIdx], pathNodes[grandparentIdx],
-          pathChildIndices[grandparentIdx], leftNodeRef, rightNodeRef,
-          getFirstKeyFromChild(rightNodeRef), rootReference,
-          pathNodes, pathRefs, pathChildIndices, grandparentIdx);
+          pathChildIndices[grandparentIdx], leftNodeRef, rightNodeRef, getFirstKeyFromChild(rightNodeRef),
+          rootReference, pathNodes, pathRefs, pathChildIndices, grandparentIdx);
     } else {
       // At root - create new root BiNode
       long newRootKey = nextPageKey++;
-      HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(
-          newRootKey, pageRtx.getRevisionNumber(), newRootDiscrimBit,
+      HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(newRootKey, pageRtx.getRevisionNumber(), newRootDiscrimBit,
           leftNodeRef, rightNodeRef, parent.getHeight() + 1);
-      
+
       rootReference.setKey(newRootKey);
       rootReference.setPage(newRoot);
       log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
     }
   }
-  
+
   /**
-   * Find the most significant discriminative bit position for the parent node.
-   * Reference: getMaskForHighestBit() in DiscriminativeBitsRepresentation
+   * Find the most significant discriminative bit position for the parent node. Reference:
+   * getMaskForHighestBit() in DiscriminativeBitsRepresentation
    */
   private int findMostSignificantDiscriminativeBitPosition(HOTIndirectPage parent) {
     // For BiNode, it's the single discriminative bit
@@ -842,41 +798,34 @@ public final class HOTTrieWriter {
     int highestBit = 63 - Long.numberOfLeadingZeros(bitMask);
     return bytePos * 8 + (7 - (highestBit % 8));
   }
-  
+
   /**
    * Check if a key has a specific bit set.
    */
   private boolean hasBitSet(byte[] key, int bitPosition) {
     int byteIndex = bitPosition / 8;
-    int bitIndex = 7 - (bitPosition % 8);  // MSB-first within byte
+    int bitIndex = 7 - (bitPosition % 8); // MSB-first within byte
     if (byteIndex >= key.length) {
       return false;
     }
     return ((key[byteIndex] >> bitIndex) & 1) == 1;
   }
-  
+
   /**
    * Fallback: split in half if MSB-based split fails.
    */
-  private void splitParentHalfAndRecurse(
-      @NonNull StorageEngineWriter pageRtx,
-      @NonNull TransactionIntentLog log,
-      @NonNull PageReference parentRef,
-      @NonNull HOTIndirectPage parent,
-      int originalChildIndex,
-      @NonNull PageReference leftChild,
-      @NonNull PageReference rightChild,
-      @NonNull PageReference rootReference,
-      HOTIndirectPage[] pathNodes,
-      PageReference[] pathRefs,
-      int[] pathChildIndices,
-      int currentPathIdx) {
-    
+  private void splitParentHalfAndRecurse(@NonNull StorageEngineWriter pageRtx, @NonNull TransactionIntentLog log,
+      @NonNull PageReference parentRef, @NonNull HOTIndirectPage parent, int originalChildIndex,
+      @NonNull PageReference leftChild, @NonNull PageReference rightChild, @NonNull PageReference rootReference,
+      HOTIndirectPage[] pathNodes, PageReference[] pathRefs, int[] pathChildIndices, int currentPathIdx) {
+
     int numChildren = parent.getNumChildren();
     int splitPoint = numChildren / 2;
     boolean splitInLeftHalf = originalChildIndex < splitPoint;
-    
-    int leftCount = splitPoint + (splitInLeftHalf ? 1 : 0);
+
+    int leftCount = splitPoint + (splitInLeftHalf
+        ? 1
+        : 0);
     PageReference[] leftChildren = new PageReference[leftCount];
     int li = 0;
     for (int i = 0; i < splitPoint; i++) {
@@ -887,8 +836,10 @@ public final class HOTTrieWriter {
         leftChildren[li++] = parent.getChildReference(i);
       }
     }
-    
-    int rightCount = numChildren - splitPoint + (splitInLeftHalf ? 0 : 1);
+
+    int rightCount = numChildren - splitPoint + (splitInLeftHalf
+        ? 0
+        : 1);
     PageReference[] rightChildren = new PageReference[rightCount];
     int ri = 0;
     for (int i = splitPoint; i < numChildren; i++) {
@@ -899,69 +850,70 @@ public final class HOTTrieWriter {
         rightChildren[ri++] = parent.getChildReference(i);
       }
     }
-    
-    HOTIndirectPage leftNode = createNodeFromChildren(leftChildren, parent.getPageKey(),
-        pageRtx.getRevisionNumber(), parent.getHeight());
+
+    HOTIndirectPage leftNode =
+        createNodeFromChildren(leftChildren, parent.getPageKey(), pageRtx.getRevisionNumber(), parent.getHeight());
     PageReference leftNodeRef = new PageReference();
     leftNodeRef.setKey(parent.getPageKey());
     leftNodeRef.setPage(leftNode);
     log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
-    
+
     long rightPageKey = nextPageKey++;
-    HOTIndirectPage rightNode = createNodeFromChildren(rightChildren, rightPageKey,
-        pageRtx.getRevisionNumber(), parent.getHeight());
+    HOTIndirectPage rightNode =
+        createNodeFromChildren(rightChildren, rightPageKey, pageRtx.getRevisionNumber(), parent.getHeight());
     PageReference rightNodeRef = new PageReference();
     rightNodeRef.setKey(rightPageKey);
     rightNodeRef.setPage(rightNode);
     log.put(rightNodeRef, PageContainer.getInstance(rightNode, rightNode));
-    
+
     if (currentPathIdx > 0) {
       int grandparentIdx = currentPathIdx - 1;
       updateParentForSplitWithPath(pageRtx, log, pathRefs[grandparentIdx], pathNodes[grandparentIdx],
-          pathChildIndices[grandparentIdx], leftNodeRef, rightNodeRef,
-          getFirstKeyFromChild(rightNodeRef), rootReference,
-          pathNodes, pathRefs, pathChildIndices, grandparentIdx);
+          pathChildIndices[grandparentIdx], leftNodeRef, rightNodeRef, getFirstKeyFromChild(rightNodeRef),
+          rootReference, pathNodes, pathRefs, pathChildIndices, grandparentIdx);
     } else {
       byte[] lMax = getLastKeyFromChild(leftNodeRef);
       byte[] rMin = getFirstKeyFromChild(rightNodeRef);
       int rootDiscrimBit = DiscriminativeBitComputer.computeDifferingBit(lMax, rMin);
-      
+
       long newRootKey = nextPageKey++;
-      HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(
-          newRootKey, pageRtx.getRevisionNumber(), rootDiscrimBit,
+      HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(newRootKey, pageRtx.getRevisionNumber(), rootDiscrimBit,
           leftNodeRef, rightNodeRef, parent.getHeight() + 1);
-      
+
       rootReference.setKey(newRootKey);
       rootReference.setPage(newRoot);
       log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
     }
   }
-  
+
   /**
    * Create appropriate node type for given children array.
    */
   private HOTIndirectPage createNodeFromChildren(PageReference[] children, long pageKey, int revision, int height) {
     if (children.length <= 2) {
       byte[] leftMax = getLastKeyFromChild(children[0]);
-      byte[] rightMin = children.length > 1 ? getFirstKeyFromChild(children[1]) : leftMax;
+      byte[] rightMin = children.length > 1
+          ? getFirstKeyFromChild(children[1])
+          : leftMax;
       int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
-      return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit,
-          children[0], children.length > 1 ? children[1] : children[0], height);
+      return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit, children[0], children.length > 1
+          ? children[1]
+          : children[0], height);
     } else {
       byte initialBytePos = computeInitialBytePos(children);
       long bitMask = computeBitMaskForChildren(children, initialBytePos);
       byte[] partialKeys = computePartialKeysForChildren(children, initialBytePos, bitMask);
-      
+
       if (children.length <= 16) {
-        return HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask,
-            partialKeys, children, height);
+        return HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask, partialKeys, children,
+            height);
       } else {
-        return HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, bitMask,
-            partialKeys, children, height);
+        return HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, bitMask, partialKeys, children,
+            height);
       }
     }
   }
-  
+
   /**
    * Compute partial key by extracting discriminative bits from a key.
    */
@@ -969,17 +921,17 @@ public final class HOTTrieWriter {
     if (key == null || key.length == 0) {
       return 0;
     }
-    
+
     // Extract 8 bytes from key starting at initialBytePos
     long keyWord = 0;
     for (int i = 0; i < 8 && (initialBytePos + i) < key.length; i++) {
       keyWord |= ((long) (key[initialBytePos + i] & 0xFF)) << (i * 8);
     }
-    
+
     // Apply PEXT-style extraction: compress bits selected by mask
     return (byte) Long.compress(keyWord, bitMask);
   }
-  
+
   /**
    * Get the last key from a child reference (leaf or indirect page).
    */
@@ -993,7 +945,7 @@ public final class HOTTrieWriter {
     }
     return new byte[0];
   }
-  
+
   /**
    * Descend through indirect pages to find the last key.
    */
@@ -1011,7 +963,7 @@ public final class HOTTrieWriter {
     }
     return new byte[0];
   }
-  
+
   /**
    * Get the first key from a child reference (leaf or indirect page).
    */
@@ -1025,7 +977,7 @@ public final class HOTTrieWriter {
     }
     return new byte[0];
   }
-  
+
   /**
    * Descend through indirect pages to find the first key.
    */

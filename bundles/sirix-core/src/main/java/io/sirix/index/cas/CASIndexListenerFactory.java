@@ -17,16 +17,18 @@ import io.sirix.index.path.summary.PathSummaryReader;
 /**
  * Factory for creating CAS index listeners.
  * 
- * <p>Supports both traditional RBTree and high-performance HOT index backends.
- * The backend is determined by the resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}
- * setting.</p>
+ * <p>
+ * Supports both traditional RBTree and high-performance HOT index backends. The backend is
+ * determined by the resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}
+ * setting.
+ * </p>
  */
 public final class CASIndexListenerFactory {
 
   /**
-   * System property to override HOT indexes globally (for testing).
-   * Set -Dsirix.index.useHOT=true to enable regardless of resource configuration.
-   * If not set, the resource configuration's indexBackendType is used.
+   * System property to override HOT indexes globally (for testing). Set -Dsirix.index.useHOT=true to
+   * enable regardless of resource configuration. If not set, the resource configuration's
+   * indexBackendType is used.
    */
   public static final String USE_HOT_PROPERTY = "sirix.index.useHOT";
 
@@ -39,39 +41,40 @@ public final class CASIndexListenerFactory {
   /**
    * Creates a CAS index listener using the backend configured for the resource.
    * 
-   * <p>The backend type is determined by checking:
+   * <p>
+   * The backend type is determined by checking:
    * <ol>
-   *   <li>The system property {@code sirix.index.useHOT} (for testing override)</li>
-   *   <li>The resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}</li>
-   * </ol></p>
+   * <li>The system property {@code sirix.index.useHOT} (for testing override)</li>
+   * <li>The resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}</li>
+   * </ol>
+   * </p>
    */
-  public CASIndexListener create(final StorageEngineWriter pageTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+  public CASIndexListener create(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef) {
     return create(pageTrx, pathSummaryReader, indexDef, isHOTEnabled(pageTrx));
   }
 
   /**
    * Creates a CAS index listener with explicit backend selection.
    *
-   * @param pageTrx         the storage engine writer
+   * @param pageTrx the storage engine writer
    * @param pathSummaryReader the path summary reader
-   * @param indexDef        the index definition
-   * @param useHOT          true to use HOT, false for RBTree
+   * @param indexDef the index definition
+   * @param useHOT true to use HOT, false for RBTree
    * @return the CAS index listener
    */
-  public CASIndexListener create(final StorageEngineWriter pageTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef, final boolean useHOT) {
+  public CASIndexListener create(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
+      final IndexDef indexDef, final boolean useHOT) {
     final var pathSummary = requireNonNull(pathSummaryReader);
     final var type = requireNonNull(indexDef.getContentType());
     final var paths = requireNonNull(indexDef.getPaths());
 
     if (useHOT) {
-      final var hotWriter = HOTIndexWriter.create(
-          pageTrx, CASKeySerializer.INSTANCE, IndexType.CAS, indexDef.getID());
+      final var hotWriter = HOTIndexWriter.create(pageTrx, CASKeySerializer.INSTANCE, IndexType.CAS, indexDef.getID());
       return new CASIndexListener(pathSummary, hotWriter, paths, type);
     } else {
-      final var rbTreeWriter = RBTreeWriter.<CASValue, NodeReferences>getInstance(
-          this.databaseType, pageTrx, indexDef.getType(), indexDef.getID());
+      final var rbTreeWriter = RBTreeWriter.<CASValue, NodeReferences>getInstance(this.databaseType, pageTrx,
+          indexDef.getType(), indexDef.getID());
       return new CASIndexListener(pathSummary, rbTreeWriter, paths, type);
     }
   }
@@ -79,11 +82,13 @@ public final class CASIndexListenerFactory {
   /**
    * Checks if HOT indexes should be used for the given transaction.
    * 
-   * <p>Priority:
+   * <p>
+   * Priority:
    * <ol>
-   *   <li>System property override (for testing)</li>
-   *   <li>Resource configuration setting</li>
-   * </ol></p>
+   * <li>System property override (for testing)</li>
+   * <li>Resource configuration setting</li>
+   * </ol>
+   * </p>
    *
    * @param pageTrx the storage engine writer providing access to resource configuration
    * @return true if HOT should be used
@@ -94,7 +99,7 @@ public final class CASIndexListenerFactory {
     if (sysProp != null) {
       return Boolean.parseBoolean(sysProp);
     }
-    
+
     // Fall back to resource configuration
     final var resourceConfig = pageTrx.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;
@@ -104,7 +109,8 @@ public final class CASIndexListenerFactory {
    * Checks if HOT indexes are enabled globally via system property.
    * 
    * @return true if HOT is enabled via system property
-   * @deprecated Use {@link #isHOTEnabled(StorageEngineWriter)} for proper resource-aware configuration
+   * @deprecated Use {@link #isHOTEnabled(StorageEngineWriter)} for proper resource-aware
+   *             configuration
    */
   @Deprecated
   public static boolean isHOTEnabled() {

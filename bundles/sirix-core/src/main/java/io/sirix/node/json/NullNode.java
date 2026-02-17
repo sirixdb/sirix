@@ -44,6 +44,9 @@ import io.sirix.node.SirixDeweyID;
 
 import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableNullNode;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
@@ -56,7 +59,9 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 /**
  * JSON Null node.
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
+ * <p>
+ * Uses primitive fields for efficient storage with delta+varint encoding.
+ * </p>
  * 
  * @author Johannes Lichtenberger
  */
@@ -64,22 +69,22 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-  
+
   // Mutable structural fields
   private long parentKey;
   private long rightSiblingKey;
   private long leftSiblingKey;
-  
+
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-  
+
   // Mutable hash (computed on demand for value nodes)
   private long hash;
-  
+
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-  
+
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
@@ -90,12 +95,14 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
   private boolean lazyFieldsParsed;
   private boolean hasHash;
 
+  // Fixed-slot lazy support
+  private NodeKindLayout fixedSlotLayout;
+
   /**
    * Primary constructor with all primitive fields.
    */
-  public NullNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      LongHashFunction hashFunction, byte[] deweyID) {
+  public NullNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, LongHashFunction hashFunction, byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -111,9 +118,8 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
   /**
    * Constructor with SirixDeweyID instead of byte array.
    */
-  public NullNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      LongHashFunction hashFunction, SirixDeweyID deweyID) {
+  public NullNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -140,7 +146,7 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
   public long getParentKey() {
     return parentKey;
   }
-  
+
   public void setParentKey(final long parentKey) {
     this.parentKey = parentKey;
   }
@@ -197,9 +203,7 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
   @Override
   public long computeHash(final BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey())
-         .writeLong(getParentKey())
-         .writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
 
     bytes.writeLong(getChildCount())
          .writeLong(getDescendantCount())
@@ -218,7 +222,7 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
   public long getRightSiblingKey() {
     return rightSiblingKey;
   }
-  
+
   public void setRightSiblingKey(final long rightSibling) {
     this.rightSiblingKey = rightSibling;
   }
@@ -227,7 +231,7 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
   public long getLeftSiblingKey() {
     return leftSiblingKey;
   }
-  
+
   public void setLeftSiblingKey(final long leftSibling) {
     this.leftSiblingKey = leftSibling;
   }
@@ -236,7 +240,7 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
   public long getFirstChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setFirstChildKey(final long firstChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -245,7 +249,7 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
   public long getLastChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setLastChildKey(final long lastChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -254,7 +258,7 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
   public long getChildCount() {
     return 0;
   }
-  
+
   public void setChildCount(final long childCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -263,7 +267,7 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
   public long getDescendantCount() {
     return 0;
   }
-  
+
   public void setDescendantCount(final long descendantCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -334,38 +338,55 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
   }
 
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
-    
+
     // STRUCTURAL FIELDS
     this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    
+
     // Store for lazy parsing
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
     this.lazyFieldsParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
-    
+
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.hash = 0;
   }
-  
+
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.lazySource = slotData;
+    this.fixedSlotLayout = layout;
+    this.lazyFieldsParsed = false;
+  }
+
   private void parseLazyFields() {
     if (lazyFieldsParsed) {
       return;
     }
-    
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.fixedSlotLayout = null;
+      this.lazyFieldsParsed = true;
+      return;
+    }
+
     if (lazySource == null) {
       lazyFieldsParsed = true;
       return;
     }
-    
+
     BytesIn<?> bytesIn;
     if (lazySource instanceof MemorySegment segment) {
       bytesIn = new MemorySegmentBytesIn(segment);
@@ -376,7 +397,7 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
     } else {
       throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
     }
-    
+
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     if (hasHash) {
@@ -389,9 +410,10 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return new NullNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, hash, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+    return new NullNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+        hash, hashFunction, deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null);
   }
 
   @Override
@@ -437,7 +459,6 @@ public final class NullNode implements StructNode, ImmutableJsonNode, ReusableNo
     if (!(obj instanceof final NullNode other))
       return false;
 
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey;
+    return nodeKey == other.nodeKey && parentKey == other.parentKey;
   }
 }

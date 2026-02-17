@@ -43,8 +43,7 @@ public final class PathFilter implements Filter {
    */
   public PathFilter(final Set<Path<QNm>> paths, final PCRCollector pcrCollector) {
     this.paths = requireNonNull(paths, "The paths must not be null.");
-    this.pcrCollector =
-        requireNonNull(pcrCollector, "The path class record collector must not be null.");
+    this.pcrCollector = requireNonNull(pcrCollector, "The path class record collector must not be null.");
     genericPath = this.paths.isEmpty();
     final PCRValue pcrValue = this.pcrCollector.getPCRsForPaths(this.paths);
     maxKnownPCR = pcrValue.getMaxPCR();

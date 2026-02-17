@@ -54,13 +54,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Storage, to provide offheap memory mapped access.
  * <p>
- * Uses a shared Arena for memory-mapped segments to avoid creating a new Arena
- * per reader. The Arena is managed at the storage level and shared across all
- * readers. When the file grows (after commits), the mapping is remapped to
- * cover the new file size.
+ * Uses a shared Arena for memory-mapped segments to avoid creating a new Arena per reader. The
+ * Arena is managed at the storage level and shared across all readers. When the file grows (after
+ * commits), the mapping is remapped to cover the new file size.
  * <p>
- * Uses reference counting to ensure arenas are not closed while readers are still
- * using them. Old arenas are kept alive until all readers using them are closed.
+ * Uses reference counting to ensure arenas are not closed while readers are still using them. Old
+ * arenas are kept alive until all readers using them are closed.
  *
  * @author Johannes Lichtenberger
  */
@@ -98,8 +97,8 @@ public final class MMStorage implements IOStorage {
   private volatile ArenaGeneration currentGeneration;
 
   /**
-   * List of old arena generations that still have active readers.
-   * These will be closed when their reference count reaches zero.
+   * List of old arena generations that still have active readers. These will be closed when their
+   * reference count reaches zero.
    */
   private final List<ArenaGeneration> oldGenerations = new ArrayList<>();
 
@@ -117,16 +116,16 @@ public final class MMStorage implements IOStorage {
    * Lock for synchronizing remap operations.
    */
   private final Object remapLock = new Object();
-  
+
   /**
    * Revision index holder for fast timestamp lookups.
    */
   private final RevisionIndexHolder revisionIndexHolder;
 
   /**
-   * Represents a generation of memory-mapped segments with reference counting.
-   * When the file grows, a new generation is created and old generations are
-   * kept alive until all readers using them are closed.
+   * Represents a generation of memory-mapped segments with reference counting. When the file grows, a
+   * new generation is created and old generations are kept alive until all readers using them are
+   * closed.
    */
   static final class ArenaGeneration {
     private final Arena arena;
@@ -146,9 +145,9 @@ public final class MMStorage implements IOStorage {
     }
 
     /**
-     * Decrements the reference count.
-     * For OLD generations only: closes the arena if it reaches zero.
+     * Decrements the reference count. For OLD generations only: closes the arena if it reaches zero.
      * Current generation is kept alive even with refCount=0 until storage is closed.
+     * 
      * @return true if the arena was closed (only happens for old generations), false otherwise
      */
     boolean decrementRefCount() {
@@ -161,8 +160,8 @@ public final class MMStorage implements IOStorage {
     }
 
     /**
-     * Marks this generation as old (replaced by a new generation).
-     * Old generations will be closed when their refCount reaches 0.
+     * Marks this generation as old (replaced by a new generation). Old generations will be closed when
+     * their refCount reaches 0.
      */
     void markAsOld() {
       this.isOldGeneration = true;
@@ -189,12 +188,11 @@ public final class MMStorage implements IOStorage {
    * Constructor.
    *
    * @param resourceConfig the resource configuration
-   * @param cache          the revision file data cache
+   * @param cache the revision file data cache
    * @param revisionIndexHolder the revision index holder
    */
-  public MMStorage(final ResourceConfiguration resourceConfig, 
-                   final AsyncCache<Integer, RevisionFileData> cache,
-                   final RevisionIndexHolder revisionIndexHolder) {
+  public MMStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache,
+      final RevisionIndexHolder revisionIndexHolder) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     final Path file = resourceConfig.resourcePath;
     revisionsFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
@@ -203,12 +201,12 @@ public final class MMStorage implements IOStorage {
     this.cache = cache;
     this.revisionIndexHolder = revisionIndexHolder;
   }
-  
+
   /**
    * Constructor (backward compatibility).
    *
    * @param resourceConfig the resource configuration
-   * @param cache          the revision file data cache
+   * @param cache the revision file data cache
    */
   public MMStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache) {
     this(resourceConfig, cache, new RevisionIndexHolder());
@@ -237,7 +235,7 @@ public final class MMStorage implements IOStorage {
         // Check if we need to create or remap the segments
         if (currentGeneration == null || currentDataFileSize > lastDataFileSize
             || currentRevisionsFileSize > lastRevisionsFileSize) {
-          
+
           // Move old generation to oldGenerations list (don't close it yet - readers may still use it)
           if (currentGeneration != null) {
             currentGeneration.markAsOld();
@@ -250,9 +248,10 @@ public final class MMStorage implements IOStorage {
           final MemorySegment revisionsSegment;
 
           try (final var dataFileChannel = FileChannel.open(dataFilePath);
-               final var revisionsOffsetFileChannel = FileChannel.open(revisionsOffsetFilePath)) {
+              final var revisionsOffsetFileChannel = FileChannel.open(revisionsOffsetFilePath)) {
             dataSegment = dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, currentDataFileSize, newArena);
-            revisionsSegment = revisionsOffsetFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, currentRevisionsFileSize, newArena);
+            revisionsSegment =
+                revisionsOffsetFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, currentRevisionsFileSize, newArena);
           }
 
           currentGeneration = new ArenaGeneration(newArena, dataSegment, revisionsSegment);
@@ -265,14 +264,9 @@ public final class MMStorage implements IOStorage {
       }
 
       // Create reader with reference-counted generation
-      return new MMFileReader(generation.getDataSegment(),
-                              generation.getRevisionsSegment(),
-                              new ByteHandlerPipeline(byteHandlerPipeline),
-                              SerializationType.DATA,
-                              new PagePersister(),
-                              cache.synchronous(),
-                              generation,
-                              this);
+      return new MMFileReader(generation.getDataSegment(), generation.getRevisionsSegment(),
+          new ByteHandlerPipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister(),
+          cache.synchronous(), generation, this);
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {
@@ -281,8 +275,8 @@ public final class MMStorage implements IOStorage {
   }
 
   /**
-   * Called by MMFileReader when it is closed to decrement the reference count
-   * for its arena generation.
+   * Called by MMFileReader when it is closed to decrement the reference count for its arena
+   * generation.
    *
    * @param generation the arena generation to release
    */
@@ -331,20 +325,11 @@ public final class MMStorage implements IOStorage {
       final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
       final var pagePersister = new PagePersister();
-      final var reader = new FileChannelReader(dataFileChannel,
-                                               revisionsOffsetFileChannel,
-                                               byteHandlePipeline,
-                                               serializationType,
-                                               pagePersister,
-                                               cache.synchronous());
+      final var reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, byteHandlePipeline,
+          serializationType, pagePersister, cache.synchronous());
 
-      return new FileChannelWriter(dataFileChannel,
-                                   revisionsOffsetFileChannel,
-                                   serializationType,
-                                   pagePersister,
-                                   cache,
-                                   revisionIndexHolder,
-                                   reader);
+      return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, serializationType, pagePersister, cache,
+          revisionIndexHolder, reader);
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {
@@ -418,7 +403,7 @@ public final class MMStorage implements IOStorage {
   public ByteHandler getByteHandler() {
     return byteHandlerPipeline;
   }
-  
+
   @Override
   public @NonNull RevisionIndexHolder getRevisionIndexHolder() {
     return revisionIndexHolder;

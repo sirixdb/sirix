@@ -16,9 +16,11 @@ import io.brackit.query.atomic.QNm;
 /**
  * Factory for creating NAME index builders.
  * 
- * <p>Supports both traditional RBTree and high-performance HOT index backends.
- * The backend is determined by the resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}
- * setting.</p>
+ * <p>
+ * Supports both traditional RBTree and high-performance HOT index backends. The backend is
+ * determined by the resource's {@link io.sirix.access.ResourceConfiguration#indexBackendType}
+ * setting.
+ * </p>
  */
 public final class NameIndexBuilderFactory {
 
@@ -38,23 +40,19 @@ public final class NameIndexBuilderFactory {
   /**
    * Creates a NAME index builder with explicit backend selection.
    */
-  public NameIndexBuilder create(final StorageEngineWriter pageTrx, final IndexDef indexDefinition, 
+  public NameIndexBuilder create(final StorageEngineWriter pageTrx, final IndexDef indexDefinition,
       final boolean useHOT) {
     final var includes = requireNonNull(indexDefinition.getIncluded());
     final var excludes = requireNonNull(indexDefinition.getExcluded());
     assert indexDefinition.getType() == IndexType.NAME;
 
     if (useHOT) {
-      final var hotWriter = HOTIndexWriter.create(
-          pageTrx, NameKeySerializer.INSTANCE, IndexType.NAME, indexDefinition.getID());
+      final var hotWriter =
+          HOTIndexWriter.create(pageTrx, NameKeySerializer.INSTANCE, IndexType.NAME, indexDefinition.getID());
       return new NameIndexBuilder(includes, excludes, hotWriter, pageTrx);
     } else {
-      final var rbTreeWriter = RBTreeWriter.<QNm, NodeReferences>getInstance(
-              this.databaseType,
-              pageTrx,
-              indexDefinition.getType(),
-              indexDefinition.getID()
-      );
+      final var rbTreeWriter = RBTreeWriter.<QNm, NodeReferences>getInstance(this.databaseType, pageTrx,
+          indexDefinition.getType(), indexDefinition.getID());
       return new NameIndexBuilder(includes, excludes, rbTreeWriter, pageTrx);
     }
   }
@@ -68,7 +66,7 @@ public final class NameIndexBuilderFactory {
     if (sysProp != null) {
       return Boolean.parseBoolean(sysProp);
     }
-    
+
     // Fall back to resource configuration
     final var resourceConfig = pageTrx.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;

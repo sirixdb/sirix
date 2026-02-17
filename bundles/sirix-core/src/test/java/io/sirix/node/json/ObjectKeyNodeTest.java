@@ -43,33 +43,29 @@ public class ObjectKeyNodeTest {
   @Test
   public void testNode() throws IOException {
     final var hashFunction = LongHashFunction.xx3();
-    final ObjectKeyNode node = new ObjectKeyNode(
-        13L, // nodeKey
+    final ObjectKeyNode node = new ObjectKeyNode(13L, // nodeKey
         14L, // parentKey
-        1L,  // pathNodeKey
+        1L, // pathNodeKey
         Constants.NULL_REVISION_NUMBER, // previousRevision
         0, // lastModifiedRevision
         16L, // rightSiblingKey
         15L, // leftSiblingKey
         17L, // firstChildKey (the value node)
-        42,  // nameKey
+        42, // nameKey
         0, // descendantCount
         0, // hash
-        hashFunction,
-        (byte[]) null // deweyID
+        hashFunction, (byte[]) null // deweyID
     );
     check(node);
 
-    final var config = ResourceConfiguration.newBuilder("test")
-        .hashKind(HashType.NONE)
-        .build();
+    final var config = ResourceConfiguration.newBuilder("test").hashKind(HashType.NONE).build();
 
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     NodeKind.OBJECT_KEY.serialize(data, node, config);
-    
+
     var bytesIn = data.asBytesIn();
-    final ObjectKeyNode node2 = (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(
-        bytesIn, node.getNodeKey(), null, config);
+    final ObjectKeyNode node2 =
+        (ObjectKeyNode) NodeKind.OBJECT_KEY.deserialize(bytesIn, node.getNodeKey(), null, config);
     check(node2);
   }
 

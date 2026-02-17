@@ -21,8 +21,7 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
   /**
    * Constructor for use by subclasses.
    */
-  protected AbstractForwardingReader() {
-  }
+  protected AbstractForwardingReader() {}
 
   @Override
   public Page read(PageReference reference, @Nullable ResourceConfiguration resourceConfiguration) {

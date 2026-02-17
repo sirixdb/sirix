@@ -80,7 +80,7 @@ import static io.sirix.node.Utils.putVarLong;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-@SuppressWarnings({ "DuplicatedCode", "unchecked" })
+@SuppressWarnings({"DuplicatedCode", "unchecked"})
 public enum NodeKind implements DeweyIdSerializer {
 
   /**
@@ -109,7 +109,9 @@ public enum NodeKind implements DeweyIdSerializer {
       // Metadata.
       final int previousRevision = DeltaVarIntCodec.decodeSigned(source);
       final int lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
-      final long childCount = config.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0;
+      final long childCount = config.storeChildCount()
+          ? DeltaVarIntCodec.decodeSigned(source)
+          : 0;
       final long hash;
       final long descendantCount;
       if (config.hashType != HashType.NONE) {
@@ -134,10 +136,9 @@ public enum NodeKind implements DeweyIdSerializer {
         namespaceKeys.add(DeltaVarIntCodec.decodeDelta(source, nodeKey));
       }
 
-      return new ElementNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-          rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
-          childCount, descendantCount, hash, pathNodeKey, prefixKey, localNameKey, uriKey,
-          resourceConfiguration.nodeHashFunction, deweyID, attrKeys, namespaceKeys, new QNm(""));
+      return new ElementNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey,
+          leftSiblingKey, firstChildKey, lastChildKey, childCount, descendantCount, hash, pathNodeKey, prefixKey,
+          localNameKey, uriKey, resourceConfiguration.nodeHashFunction, deweyID, attrKeys, namespaceKeys, new QNm(""));
     }
 
     @Override
@@ -206,9 +207,8 @@ public enum NodeKind implements DeweyIdSerializer {
       final byte[] value = new byte[DeltaVarIntCodec.decodeSigned(source)];
       source.read(value, 0, value.length);
 
-      return new AttributeNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-          pathNodeKey, prefixKey, localNameKey, uriKey, 0, value,
-          resourceConfiguration.nodeHashFunction, deweyID, new QNm(""));
+      return new AttributeNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, pathNodeKey, prefixKey,
+          localNameKey, uriKey, 0, value, resourceConfiguration.nodeHashFunction, deweyID, new QNm(""));
     }
 
     @Override
@@ -249,9 +249,8 @@ public enum NodeKind implements DeweyIdSerializer {
       final int previousRevision = DeltaVarIntCodec.decodeSigned(source);
       final int lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
 
-      return new NamespaceNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-          pathNodeKey, prefixKey, localNameKey, uriKey, 0,
-          resourceConfiguration.nodeHashFunction, deweyID, new QNm(""));
+      return new NamespaceNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, pathNodeKey, prefixKey,
+          localNameKey, uriKey, 0, resourceConfiguration.nodeHashFunction, deweyID, new QNm(""));
     }
 
     @Override
@@ -270,10 +269,9 @@ public enum NodeKind implements DeweyIdSerializer {
   },
 
   /**
-   * Node kind is text.
-   * Note: Hash is NOT serialized for text nodes because sibling keys affect the hash,
-   * and sibling key changes don't trigger hash recalculation. The hash is computed
-   * on-the-fly when needed.
+   * Node kind is text. Note: Hash is NOT serialized for text nodes because sibling keys affect the
+   * hash, and sibling key changes don't trigger hash recalculation. The hash is computed on-the-fly
+   * when needed.
    */
   TEXT((byte) 3) {
     @Override
@@ -292,9 +290,8 @@ public enum NodeKind implements DeweyIdSerializer {
       source.read(value, 0, value.length);
 
       // Hash is NOT deserialized - it's computed on-the-fly in getHash()
-      return new TextNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-          rightSiblingKey, leftSiblingKey, 0, value, isCompressed,
-          resourceConfiguration.nodeHashFunction, deweyID);
+      return new TextNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+          0, value, isCompressed, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -309,7 +306,9 @@ public enum NodeKind implements DeweyIdSerializer {
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
 
-      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      sink.writeByte(node.isCompressed()
+          ? (byte) 1
+          : (byte) 0);
       final byte[] value = node.getRawValue();
       DeltaVarIntCodec.encodeSigned(sink, value.length);
       sink.write(value);
@@ -339,7 +338,9 @@ public enum NodeKind implements DeweyIdSerializer {
       final int uriKey = DeltaVarIntCodec.decodeSigned(source);
       final int previousRevision = DeltaVarIntCodec.decodeSigned(source);
       final int lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
-      final long childCount = config.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0;
+      final long childCount = config.storeChildCount()
+          ? DeltaVarIntCodec.decodeSigned(source)
+          : 0;
       final long hash;
       final long descendantCount;
       if (config.hashType != HashType.NONE) {
@@ -354,9 +355,8 @@ public enum NodeKind implements DeweyIdSerializer {
       final byte[] value = new byte[DeltaVarIntCodec.decodeSigned(source)];
       source.read(value, 0, value.length);
 
-      return new PINode(recordID, parentKey, previousRevision, lastModifiedRevision,
-          rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
-          childCount, descendantCount, hash, pathNodeKey, prefixKey, localNameKey, uriKey,
+      return new PINode(recordID, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+          firstChildKey, lastChildKey, childCount, descendantCount, hash, pathNodeKey, prefixKey, localNameKey, uriKey,
           value, isCompressed, resourceConfiguration.nodeHashFunction, deweyID, new QNm(""));
     }
 
@@ -387,7 +387,9 @@ public enum NodeKind implements DeweyIdSerializer {
         DeltaVarIntCodec.encodeSigned(sink, (int) node.getDescendantCount());
       }
 
-      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      sink.writeByte(node.isCompressed()
+          ? (byte) 1
+          : (byte) 0);
       final byte[] value = node.getRawValue();
       DeltaVarIntCodec.encodeSigned(sink, value.length);
       sink.write(value);
@@ -395,9 +397,8 @@ public enum NodeKind implements DeweyIdSerializer {
   },
 
   /**
-   * Node kind is comment.
-   * Note: Hash is NOT serialized for comment nodes because sibling keys affect the hash,
-   * and sibling key changes don't trigger hash recalculation. The hash is computed
+   * Node kind is comment. Note: Hash is NOT serialized for comment nodes because sibling keys affect
+   * the hash, and sibling key changes don't trigger hash recalculation. The hash is computed
    * on-the-fly when needed.
    */
   COMMENT((byte) 8) {
@@ -417,9 +418,8 @@ public enum NodeKind implements DeweyIdSerializer {
       source.read(value, 0, value.length);
 
       // Hash is NOT deserialized - it's computed on-the-fly in getHash()
-      return new CommentNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-          rightSiblingKey, leftSiblingKey, 0, value, isCompressed,
-          resourceConfiguration.nodeHashFunction, deweyID);
+      return new CommentNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey,
+          leftSiblingKey, 0, value, isCompressed, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -434,7 +434,9 @@ public enum NodeKind implements DeweyIdSerializer {
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
 
-      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      sink.writeByte(node.isCompressed()
+          ? (byte) 1
+          : (byte) 0);
       final byte[] value = node.getRawValue();
       DeltaVarIntCodec.encodeSigned(sink, value.length);
       sink.write(value);
@@ -454,9 +456,10 @@ public enum NodeKind implements DeweyIdSerializer {
       final LongHashFunction hashFunction = resourceConfiguration.nodeHashFunction;
       final long nodeKey = recordID;
       final long firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-      final long childCount =
-          firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty() ? 0 : 1;
-      
+      final long childCount = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
+          ? 0
+          : 1;
+
       final long hash;
       final long descendantCount;
       if (resourceConfiguration.hashType != HashType.NONE) {
@@ -467,13 +470,9 @@ public enum NodeKind implements DeweyIdSerializer {
         descendantCount = 0;
       }
 
-      final XmlDocumentRootNode node = new XmlDocumentRootNode(
-          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          firstChildKey,
-          Fixed.NULL_NODE_KEY.getStandardProperty(),  // lastChildKey not stored for XML doc root
-          childCount,
-          descendantCount,
-          hashFunction);
+      final XmlDocumentRootNode node = new XmlDocumentRootNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+          firstChildKey, Fixed.NULL_NODE_KEY.getStandardProperty(), // lastChildKey not stored for XML doc root
+          childCount, descendantCount, hashFunction);
       node.setHash(hash);
       return node;
     }
@@ -521,8 +520,7 @@ public enum NodeKind implements DeweyIdSerializer {
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
-        final ResourceConfiguration resourceConfiguration) {
-    }
+        final ResourceConfiguration resourceConfiguration) {}
   },
 
   /**
@@ -778,8 +776,7 @@ public enum NodeKind implements DeweyIdSerializer {
       final byte[] localNameBytes = new byte[source.readInt()];
       source.read(localNameBytes);
       final QNm name = new QNm(new String(nspBytes, Constants.DEFAULT_ENCODING),
-                               new String(prefixBytes, Constants.DEFAULT_ENCODING),
-                               new String(localNameBytes, Constants.DEFAULT_ENCODING));
+          new String(prefixBytes, Constants.DEFAULT_ENCODING), new String(localNameBytes, Constants.DEFAULT_ENCODING));
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, resourceConfiguration);
       final long leftChild = getVarLong(source);
@@ -904,15 +901,17 @@ public enum NodeKind implements DeweyIdSerializer {
       // LAZY FIELDS (metadata - parsed on demand in singleton mode)
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long childCount = resourceConfiguration.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0;
+      long childCount = resourceConfiguration.storeChildCount()
+          ? DeltaVarIntCodec.decodeSigned(source)
+          : 0;
       long hash = 0;
       long descendantCount = 0;
       if (resourceConfiguration.hashType != HashType.NONE) {
         hash = source.readLong();
         descendantCount = DeltaVarIntCodec.decodeSigned(source);
       }
-      return new ObjectNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey,
-                            firstChildKey, lastChildKey, childCount, descendantCount, hash, resourceConfiguration.nodeHashFunction, deweyID);
+      return new ObjectNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, firstChildKey,
+          lastChildKey, childCount, descendantCount, hash, resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -967,7 +966,9 @@ public enum NodeKind implements DeweyIdSerializer {
       // LAZY FIELDS (metadata)
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long childCount = resourceConfiguration.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0;
+      long childCount = resourceConfiguration.storeChildCount()
+          ? DeltaVarIntCodec.decodeSigned(source)
+          : 0;
       long hash = 0;
       long descendantCount = 0;
       if (resourceConfiguration.hashType != HashType.NONE) {
@@ -975,7 +976,8 @@ public enum NodeKind implements DeweyIdSerializer {
         descendantCount = DeltaVarIntCodec.decodeSigned(source);
       }
       return new ArrayNode(recordID, parentKey, pathNodeKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey,
-          firstChildKey, lastChildKey, childCount, descendantCount, hash, resourceConfiguration.nodeHashFunction, deweyID);
+          firstChildKey, lastChildKey, childCount, descendantCount, hash, resourceConfiguration.nodeHashFunction,
+          deweyID);
     }
 
     @Override
@@ -1086,14 +1088,17 @@ public enum NodeKind implements DeweyIdSerializer {
       // LAZY FIELDS (metadata + value)
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      long hash = resourceConfiguration.hashType != HashType.NONE
+          ? source.readLong()
+          : 0;
       // Compression flag (1 byte: 0 = none, 1 = FSST)
       boolean isCompressed = source.readByte() == 1;
       int length = DeltaVarIntCodec.decodeSigned(source);
       byte[] value = new byte[length];
       source.read(value);
       // Note: fsstSymbolTable will be set by the page after deserialization if needed
-      return new ObjectStringNode(recordID, parentKey, prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
+      return new ObjectStringNode(recordID, parentKey, prevRev, lastModRev, hash, value,
+          resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
     }
 
     @Override
@@ -1110,7 +1115,9 @@ public enum NodeKind implements DeweyIdSerializer {
         sink.writeLong(node.getHash());
       }
       // Compression flag (1 byte: 0 = none, 1 = FSST)
-      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      sink.writeByte(node.isCompressed()
+          ? (byte) 1
+          : (byte) 0);
       // Use raw value without decompression to preserve compression
       final byte[] value = node.getRawValueWithoutDecompression();
       DeltaVarIntCodec.encodeSigned(sink, value.length);
@@ -1142,8 +1149,11 @@ public enum NodeKind implements DeweyIdSerializer {
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       boolean value = source.readBoolean();
-      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
-      return new ObjectBooleanNode(recordID, parentKey, prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
+      long hash = resourceConfiguration.hashType != HashType.NONE
+          ? source.readLong()
+          : 0;
+      return new ObjectBooleanNode(recordID, parentKey, prevRev, lastModRev, hash, value,
+          resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -1186,9 +1196,12 @@ public enum NodeKind implements DeweyIdSerializer {
       // LAZY FIELDS (metadata + value)
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      long hash = resourceConfiguration.hashType != HashType.NONE
+          ? source.readLong()
+          : 0;
       Number value = deserializeNumber(source);
-      return new ObjectNumberNode(recordID, parentKey, prevRev, lastModRev, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
+      return new ObjectNumberNode(recordID, parentKey, prevRev, lastModRev, hash, value,
+          resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -1230,8 +1243,11 @@ public enum NodeKind implements DeweyIdSerializer {
       // LAZY FIELDS (metadata)
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
-      return new ObjectNullNode(recordID, parentKey, prevRev, lastModRev, hash, resourceConfiguration.nodeHashFunction, deweyID);
+      long hash = resourceConfiguration.hashType != HashType.NONE
+          ? source.readLong()
+          : 0;
+      return new ObjectNullNode(recordID, parentKey, prevRev, lastModRev, hash, resourceConfiguration.nodeHashFunction,
+          deweyID);
     }
 
     @Override
@@ -1275,14 +1291,17 @@ public enum NodeKind implements DeweyIdSerializer {
       // LAZY FIELDS (metadata + value)
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      long hash = resourceConfiguration.hashType != HashType.NONE
+          ? source.readLong()
+          : 0;
       // Compression flag (1 byte: 0 = none, 1 = FSST)
       boolean isCompressed = source.readByte() == 1;
       int length = DeltaVarIntCodec.decodeSigned(source);
       byte[] value = new byte[length];
       source.read(value);
       // Note: fsstSymbolTable will be set by the page after deserialization if needed
-      return new StringNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value, resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
+      return new StringNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value,
+          resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
     }
 
     @Override
@@ -1301,7 +1320,9 @@ public enum NodeKind implements DeweyIdSerializer {
         sink.writeLong(node.getHash());
       }
       // Compression flag (1 byte: 0 = none, 1 = FSST)
-      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      sink.writeByte(node.isCompressed()
+          ? (byte) 1
+          : (byte) 0);
       // Use raw value without decompression to preserve compression
       final byte[] value = node.getRawValueWithoutDecompression();
       DeltaVarIntCodec.encodeSigned(sink, value.length);
@@ -1335,8 +1356,11 @@ public enum NodeKind implements DeweyIdSerializer {
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       boolean value = source.readBoolean();
-      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
-      return new BooleanNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
+      long hash = resourceConfiguration.hashType != HashType.NONE
+          ? source.readLong()
+          : 0;
+      return new BooleanNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value,
+          resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -1383,9 +1407,12 @@ public enum NodeKind implements DeweyIdSerializer {
       // LAZY FIELDS (metadata + value)
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
+      long hash = resourceConfiguration.hashType != HashType.NONE
+          ? source.readLong()
+          : 0;
       Number value = deserializeNumber(source);
-      return new NumberNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value, resourceConfiguration.nodeHashFunction, deweyID);
+      return new NumberNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, value,
+          resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -1431,8 +1458,11 @@ public enum NodeKind implements DeweyIdSerializer {
       // LAZY FIELDS (metadata)
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      long hash = resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0;
-      return new NullNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash, resourceConfiguration.nodeHashFunction, deweyID);
+      long hash = resourceConfiguration.hashType != HashType.NONE
+          ? source.readLong()
+          : 0;
+      return new NullNode(recordID, parentKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey, hash,
+          resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
@@ -1473,16 +1503,19 @@ public enum NodeKind implements DeweyIdSerializer {
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       final LongHashFunction hashFunction = resourceConfiguration.nodeHashFunction;
       final long firstChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      final long childCount = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty() ? 0 : 1;
+      final long childCount = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
+          ? 0
+          : 1;
       final long descendantCount = DeltaVarIntCodec.decodeSignedLong(source);
 
-      return new JsonDocumentRootNode(
-          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          firstChildKey,
-          firstChildKey,  // lastChildKey same as firstChildKey for document root
-          childCount,
-          descendantCount,
-          hashFunction);
+      return new JsonDocumentRootNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), firstChildKey, firstChildKey, // lastChildKey
+                                                                                                                   // same
+                                                                                                                   // as
+                                                                                                                   // firstChildKey
+                                                                                                                   // for
+                                                                                                                   // document
+                                                                                                                   // root
+          childCount, descendantCount, hashFunction);
     }
 
     public void serialize(final BytesOut<?> sink, final DataRecord record,
@@ -1546,8 +1579,7 @@ public enum NodeKind implements DeweyIdSerializer {
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
-        final ResourceConfiguration resourceConfiguration) {
-    }
+        final ResourceConfiguration resourceConfiguration) {}
   },
 
   REVISION_REFERENCES_NODE((byte) 35) {
@@ -1708,8 +1740,7 @@ public enum NodeKind implements DeweyIdSerializer {
 
   @Override
   public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
-      ResourceConfiguration resourceConfig) {
-  }
+      ResourceConfiguration resourceConfig) {}
 
   private static long getHash(final BytesIn<?> source, final ResourceConfiguration resourceConfiguration) {
     final long hashCode;
@@ -1736,20 +1767,16 @@ public enum NodeKind implements DeweyIdSerializer {
     final long childCount = 0;
     final long descendantCount = 0;
 
-    return new StructNodeDelegate(nodeDel,
-                                  firstChild,
-                                  lastChild,
-                                  rightSibling,
-                                  leftSibling,
-                                  childCount,
-                                  descendantCount);
+    return new StructNodeDelegate(nodeDel, firstChild, lastChild, rightSibling, leftSibling, childCount,
+        descendantCount);
   }
 
   // Removed: JSON nodes are now fully MemorySegment-based and don't use StructNodeDelegate
   // @NonNull
   // private static StructNodeDelegate deserializeObjectOrArrayStructDelegate(BytesIn<?> source,
-  //     ResourceConfiguration config, NodeDelegate nodeDel) {
-  //   return new StructNodeDelegate(nodeDel, (MemorySegment) source.getUnderlying(), nodeDel.getNodeKey(), config);
+  // ResourceConfiguration config, NodeDelegate nodeDel) {
+  // return new StructNodeDelegate(nodeDel, (MemorySegment) source.getUnderlying(),
+  // nodeDel.getNodeKey(), config);
   // }
 
   private static void serializeJsonObjectOrArrayStructDelegate(BytesOut<?> sink, StructNode node,
@@ -1775,12 +1802,8 @@ public enum NodeKind implements DeweyIdSerializer {
     final int previousRevision = source.readInt();
     final int lastModifiedRevision = source.readInt();
     final LongHashFunction hashFunction = resourceConfiguration.nodeHashFunction;
-    return new NodeDelegate(recordID,
-                            parentKey,
-                            hashFunction,
-                            previousRevision,
-                            lastModifiedRevision,
-                            (SirixDeweyID) null);
+    return new NodeDelegate(recordID, parentKey, hashFunction, previousRevision, lastModifiedRevision,
+        (SirixDeweyID) null);
   }
 
   private static NodeDelegate deserializeNodeDelegate(final BytesIn<?> source, final @NonNegative long recordID,
@@ -1800,9 +1823,9 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   /**
-   * Serialize node delegate without IDs, writing parent key as offset from node key.
-   * This matches deserializeNodeDelegateWithoutIDs which expects: parentKey = recordID - offset
-   * Uses variable-length encoding for the offset.
+   * Serialize node delegate without IDs, writing parent key as offset from node key. This matches
+   * deserializeNodeDelegateWithoutIDs which expects: parentKey = recordID - offset Uses
+   * variable-length encoding for the offset.
    */
   private static void serializeDelegateWithoutIDs(final NodeDelegate nodeDel, final BytesOut<?> sink) {
     final long offset = nodeDel.getNodeKey() - nodeDel.getParentKey();
@@ -1812,11 +1835,11 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   /**
-   * Get a properly-sized MemorySegment slice for a node from the current position.
-   * Uses UNALIGNED value layouts, so no alignment requirements.
+   * Get a properly-sized MemorySegment slice for a node from the current position. Uses UNALIGNED
+   * value layouts, so no alignment requirements.
    *
    * @param source the BytesIn source
-   * @param size   the exact size of the node data in bytes
+   * @param size the exact size of the node data in bytes
    * @return a MemorySegment slice of the specified size
    */
   private static MemorySegment getSegmentSlice(final BytesIn<?> source, final long size) {
@@ -1836,9 +1859,8 @@ public enum NodeKind implements DeweyIdSerializer {
 
   private static void serializeStructDelegate(final NodeKind kind, final StructNodeDelegate nodeDel,
       final BytesOut<?> sink, final ResourceConfiguration config) {
-    final var isValueNode =
-        kind == NodeKind.NUMBER_VALUE || kind == NodeKind.STRING_VALUE || kind == NodeKind.BOOLEAN_VALUE
-            || kind == NodeKind.NULL_VALUE;
+    final var isValueNode = kind == NodeKind.NUMBER_VALUE || kind == NodeKind.STRING_VALUE
+        || kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.NULL_VALUE;
 
     final boolean storeChildCount = config.storeChildCount();
 
@@ -1862,9 +1884,8 @@ public enum NodeKind implements DeweyIdSerializer {
       final BytesIn<?> source, final ResourceConfiguration config) {
     final boolean storeChildNodes = config.storeChildCount();
 
-    final var isValueNode =
-        kind == NodeKind.NUMBER_VALUE || kind == NodeKind.STRING_VALUE || kind == NodeKind.BOOLEAN_VALUE
-            || kind == NodeKind.NULL_VALUE;
+    final var isValueNode = kind == NodeKind.NUMBER_VALUE || kind == NodeKind.STRING_VALUE
+        || kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.NULL_VALUE;
 
     final long rightSibling;
     final long leftSibling;
@@ -1897,13 +1918,8 @@ public enum NodeKind implements DeweyIdSerializer {
       }
     }
 
-    return new StructNodeDelegate(nodeDel,
-                                  firstChild,
-                                  lastChild,
-                                  rightSibling,
-                                  leftSibling,
-                                  childCount,
-                                  descendantCount);
+    return new StructNodeDelegate(nodeDel, firstChild, lastChild, rightSibling, leftSibling, childCount,
+        descendantCount);
   }
 
   private static NameNodeDelegate deserializeNameDelegate(final NodeDelegate nodeDel, final BytesIn<?> source) {
@@ -1917,7 +1933,7 @@ public enum NodeKind implements DeweyIdSerializer {
    * Serializing the {@link NameNodeDelegate} instance.
    *
    * @param nameDel {@link NameNodeDelegate} instance
-   * @param sink    to serialize to
+   * @param sink to serialize to
    */
   private static void serializeNameDelegate(final NameNodeDelegate nameDel, final BytesOut<?> sink) {
     sink.writeInt(nameDel.getURIKey());
@@ -1930,12 +1946,16 @@ public enum NodeKind implements DeweyIdSerializer {
    * Serializing the {@link ValueNodeDelegate} instance.
    *
    * @param valueDel to be serialized
-   * @param sink     to serialize to
+   * @param sink to serialize to
    */
   private static void serializeValDelegate(final ValueNodeDelegate valueDel, final BytesOut<?> sink) {
     final boolean isCompressed = valueDel.isCompressed();
-    sink.writeByte(isCompressed ? (byte) 1 : (byte) 0);
-    final byte[] value = isCompressed ? valueDel.getCompressed() : valueDel.getRawValue();
+    sink.writeByte(isCompressed
+        ? (byte) 1
+        : (byte) 0);
+    final byte[] value = isCompressed
+        ? valueDel.getCompressed()
+        : valueDel.getRawValue();
     sink.writeInt(value.length);
     sink.write(value);
   }
@@ -1945,24 +1965,24 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   /**
-   * Serializes a Number value to a BytesOut sink using varint encoding for integers.
-   * Supports Double, Float, Integer, Long, BigInteger, and BigDecimal.
+   * Serializes a Number value to a BytesOut sink using varint encoding for integers. Supports Double,
+   * Float, Integer, Long, BigInteger, and BigDecimal.
    * 
    * <h2>Encoding Format</h2>
    * <ul>
-   *   <li>Type 0: Double (8 bytes) - full IEEE 754 precision needed</li>
-   *   <li>Type 1: Float (4 bytes) - full IEEE 754 precision needed</li>
-   *   <li>Type 2: Integer (varint, 1-5 bytes) - zigzag encoded for signed values</li>
-   *   <li>Type 3: Long (varint, 1-10 bytes) - zigzag encoded for signed values</li>
-   *   <li>Type 4: BigInteger (length-prefixed bytes)</li>
-   *   <li>Type 5: BigDecimal (BigInteger + varint scale)</li>
+   * <li>Type 0: Double (8 bytes) - full IEEE 754 precision needed</li>
+   * <li>Type 1: Float (4 bytes) - full IEEE 754 precision needed</li>
+   * <li>Type 2: Integer (varint, 1-5 bytes) - zigzag encoded for signed values</li>
+   * <li>Type 3: Long (varint, 1-10 bytes) - zigzag encoded for signed values</li>
+   * <li>Type 4: BigInteger (length-prefixed bytes)</li>
+   * <li>Type 5: BigDecimal (BigInteger + varint scale)</li>
    * </ul>
    * 
    * <h2>Space Savings</h2>
    * <ul>
-   *   <li>Small integers (-64 to 63): 2 bytes instead of 5 bytes (60% savings)</li>
-   *   <li>Medium integers (-8192 to 8191): 3 bytes instead of 5 bytes (40% savings)</li>
-   *   <li>Small longs (-64 to 63): 2 bytes instead of 9 bytes (78% savings)</li>
+   * <li>Small integers (-64 to 63): 2 bytes instead of 5 bytes (60% savings)</li>
+   * <li>Medium integers (-8192 to 8191): 3 bytes instead of 5 bytes (40% savings)</li>
+   * <li>Small longs (-64 to 63): 2 bytes instead of 9 bytes (78% savings)</li>
    * </ul>
    * 
    * @param value the number to serialize
@@ -2005,10 +2025,11 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   /**
-   * Deserializes a Number value from a BytesIn source.
-   * Supports Double, Float, Integer, Long, BigInteger, and BigDecimal.
+   * Deserializes a Number value from a BytesIn source. Supports Double, Float, Integer, Long,
+   * BigInteger, and BigDecimal.
    * 
-   * <p>Integers and Longs are decoded from zigzag + varint encoding for compact storage.
+   * <p>
+   * Integers and Longs are decoded from zigzag + varint encoding for compact storage.
    * 
    * @param source the source to read from
    * @return the deserialized Number
@@ -2019,12 +2040,12 @@ public enum NodeKind implements DeweyIdSerializer {
     return switch (valueType) {
       case 0 -> source.readDouble();
       case 1 -> source.readFloat();
-      case 2 -> DeltaVarIntCodec.decodeSigned(source);  // Varint-encoded Integer
-      case 3 -> DeltaVarIntCodec.decodeSignedLong(source);  // Varint-encoded Long
+      case 2 -> DeltaVarIntCodec.decodeSigned(source); // Varint-encoded Integer
+      case 3 -> DeltaVarIntCodec.decodeSignedLong(source); // Varint-encoded Long
       case 4 -> deserializeBigInteger(source);
       case 5 -> {
         final BigInteger bigInt = deserializeBigInteger(source);
-        final int scale = DeltaVarIntCodec.decodeSigned(source);  // Varint-encoded scale
+        final int scale = DeltaVarIntCodec.decodeSigned(source); // Varint-encoded scale
         yield new BigDecimal(bigInt, scale);
       }
       default -> throw new AssertionError("Type not known.");

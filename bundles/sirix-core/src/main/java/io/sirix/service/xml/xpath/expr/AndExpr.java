@@ -37,10 +37,8 @@ import io.sirix.utils.TypedValue;
  *
  *
  * <table>
- *     <caption>
- * The value of an and-expression is determined by the effective boolean values of its operands, as
- * shown in the following table:
- *  </caption>
+ * <caption> The value of an and-expression is determined by the effective boolean values of its
+ * operands, as shown in the following table: </caption>
  * <tr>
  * <th>AND</th>
  * <th>EBV2 = true</th>
@@ -120,9 +118,9 @@ public class AndExpr extends AbstractExpression {
     // function.
 
     // add result item to list and set the item as the current item
-    final int itemKey = asXmlNodeReadTrx().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(result)),
-                        asXmlNodeReadTrx().keyForName("xs:boolean")));
+    final int itemKey = asXmlNodeReadTrx().getItemList()
+                                          .addItem(new AtomicValue(TypedValue.getBytes(Boolean.toString(result)),
+                                              asXmlNodeReadTrx().keyForName("xs:boolean")));
     key = itemKey;
 
   }

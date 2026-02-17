@@ -56,8 +56,7 @@ public class IfAxis extends AbstractAxis {
    * @param mThenAxis Will be evaluated if test expression evaluates to true.
    * @param mElseAxis Will be evaluated if test expression evaluates to false.
    */
-  public IfAxis(final XmlNodeReadOnlyTrx rtx, final Axis mIfAxis, final Axis mThenAxis,
-      final Axis mElseAxis) {
+  public IfAxis(final XmlNodeReadOnlyTrx rtx, final Axis mIfAxis, final Axis mThenAxis, final Axis mElseAxis) {
 
     super(rtx);
     mIf = mIfAxis;
@@ -100,7 +99,9 @@ public class IfAxis extends AbstractAxis {
     if (mFirst) {
       mFirst = false;
       try {
-        mResult = (Function.ebv(mIf)) ? mThen : mElse;
+        mResult = (Function.ebv(mIf))
+            ? mThen
+            : mElse;
       } catch (SirixXPathException e) {
         throw new RuntimeException(e);
       }

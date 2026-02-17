@@ -91,8 +91,8 @@ public final class PathSummaryPage extends AbstractForwardingPage {
    * @param maxNodeKeys Hashmap deserialized
    * @param currentMaxLevelsOfIndirectPages Hashmap deserialized
    */
-  PathSummaryPage(final Page delegate, final  Int2LongMap maxNodeKeys,
-                  final Int2IntMap currentMaxLevelsOfIndirectPages ){
+  PathSummaryPage(final Page delegate, final Int2LongMap maxNodeKeys,
+      final Int2IntMap currentMaxLevelsOfIndirectPages) {
     this.delegate = delegate;
     this.maxNodeKeys = maxNodeKeys;
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
@@ -112,12 +112,12 @@ public final class PathSummaryPage extends AbstractForwardingPage {
    * Initialize path summary tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx  {@link StorageEngineReader} instance
-   * @param index        the index number
-   * @param log          the transaction intent log
+   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param index the index number
+   * @param log the transaction intent log
    */
-  public void createPathSummaryTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx, final int index,
-      final TransactionIntentLog log) {
+  public void createPathSummaryTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
+      final int index, final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
@@ -141,9 +141,10 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 
   /**
    * Get the size of CurrentMaxLevelOfIndirectPage to Serialize
+   * 
    * @return int Size of CurrentMaxLevelOfIndirectPage
    */
-  public int getCurrentMaxLevelOfIndirectPagesSize(){
+  public int getCurrentMaxLevelOfIndirectPagesSize() {
     return currentMaxLevelsOfIndirectPages.size();
   }
 
@@ -154,9 +155,10 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 
   /**
    * Get the size of MaxNodeKey to Serialize
+   * 
    * @return int Size of MaxNodeKey
    */
-  public int getMaxNodeKeySize(){
+  public int getMaxNodeKeySize() {
     return maxNodeKeys.size();
   }
 

@@ -17,7 +17,9 @@ import java.util.Set;
 /**
  * Listener for NAME index changes.
  * 
- * <p>Supports both traditional RBTree and high-performance HOT index backends.</p>
+ * <p>
+ * Supports both traditional RBTree and high-performance HOT index backends.
+ * </p>
  */
 public final class NameIndexListener {
 
@@ -42,8 +44,7 @@ public final class NameIndexListener {
   /**
    * Constructor with HOT writer (high-performance path).
    */
-  public NameIndexListener(final Set<QNm> includes, final Set<QNm> excludes,
-      final HOTIndexWriter<QNm> hotWriter) {
+  public NameIndexListener(final Set<QNm> includes, final Set<QNm> excludes, final HOTIndexWriter<QNm> hotWriter) {
     this.includes = includes;
     this.excludes = excludes;
     this.rbTreeWriter = null;
@@ -110,14 +111,12 @@ public final class NameIndexListener {
     }
   }
 
-  private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references,
-      final QNm name) {
+  private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references, final QNm name) {
     assert rbTreeWriter != null;
     rbTreeWriter.index(name, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
   }
 
-  private void setNodeReferencesHOT(final long nodeKey, final NodeReferences references,
-      final QNm name) {
+  private void setNodeReferencesHOT(final long nodeKey, final NodeReferences references, final QNm name) {
     assert hotWriter != null;
     hotWriter.index(name, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
   }

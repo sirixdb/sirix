@@ -91,7 +91,7 @@ final class LeafNodeComparator implements NodeComparator<Long> {
         ratio = 1;
       } else {
         ratio = nodeComparisonUtils.calculateRatio(nodeComparisonUtils.getNodeValue(firstNode, oldRtx),
-                                                   nodeComparisonUtils.getNodeValue(secondNode, newRtx));
+            nodeComparisonUtils.getNodeValue(secondNode, newRtx));
       }
 
       if (ratio > FMESF) {
@@ -99,7 +99,7 @@ final class LeafNodeComparator implements NodeComparator<Long> {
         newRtx.moveToParent();
 
         ratio = nodeComparisonUtils.calculateRatio(nodeComparisonUtils.getNodeValue(oldRtx.getNodeKey(), oldRtx),
-                                                   nodeComparisonUtils.getNodeValue(newRtx.getNodeKey(), newRtx));
+            nodeComparisonUtils.getNodeValue(newRtx.getNodeKey(), newRtx));
 
         if (ratio > FMESF) {
           final var paths = checkPaths();
@@ -152,7 +152,7 @@ final class LeafNodeComparator implements NodeComparator<Long> {
     oldPathSummary.moveTo(newPathNode.getNodeKey());
     var newPath = oldPathSummary.getPath();
 
-    //noinspection DataFlowIssue
+    // noinspection DataFlowIssue
     if (oldPath.getLength() != newPath.getLength())
       return Path.PATH_LENGTH_IS_NOT_EQUAL;
     else if (oldPath.matches(newPath))

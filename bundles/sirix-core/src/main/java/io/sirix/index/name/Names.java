@@ -67,7 +67,7 @@ public final class Names {
    *
    * @param pageReadTrx the page reading transaction
    * @param indexNumber the kind of name dictionary
-   * @param maxNodeKey  the maximum node key
+   * @param maxNodeKey the maximum node key
    */
   private Names(final StorageEngineReader pageReadTrx, final int indexNumber, final long maxNodeKey) {
     this.indexNumber = indexNumber;
@@ -268,7 +268,8 @@ public final class Names {
    *
    * @return cloned index
    */
-  public static Names fromStorage(final StorageEngineReader readOnlyPageTrx, final int indexNumber, final long maxNodeKey) {
+  public static Names fromStorage(final StorageEngineReader readOnlyPageTrx, final int indexNumber,
+      final long maxNodeKey) {
     return new Names(readOnlyPageTrx, indexNumber, maxNodeKey);
   }
 

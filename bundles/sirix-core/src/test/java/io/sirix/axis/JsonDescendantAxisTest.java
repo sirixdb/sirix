@@ -61,11 +61,9 @@ public class JsonDescendantAxisTest {
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testAxisConventions(new JsonDescendantAxis(rtx),
-                                    new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
-    new IteratorTester<>(ITERATIONS,
-                         IteratorFeature.UNMODIFIABLE,
-                         ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
-                         null) {
+        new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+        ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
         final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
@@ -76,10 +74,8 @@ public class JsonDescendantAxisTest {
 
     rtx.moveTo(1L);
     AbsAxisTest.testAxisConventions(new JsonDescendantAxis(rtx), new long[] {4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
-    new IteratorTester<>(ITERATIONS,
-                         IteratorFeature.UNMODIFIABLE,
-                         ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
-                         null) {
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+        ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
         final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
@@ -116,21 +112,10 @@ public class JsonDescendantAxisTest {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
     rtx.moveToDocumentRoot();
     AbsAxisTest.testAxisConventions(new JsonDescendantAxis(rtx, IncludeSelf.YES),
-                                    new long[] { Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
-    new IteratorTester<>(ITERATIONS,
-                         IteratorFeature.UNMODIFIABLE,
-                         ImmutableList.of(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-                                          1L,
-                                          4L,
-                                          5L,
-                                          6L,
-                                          7L,
-                                          8L,
-                                          9L,
-                                          11L,
-                                          12L,
-                                          13L),
-                         null) {
+        new long[] {Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+        ImmutableList.of(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
+        null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
         final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
@@ -141,11 +126,9 @@ public class JsonDescendantAxisTest {
 
     rtx.moveTo(1L);
     AbsAxisTest.testAxisConventions(new JsonDescendantAxis(rtx, IncludeSelf.YES),
-                                    new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
-    new IteratorTester<>(ITERATIONS,
-                         IteratorFeature.UNMODIFIABLE,
-                         ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
-                         null) {
+        new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
+    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+        ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
         final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();

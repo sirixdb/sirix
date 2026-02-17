@@ -42,25 +42,32 @@ import java.util.Objects;
 /**
  * COW-compatible range cursor for HOT indexes using parent-based navigation.
  * 
- * <p>Since sibling pointers are incompatible with COW (modifying one leaf would
- * cascade COW to all siblings), this cursor uses in-order trie traversal with
- * a parent stack maintained by {@link HOTTrieReader}.</p>
+ * <p>
+ * Since sibling pointers are incompatible with COW (modifying one leaf would cascade COW to all
+ * siblings), this cursor uses in-order trie traversal with a parent stack maintained by
+ * {@link HOTTrieReader}.
+ * </p>
  * 
- * <p><b>Key Features:</b></p>
+ * <p>
+ * <b>Key Features:</b>
+ * </p>
  * <ul>
- *   <li>No sibling pointers (COW-compatible)</li>
- *   <li>Guard management for page lifetime</li>
- *   <li>Zero-copy key/value access via MemorySegment</li>
- *   <li>Implements AutoCloseable for proper cleanup</li>
+ * <li>No sibling pointers (COW-compatible)</li>
+ * <li>Guard management for page lifetime</li>
+ * <li>Zero-copy key/value access via MemorySegment</li>
+ * <li>Implements AutoCloseable for proper cleanup</li>
  * </ul>
  * 
- * <p><b>Usage:</b></p>
+ * <p>
+ * <b>Usage:</b>
+ * </p>
+ * 
  * <pre>{@code
  * try (HOTRangeCursor cursor = reader.range(rootRef, fromKey, toKey)) {
- *     while (cursor.hasNext()) {
- *         HOTRangeCursor.Entry entry = cursor.next();
- *         // Process entry.key() and entry.value()
- *     }
+ *   while (cursor.hasNext()) {
+ *     HOTRangeCursor.Entry entry = cursor.next();
+ *     // Process entry.key() and entry.value()
+ *   }
  * }
  * }</pre>
  * 
@@ -71,11 +78,10 @@ import java.util.Objects;
 public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, AutoCloseable {
 
   /**
-   * An entry in the range cursor.
-   * Uses MemorySegment slices for zero-copy access.
+   * An entry in the range cursor. Uses MemorySegment slices for zero-copy access.
    */
   public record Entry(MemorySegment key, MemorySegment value) {
-    
+
     /**
      * Get the key as a byte array (copies data).
      */
@@ -84,7 +90,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
       MemorySegment.copy(key, ValueLayout.JAVA_BYTE, 0, bytes, 0, bytes.length);
       return bytes;
     }
-    
+
     /**
      * Get the value as a byte array (copies data).
      */
@@ -94,21 +100,21 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
       return bytes;
     }
   }
-  
+
   private final HOTTrieReader reader;
   private final PageReference rootRef;
   private final byte[] fromKey;
   private final byte[] toKey;
-  
+
   // Current position
   private HOTLeafPage currentLeaf;
   private int currentIndex;
   private boolean exhausted = false;
   private boolean guardAcquired = false;
-  
+
   // Pre-computed next entry (for hasNext/next pattern)
   private Entry nextEntry = null;
-  
+
   /**
    * Create a new range cursor.
    *
@@ -117,19 +123,16 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * @param fromKey the start key (inclusive)
    * @param toKey the end key (inclusive)
    */
-  HOTRangeCursor(@NonNull HOTTrieReader reader,
-                 @NonNull PageReference rootRef,
-                 byte[] fromKey,
-                 byte[] toKey) {
+  HOTRangeCursor(@NonNull HOTTrieReader reader, @NonNull PageReference rootRef, byte[] fromKey, byte[] toKey) {
     this.reader = Objects.requireNonNull(reader);
     this.rootRef = Objects.requireNonNull(rootRef);
     this.fromKey = fromKey;
     this.toKey = toKey;
-    
+
     // Initialize to first entry
     descendToFirstEntry();
   }
-  
+
   /**
    * Descend to the first entry >= fromKey.
    */
@@ -145,7 +148,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
         exhausted = true;
         return;
       }
-      
+
       // Find first entry >= fromKey
       currentIndex = currentLeaf.findEntry(fromKey);
       if (currentIndex < 0) {
@@ -153,7 +156,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
         currentIndex = -(currentIndex + 1);
       }
     }
-    
+
     if (currentLeaf != null) {
       acquireLeafGuard();
       advanceToValid();
@@ -161,7 +164,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
       exhausted = true;
     }
   }
-  
+
   /**
    * Advance to the next valid entry (within range and within leaf bounds).
    */
@@ -177,7 +180,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
         }
         continue;
       }
-      
+
       // Check if current entry is within range
       if (toKey != null) {
         MemorySegment keySlice = currentLeaf.getKeySlice(currentIndex);
@@ -188,16 +191,13 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
           return;
         }
       }
-      
+
       // Valid entry found
-      nextEntry = new Entry(
-          currentLeaf.getKeySlice(currentIndex),
-          currentLeaf.getValueSlice(currentIndex)
-      );
+      nextEntry = new Entry(currentLeaf.getKeySlice(currentIndex), currentLeaf.getValueSlice(currentIndex));
       return;
     }
   }
-  
+
   /**
    * Compare a MemorySegment key with a byte array key.
    */
@@ -213,12 +213,9 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
     if (mismatch == bSeg.byteSize()) {
       return 1;
     }
-    return Byte.compareUnsigned(
-        a.get(ValueLayout.JAVA_BYTE, mismatch),
-        bSeg.get(ValueLayout.JAVA_BYTE, mismatch)
-    );
+    return Byte.compareUnsigned(a.get(ValueLayout.JAVA_BYTE, mismatch), bSeg.get(ValueLayout.JAVA_BYTE, mismatch));
   }
-  
+
   /**
    * Advance to the next leaf using parent-based traversal.
    *
@@ -227,20 +224,20 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   private boolean advanceToNextLeaf() {
     // Release current leaf guard
     releaseLeafGuard();
-    
+
     // Use reader's parent-based traversal
     currentLeaf = reader.advanceToNextLeaf();
-    
+
     if (currentLeaf == null) {
       return false;
     }
-    
+
     // Acquire guard on new leaf
     acquireLeafGuard();
     currentIndex = 0;
     return true;
   }
-  
+
   /**
    * Acquire guard on current leaf.
    */
@@ -250,7 +247,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
       guardAcquired = true;
     }
   }
-  
+
   /**
    * Release guard on current leaf.
    */
@@ -260,41 +257,42 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
       guardAcquired = false;
     }
   }
-  
+
   @Override
   public boolean hasNext() {
     return nextEntry != null;
   }
-  
+
   @Override
   public Entry next() {
     if (nextEntry == null) {
       throw new NoSuchElementException("No more entries in range");
     }
-    
+
     Entry result = nextEntry;
-    
+
     // Advance to next entry
     currentIndex++;
     advanceToValid();
-    
+
     return result;
   }
-  
+
   /**
    * Get the current leaf page (for testing/debugging).
    */
-  @Nullable HOTLeafPage getCurrentLeaf() {
+  @Nullable
+  HOTLeafPage getCurrentLeaf() {
     return currentLeaf;
   }
-  
+
   /**
    * Get the current index within the leaf (for testing/debugging).
    */
   int getCurrentIndex() {
     return currentIndex;
   }
-  
+
   @Override
   public void close() {
     releaseLeafGuard();

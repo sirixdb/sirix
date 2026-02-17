@@ -54,20 +54,24 @@ import static java.util.Objects.requireNonNull;
 /**
  * High-performance JSON shredder using Jackson's streaming parser.
  * 
- * <p>This class is a drop-in replacement for {@link JsonShredder} that uses Jackson's
- * streaming API instead of Gson. Jackson provides better throughput while maintaining
- * true streaming capability for processing arbitrarily large JSON files with O(1) memory.
+ * <p>
+ * This class is a drop-in replacement for {@link JsonShredder} that uses Jackson's streaming API
+ * instead of Gson. Jackson provides better throughput while maintaining true streaming capability
+ * for processing arbitrarily large JSON files with O(1) memory.
  * 
- * <p>The implementation maintains full behavioral equivalence with {@link JsonShredder},
- * including support for all insertion positions and the skipRootJson feature.
+ * <p>
+ * The implementation maintains full behavioral equivalence with {@link JsonShredder}, including
+ * support for all insertion positions and the skipRootJson feature.
  * 
  * <h2>Thread Safety</h2>
- * <p>Instances of this class are NOT thread-safe. Each thread should use its own instance.
- * The underlying Jackson parser is also not thread-safe.
+ * <p>
+ * Instances of this class are NOT thread-safe. Each thread should use its own instance. The
+ * underlying Jackson parser is also not thread-safe.
  * 
  * <h2>Resource Management</h2>
- * <p>The caller is responsible for closing the {@link JsonParser} after shredding.
- * Use try-with-resources or explicit close() calls.
+ * <p>
+ * The caller is responsible for closing the {@link JsonParser} after shredding. Use
+ * try-with-resources or explicit close() calls.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * @see JsonShredder
@@ -103,9 +107,8 @@ public final class JacksonJsonShredder implements Callable<Long> {
   private final boolean skipRootJson;
 
   /**
-   * Lookahead token buffer - enables Gson-like peek() behavior.
-   * When non-null, contains the next token that peek() will return.
-   * When null, peek() will advance the parser.
+   * Lookahead token buffer - enables Gson-like peek() behavior. When non-null, contains the next
+   * token that peek() will return. When null, peek() will advance the parser.
    */
   private JsonToken lookaheadToken;
 
@@ -116,8 +119,8 @@ public final class JacksonJsonShredder implements Callable<Long> {
   private Boolean lookaheadBooleanValue;
 
   /**
-   * Creates a shared JsonFactory with lenient parsing enabled.
-   * JsonFactory is thread-safe and should be reused.
+   * Creates a shared JsonFactory with lenient parsing enabled. JsonFactory is thread-safe and should
+   * be reused.
    */
   private static JsonFactory createJsonFactory() {
     JsonFactory factory = new JsonFactory();
@@ -153,7 +156,7 @@ public final class JacksonJsonShredder implements Callable<Long> {
     /**
      * Constructor.
      *
-     * @param wtx    {@link JsonNodeTrx} implementation
+     * @param wtx {@link JsonNodeTrx} implementation
      * @param parser Jackson {@link JsonParser} implementation
      * @param insert insertion position
      * @throws NullPointerException if one of the arguments is {@code null}
@@ -228,8 +231,7 @@ public final class JacksonJsonShredder implements Callable<Long> {
   // ==================== Lookahead Buffer Methods (Gson-like peek/consume) ====================
 
   /**
-   * Peek at the next token WITHOUT consuming it.
-   * This emulates Gson's JsonReader.peek() behavior.
+   * Peek at the next token WITHOUT consuming it. This emulates Gson's JsonReader.peek() behavior.
    * 
    * @return the next token, or null if end of input
    * @throws IOException if parsing fails
@@ -247,8 +249,8 @@ public final class JacksonJsonShredder implements Callable<Long> {
   }
 
   /**
-   * Consume the current (peeked) token and clear the lookahead buffer.
-   * After calling this, the next peek() will advance the parser.
+   * Consume the current (peeked) token and clear the lookahead buffer. After calling this, the next
+   * peek() will advance the parser.
    */
   private void consume() {
     lookaheadToken = null;
@@ -274,8 +276,8 @@ public final class JacksonJsonShredder implements Callable<Long> {
   }
 
   /**
-   * Get the string value of the current (peeked) token.
-   * Must be called when peek() returned VALUE_STRING.
+   * Get the string value of the current (peeked) token. Must be called when peek() returned
+   * VALUE_STRING.
    */
   private String nextString() throws IOException {
     if (lookaheadToken == null) {
@@ -287,8 +289,8 @@ public final class JacksonJsonShredder implements Callable<Long> {
   }
 
   /**
-   * Get the boolean value of the current (peeked) token.
-   * Must be called when peek() returned VALUE_TRUE or VALUE_FALSE.
+   * Get the boolean value of the current (peeked) token. Must be called when peek() returned
+   * VALUE_TRUE or VALUE_FALSE.
    */
   private boolean nextBoolean() throws IOException {
     if (lookaheadToken == null) {
@@ -300,8 +302,7 @@ public final class JacksonJsonShredder implements Callable<Long> {
   }
 
   /**
-   * Consume a null token.
-   * Must be called when peek() returned VALUE_NULL.
+   * Consume a null token. Must be called when peek() returned VALUE_NULL.
    */
   private void nextNull() {
     if (lookaheadToken == null) {
@@ -311,8 +312,8 @@ public final class JacksonJsonShredder implements Callable<Long> {
   }
 
   /**
-   * Get the number value of the current (peeked) token.
-   * Must be called when peek() returned VALUE_NUMBER_INT or VALUE_NUMBER_FLOAT.
+   * Get the number value of the current (peeked) token. Must be called when peek() returned
+   * VALUE_NUMBER_INT or VALUE_NUMBER_FLOAT.
    */
   private Number nextNumber() throws IOException {
     if (lookaheadToken == null) {
@@ -324,8 +325,7 @@ public final class JacksonJsonShredder implements Callable<Long> {
   }
 
   /**
-   * Get the field name of the current (peeked) token.
-   * Must be called when peek() returned FIELD_NAME.
+   * Get the field name of the current (peeked) token. Must be called when peek() returned FIELD_NAME.
    */
   private String nextName() throws IOException {
     if (lookaheadToken == null) {
@@ -379,8 +379,8 @@ public final class JacksonJsonShredder implements Callable<Long> {
   // ==================== Main Content Insertion (matches Gson's logic exactly) ====================
 
   /**
-   * Insert new content based on the Jackson streaming parser.
-   * This method matches the exact logic of Gson's JsonShredder.insertNewContent().
+   * Insert new content based on the Jackson streaming parser. This method matches the exact logic of
+   * Gson's JsonShredder.insertNewContent().
    *
    * @throws SirixException if something went wrong while inserting
    */
@@ -780,12 +780,12 @@ public final class JacksonJsonShredder implements Callable<Long> {
   }
 
   /**
-   * Get the value for an object record by examining the next token.
-   * Matches Gson's getObjectRecordValue() exactly.
+   * Get the value for an object record by examining the next token. Matches Gson's
+   * getObjectRecordValue() exactly.
    */
   public ObjectRecordValue<?> getObjectRecordValue() throws IOException {
     final var nextToken = peek();
-    
+
     return switch (nextToken) {
       case START_OBJECT -> {
         level++;
@@ -918,12 +918,10 @@ public final class JacksonJsonShredder implements Callable<Long> {
     try (final var db = Databases.openJsonDatabase(targetDatabasePath)) {
       db.createResource(ResourceConfiguration.newBuilder("shredded").build());
       try (final var resMgr = db.beginResourceSession("shredded");
-           final var wtx = resMgr.beginNodeTrx();
-           final var jsonParser = createFileParser(Paths.get(args[0]))) {
+          final var wtx = resMgr.beginNodeTrx();
+          final var jsonParser = createFileParser(Paths.get(args[0]))) {
         final var shredder =
-            new JacksonJsonShredder.Builder(wtx, jsonParser, InsertPosition.AS_FIRST_CHILD)
-                .commitAfterwards()
-                .build();
+            new JacksonJsonShredder.Builder(wtx, jsonParser, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
     } catch (IOException e) {

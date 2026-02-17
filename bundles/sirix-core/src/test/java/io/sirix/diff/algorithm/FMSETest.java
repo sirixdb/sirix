@@ -37,7 +37,7 @@ import java.util.function.Predicate;
  */
 public final class FMSETest {
   private static final Logger LOGGER = LoggerFactory.getLogger(FMSETest.class);
-  
+
   private static final Path RESOURCES = Paths.get("src", "test", "resources");
 
   private static final Path XMLINSERTFIRST = RESOURCES.resolve("revXMLsInsert");
@@ -238,16 +238,15 @@ public final class FMSETest {
         if (file.getFileName().toString().endsWith(".xml")) {
           if (first) {
             first = false;
-            try (final XmlNodeTrx wtx = resource.beginNodeTrx(); final FileInputStream fis = new FileInputStream(
-                file.toFile())) {
+            try (final XmlNodeTrx wtx = resource.beginNodeTrx();
+                final FileInputStream fis = new FileInputStream(file.toFile())) {
               final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
-                                                                   InsertPosition.AS_FIRST_CHILD).commitAfterwards()
-                                                                                                 .build();
+                  InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
               shredder.call();
             }
           } else {
             FMSEImport.main(
-                new String[] { PATHS.PATH1.getFile().toAbsolutePath().toString(), file.toAbsolutePath().toString() });
+                new String[] {PATHS.PATH1.getFile().toAbsolutePath().toString(), file.toAbsolutePath().toString()});
           }
 
           resource.close();
@@ -280,8 +279,8 @@ public final class FMSETest {
   private Comparator<Path> comparator() {
     return (first, second) -> {
       final String firstName = first.getFileName().toString().substring(0, first.getFileName().toString().indexOf('.'));
-      final String secondName = second.getFileName().toString().substring(0,
-                                                                          second.getFileName().toString().indexOf('.'));
+      final String secondName =
+          second.getFileName().toString().substring(0, second.getFileName().toString().indexOf('.'));
 
       return Integer.compare(Integer.parseInt(firstName), Integer.parseInt(secondName));
     };

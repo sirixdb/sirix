@@ -42,7 +42,8 @@ public class ForEach extends RecursiveAction {
     }
   }
 
-  private void work(TransactionIntentLog log, StorageEngineReader pageTrx, PageReference[] references, int from, int to) {
+  private void work(TransactionIntentLog log, StorageEngineReader pageTrx, PageReference[] references, int from,
+      int to) {
     for (int j = from; j < to; j++) {
       final var reference = references[j];
       if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT)) {

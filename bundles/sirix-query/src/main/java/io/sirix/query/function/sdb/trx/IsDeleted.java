@@ -16,8 +16,7 @@ import io.sirix.query.function.sdb.SDBFun;
 
 /**
  * <p>
- * Function for determining if the item has been deleted or not. Supported
- * signature is:
+ * Function for determining if the item has been deleted or not. Supported signature is:
  * </p>
  * <ul>
  * <li><code>sdb:is-deleted($item as xs:structured-item) as xs:boolean</code></li>
@@ -35,7 +34,7 @@ public final class IsDeleted extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public IsDeleted(final QNm name, final Signature signature) {
@@ -55,13 +54,17 @@ public final class IsDeleted extends AbstractFunction {
         rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
 
     if (node == null) {
-      return rtxInMostRecentRevision.moveTo(item.getNodeKey()) ? Bool.FALSE : Bool.TRUE;
+      return rtxInMostRecentRevision.moveTo(item.getNodeKey())
+          ? Bool.FALSE
+          : Bool.TRUE;
     } else {
       final var revisions = node.getRevisions();
       final var mostRecentRevisionOfItem = revisions[revisions.length - 1];
       final NodeReadOnlyTrx rtxInMostRecentRevisionOfItem = getTrx(resourceSession, mostRecentRevisionOfItem);
 
-      return rtxInMostRecentRevisionOfItem.moveTo(item.getNodeKey()) ? Bool.FALSE : Bool.TRUE;
+      return rtxInMostRecentRevisionOfItem.moveTo(item.getNodeKey())
+          ? Bool.FALSE
+          : Bool.TRUE;
     }
   }
 

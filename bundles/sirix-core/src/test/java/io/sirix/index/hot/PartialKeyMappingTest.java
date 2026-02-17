@@ -17,8 +17,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests for PartialKeyMapping - the PEXT-based key extraction.
  * 
- * <p>Verifies that partial key extraction matches the reference implementation's
- * behavior using Long.compress() (PEXT instruction on x86-64).</p>
+ * <p>
+ * Verifies that partial key extraction matches the reference implementation's behavior using
+ * Long.compress() (PEXT instruction on x86-64).
+ * </p>
  */
 @DisplayName("PartialKeyMapping Tests")
 class PartialKeyMappingTest {
@@ -34,7 +36,7 @@ class PartialKeyMappingTest {
       assertEquals(0, mapping0.getMostSignificantBitIndex());
       assertEquals(0, mapping0.getLeastSignificantBitIndex());
       assertEquals(1, mapping0.getNumberBitsUsed());
-      
+
       PartialKeyMapping mapping7 = PartialKeyMapping.forSingleBit(7);
       assertEquals(7, mapping7.getMostSignificantBitIndex());
       assertEquals(7, mapping7.getLeastSignificantBitIndex());
@@ -47,8 +49,7 @@ class PartialKeyMappingTest {
       // Single bits at various positions should produce non-zero masks
       for (int bit = 0; bit < 64; bit++) {
         PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(bit);
-        assertTrue(mapping.getExtractionMask() != 0, 
-            "Bit " + bit + " should have non-zero extraction mask");
+        assertTrue(mapping.getExtractionMask() != 0, "Bit " + bit + " should have non-zero extraction mask");
         assertEquals(1, mapping.getNumberBitsUsed());
       }
     }
@@ -63,10 +64,10 @@ class PartialKeyMappingTest {
     void testAddingBitsIncreasesCount() {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(0);
       assertEquals(1, mapping.getNumberBitsUsed());
-      
+
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 7);
       assertEquals(2, mapping.getNumberBitsUsed());
-      
+
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 4);
       assertEquals(3, mapping.getNumberBitsUsed());
     }
@@ -77,7 +78,7 @@ class PartialKeyMappingTest {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(10);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 5);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 20);
-      
+
       assertEquals(5, mapping.getMostSignificantBitIndex());
       assertEquals(20, mapping.getLeastSignificantBitIndex());
     }
@@ -87,7 +88,7 @@ class PartialKeyMappingTest {
     void testSingleMaskWithinWindow() {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(0);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 63);
-      
+
       // 64 bits = 8 bytes, should fit in single mask
       assertFalse(mapping.isMultiMask(), "Bits 0-63 should fit in single mask");
     }
@@ -97,7 +98,7 @@ class PartialKeyMappingTest {
     void testMultiMaskRequired() {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(0);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 80);
-      
+
       assertTrue(mapping.isMultiMask(), "Bits > 64 apart should use multi-mask");
     }
   }
@@ -112,10 +113,9 @@ class PartialKeyMappingTest {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(4);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 12);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 20);
-      
+
       int highestMask = mapping.getMaskForHighestBit();
-      assertEquals(1, Integer.bitCount(highestMask), 
-          "Highest bit mask should have exactly one bit set");
+      assertEquals(1, Integer.bitCount(highestMask), "Highest bit mask should have exactly one bit set");
     }
 
     @Test
@@ -123,10 +123,10 @@ class PartialKeyMappingTest {
     void testGetAllMaskBits() {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(0);
       assertEquals(1, Integer.bitCount(mapping.getAllMaskBits()));
-      
+
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 1);
       assertEquals(2, Integer.bitCount(mapping.getAllMaskBits()));
-      
+
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 2);
       assertEquals(3, Integer.bitCount(mapping.getAllMaskBits()));
     }

@@ -68,8 +68,7 @@ public class ObjectNodeTest {
   public void testNode() throws IOException {
     // Create node directly with primitive constructor
     final var hashFunction = LongHashFunction.xx3();
-    final ObjectNode node = new ObjectNode(
-        13L, // nodeKey
+    final ObjectNode node = new ObjectNode(13L, // nodeKey
         14L, // parentKey
         Constants.NULL_REVISION_NUMBER, // previousRevision
         0, // lastModifiedRevision
@@ -80,24 +79,19 @@ public class ObjectNodeTest {
         0, // childCount
         0, // descendantCount
         0, // hash
-        hashFunction,
-        (byte[]) null // deweyID
+        hashFunction, (byte[]) null // deweyID
     );
     check(node);
 
     // Use a simplified ResourceConfiguration without optional fields
-    final var config = ResourceConfiguration.newBuilder("test")
-        .hashKind(HashType.NONE)
-        .storeChildCount(false)
-        .build();
+    final var config = ResourceConfiguration.newBuilder("test").hashKind(HashType.NONE).storeChildCount(false).build();
 
     // Serialize and deserialize node.
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     NodeKind.OBJECT.serialize(data, node, config);
-    
+
     var bytesIn = data.asBytesIn();
-    final ObjectNode node2 = (ObjectNode) NodeKind.OBJECT.deserialize(
-        bytesIn, node.getNodeKey(), null, config);
+    final ObjectNode node2 = (ObjectNode) NodeKind.OBJECT.deserialize(bytesIn, node.getNodeKey(), null, config);
     check(node2);
   }
 

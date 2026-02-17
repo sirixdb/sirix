@@ -29,8 +29,7 @@ import static java.util.Objects.requireNonNull;
 public final class ModificationVisitor extends AbstractXmlNodeVisitor {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(ModificationVisitor.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(ModificationVisitor.class));
 
   /** Determines the modify rate. */
   private static final int MODIFY_EVERY = 1111;
@@ -86,10 +85,10 @@ public final class ModificationVisitor extends AbstractXmlNodeVisitor {
   }
 
   /**
-   * Determines if a node must be modified. If yes, it is deleted and {@code true} is returned. If
-   * it must not be deleted {@code false} is returned. The transaction is moved accordingly in case
-   * of a remove-operation such that the {@link DescendantAxis} can move to the next node after a
-   * delete occurred.
+   * Determines if a node must be modified. If yes, it is deleted and {@code true} is returned. If it
+   * must not be deleted {@code false} is returned. The transaction is moved accordingly in case of a
+   * remove-operation such that the {@link DescendantAxis} can move to the next node after a delete
+   * occurred.
    *
    * @param node the node to check and possibly delete
    * @return {@code true} if node has been deleted, {@code false} otherwise

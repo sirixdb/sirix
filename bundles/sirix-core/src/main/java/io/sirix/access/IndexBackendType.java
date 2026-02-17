@@ -31,42 +31,54 @@ package io.sirix.access;
 /**
  * Defines the backend type for secondary indexes (PATH, CAS, NAME).
  * 
- * <p>This configuration is stored per-resource, allowing different resources
- * to use different index backends based on their workload characteristics.</p>
+ * <p>
+ * This configuration is stored per-resource, allowing different resources to use different index
+ * backends based on their workload characteristics.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
 public enum IndexBackendType {
-  
+
   /**
    * Red-Black Tree based indexes.
    * 
-   * <p>The traditional implementation using a balanced binary search tree
-   * for index storage with O(log n) lookup, insert, and delete operations.</p>
+   * <p>
+   * The traditional implementation using a balanced binary search tree for index storage with O(log
+   * n) lookup, insert, and delete operations.
+   * </p>
    * 
-   * <p>May be preferred for:</p>
+   * <p>
+   * May be preferred for:
+   * </p>
    * <ul>
-   *   <li>Environments requiring maximum stability</li>
-   *   <li>Smaller datasets where performance differences are negligible</li>
+   * <li>Environments requiring maximum stability</li>
+   * <li>Smaller datasets where performance differences are negligible</li>
    * </ul>
    */
   RBTREE,
-  
+
   /**
    * Height-Optimized Trie (HOT) based indexes.
    * 
-   * <p><b>This is the default.</b></p>
+   * <p>
+   * <b>This is the default.</b>
+   * </p>
    * 
-   * <p>A high-performance implementation using a cache-friendly trie structure
-   * optimized for modern CPU architectures. Provides better performance for
-   * large datasets due to reduced memory accesses and better cache utilization.</p>
+   * <p>
+   * A high-performance implementation using a cache-friendly trie structure optimized for modern CPU
+   * architectures. Provides better performance for large datasets due to reduced memory accesses and
+   * better cache utilization.
+   * </p>
    * 
-   * <p>Recommended for:</p>
+   * <p>
+   * Recommended for:
+   * </p>
    * <ul>
-   *   <li>Large datasets with many indexed entries</li>
-   *   <li>Read-heavy workloads</li>
-   *   <li>Performance-critical applications</li>
-   *   <li>General purpose workloads (default)</li>
+   * <li>Large datasets with many indexed entries</li>
+   * <li>Read-heavy workloads</li>
+   * <li>Performance-critical applications</li>
+   * <li>General purpose workloads (default)</li>
    * </ul>
    */
   HOT

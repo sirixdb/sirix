@@ -71,8 +71,7 @@ public final class QueueEventReader implements XMLEventReader {
 
     final QName root = mEvents.poll().asStartElement().getName();
     int level = 0;
-    while (level >= 0 && !(mEvents.peek().isEndElement()
-        && mEvents.peek().asEndElement().getName().equals(root))) {
+    while (level >= 0 && !(mEvents.peek().isEndElement() && mEvents.peek().asEndElement().getName().equals(root))) {
       final XMLEvent event = mEvents.poll();
       switch (event.getEventType()) {
         case XMLStreamConstants.START_ELEMENT:

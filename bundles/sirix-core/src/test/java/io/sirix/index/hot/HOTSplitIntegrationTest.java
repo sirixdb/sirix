@@ -28,9 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration tests for HOT page splits with read/write operations.
- * These tests verify that HOTIndirectPage navigation works correctly
- * after leaf page splits.
+ * Integration tests for HOT page splits with read/write operations. These tests verify that
+ * HOTIndirectPage navigation works correctly after leaf page splits.
  */
 @DisplayName("HOT Split Integration Tests")
 class HOTSplitIntegrationTest {
@@ -57,33 +56,32 @@ class HOTSplitIntegrationTest {
       // Create JSON with many keys
       StringBuilder json = new StringBuilder("{");
       for (int i = 0; i < 100; i++) {
-        if (i > 0) json.append(",");
+        if (i > 0)
+          json.append(",");
         json.append(String.format("\"key%03d\": \"value%d\"", i, i));
       }
       json.append("}");
-      
+
       // Create a database and resource
       try (final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-        try (final JsonResourceSession session = database.beginResourceSession(
-            JsonTestHelper.RESOURCE);
-             final JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+        try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+            final JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
           wtx.commit();
         }
       }
-      
+
       // Now read back and verify all entries are accessible
       try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-        try (final JsonResourceSession session = database.beginResourceSession(
-            JsonTestHelper.RESOURCE);
-             final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-          
+        try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+            final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+
           // Navigate and count nodes
           int objectKeyCount = 0;
           rtx.moveToDocumentRoot();
-          if (rtx.moveToFirstChild()) {  // Object
-            if (rtx.moveToFirstChild()) {  // First key
+          if (rtx.moveToFirstChild()) { // Object
+            if (rtx.moveToFirstChild()) { // First key
               do {
                 if (rtx.getKind() == NodeKind.OBJECT_KEY) {
                   objectKeyCount++;
@@ -91,7 +89,7 @@ class HOTSplitIntegrationTest {
               } while (rtx.moveToRightSibling());
             }
           }
-          
+
           assertEquals(100, objectKeyCount, "Should have 100 object keys");
         }
       }
@@ -109,31 +107,29 @@ class HOTSplitIntegrationTest {
       for (int i = 0; i < 50; i++) {
         json.append("}");
       }
-      
+
       // Create database with many unique paths to trigger splits
       try (final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-        try (final JsonResourceSession session = database.beginResourceSession(
-            JsonTestHelper.RESOURCE);
-             final JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+        try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+            final JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
           wtx.commit();
         }
       }
-      
+
       // Verify all paths are accessible
       try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-        try (final JsonResourceSession session = database.beginResourceSession(
-            JsonTestHelper.RESOURCE);
-             final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-          
+        try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+            final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+
           // Navigate to the deepest level
           rtx.moveToDocumentRoot();
           int depth = 0;
           while (rtx.moveToFirstChild()) {
             depth++;
           }
-          
+
           assertTrue(depth > 50, "Should be able to navigate deep into the tree");
         }
       }
@@ -148,26 +144,27 @@ class HOTSplitIntegrationTest {
     @DisplayName("Multiple commits with growing index")
     void testMultipleCommitsWithGrowingIndex() {
       try (final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-        try (final JsonResourceSession session = database.beginResourceSession(
-            JsonTestHelper.RESOURCE)) {
-          
+        try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+
           // First commit - create object with batch1 keys
           StringBuilder json1 = new StringBuilder("{");
           for (int i = 0; i < 30; i++) {
-            if (i > 0) json1.append(",");
+            if (i > 0)
+              json1.append(",");
             json1.append("\"batch1_key").append(i).append("\": \"value").append(i).append("\"");
           }
           json1.append("}");
-          
+
           try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json1.toString()));
             wtx.commit();
           }
-          
+
           // Second commit - replace the whole document with more keys
           StringBuilder json2 = new StringBuilder("{");
           for (int i = 0; i < 60; i++) {
-            if (i > 0) json2.append(",");
+            if (i > 0)
+              json2.append(",");
             if (i < 30) {
               json2.append("\"batch1_key").append(i).append("\": \"value").append(i).append("\"");
             } else {
@@ -175,19 +172,20 @@ class HOTSplitIntegrationTest {
             }
           }
           json2.append("}");
-          
+
           try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild();
-            wtx.remove();  // Remove old document
+            wtx.remove(); // Remove old document
             wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json2.toString()));
             wtx.commit();
           }
-          
+
           // Third commit - even more keys
           StringBuilder json3 = new StringBuilder("{");
           for (int i = 0; i < 90; i++) {
-            if (i > 0) json3.append(",");
+            if (i > 0)
+              json3.append(",");
             if (i < 30) {
               json3.append("\"batch1_key").append(i).append("\": \"value").append(i).append("\"");
             } else if (i < 60) {
@@ -197,27 +195,26 @@ class HOTSplitIntegrationTest {
             }
           }
           json3.append("}");
-          
+
           try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild();
-            wtx.remove();  // Remove old document
+            wtx.remove(); // Remove old document
             wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json3.toString()));
             wtx.commit();
           }
         }
       }
-      
+
       // Verify all data is accessible from latest revision
       try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-        try (final JsonResourceSession session = database.beginResourceSession(
-            JsonTestHelper.RESOURCE);
-             final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-          
+        try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+            final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+
           int keyCount = 0;
           rtx.moveToDocumentRoot();
-          if (rtx.moveToFirstChild()) {  // Object
-            if (rtx.moveToFirstChild()) {  // First key
+          if (rtx.moveToFirstChild()) { // Object
+            if (rtx.moveToFirstChild()) { // First key
               do {
                 if (rtx.getKind() == NodeKind.OBJECT_KEY) {
                   keyCount++;
@@ -225,7 +222,7 @@ class HOTSplitIntegrationTest {
               } while (rtx.moveToRightSibling());
             }
           }
-          
+
           assertEquals(90, keyCount, "Should have 90 object keys (30 from each batch)");
         }
       }
@@ -242,32 +239,31 @@ class HOTSplitIntegrationTest {
       // Create JSON array with many elements
       StringBuilder json = new StringBuilder("[");
       for (int i = 0; i < 200; i++) {
-        if (i > 0) json.append(",");
+        if (i > 0)
+          json.append(",");
         json.append(i);
       }
       json.append("]");
-      
+
       // Create a database with enough entries to potentially split
       try (final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-        try (final JsonResourceSession session = database.beginResourceSession(
-            JsonTestHelper.RESOURCE);
-             final JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+        try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+            final JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
           wtx.commit();
         }
       }
-      
+
       // Verify all elements are accessible
       try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-        try (final JsonResourceSession session = database.beginResourceSession(
-            JsonTestHelper.RESOURCE);
-             final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-          
+        try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+            final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+
           int elementCount = 0;
           rtx.moveToDocumentRoot();
-          if (rtx.moveToFirstChild()) {  // Array
-            if (rtx.moveToFirstChild()) {  // First element
+          if (rtx.moveToFirstChild()) { // Array
+            if (rtx.moveToFirstChild()) { // First element
               do {
                 if (rtx.getKind() == NodeKind.NUMBER_VALUE) {
                   elementCount++;
@@ -275,7 +271,7 @@ class HOTSplitIntegrationTest {
               } while (rtx.moveToRightSibling());
             }
           }
-          
+
           assertEquals(200, elementCount, "Should have 200 number elements");
         }
       }
@@ -292,31 +288,30 @@ class HOTSplitIntegrationTest {
       // Build JSON with 50 keys
       StringBuilder json = new StringBuilder("{");
       for (int i = 0; i < 50; i++) {
-        if (i > 0) json.append(",");
+        if (i > 0)
+          json.append(",");
         json.append("\"key").append(i).append("\": \"value").append(i).append("\"");
       }
       json.append("}");
-      
+
       try (final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-        try (final JsonResourceSession session = database.beginResourceSession(
-            JsonTestHelper.RESOURCE);
-             final JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+        try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+            final JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
           wtx.commit();
         }
       }
-      
+
       // Re-open database and verify data is accessible
       try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-        try (final JsonResourceSession session = database.beginResourceSession(
-            JsonTestHelper.RESOURCE);
-             final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-          
+        try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+            final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+
           int keyCount = 0;
           rtx.moveToDocumentRoot();
-          if (rtx.moveToFirstChild()) {  // Object
-            if (rtx.moveToFirstChild()) {  // First key
+          if (rtx.moveToFirstChild()) { // Object
+            if (rtx.moveToFirstChild()) { // First key
               do {
                 if (rtx.getKind() == NodeKind.OBJECT_KEY) {
                   keyCount++;
@@ -324,7 +319,7 @@ class HOTSplitIntegrationTest {
               } while (rtx.moveToRightSibling());
             }
           }
-          
+
           assertEquals(50, keyCount, "Should have 50 keys after reopening database");
         }
       }

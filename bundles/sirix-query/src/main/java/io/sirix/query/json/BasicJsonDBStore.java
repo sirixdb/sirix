@@ -66,8 +66,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final ConcurrentMap<Database<JsonResourceSession>, JsonDBCollection> collections;
 
   /**
-   * Tracks resource sessions that have been used for write operations.
-   * These sessions may have open write transactions that need to be closed.
+   * Tracks resource sessions that have been used for write operations. These sessions may have open
+   * write transactions that need to be closed.
    */
   private final Set<JsonResourceSession> sessionsWithWriteTrx;
 
@@ -125,13 +125,16 @@ public final class BasicJsonDBStore implements JsonDBStore {
         ? StorageType.fromString(System.getProperty("storageType"))
         : OS.isWindows()
             ? StorageType.FILE_CHANNEL
-            : OS.is64Bit() ? StorageType.MEMORY_MAPPED : StorageType.FILE_CHANNEL;
+            : OS.is64Bit()
+                ? StorageType.MEMORY_MAPPED
+                : StorageType.FILE_CHANNEL;
 
     /**
      * The location to store created collections/databases.
      */
-    private Path location =
-        System.getProperty("dbLocation") != null ? Path.of(System.getProperty("dbLocation")) : LOCATION;
+    private Path location = System.getProperty("dbLocation") != null
+        ? Path.of(System.getProperty("dbLocation"))
+        : LOCATION;
 
     /**
      * Determines if a path summary should be build for resources.
@@ -148,8 +151,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
     /**
      * Determines the hash type to use (default: rolling).
      */
-    private HashType hashType =
-        System.getProperty("hashType") != null ? HashType.fromString(System.getProperty("hashType")) : HashType.ROLLING;
+    private HashType hashType = System.getProperty("hashType") != null
+        ? HashType.fromString(System.getProperty("hashType"))
+        : HashType.ROLLING;
 
     /**
      * Determines the versioning type.
@@ -161,9 +165,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
     /**
      * Number of nodes before an auto-commit is issued during an import of an XML document.
      */
-    private int numberOfNodesBeforeAutoCommit =
-        System.getProperty("numberOfNodesBeforeAutoCommit") != null ? Integer.parseInt(System.getProperty(
-            "numberOfNodesBeforeAutoCommit")) : 262_144 << 2;
+    private int numberOfNodesBeforeAutoCommit = System.getProperty("numberOfNodesBeforeAutoCommit") != null
+        ? Integer.parseInt(System.getProperty("numberOfNodesBeforeAutoCommit"))
+        : 262_144 << 2;
 
     /**
      * Set the storage type (default: file backend).
@@ -280,15 +284,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public Options options() {
-    return new Options(null,
-                       null,
-                       false,
-                       buildPathSummary,
-                       storageType,
-                       useDeweyIDs,
-                       hashType,
-                       versioningType,
-                       numberOfNodesBeforeAutoCommit);
+    return new Options(null, null, false, buildPathSummary, storageType, useDeweyIDs, hashType, versioningType,
+        numberOfNodesBeforeAutoCommit);
   }
 
   @Override
@@ -300,12 +297,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
         // by comparing database names (not object identity)
         final Optional<Database<JsonResourceSession>> existingDb =
             databases.stream().filter(db -> db.getName().equals(name) && db.isOpen()).findFirst();
-        
+
         if (existingDb.isPresent()) {
           // Reuse existing database and its collection
           return collections.get(existingDb.get());
         }
-        
+
         // No existing database found, open a new one
         final var database = Databases.openJsonDatabase(dbPath);
         databases.add(database);
@@ -408,11 +405,10 @@ public final class BasicJsonDBStore implements JsonDBStore {
       if (optionalResourceName != null) {
         final var resources = database.listResources();
 
-        final Optional<Path> hasResourceWithName = resources.stream()
-                                                            .filter(resource -> resource.getFileName()
-                                                                                        .toString()
-                                                                                        .equals(optionalResourceName))
-                                                            .findFirst();
+        final Optional<Path> hasResourceWithName =
+            resources.stream()
+                     .filter(resource -> resource.getFileName().toString().equals(optionalResourceName))
+                     .findFirst();
 
         if (hasResourceWithName.isPresent()) {
           int i = database.listResources().size() + 1;
@@ -434,7 +430,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       }
 
       try (final JsonResourceSession manager = database.beginResourceSession(resourceName);
-           final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+          final JsonNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       }
@@ -446,16 +442,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @NotNull
   private Options createResource(Object options, Database<JsonResourceSession> database, String resourceName) {
-    final var resourceOptions = OptionsFactory.createOptions(options,
-                                                             new Options(null,
-                                                                         null,
-                                                                         false,
-                                                                         buildPathSummary,
-                                                                         storageType,
-                                                                         useDeweyIDs,
-                                                                         hashType,
-                                                                         versioningType,
-                                                                         numberOfNodesBeforeAutoCommit));
+    final var resourceOptions = OptionsFactory.createOptions(options, new Options(null, null, false, buildPathSummary,
+        storageType, useDeweyIDs, hashType, versioningType, numberOfNodesBeforeAutoCommit));
 
     database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                  .useTextCompression(resourceOptions.useTextCompression())
@@ -533,13 +521,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
         while ((string = jsonStrings.next()) != null) {
           final String currentString = string.stringValue();
           final String resourceName = "resource" + i;
-          resourceFutures.add(CompletableFuture.runAsync(() -> createResource(collName,
-                                                                              database,
-                                                                              JsonShredder.createStringReader(
-                                                                                  currentString),
-                                                                              resourceName,
-                                                                              new ArrayObject(new QNm[0],
-                                                                                              new Sequence[0]))));
+          resourceFutures.add(CompletableFuture.runAsync(
+              () -> createResource(collName, database, JsonShredder.createStringReader(currentString), resourceName,
+                  new ArrayObject(new QNm[0], new Sequence[0]))));
           i++;
         }
       }
@@ -554,7 +538,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final String resourceName, final Object options) {
     createResource(options, database, resourceName);
     try (final JsonResourceSession manager = database.beginResourceSession(resourceName);
-         final JsonNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+        final JsonNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
       final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
       collections.put(database, collection);
       wtx.insertSubtreeAsFirstChild(reader);
@@ -591,7 +575,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                          .versioningApproach(versioningType)
                                                          .build());
             try (final JsonResourceSession manager = database.beginResourceSession(resourceName);
-                 final JsonNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+                final JsonNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
               final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
               collections.put(database, collection);
               wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(currentPath));
@@ -644,8 +628,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   /**
-   * Registers a resource session that has an open write transaction.
-   * This allows proper cleanup when the store is closed.
+   * Registers a resource session that has an open write transaction. This allows proper cleanup when
+   * the store is closed.
    *
    * @param session the resource session with an open write transaction
    */

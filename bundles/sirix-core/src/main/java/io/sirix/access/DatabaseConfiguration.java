@@ -55,8 +55,7 @@ import static java.util.Objects.requireNonNull;
 public final class DatabaseConfiguration {
 
   /**
-   * Paths for a {@link Database}. Each {@link Database} has the same folder
-   * layout.
+   * Paths for a {@link Database}. Each {@link Database} has the same folder layout.
    */
   public enum DatabasePaths {
     /**
@@ -89,7 +88,7 @@ public final class DatabaseConfiguration {
     /**
      * Constructor.
      *
-     * @param file     to be set
+     * @param file to be set
      * @param isFolder determines if the file is a folder instead
      */
     DatabasePaths(final Path file, final boolean isFolder) {
@@ -120,7 +119,7 @@ public final class DatabaseConfiguration {
      *
      * @param file to be checked
      * @return -1 if less folders are there, 0 if the structure is equal to the one expected, 1 if the
-     * structure has more folders
+     *         structure has more folders
      */
     public static int compareStructure(final Path file) {
       requireNonNull(file);
@@ -157,18 +156,17 @@ public final class DatabaseConfiguration {
   private DatabaseType databaseType;
 
   /**
-   * System property to configure maximum segment allocation size.
-   * Value should be in bytes, e.g., "17179869184" for 16GB.
-   * Alternatively, use suffixes: "16G", "16GB", "16384M", "16384MB".
+   * System property to configure maximum segment allocation size. Value should be in bytes, e.g.,
+   * "17179869184" for 16GB. Alternatively, use suffixes: "16G", "16GB", "16384M", "16384MB".
    */
   public static final String SEGMENT_ALLOCATION_SIZE_PROPERTY = "sirix.allocator.maxSize";
 
   /**
-   * Default maximum segment allocation size: 16GB.
-   * Can be overridden via system property {@link #SEGMENT_ALLOCATION_SIZE_PROPERTY}.
+   * Default maximum segment allocation size: 16GB. Can be overridden via system property
+   * {@link #SEGMENT_ALLOCATION_SIZE_PROPERTY}.
    */
-  private static final long DEFAULT_SEGMENT_ALLOCATION_SIZE = parseSegmentSize(
-      System.getProperty(SEGMENT_ALLOCATION_SIZE_PROPERTY, "16G"));
+  private static final long DEFAULT_SEGMENT_ALLOCATION_SIZE =
+      parseSegmentSize(System.getProperty(SEGMENT_ALLOCATION_SIZE_PROPERTY, "16G"));
 
   /**
    * Parse segment size from string with optional suffix (G, GB, M, MB, K, KB).
@@ -206,9 +204,9 @@ public final class DatabaseConfiguration {
   }
 
   /**
-   * Maximum buffer size for memory segment allocation.
-   * Default is 16GB (configurable via -Dsirix.allocator.maxSize=XXG).
-   * With global buffer pool, this budget is shared across all databases, so larger is better.
+   * Maximum buffer size for memory segment allocation. Default is 16GB (configurable via
+   * -Dsirix.allocator.maxSize=XXG). With global buffer pool, this budget is shared across all
+   * databases, so larger is better.
    */
   private long maxSegmentAllocationSize = DEFAULT_SEGMENT_ALLOCATION_SIZE;
 
@@ -358,7 +356,7 @@ public final class DatabaseConfiguration {
    */
   public static void serialize(final DatabaseConfiguration config) throws SirixIOException {
     try (final FileWriter fileWriter = new FileWriter(config.getConfigFile().toFile());
-         final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
+        final JsonWriter jsonWriter = new JsonWriter(fileWriter)) {
       jsonWriter.beginObject();
       final String filePath = config.file.toAbsolutePath().toString();
       jsonWriter.name("file").value(filePath);
@@ -380,9 +378,10 @@ public final class DatabaseConfiguration {
    * @throws SirixIOException if an I/O error occurs
    */
   public static DatabaseConfiguration deserialize(final Path file) {
-    try (final FileReader fileReader = new FileReader(
-        file.toAbsolutePath().resolve(DatabasePaths.CONFIG_BINARY.getFile()).toFile());
-         final JsonReader jsonReader = new JsonReader(fileReader)) {
+    try (
+        final FileReader fileReader =
+            new FileReader(file.toAbsolutePath().resolve(DatabasePaths.CONFIG_BINARY.getFile()).toFile());
+        final JsonReader jsonReader = new JsonReader(fileReader)) {
       jsonReader.beginObject();
       final String fileName = jsonReader.nextName();
       assert fileName.equals("file");
@@ -390,7 +389,7 @@ public final class DatabaseConfiguration {
       final String IDName = jsonReader.nextName();
       assert IDName.equals("ID");
       final int ID = jsonReader.nextInt();
-      
+
       // Read databaseId if present (for backward compatibility)
       long databaseId = -1;
       String nextName = jsonReader.nextName();
@@ -398,26 +397,26 @@ public final class DatabaseConfiguration {
         databaseId = jsonReader.nextLong();
         nextName = jsonReader.nextName();
       }
-      
+
       assert nextName.equals("databaseType");
       final String type = jsonReader.nextString();
       final String maxSegmentAllocationSizeName = jsonReader.nextName();
       assert maxSegmentAllocationSizeName.equals("maxSegmentAllocationSize");
       final long maxSegmentAllocationSize = jsonReader.nextLong();
       jsonReader.endObject();
-      final DatabaseType dbType = DatabaseType.fromString(type)
-                                              .orElseThrow(() -> new IllegalStateException("Type can not be unknown."));
-      
-      final DatabaseConfiguration config = new DatabaseConfiguration(dbFile)
-          .setMaximumResourceID(ID)
-          .setDatabaseType(dbType)
-          .setMaxSegmentAllocationSize(maxSegmentAllocationSize);
-      
+      final DatabaseType dbType =
+          DatabaseType.fromString(type).orElseThrow(() -> new IllegalStateException("Type can not be unknown."));
+
+      final DatabaseConfiguration config =
+          new DatabaseConfiguration(dbFile).setMaximumResourceID(ID)
+                                           .setDatabaseType(dbType)
+                                           .setMaxSegmentAllocationSize(maxSegmentAllocationSize);
+
       // If databaseId was present in file, use it; otherwise it will be assigned later
       if (databaseId >= 0) {
         config.setDatabaseId(databaseId);
       }
-      
+
       return config;
     } catch (final IOException e) {
       throw new SirixIOException(e);

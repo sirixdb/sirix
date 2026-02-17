@@ -92,9 +92,9 @@ public class FNString extends AbstractFunction {
   }
 
   /**
-   * Returns the string value of an item. If the item is the empty sequence, the zero-length string
-   * is returned. If the item is a node, the function returns the string-value of the node, as
-   * obtained using the dm:string-value accessor defined in the
+   * Returns the string value of an item. If the item is the empty sequence, the zero-length string is
+   * returned. If the item is a node, the function returns the string-value of the node, as obtained
+   * using the dm:string-value accessor defined in the
    * <a href="http://www.w3.org/TR/xpath-datamodel/#dm-string-value">Section 5.13 string-value
    * AccessorDM</a>. If the item is an atomic value, then the function returns the same string as is
    * returned by the expression " $arg cast as xs:string " (see 17 Casting).
@@ -107,7 +107,8 @@ public class FNString extends AbstractFunction {
     if (asXmlNodeReadTrx().getNodeKey() >= 0) { // is node
       if (asXmlNodeReadTrx().getKind() == NodeKind.ATTRIBUTE || asXmlNodeReadTrx().getKind() == NodeKind.TEXT) {
         value.append(asXmlNodeReadTrx().getValue());
-      } else if (asXmlNodeReadTrx().getKind() == NodeKind.XML_DOCUMENT || asXmlNodeReadTrx().getKind() == NodeKind.ELEMENT) {
+      } else if (asXmlNodeReadTrx().getKind() == NodeKind.XML_DOCUMENT
+          || asXmlNodeReadTrx().getKind() == NodeKind.ELEMENT) {
         final Axis axis = new FilterAxis(new DescendantAxis(asXmlNodeReadTrx()), new TextFilter(asXmlNodeReadTrx()));
         while (axis.hasNext()) {
           axis.next();

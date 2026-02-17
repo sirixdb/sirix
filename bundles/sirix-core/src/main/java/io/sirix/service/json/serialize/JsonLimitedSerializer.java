@@ -38,25 +38,25 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
- * A self-contained JSON serializer that handles maxLevel and maxChildren limits directly
- * within the traversal loop, without relying on the visitor pattern.
+ * A self-contained JSON serializer that handles maxLevel and maxChildren limits directly within the
+ * traversal loop, without relying on the visitor pattern.
  * </p>
  * 
  * <h2>Algorithm Invariants</h2>
  * <ul>
- *   <li>Level counting: Root node is at level 1. Children are at level 2, etc.</li>
- *   <li>ObjectKey nodes do NOT increment level (key and value are at the same level)</li>
- *   <li>maxChildren is checked BEFORE emitting each child (pre-check, not post-check)</li>
- *   <li>maxLevel is checked BEFORE descending into children</li>
+ * <li>Level counting: Root node is at level 1. Children are at level 2, etc.</li>
+ * <li>ObjectKey nodes do NOT increment level (key and value are at the same level)</li>
+ * <li>maxChildren is checked BEFORE emitting each child (pre-check, not post-check)</li>
+ * <li>maxLevel is checked BEFORE descending into children</li>
  * </ul>
  * 
  * <h2>Formal Correctness</h2>
  * <p>
  * For a node n to be emitted:
  * <ol>
- *   <li>L(n) ≤ maxLevel + 1 (where L is effective level)</li>
- *   <li>S(n) ≤ maxChildren (where S is sibling index among non-ObjectKey siblings)</li>
- *   <li>All ancestors of n satisfy (1) and (2)</li>
+ * <li>L(n) ≤ maxLevel + 1 (where L is effective level)</li>
+ * <li>S(n) ≤ maxChildren (where S is sibling index among non-ObjectKey siblings)</li>
+ * <li>All ancestors of n satisfy (1) and (2)</li>
  * </ol>
  * </p>
  */
@@ -70,9 +70,9 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   private final JsonResourceSession session;
   private final Appendable out;
   private final long startNodeKey;
-  private final int maxLevel;       // 0 = unlimited
-  private final int maxChildren;    // 0 = unlimited
-  private final long maxNodes;      // 0 = unlimited
+  private final int maxLevel; // 0 = unlimited
+  private final int maxChildren; // 0 = unlimited
+  private final long maxNodes; // 0 = unlimited
   private final int[] revisions;
   private final boolean indent;
   private final int indentSpaces;
@@ -89,7 +89,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   private int currentLevel;
   private int currentIndent;
   private boolean hadToAddBracket;
-  private long nodeCount;  // Count of nodes emitted (for maxNodes limit)
+  private long nodeCount; // Count of nodes emitted (for maxNodes limit)
 
   /**
    * Private constructor - use Builder to create instances.
@@ -115,23 +115,23 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   // ═══════════════════════════════════════════════════════════════════
   // Main Entry Point
   // ═══════════════════════════════════════════════════════════════════
-  
+
   @Override
   public Void call() {
     try {
       emitStartDocument();
-      
+
       for (int revision : revisions) {
         try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
           emitRevisionStartNode(rtx);
-          
+
           if (!rtx.moveTo(startNodeKey)) {
             // startNodeKey points to a non-existent node - emit empty output and continue
             LOGWRAPPER.debug("moveTo failed for startNodeKey {}, node does not exist", startNodeKey);
             emitRevisionEndNode(rtx);
             continue;
           }
-          
+
           // Handle JSON_DOCUMENT node specially - move to first child
           if (rtx.getKind() == NodeKind.JSON_DOCUMENT) {
             if (rtx.hasFirstChild()) {
@@ -141,13 +141,13 @@ public final class JsonLimitedSerializer implements Callable<Void> {
               continue;
             }
           }
-          
+
           serializeSubtree(rtx);
-          
+
           emitRevisionEndNode(rtx);
         }
       }
-      
+
       emitEndDocument();
     } catch (IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -163,26 +163,28 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   /**
    * Serialize the subtree starting at the current node.
    * 
-   * <p><b>Invariant:</b> currentLevel is set before calling this method.</p>
+   * <p>
+   * <b>Invariant:</b> currentLevel is set before calling this method.
+   * </p>
    */
   private void serializeSubtree(JsonNodeReadOnlyTrx rtx) throws IOException {
     currentLevel = 1;
-    
+
     // Initialize node count based on start node type (Scheme B):
     // - Root (non-ObjectKey start): counts as 1
     // - ObjectKey start: ObjectKey + value together = 2 (both counted upfront)
     if (rtx.isObjectKey()) {
-      nodeCount = 2;  // ObjectKey (1) + its value (1) = 2
+      nodeCount = 2; // ObjectKey (1) + its value (1) = 2
     } else {
-      nodeCount = 1;  // Root counts as 1
+      nodeCount = 1; // Root counts as 1
     }
-    
+
     // Emit the start node
     boolean willVisitChildren = shouldVisitChildren(rtx) && !hasExceededNodeLimit();
     emitNode(rtx, willVisitChildren);
-    
+
     if (willVisitChildren) {
-      visitChildren(rtx);  // Return value ignored at top level
+      visitChildren(rtx); // Return value ignored at top level
       emitEndNode(rtx, true);
     }
   }
@@ -190,8 +192,12 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   /**
    * Visit and serialize children of the current node.
    * 
-   * <p><b>Pre-condition:</b> rtx is positioned at a node with children.</p>
-   * <p><b>Post-condition:</b> rtx is repositioned back to the parent.</p>
+   * <p>
+   * <b>Pre-condition:</b> rtx is positioned at a node with children.
+   * </p>
+   * <p>
+   * <b>Post-condition:</b> rtx is repositioned back to the parent.
+   * </p>
    * 
    * @param rtx the read-only transaction positioned at the parent
    * @return true if we should terminate (maxNodes exceeded), false otherwise
@@ -200,15 +206,15 @@ public final class JsonLimitedSerializer implements Callable<Void> {
     if (!rtx.hasFirstChild()) {
       return false;
     }
-    
+
     final long parentKey = rtx.getNodeKey();
     rtx.moveToFirstChild();
-    
+
     int childIndex = 0;
     boolean shouldTerminate = false;
-    
+
     boolean isFirstChild = true;
-    
+
     do {
       // Count non-ObjectKey-value siblings for maxChildren check
       // ObjectKey values don't count as separate children (they're part of their ObjectKey parent)
@@ -216,17 +222,17 @@ public final class JsonLimitedSerializer implements Callable<Void> {
       if (!isValueOfObjectKey) {
         childIndex++;
       }
-      
+
       // Check maxChildren limit BEFORE visiting (pre-check)
       if (maxChildren > 0 && childIndex > maxChildren) {
         break; // Stop visiting siblings
       }
-      
+
       // For maxNodes counting:
       // ObjectKey + value together count as 2
       // Children of containers (Array/Object) count as 1 each
       boolean isObjectKey = rtx.isObjectKey();
-      
+
       // For ObjectKeys: look ahead and count ObjectKey + value as 2
       if (isObjectKey && maxNodes > 0) {
         // ObjectKey + value = 2 nodes
@@ -234,9 +240,9 @@ public final class JsonLimitedSerializer implements Callable<Void> {
           shouldTerminate = true;
           break; // Don't emit this ObjectKey since there's no room for it + value
         }
-        nodeCount += 2;  // Count both together (ObjectKey = 1, value = 1)
+        nodeCount += 2; // Count both together (ObjectKey = 1, value = 1)
       }
-      
+
       // Non-ObjectKey nodes that are NOT ObjectKey values: count as 1
       // ObjectKey values were pre-counted with their ObjectKey parent above
       if (!isObjectKey && !isValueOfObjectKey) {
@@ -250,83 +256,81 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         }
         nodeCount++;
       }
-      
+
       // Print comma before each sibling (except the first and ObjectKey values)
       if (!isFirstChild && !isValueOfObjectKey) {
         appendSeparator();
       }
       isFirstChild = false;
-      
+
       // Determine if this node increments level
       // When entering children, level normally increases
       // EXCEPT: ObjectKey's VALUE does NOT increment level (it's at the same level as the key)
       // ObjectKey itself DOES increment level (it's a child of the parent container)
       boolean incrementsLevel = !isValueOfObjectKey;
-      
+
       if (incrementsLevel) {
         currentLevel++;
       }
-      
+
       // Check if we should visit this node's children
       boolean willVisitChildren = shouldVisitChildren(rtx);
-      
+
       // Emit the node (without commas - we handle them above)
       emitNodeWithoutTrailingComma(rtx, willVisitChildren);
-      
+
       // Recursively visit children if allowed (and not terminated)
       if (willVisitChildren && !shouldTerminate) {
         final long currentKey = rtx.getNodeKey();
         boolean childTerminated = visitChildren(rtx);
         rtx.moveTo(currentKey);
-        
+
         // Propagate termination from children
         if (childTerminated) {
           shouldTerminate = true;
         }
-        
+
         // Determine if this is the last child we'll emit
-        boolean isLastEmittedChild = !rtx.hasRightSibling() || 
-            (maxChildren > 0 && childIndex >= maxChildren) ||
-            shouldTerminate;
+        boolean isLastEmittedChild =
+            !rtx.hasRightSibling() || (maxChildren > 0 && childIndex >= maxChildren) || shouldTerminate;
         emitEndNode(rtx, isLastEmittedChild);
       } else if (willVisitChildren) {
         // We were going to visit children but terminated - still need to emit end node
         emitEndNode(rtx, true);
       }
-      
+
       // Stop if we should terminate
       if (shouldTerminate) {
         break;
       }
-      
+
       // Restore level after visiting
       if (incrementsLevel) {
         currentLevel--;
       }
-      
+
     } while (rtx.hasRightSibling() && rtx.moveToRightSibling());
-    
+
     // Return to parent
     rtx.moveTo(parentKey);
     return shouldTerminate;
   }
-  
+
   /**
-   * Check if we've exceeded the maxNodes limit.
-   * With maxNodes=N, we should emit exactly N nodes (not counting ObjectKeys).
-   * The check happens AFTER incrementing nodeCount and emitting the node.
+   * Check if we've exceeded the maxNodes limit. With maxNodes=N, we should emit exactly N nodes (not
+   * counting ObjectKeys). The check happens AFTER incrementing nodeCount and emitting the node.
    */
   private boolean hasExceededNodeLimit() {
     if (maxNodes <= 0) {
-      return false;  // No limit
+      return false; // No limit
     }
     // nodeCount > maxNodes means we've exceeded the limit
     return nodeCount > maxNodes;
   }
 
   /**
-   * Check if the current node is the value child of an ObjectKey.
-   * ObjectKey values don't count as separate children for maxChildren.
+   * Check if the current node is the value child of an ObjectKey. ObjectKey values don't count as
+   * separate children for maxChildren.
    */
   private boolean isObjectKeyValue(JsonNodeReadOnlyTrx rtx) {
     if (!rtx.hasParent()) {
@@ -342,29 +346,31 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   /**
    * Determine if we should visit the children of the current node.
    * 
-   * <p><b>Rules:</b></p>
+   * <p>
+   * <b>Rules:</b>
+   * </p>
    * <ul>
-   *   <li>No children → false</li>
-   *   <li>ObjectKey → always true (must show value at same level)</li>
-   *   <li>Otherwise → check level limit</li>
+   * <li>No children → false</li>
+   * <li>ObjectKey → always true (must show value at same level)</li>
+   * <li>Otherwise → check level limit</li>
    * </ul>
    */
   private boolean shouldVisitChildren(JsonNodeReadOnlyTrx rtx) {
     if (!rtx.hasFirstChild()) {
       return false;
     }
-    
+
     // ObjectKey always visits its value (same level)
     if (rtx.isObjectKey()) {
       return true;
     }
-    
+
     // Check level limit: we're AT currentLevel, children would be at currentLevel+1
     // Allow children if currentLevel < maxLevel (so children at maxLevel are allowed)
     if (maxLevel > 0 && currentLevel >= maxLevel) {
       return false;
     }
-    
+
     return true;
   }
 
@@ -378,7 +384,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   private void emitNodeWithoutTrailingComma(JsonNodeReadOnlyTrx rtx, boolean willVisitChildren) throws IOException {
     emitNode(rtx, willVisitChildren, false);
   }
-  
+
   /**
    * Emit a node.
    * 
@@ -388,7 +394,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   private void emitNode(JsonNodeReadOnlyTrx rtx, boolean willVisitChildren) throws IOException {
     emitNode(rtx, willVisitChildren, true);
   }
-  
+
   /**
    * Emit a node.
    * 
@@ -396,12 +402,13 @@ public final class JsonLimitedSerializer implements Callable<Void> {
    * @param willVisitChildren whether children will be visited (affects bracket emission)
    * @param printTrailingComma whether to print comma if there's a right sibling
    */
-  private void emitNode(JsonNodeReadOnlyTrx rtx, boolean willVisitChildren, boolean printTrailingComma) throws IOException {
+  private void emitNode(JsonNodeReadOnlyTrx rtx, boolean willVisitChildren, boolean printTrailingComma)
+      throws IOException {
     switch (rtx.getKind()) {
       case JSON_DOCUMENT:
         // Skip document node
         break;
-        
+
       case OBJECT:
         emitMetaData(rtx);
         if (withMetaDataField() && willVisitChildren) {
@@ -414,10 +421,11 @@ public final class JsonLimitedSerializer implements Callable<Void> {
           if (withMetaDataField()) {
             appendObjectEnd(true);
           }
-          if (printTrailingComma) printCommaIfNeeded(rtx);
+          if (printTrailingComma)
+            printCommaIfNeeded(rtx);
         }
         break;
-        
+
       case ARRAY:
         emitMetaData(rtx);
         appendArrayStart(willVisitChildren);
@@ -426,33 +434,32 @@ public final class JsonLimitedSerializer implements Callable<Void> {
           if (withMetaDataField()) {
             appendObjectEnd(true);
           }
-          if (printTrailingComma) printCommaIfNeeded(rtx);
+          if (printTrailingComma)
+            printCommaIfNeeded(rtx);
         }
         break;
-        
+
       case OBJECT_KEY:
-        if (startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() 
-            && rtx.getNodeKey() == startNodeKey
+        if (startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey
             && serializeStartNodeWithBrackets) {
           appendObjectStart(rtx.hasFirstChild());
           hadToAddBracket = true;
         }
-        
+
         if (withMetaDataField()) {
-          if (rtx.hasLeftSibling() && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
-              && rtx.getNodeKey() == startNodeKey)) {
+          if (rtx.hasLeftSibling()
+              && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
             appendObjectStart(true);
           }
-          
-          appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue()))
-              .appendSeparator()
-              .appendObjectKey(quote("metadata"))
-              .appendObjectStart(rtx.hasFirstChild());
-          
+
+          appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue())).appendSeparator()
+                                                                                .appendObjectKey(quote("metadata"))
+                                                                                .appendObjectStart(rtx.hasFirstChild());
+
           if (withNodeKeyMetaData || withNodeKeyAndChildCountMetaData) {
             appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
           }
-          
+
           if (withMetaData) {
             appendSeparator();
             if (rtx.getHash() != 0L) {
@@ -465,14 +472,14 @@ public final class JsonLimitedSerializer implements Callable<Void> {
                   String.valueOf(rtx.getDescendantCount()));
             }
           }
-          
+
           appendObjectEnd(rtx.hasFirstChild()).appendSeparator();
           appendObjectKey(quote("value"));
         } else {
           appendObjectKey(quote(rtx.getName().stringValue()));
         }
         break;
-        
+
       case BOOLEAN_VALUE:
       case OBJECT_BOOLEAN_VALUE:
         emitMetaData(rtx);
@@ -480,9 +487,10 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         if (withMetaDataField()) {
           appendObjectEnd(true);
         }
-        if (printTrailingComma) printCommaIfNeeded(rtx);
+        if (printTrailingComma)
+          printCommaIfNeeded(rtx);
         break;
-        
+
       case NULL_VALUE:
       case OBJECT_NULL_VALUE:
         emitMetaData(rtx);
@@ -490,9 +498,10 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         if (withMetaDataField()) {
           appendObjectEnd(true);
         }
-        if (printTrailingComma) printCommaIfNeeded(rtx);
+        if (printTrailingComma)
+          printCommaIfNeeded(rtx);
         break;
-        
+
       case NUMBER_VALUE:
       case OBJECT_NUMBER_VALUE:
         emitMetaData(rtx);
@@ -500,9 +509,10 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         if (withMetaDataField()) {
           appendObjectEnd(true);
         }
-        if (printTrailingComma) printCommaIfNeeded(rtx);
+        if (printTrailingComma)
+          printCommaIfNeeded(rtx);
         break;
-        
+
       case STRING_VALUE:
       case OBJECT_STRING_VALUE:
         emitMetaData(rtx);
@@ -510,9 +520,10 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         if (withMetaDataField()) {
           appendObjectEnd(true);
         }
-        if (printTrailingComma) printCommaIfNeeded(rtx);
+        if (printTrailingComma)
+          printCommaIfNeeded(rtx);
         break;
-        
+
       default:
         throw new IllegalStateException("Node kind not known: " + rtx.getKind());
     }
@@ -540,8 +551,9 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         // Don't print comma here - handled by visitChildren BEFORE next sibling
       }
       case OBJECT_KEY -> {
-        if ((withMetaDataField() && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
-            && rtx.getNodeKey() == startNodeKey)) || (hadToAddBracket && rtx.getNodeKey() == startNodeKey)) {
+        if ((withMetaDataField()
+            && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey))
+            || (hadToAddBracket && rtx.getNodeKey() == startNodeKey)) {
           appendObjectEnd(true);
         }
         // Don't print comma here - handled by visitChildren BEFORE next sibling
@@ -558,8 +570,8 @@ public final class JsonLimitedSerializer implements Callable<Void> {
 
       if (withNodeKeyMetaData || withNodeKeyAndChildCountMetaData) {
         appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
-        if (withMetaData || withNodeKeyAndChildCountMetaData && (rtx.getKind() == NodeKind.OBJECT
-            || rtx.getKind() == NodeKind.ARRAY)) {
+        if (withMetaData || withNodeKeyAndChildCountMetaData
+            && (rtx.getKind() == NodeKind.OBJECT || rtx.getKind() == NodeKind.ARRAY)) {
           appendSeparator();
         }
       }
@@ -594,7 +606,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
       }
     }
   }
-  
+
   // Overload for backward compatibility - assumes not last child if has right sibling
   private void printCommaIfNeeded(JsonNodeReadOnlyTrx rtx) throws IOException {
     printCommaIfNeeded(rtx, false);
@@ -624,13 +636,13 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   private void emitRevisionStartNode(JsonNodeReadOnlyTrx rtx) throws IOException {
     if (emitXQueryResultSequence || revisions.length > 1) {
       appendObjectStart(rtx.hasChildren())
-          .appendObjectKeyValue(quote("revisionNumber"), Integer.toString(rtx.getRevisionNumber()))
-          .appendSeparator();
+                                          .appendObjectKeyValue(quote("revisionNumber"),
+                                              Integer.toString(rtx.getRevisionNumber()))
+                                          .appendSeparator();
 
       if (serializeTimestamp) {
-        appendObjectKeyValue(quote("revisionTimestamp"),
-            quote(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC)
-                .format(rtx.getRevisionTimestamp()))).appendSeparator();
+        appendObjectKeyValue(quote("revisionTimestamp"), quote(DateTimeFormatter.ISO_INSTANT.withZone(
+            ZoneOffset.UTC).format(rtx.getRevisionTimestamp()))).appendSeparator();
       }
 
       appendObjectKey(quote("revision"));
@@ -640,7 +652,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   private void emitRevisionEndNode(JsonNodeReadOnlyTrx rtx) throws IOException {
     if (emitXQueryResultSequence || revisions.length > 1) {
       appendObjectEnd(rtx.hasChildren());
-      
+
       // Check if there are more revisions
       if (hasMoreRevisionsToSerialize(rtx)) {
         appendSeparator();
@@ -649,9 +661,8 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   }
 
   private boolean hasMoreRevisionsToSerialize(JsonNodeReadOnlyTrx rtx) {
-    return rtx.getRevisionNumber() < revisions[revisions.length - 1] 
-        || (revisions.length == 1 && revisions[0] == -1
-            && rtx.getRevisionNumber() < rtx.getResourceSession().getMostRecentRevisionNumber());
+    return rtx.getRevisionNumber() < revisions[revisions.length - 1] || (revisions.length == 1 && revisions[0] == -1
+        && rtx.getRevisionNumber() < rtx.getResourceSession().getMostRecentRevisionNumber());
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -769,9 +780,9 @@ public final class JsonLimitedSerializer implements Callable<Void> {
     private final JsonResourceSession resourceMgr;
     private final Appendable stream;
     private long startNodeKey = 0;
-    private int maxLevel = 0;       // 0 = unlimited
-    private int maxChildren = 0;    // 0 = unlimited
-    private long maxNodes = 0;      // 0 = unlimited
+    private int maxLevel = 0; // 0 = unlimited
+    private int maxChildren = 0; // 0 = unlimited
+    private long maxNodes = 0; // 0 = unlimited
     private int[] revisions;
     private boolean indent = false;
     private int indentSpaces = 2;
@@ -786,7 +797,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
       this.resourceMgr = requireNonNull(resourceMgr);
       this.stream = requireNonNull(stream);
       if (revisions == null || revisions.length == 0) {
-        this.revisions = new int[] { resourceMgr.getMostRecentRevisionNumber() };
+        this.revisions = new int[] {resourceMgr.getMostRecentRevisionNumber()};
       } else {
         this.revisions = revisions;
       }

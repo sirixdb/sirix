@@ -156,13 +156,13 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   private JsonNodeTrx getReadWriteTrx() {
     final JsonResourceSession resourceManager = rtx.getResourceSession();
     final var trx = resourceManager.getNodeTrx().orElseGet(resourceManager::beginNodeTrx);
-    
+
     // Register the session with the store so it can be cleaned up on close
     final var store = collection.getJsonDBStore();
     if (store instanceof BasicJsonDBStore basicStore) {
       basicStore.registerWriteSession(resourceManager);
     }
-    
+
     // If the read transaction is from an older revision than the write transaction,
     // revert the write transaction to match the source revision.
     // This enables editing historical versions and creating new branches.
@@ -171,7 +171,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     if (sourceRevision < mostRecentRevision) {
       trx.revertTo(sourceRevision);
     }
-    
+
     trx.moveTo(nodeKey);
     return trx;
   }

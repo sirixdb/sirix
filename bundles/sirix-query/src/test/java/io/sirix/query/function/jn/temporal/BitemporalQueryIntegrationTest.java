@@ -31,13 +31,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Integration tests for bitemporal query functionality.
  *
- * <p>These tests verify the valid time support features including:
+ * <p>
+ * These tests verify the valid time support features including:
  * <ul>
- *   <li>Resource configuration with valid time paths</li>
- *   <li>Auto-creation of CAS indexes for valid time fields</li>
- *   <li>The jn:valid-at query function</li>
- *   <li>The jn:open-bitemporal query function</li>
- *   <li>The sdb:valid-from and sdb:valid-to functions</li>
+ * <li>Resource configuration with valid time paths</li>
+ * <li>Auto-creation of CAS indexes for valid time fields</li>
+ * <li>The jn:valid-at query function</li>
+ * <li>The jn:open-bitemporal query function</li>
+ * <li>The sdb:valid-from and sdb:valid-to functions</li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -47,8 +48,7 @@ public final class BitemporalQueryIntegrationTest {
   private static final Path sirixPath = PATHS.PATH1.getFile();
 
   /**
-   * Sample data with valid time fields.
-   * This represents employee data with valid time intervals.
+   * Sample data with valid time fields. This represents employee data with valid time intervals.
    */
   private static final String BITEMPORAL_JSON = """
       [
@@ -97,9 +97,9 @@ public final class BitemporalQueryIntegrationTest {
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
       // Create resource with valid time paths configured
       final var resourceConfig = ResourceConfiguration.newBuilder("employees")
-          .validTimePaths("validFrom", "validTo")
-          .buildPathSummary(true)
-          .build();
+                                                      .validTimePaths("validFrom", "validTo")
+                                                      .buildPathSummary(true)
+                                                      .build();
 
       database.createResource(resourceConfig);
 
@@ -123,10 +123,8 @@ public final class BitemporalQueryIntegrationTest {
     Databases.createJsonDatabase(dbConfig);
 
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
-      final var resourceConfig = ResourceConfiguration.newBuilder("employees")
-          .useConventionalValidTimePaths()
-          .buildPathSummary(true)
-          .build();
+      final var resourceConfig =
+          ResourceConfiguration.newBuilder("employees").useConventionalValidTimePaths().buildPathSummary(true).build();
 
       database.createResource(resourceConfig);
 
@@ -149,15 +147,15 @@ public final class BitemporalQueryIntegrationTest {
 
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
       final var resourceConfig = ResourceConfiguration.newBuilder("employees")
-          .validTimePaths("validFrom", "validTo")
-          .buildPathSummary(true)
-          .build();
+                                                      .validTimePaths("validFrom", "validTo")
+                                                      .buildPathSummary(true)
+                                                      .build();
 
       database.createResource(resourceConfig);
 
       // Insert data with valid time fields
       try (final JsonResourceSession session = database.beginResourceSession("employees");
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
 
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(BITEMPORAL_JSON));
         wtx.commit();
@@ -178,15 +176,15 @@ public final class BitemporalQueryIntegrationTest {
 
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
       final var resourceConfig = ResourceConfiguration.newBuilder("employees")
-          .validTimePaths("validFrom", "validTo")
-          .buildPathSummary(true)
-          .build();
+                                                      .validTimePaths("validFrom", "validTo")
+                                                      .buildPathSummary(true)
+                                                      .build();
 
       database.createResource(resourceConfig);
 
       // Insert data with valid time fields
       try (final JsonResourceSession session = database.beginResourceSession("employees");
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(BITEMPORAL_JSON));
         wtx.commit();
       }
@@ -198,7 +196,7 @@ public final class BitemporalQueryIntegrationTest {
       store.lookup("bitemporal-db");
 
       try (final var ctx = SirixQueryContext.createWithJsonStore(store);
-           final var chain = SirixCompileChain.createWithJsonStore(store)) {
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
         // Query for records valid at 2020-07-01
         final var validAtQuery = "jn:valid-at('bitemporal-db', 'employees', xs:dateTime('2020-07-01T12:00:00Z'))";
@@ -222,9 +220,9 @@ public final class BitemporalQueryIntegrationTest {
     // Create resource with valid time config
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
       final var resourceConfig = ResourceConfiguration.newBuilder("employees")
-          .validTimePaths("$.validFrom", "$.validTo")
-          .buildPathSummary(true)
-          .build();
+                                                      .validTimePaths("$.validFrom", "$.validTo")
+                                                      .buildPathSummary(true)
+                                                      .build();
 
       database.createResource(resourceConfig);
     }
@@ -265,9 +263,7 @@ public final class BitemporalQueryIntegrationTest {
 
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
       // Create resource WITHOUT valid time paths
-      final var resourceConfig = ResourceConfiguration.newBuilder("data")
-          .buildPathSummary(true)
-          .build();
+      final var resourceConfig = ResourceConfiguration.newBuilder("data").buildPathSummary(true).build();
 
       database.createResource(resourceConfig);
 

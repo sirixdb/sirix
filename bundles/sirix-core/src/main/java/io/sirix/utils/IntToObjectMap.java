@@ -25,25 +25,23 @@ import java.util.NoSuchElementException;
  */
 
 /**
- * An Array-based hashtable which maps primitive int to Objects of generic type
- * T.<br>
- * The hashtable is constracted with a given capacity, or 16 as a default. In
- * case there's not enough room for new pairs, the hashtable grows. <br>
- * Capacity is adjusted to a power of 2, and there are 2 * capacity entries for
- * the hash.
+ * An Array-based hashtable which maps primitive int to Objects of generic type T.<br>
+ * The hashtable is constracted with a given capacity, or 16 as a default. In case there's not
+ * enough room for new pairs, the hashtable grows. <br>
+ * Capacity is adjusted to a power of 2, and there are 2 * capacity entries for the hash.
  *
- * The pre allocated arrays (for keys, values) are at length of capacity + 1,
- * when index 0 is used as 'Ground' or 'NULL'.<br>
+ * The pre allocated arrays (for keys, values) are at length of capacity + 1, when index 0 is used
+ * as 'Ground' or 'NULL'.<br>
  *
- * The arrays are allocated ahead of hash operations, and form an 'empty space'
- * list, to which the key,value pair is allocated.
+ * The arrays are allocated ahead of hash operations, and form an 'empty space' list, to which the
+ * key,value pair is allocated.
  *
  * @lucene.experimental
  */
 public class IntToObjectMap<T> implements Iterable<T> {
-/**
- * Logger for this class.
- */
+  /**
+   * Logger for this class.
+   */
   private static final Logger LOGGER = LoggerFactory.getLogger(IntToObjectMap.class);
 
 
@@ -52,8 +50,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
    */
   private final class IndexIterator implements IntIterator {
     /**
-     * The last used baseHashIndex. Needed for "jumping" from one hash entry
-     * to another.
+     * The last used baseHashIndex. Needed for "jumping" from one hash entry to another.
      */
     private int baseHashIndex = 0;
 
@@ -68,9 +65,8 @@ public class IntToObjectMap<T> implements Iterable<T> {
     private int lastIndex = 0;
 
     /**
-     * Create the Iterator, make <code>index</code> point to the "first"
-     * index which is not empty. If such does not exist (eg. the map is
-     * empty) it would be zero.
+     * Create the Iterator, make <code>index</code> point to the "first" index which is not empty. If
+     * such does not exist (eg. the map is empty) it would be zero.
      */
     public IndexIterator() {
       for (baseHashIndex = 0; baseHashIndex < baseHash.length; ++baseHashIndex) {
@@ -114,8 +110,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
   private final class KeyIterator implements IntIterator {
     private IntIterator iterator = new IndexIterator();
 
-    KeyIterator() {
-    }
+    KeyIterator() {}
 
     public boolean hasNext() {
       return iterator.hasNext();
@@ -131,14 +126,12 @@ public class IntToObjectMap<T> implements Iterable<T> {
   }
 
   /**
-   * Implements an Iterator of a generic type T used for iteration over the
-   * map's values.
+   * Implements an Iterator of a generic type T used for iteration over the map's values.
    */
   private final class ValueIterator implements Iterator<T> {
     private IntIterator iterator = new IndexIterator();
 
-    ValueIterator() {
-    }
+    ValueIterator() {}
 
     public boolean hasNext() {
       return iterator.hasNext();
@@ -164,21 +157,19 @@ public class IntToObjectMap<T> implements Iterable<T> {
   private static int defaultCapacity = 16;
 
   /**
-   * Holds the base hash entries. if the capacity is 2^N, thn the base hash
-   * holds 2^(N+1). It can hold
+   * Holds the base hash entries. if the capacity is 2^N, thn the base hash holds 2^(N+1). It can hold
    */
   int[] baseHash;
 
   /**
-   * The current capacity of the map. Always 2^N and never less than 16. We
-   * never use the zero index. It is needed to improve performance and is also
-   * used as "ground".
+   * The current capacity of the map. Always 2^N and never less than 16. We never use the zero index.
+   * It is needed to improve performance and is also used as "ground".
    */
   private int capacity;
   /**
-   * All objects are being allocated at map creation. Those objects are "free"
-   * or empty. Whenever a new pair comes along, a pair is being "allocated" or
-   * taken from the free-linked list. as this is just a free list.
+   * All objects are being allocated at map creation. Those objects are "free" or empty. Whenever a
+   * new pair comes along, a pair is being "allocated" or taken from the free-linked list. as this is
+   * just a free list.
    */
   private int firstEmpty;
 
@@ -193,9 +184,8 @@ public class IntToObjectMap<T> implements Iterable<T> {
   int[] keys;
 
   /**
-   * In case of collisions, we implement a double linked list of the colliding
-   * hash's with the following next[] and prev[]. Those are also used to store
-   * the "empty" list.
+   * In case of collisions, we implement a double linked list of the colliding hash's with the
+   * following next[] and prev[]. Those are also used to store the "empty" list.
    */
   int[] next;
 
@@ -219,11 +209,10 @@ public class IntToObjectMap<T> implements Iterable<T> {
   }
 
   /**
-   * Constructs a map with given capacity. Capacity is adjusted to a native
-   * power of 2, with minimum of 16.
+   * Constructs a map with given capacity. Capacity is adjusted to a native power of 2, with minimum
+   * of 16.
    *
-   * @param capacity
-   *            minimum capacity for the map.
+   * @param capacity minimum capacity for the map.
    */
   public IntToObjectMap(int capacity) {
     this.capacity = 16;
@@ -256,16 +245,12 @@ public class IntToObjectMap<T> implements Iterable<T> {
   }
 
   /**
-   * Adds a pair to the map. Takes the first empty position from the
-   * empty-linked-list's head.
+   * Adds a pair to the map. Takes the first empty position from the empty-linked-list's head.
    *
-   * New pairs are always inserted to baseHash, and are followed by the old
-   * colliding pair.
+   * New pairs are always inserted to baseHash, and are followed by the old colliding pair.
    *
-   * @param key
-   *            integer which maps the given Object
-   * @param e
-   *            element which is being mapped using the given key
+   * @param key integer which maps the given Object
+   * @param e element which is being mapped using the given key
    */
   private void prvtPut(int key, T e) {
     // Hash entry to which the new pair would be inserted
@@ -324,8 +309,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
   /**
    * Checks if a given key exists in the map.
    *
-   * @param key
-   *            that is checked against the map data.
+   * @param key that is checked against the map data.
    * @return true if the key exists in the map. false otherwise.
    */
   public boolean containsKey(int key) {
@@ -336,10 +320,8 @@ public class IntToObjectMap<T> implements Iterable<T> {
    * Checks if the given object exists in the map.<br>
    * This method iterates over the collection, trying to find an equal object.
    *
-   * @param o
-   *            object that is checked against the map data.
-   * @return true if the object exists in the map (in .equals() meaning).
-   *         false otherwise.
+   * @param o object that is checked against the map data.
+   * @return true if the object exists in the map (in .equals() meaning). false otherwise.
    */
   public boolean containsValue(Object o) {
     for (T object : this) {
@@ -381,13 +363,12 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
   /**
    * Find the actual index of a given key with it's baseHashIndex.<br>
-   * Some methods use the baseHashIndex. If those call find() there's
-   * no need to re-calculate that hash.
+   * Some methods use the baseHashIndex. If those call find() there's no need to re-calculate that
+   * hash.
    *
    * @param key
    * @param baseHashIndex
-   * @return the index of the given key, or 0 as 'Ground' if the key wasn't
-   *         found.
+   * @return the index of the given key, or 0 as 'Ground' if the key wasn't found.
    */
   private int findForRemove(int key, int baseHashIndex) {
     // Start from the hash entry.
@@ -415,8 +396,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
   /**
    * Returns the object mapped with the given key.
    *
-   * @param key
-   *            int who's mapped object we're interested in.
+   * @param key int who's mapped object we're interested in.
    * @return an object mapped by the given key. null if the key wasn't found.
    */
   @SuppressWarnings("unchecked")
@@ -425,8 +405,8 @@ public class IntToObjectMap<T> implements Iterable<T> {
   }
 
   /**
-   * Grows the map. Allocates a new map of double the capacity, and
-   * fast-insert the old key-value pairs.
+   * Grows the map. Allocates a new map of double the capacity, and fast-insert the old key-value
+   * pairs.
    */
   @SuppressWarnings("unchecked")
   protected void grow() {
@@ -435,7 +415,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
     // Iterates fast over the collection. Any valid pair is put into the new
     // map without checking for duplicates or if there's enough space for
     // it.
-    for (IndexIterator iterator = new IndexIterator(); iterator.hasNext(); ) {
+    for (IndexIterator iterator = new IndexIterator(); iterator.hasNext();) {
       int index = iterator.next();
       that.prvtPut(this.keys[index], (T) this.values[index]);
     }
@@ -482,9 +462,8 @@ public class IntToObjectMap<T> implements Iterable<T> {
   }
 
   /**
-   * Inserts the &lt;key,value&gt; pair into the map. If the key already exists,
-   * this method updates the mapped value to the given one, returning the old
-   * mapped value.
+   * Inserts the &lt;key,value&gt; pair into the map. If the key already exists, this method updates
+   * the mapped value to the given one, returning the old mapped value.
    *
    * @return the old mapped value, or null if the key didn't exist.
    */
@@ -515,8 +494,8 @@ public class IntToObjectMap<T> implements Iterable<T> {
   }
 
   /**
-   * Removes a &lt;key,value&gt; pair from the map and returns the mapped value,
-   * or null if the none existed.
+   * Removes a &lt;key,value&gt; pair from the map and returns the mapped value, or null if the none
+   * existed.
    *
    * @param key used to find the value to remove
    * @return the removed value or null if none existed.
@@ -568,10 +547,8 @@ public class IntToObjectMap<T> implements Iterable<T> {
   /**
    * Translates the mapped pairs' values into an array of T
    *
-   * @param a
-   *            the array into which the elements of the list are to be
-   *            stored, if it is big enough; otherwise, use whatever space we
-   *            have, setting the one after the true data as null.
+   * @param a the array into which the elements of the list are to be stored, if it is big enough;
+   *        otherwise, use whatever space we have, setting the one after the true data as null.
    *
    * @return an array containing the elements of the list
    *
@@ -634,7 +611,7 @@ public class IntToObjectMap<T> implements Iterable<T> {
 
       T v1 = this.get(key);
       T v2 = that.get(key);
-      if ((v1 == null && v2 != null) || (v1 != null && v2 == null) || (v1!= null && !v1.equals(v2))) {
+      if ((v1 == null && v2 != null) || (v1 != null && v2 == null) || (v1 != null && !v1.equals(v2))) {
         return false;
       }
     }
@@ -642,20 +619,18 @@ public class IntToObjectMap<T> implements Iterable<T> {
   }
 
   /**
-   * Licensed to the Apache Software Foundation (ASF) under one or more
-   * contributor license agreements.  See the NOTICE file distributed with
-   * this work for additional information regarding copyright ownership.
-   * The ASF licenses this file to You under the Apache License, Version 2.0
-   * (the "License"); you may not use this file except in compliance with
-   * the License.  You may obtain a copy of the License at
+   * Licensed to the Apache Software Foundation (ASF) under one or more contributor license
+   * agreements. See the NOTICE file distributed with this work for additional information regarding
+   * copyright ownership. The ASF licenses this file to You under the Apache License, Version 2.0 (the
+   * "License"); you may not use this file except in compliance with the License. You may obtain a
+   * copy of the License at
    *
-   *     http://www.apache.org/licenses/LICENSE-2.0
+   * http://www.apache.org/licenses/LICENSE-2.0
    *
-   * Unless required by applicable law or agreed to in writing, software
-   * distributed under the License is distributed on an "AS IS" BASIS,
-   * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   * See the License for the specific language governing permissions and
-   * limitations under the License.
+   * Unless required by applicable law or agreed to in writing, software distributed under the License
+   * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+   * or implied. See the License for the specific language governing permissions and limitations under
+   * the License.
    */
 
   /**

@@ -46,7 +46,9 @@ import java.util.concurrent.TimeUnit;
 /**
  * JMH benchmarks comparing RevisionIndex search strategies.
  * 
- * <p>Run with:
+ * <p>
+ * Run with:
+ * 
  * <pre>
  * ./gradlew :sirix-benchmarks:jmh
  * </pre>
@@ -58,11 +60,8 @@ import java.util.concurrent.TimeUnit;
 @State(Scope.Thread)
 @Warmup(iterations = 2, time = 1)
 @Measurement(iterations = 3, time = 1)
-@Fork(value = 1, jvmArgs = {
-    "--add-modules=jdk.incubator.vector",
-    "--enable-preview",
-    "--enable-native-access=ALL-UNNAMED"
-})
+@Fork(value = 1,
+    jvmArgs = {"--add-modules=jdk.incubator.vector", "--enable-preview", "--enable-native-access=ALL-UNNAMED"})
 public class RevisionIndexBenchmark {
 
   /**
@@ -80,15 +79,15 @@ public class RevisionIndexBenchmark {
   public void setup() {
     timestamps = new long[size];
     long[] offsets = new long[size];
-    
+
     long baseTime = System.currentTimeMillis();
     for (int i = 0; i < size; i++) {
       timestamps[i] = baseTime + (i * 1000L);
       offsets[i] = i * 4096L;
     }
-    
+
     revisionIndex = RevisionIndex.create(timestamps, offsets);
-    
+
     // Pre-generate random targets
     Random random = new Random(42);
     randomTargets = new long[1000];

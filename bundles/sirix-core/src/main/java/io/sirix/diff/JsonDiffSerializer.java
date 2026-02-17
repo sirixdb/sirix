@@ -26,11 +26,8 @@ public final class JsonDiffSerializer {
   private final int newRevisionNumber;
   private final Collection<DiffTuple> diffs;
 
-  public JsonDiffSerializer(final String databaseName,
-                            JsonResourceSession resourceManager,
-                            int oldRevisionNumber,
-                            int newRevisionNumber,
-                            Collection<DiffTuple> diffs) {
+  public JsonDiffSerializer(final String databaseName, JsonResourceSession resourceManager, int oldRevisionNumber,
+      int newRevisionNumber, Collection<DiffTuple> diffs) {
     this.databaseName = databaseName;
     this.resourceManager = resourceManager;
     this.oldRevisionNumber = oldRevisionNumber;
@@ -53,7 +50,7 @@ public final class JsonDiffSerializer {
     final var jsonDiffs = json.getAsJsonArray("diffs");
 
     try (final var oldRtx = resourceManager.beginNodeReadOnlyTrx(oldRevisionNumber);
-         final var newRtx = resourceManager.beginNodeReadOnlyTrx(newRevisionNumber)) {
+        final var newRtx = resourceManager.beginNodeReadOnlyTrx(newRevisionNumber)) {
       if (emitFromDiffAlgorithm) {
         diffs.removeIf(diffTuple -> diffTuple.getDiff() == DiffFactory.DiffType.SAME
             || diffTuple.getDiff() == DiffFactory.DiffType.SAMEHASH
@@ -192,10 +189,13 @@ public final class JsonDiffSerializer {
 
   private void insertBasedOnNewRtx(JsonNodeReadOnlyTrx newRtx, JsonObject jsonInsertDiff) {
     jsonInsertDiff.addProperty("nodeKey", newRtx.getNodeKey());
-    final var insertPosition = newRtx.hasLeftSibling() ? "asRightSibling" : "asFirstChild";
+    final var insertPosition = newRtx.hasLeftSibling()
+        ? "asRightSibling"
+        : "asFirstChild";
 
-    jsonInsertDiff.addProperty("insertPositionNodeKey",
-                               newRtx.hasLeftSibling() ? newRtx.getLeftSiblingKey() : newRtx.getParentKey());
+    jsonInsertDiff.addProperty("insertPositionNodeKey", newRtx.hasLeftSibling()
+        ? newRtx.getLeftSiblingKey()
+        : newRtx.getParentKey());
     jsonInsertDiff.addProperty("insertPosition", insertPosition);
   }
 
@@ -246,11 +246,11 @@ public final class JsonDiffSerializer {
   }
 
   /**
-   * Get the path for a node using PathSummary.
-   * Returns null if PathSummary is not enabled or if the path cannot be retrieved.
+   * Get the path for a node using PathSummary. Returns null if PathSummary is not enabled or if the
+   * path cannot be retrieved.
    * 
-   * For value nodes (STRING_VALUE, BOOLEAN_VALUE, NUMBER_VALUE, NULL_VALUE), the path
-   * is obtained from the parent OBJECT_KEY node since value nodes don't have their own path.
+   * For value nodes (STRING_VALUE, BOOLEAN_VALUE, NUMBER_VALUE, NULL_VALUE), the path is obtained
+   * from the parent OBJECT_KEY node since value nodes don't have their own path.
    *
    * @param rtx the read-only transaction positioned at the node
    * @param revisionNumber the revision number
@@ -264,9 +264,10 @@ public final class JsonDiffSerializer {
     final long originalNodeKey = rtx.getNodeKey();
     final long nullNodeKey = Fixed.NULL_NODE_KEY.getStandardProperty();
     long pathNodeKey = rtx.getPathNodeKey();
-    
+
     // OBJECT_KEY and ARRAY nodes have pathNodeKeys
-    // OBJECT nodes and value nodes (STRING_VALUE, BOOLEAN_VALUE, etc.) have pathNodeKey == NULL_NODE_KEY (-1)
+    // OBJECT nodes and value nodes (STRING_VALUE, BOOLEAN_VALUE, etc.) have pathNodeKey ==
+    // NULL_NODE_KEY (-1)
     if (pathNodeKey == nullNodeKey && rtx.hasParent()) {
       final NodeKind kind = rtx.getKind();
       final NodeKind parentKind = rtx.getParentKind();
@@ -291,7 +292,7 @@ public final class JsonDiffSerializer {
         rtx.moveTo(originalNodeKey);
       }
     }
-    
+
     // If still no pathNodeKey, return null (no path)
     if (pathNodeKey == nullNodeKey) {
       return null;
@@ -322,8 +323,8 @@ public final class JsonDiffSerializer {
   }
 
   /**
-   * Resolve array indices in the path to concrete positions.
-   * Converts "/arr/[]" to "/arr/[3]" based on actual sibling position.
+   * Resolve array indices in the path to concrete positions. Converts "/arr/[]" to "/arr/[3]" based
+   * on actual sibling position.
    *
    * @param rtx the transaction positioned at the node
    * @param path the path with unresolved array indices
@@ -411,9 +412,11 @@ public final class JsonDiffSerializer {
    * @param json the JSON object to add the path to
    * @param rtx the transaction positioned at the node
    * @param revisionNumber the revision number
-   * @param includeParentPath whether to include parent path for value nodes (used for REPLACE operations)
+   * @param includeParentPath whether to include parent path for value nodes (used for REPLACE
+   *        operations)
    */
-  private void addPathIfAvailable(JsonObject json, JsonNodeReadOnlyTrx rtx, int revisionNumber, boolean includeParentPath) {
+  private void addPathIfAvailable(JsonObject json, JsonNodeReadOnlyTrx rtx, int revisionNumber,
+      boolean includeParentPath) {
     final String path = getNodePath(rtx, revisionNumber, includeParentPath);
     if (path != null) {
       json.addProperty("path", path);

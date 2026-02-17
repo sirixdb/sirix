@@ -109,9 +109,8 @@ public class ExpressionSingleTest {
     assertEquals(false, builder.isOrdered());
 
     builder = new ExpressionSingle();
-    builder.add(
-        new UnionAxis(holder.getXmlNodeReadTrx(), new DescendantAxis(holder.getXmlNodeReadTrx()),
-                      new ParentAxis(holder.getXmlNodeReadTrx())));
+    builder.add(new UnionAxis(holder.getXmlNodeReadTrx(), new DescendantAxis(holder.getXmlNodeReadTrx()),
+        new ParentAxis(holder.getXmlNodeReadTrx())));
     assertEquals(false, builder.isOrdered());
     assertTrue(builder.getExpr() instanceof DupFilterAxis);
 

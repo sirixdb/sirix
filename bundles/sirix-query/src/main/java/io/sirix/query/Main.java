@@ -77,7 +77,7 @@ public final class Main {
     try {
       Config config = parseParams(args);
       try (BasicXmlDBStore nodeStore = BasicXmlDBStore.newBuilder().build();
-           BasicJsonDBStore jsonStore = BasicJsonDBStore.newBuilder().build()) {
+          BasicJsonDBStore jsonStore = BasicJsonDBStore.newBuilder().build()) {
         QueryContext ctx = createQueryContext(nodeStore, jsonStore, config);
 
         CompileChain compileChain = SirixCompileChain.createWithNodeAndJsonStore(nodeStore, jsonStore);
@@ -88,15 +88,16 @@ public final class Main {
     }
   }
 
-  private static QueryContext createQueryContext(BasicXmlDBStore nodeStore, BasicJsonDBStore jsonStore, Config config) throws IOException, QueryException, URISyntaxException {
-    QueryContext ctx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(nodeStore,
-            jsonStore,
-            SirixQueryContext.CommitStrategy.AUTO);
+  private static QueryContext createQueryContext(BasicXmlDBStore nodeStore, BasicJsonDBStore jsonStore, Config config)
+      throws IOException, QueryException, URISyntaxException {
+    QueryContext ctx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(nodeStore, jsonStore,
+        SirixQueryContext.CommitStrategy.AUTO);
     initializeContextWithFile(config, ctx, nodeStore, jsonStore);
     return ctx;
   }
 
-  private static void initializeContextWithFile(Config config, QueryContext ctx, BasicXmlDBStore nodeStore, BasicJsonDBStore jsonStore) throws IOException, QueryException, URISyntaxException {
+  private static void initializeContextWithFile(Config config, QueryContext ctx, BasicXmlDBStore nodeStore,
+      BasicJsonDBStore jsonStore) throws IOException, QueryException, URISyntaxException {
     String file = config.getValue("-f");
     String fileType = config.getValue("-f");
 
@@ -109,7 +110,8 @@ public final class Main {
     }
   }
 
-  private static void initializeJsonContext(String file, QueryContext ctx, BasicJsonDBStore jsonStore) throws IOException, QueryException {
+  private static void initializeJsonContext(String file, QueryContext ctx, BasicJsonDBStore jsonStore)
+      throws IOException, QueryException {
     try (var reader = JsonShredder.createFileReader(Path.of(file))) {
       JsonDBCollection coll = jsonStore.create(file, Set.of(reader));
       JsonDBItem doc = coll.getDocument();
@@ -117,7 +119,8 @@ public final class Main {
     }
   }
 
-  private static void initializeXmlContext(String file, QueryContext ctx, BasicXmlDBStore nodeStore) throws IOException, QueryException, URISyntaxException {
+  private static void initializeXmlContext(String file, QueryContext ctx, BasicXmlDBStore nodeStore)
+      throws IOException, QueryException, URISyntaxException {
     URI uri = new URI(file);
     try (InputStream in = URIHandler.getInputStream(uri)) {
       NodeSubtreeParser parser = new DocumentParser(in);
@@ -128,7 +131,8 @@ public final class Main {
     }
   }
 
-  private static void executeUserQueries(Config config, CompileChain compileChain, QueryContext ctx) throws IOException {
+  private static void executeUserQueries(Config config, CompileChain compileChain, QueryContext ctx)
+      throws IOException {
     if (config.isSet("-qf") && !"-".equals(config.getValue("-qf"))) {
       executeFileQuery(config, compileChain, ctx);
     } else if (config.isSet("-q")) {
@@ -166,20 +170,22 @@ public final class Main {
     System.out.println();
   }
 
-  private static void executeInteractiveQuery(Config config, CompileChain compileChain, QueryContext ctx) throws IOException {
+  private static void executeInteractiveQuery(Config config, CompileChain compileChain, QueryContext ctx)
+      throws IOException {
     Terminal terminal = TerminalBuilder.builder().system(true).build();
     LineReader lineReader = LineReaderBuilder.builder()
-            .terminal(terminal)
-            .variable(LineReader.SECONDARY_PROMPT_PATTERN, "%M%P > ")
-            .variable(LineReader.INDENTATION, 2)
-            .variable(LineReader.LIST_MAX, 100)
-            .variable(LineReader.HISTORY_FILE, LOCATION.resolve("history"))
-            .build();
+                                             .terminal(terminal)
+                                             .variable(LineReader.SECONDARY_PROMPT_PATTERN, "%M%P > ")
+                                             .variable(LineReader.INDENTATION, 2)
+                                             .variable(LineReader.LIST_MAX, 100)
+                                             .variable(LineReader.HISTORY_FILE, LOCATION.resolve("history"))
+                                             .build();
 
     while (true) {
       System.out.println("Enter query string (terminate with Control-D):");
       String query = readStringFromScannerWithEndMark(lineReader);
-      if (query == null) break;
+      if (query == null)
+        break;
 
       try {
         executeQuery(config, compileChain, ctx, query);
@@ -189,11 +195,13 @@ public final class Main {
     }
   }
 
-  private static void executeFileInteractiveQuery(Config config, CompileChain compileChain, QueryContext ctx) throws IOException {
+  private static void executeFileInteractiveQuery(Config config, CompileChain compileChain, QueryContext ctx)
+      throws IOException {
     while (true) {
       System.out.println("Enter query string (terminate with Control-D):");
       String query = readFile(config.getValue("-iqf"));
-      if (query == null) break;
+      if (query == null)
+        break;
 
       try {
         executeQuery(config, compileChain, ctx, query);
@@ -225,35 +233,39 @@ public final class Main {
   private static String readStringFromScannerWithEndMark(LineReader lineReader) {
     StringBuilder strbuf = new StringBuilder();
 
-    for (int i = 0; ; i++) {
+    for (int i = 0;; i++) {
       String line = lineReader.readLine("sirix > ");
-      if (line == null || line.isEmpty()) break;
-      if (i != 0) strbuf.append(System.lineSeparator());
+      if (line == null || line.isEmpty())
+        break;
+      if (i != 0)
+        strbuf.append(System.lineSeparator());
       strbuf.append(line);
     }
 
-    return strbuf.isEmpty() ? null : strbuf.toString();
+    return strbuf.isEmpty()
+        ? null
+        : strbuf.toString();
   }
 
 
-  //  private static String readStringFromScannerWithEndMark() {
-  //    final Scanner scanner = new Scanner(System.in);
-  //    final StringBuilder strbuf = new StringBuilder();
+  // private static String readStringFromScannerWithEndMark() {
+  // final Scanner scanner = new Scanner(System.in);
+  // final StringBuilder strbuf = new StringBuilder();
   //
-  //    for (int i = 0; scanner.hasNextLine(); i++) {
-  //      final String line = scanner.nextLine();
+  // for (int i = 0; scanner.hasNextLine(); i++) {
+  // final String line = scanner.nextLine();
   //
-  //      if (line.isEmpty())
-  //        break;
+  // if (line.isEmpty())
+  // break;
   //
-  //      if (i != 0) {
-  //        strbuf.append(System.lineSeparator());
-  //      }
-  //      strbuf.append(line);
-  //    }
+  // if (i != 0) {
+  // strbuf.append(System.lineSeparator());
+  // }
+  // strbuf.append(line);
+  // }
   //
-  //    return strbuf.isEmpty() ? null : strbuf.toString();
-  //  }
+  // return strbuf.isEmpty() ? null : strbuf.toString();
+  // }
 
 
   private static String readString() throws IOException {
@@ -274,7 +286,9 @@ public final class Main {
       String s = args[i];
       Option option = findOption(s);
       if (option != null) {
-        String val = option.hasValue ? args[++i] : null;
+        String val = option.hasValue
+            ? args[++i]
+            : null;
         config.setOption(option.key, val);
       } else {
         printUsage();

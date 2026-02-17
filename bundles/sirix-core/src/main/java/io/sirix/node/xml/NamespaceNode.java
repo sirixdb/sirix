@@ -45,7 +45,12 @@ import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.settings.Fixed;
+
+import java.lang.foreign.MemorySegment;
 import io.sirix.utils.NamePageHash;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -70,6 +75,11 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   private int lastModifiedRevision;
   private long hash;
 
+  // === FIXED-SLOT LAZY SUPPORT ===
+  private Object lazySource;
+  private NodeKindLayout fixedSlotLayout;
+  private boolean lazyFieldsParsed = true;
+
   // === NON-SERIALIZED FIELDS ===
   private LongHashFunction hashFunction;
   private SirixDeweyID sirixDeweyID;
@@ -79,9 +89,8 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   /**
    * Primary constructor with all primitive fields.
    */
-  public NamespaceNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision,
-      long pathNodeKey, int prefixKey, int localNameKey, int uriKey, long hash,
-      LongHashFunction hashFunction, byte[] deweyID, QNm qNm) {
+  public NamespaceNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long pathNodeKey,
+      int prefixKey, int localNameKey, int uriKey, long hash, LongHashFunction hashFunction, byte[] deweyID, QNm qNm) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -99,9 +108,9 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   /**
    * Constructor with SirixDeweyID.
    */
-  public NamespaceNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision,
-      long pathNodeKey, int prefixKey, int localNameKey, int uriKey, long hash,
-      LongHashFunction hashFunction, SirixDeweyID deweyID, QNm qNm) {
+  public NamespaceNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long pathNodeKey,
+      int prefixKey, int localNameKey, int uriKey, long hash, LongHashFunction hashFunction, SirixDeweyID deweyID,
+      QNm qNm) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -122,57 +131,99 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   }
 
   @Override
-  public long getNodeKey() { return nodeKey; }
+  public long getNodeKey() {
+    return nodeKey;
+  }
 
   @Override
-  public void setNodeKey(long nodeKey) { this.nodeKey = nodeKey; }
+  public void setNodeKey(long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
 
   @Override
-  public long getParentKey() { return parentKey; }
+  public long getParentKey() {
+    return parentKey;
+  }
 
-  public void setParentKey(long parentKey) { this.parentKey = parentKey; }
-
-  @Override
-  public boolean hasParent() { return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
-
-  @Override
-  public long getPathNodeKey() { return pathNodeKey; }
+  public void setParentKey(long parentKey) {
+    this.parentKey = parentKey;
+  }
 
   @Override
-  public void setPathNodeKey(@NonNegative long pathNodeKey) { this.pathNodeKey = pathNodeKey; }
+  public boolean hasParent() {
+    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
   @Override
-  public int getPrefixKey() { return prefixKey; }
+  public long getPathNodeKey() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return pathNodeKey;
+  }
 
   @Override
-  public void setPrefixKey(int prefixKey) { this.prefixKey = prefixKey; }
+  public void setPathNodeKey(@NonNegative long pathNodeKey) {
+    this.pathNodeKey = pathNodeKey;
+  }
 
   @Override
-  public int getLocalNameKey() { return localNameKey; }
+  public int getPrefixKey() {
+    return prefixKey;
+  }
 
   @Override
-  public void setLocalNameKey(int localNameKey) { this.localNameKey = localNameKey; }
+  public void setPrefixKey(int prefixKey) {
+    this.prefixKey = prefixKey;
+  }
 
   @Override
-  public int getURIKey() { return uriKey; }
+  public int getLocalNameKey() {
+    return localNameKey;
+  }
 
   @Override
-  public void setURIKey(int uriKey) { this.uriKey = uriKey; }
+  public void setLocalNameKey(int localNameKey) {
+    this.localNameKey = localNameKey;
+  }
 
   @Override
-  public int getPreviousRevisionNumber() { return previousRevision; }
+  public int getURIKey() {
+    return uriKey;
+  }
 
   @Override
-  public void setPreviousRevision(int revision) { this.previousRevision = revision; }
+  public void setURIKey(int uriKey) {
+    this.uriKey = uriKey;
+  }
 
   @Override
-  public int getLastModifiedRevisionNumber() { return lastModifiedRevision; }
+  public int getPreviousRevisionNumber() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return previousRevision;
+  }
 
   @Override
-  public void setLastModifiedRevision(int revision) { this.lastModifiedRevision = revision; }
+  public void setPreviousRevision(int revision) {
+    this.previousRevision = revision;
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return lastModifiedRevision;
+  }
+
+  @Override
+  public void setLastModifiedRevision(int revision) {
+    this.lastModifiedRevision = revision;
+  }
 
   @Override
   public long getHash() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     if (hash == 0L && hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
@@ -180,24 +231,37 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   }
 
   @Override
-  public void setHash(long hash) { this.hash = hash; }
+  public void setHash(long hash) {
+    this.hash = hash;
+  }
 
   @Override
-  public QNm getName() { return qNm; }
+  public QNm getName() {
+    return qNm;
+  }
 
-  public void setName(QNm name) { this.qNm = name; }
-
-  @Override
-  public boolean isSameItem(@Nullable Node other) { return other != null && other.getNodeKey() == nodeKey; }
-
-  @Override
-  public int getTypeKey() { return NamePageHash.generateHashForString("xs:untyped"); }
+  public void setName(QNm name) {
+    this.qNm = name;
+  }
 
   @Override
-  public void setTypeKey(int typeKey) { }
+  public boolean isSameItem(@Nullable Node other) {
+    return other != null && other.getNodeKey() == nodeKey;
+  }
 
   @Override
-  public void setDeweyID(SirixDeweyID id) { this.sirixDeweyID = id; this.deweyIDBytes = null; }
+  public int getTypeKey() {
+    return NamePageHash.generateHashForString("xs:untyped");
+  }
+
+  @Override
+  public void setTypeKey(int typeKey) {}
+
+  @Override
+  public void setDeweyID(SirixDeweyID id) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = null;
+  }
 
   public void setDeweyIDBytes(byte[] deweyIDBytes) {
     this.deweyIDBytes = deweyIDBytes;
@@ -220,13 +284,15 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
     return deweyIDBytes;
   }
 
-  public LongHashFunction getHashFunction() { return hashFunction; }
+  public LongHashFunction getHashFunction() {
+    return hashFunction;
+  }
 
   /**
    * Populate this node from a BytesIn source for singleton reuse.
    */
-  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
-      LongHashFunction hashFunction, ResourceConfiguration config) {
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId, LongHashFunction hashFunction,
+      ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
@@ -246,39 +312,74 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
 
   @Override
   public long computeHash(BytesOut<?> bytes) {
-    if (hashFunction == null) return 0L;
+    if (hashFunction == null)
+      return 0L;
     bytes.clear();
     bytes.writeLong(nodeKey).writeLong(parentKey).writeByte(getKind().getId());
     bytes.writeInt(prefixKey).writeInt(localNameKey).writeInt(uriKey);
     return bytes.hashDirect(hashFunction);
   }
 
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.lazySource = slotData;
+    this.fixedSlotLayout = layout;
+    this.lazyFieldsParsed = false;
+  }
+
+  private void parseLazyFields() {
+    if (lazyFieldsParsed) {
+      return;
+    }
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.pathNodeKey = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.PATH_NODE_KEY);
+      this.fixedSlotLayout = null;
+      this.lazyFieldsParsed = true;
+      return;
+    }
+
+    this.lazyFieldsParsed = true;
+  }
+
   public NamespaceNode toSnapshot() {
-    return new NamespaceNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        pathNodeKey, prefixKey, localNameKey, uriKey, hash, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null, qNm);
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return new NamespaceNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, pathNodeKey, prefixKey,
+        localNameKey, uriKey, hash, hashFunction, deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null,
+        qNm);
   }
 
   @Override
-  public VisitResult acceptVisitor(XmlNodeVisitor visitor) { 
-    return visitor.visit(ImmutableNamespace.of(this)); 
+  public VisitResult acceptVisitor(XmlNodeVisitor visitor) {
+    return visitor.visit(ImmutableNamespace.of(this));
   }
 
   @Override
-  public int hashCode() { return Objects.hashCode(nodeKey, parentKey, prefixKey, uriKey); }
+  public int hashCode() {
+    return Objects.hashCode(nodeKey, parentKey, prefixKey, uriKey);
+  }
 
   @Override
   public boolean equals(Object obj) {
-    if (!(obj instanceof NamespaceNode other)) return false;
-    return nodeKey == other.nodeKey && parentKey == other.parentKey
-        && prefixKey == other.prefixKey && uriKey == other.uriKey;
+    if (!(obj instanceof NamespaceNode other))
+      return false;
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && prefixKey == other.prefixKey
+        && uriKey == other.uriKey;
   }
 
   @Override
   public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
-        .add("nodeKey", nodeKey).add("parentKey", parentKey)
-        .add("qNm", qNm)
-        .toString();
+                      .add("nodeKey", nodeKey)
+                      .add("parentKey", parentKey)
+                      .add("qNm", qNm)
+                      .toString();
   }
 }

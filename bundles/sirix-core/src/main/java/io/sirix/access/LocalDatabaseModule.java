@@ -17,22 +17,22 @@ import io.sirix.dagger.DatabaseScope;
 @Module
 public interface LocalDatabaseModule {
 
-    @Provides
-    @DatabaseScope
-    @DatabaseName
-    static String databaseName(final DatabaseConfiguration configuration) {
-        return configuration.getDatabaseName();
-    }
+  @Provides
+  @DatabaseScope
+  @DatabaseName
+  static String databaseName(final DatabaseConfiguration configuration) {
+    return configuration.getDatabaseName();
+  }
 
-    @Provides
-    @DatabaseScope
-    static DatabaseType databaseType(final DatabaseConfiguration configuration) {
+  @Provides
+  @DatabaseScope
+  static DatabaseType databaseType(final DatabaseConfiguration configuration) {
 
-        return configuration.getDatabaseType();
-    }
+    return configuration.getDatabaseType();
+  }
 
-    @Binds
-    @DatabaseScope
-    TransactionManager transactionManager(TransactionManagerImpl transactionManager);
+  @Binds
+  @DatabaseScope
+  TransactionManager transactionManager(TransactionManagerImpl transactionManager);
 
 }

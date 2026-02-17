@@ -21,9 +21,9 @@ import static java.util.Objects.requireNonNull;
 /**
  * Thread-safe index definition container.
  * <p>
- * Uses {@link CopyOnWriteArraySet} for lock-free read operations since
- * index definitions are rarely modified but frequently queried during
- * index lookups. This eliminates synchronization overhead on hot read paths.
+ * Uses {@link CopyOnWriteArraySet} for lock-free read operations since index definitions are rarely
+ * modified but frequently queried during index lookups. This eliminates synchronization overhead on
+ * hot read paths.
  * </p>
  *
  * @author Karsten Schmidt
@@ -33,9 +33,9 @@ public final class Indexes implements Materializable {
   public static final QNm INDEXES_TAG = new QNm("indexes");
 
   /**
-   * Thread-safe set for index definitions.
-   * CopyOnWriteArraySet provides lock-free reads with copy-on-write semantics
-   * for modifications - ideal for read-heavy, write-rare workloads like index metadata.
+   * Thread-safe set for index definitions. CopyOnWriteArraySet provides lock-free reads with
+   * copy-on-write semantics for modifications - ideal for read-heavy, write-rare workloads like index
+   * metadata.
    */
   private final Set<IndexDef> indexes;
 
@@ -44,16 +44,16 @@ public final class Indexes implements Materializable {
   }
 
   /**
-   * Returns a snapshot of all index definitions.
-   * Thread-safe without synchronization due to CopyOnWriteArraySet.
+   * Returns a snapshot of all index definitions. Thread-safe without synchronization due to
+   * CopyOnWriteArraySet.
    */
   public Set<IndexDef> getIndexDefs() {
     return new HashSet<>(indexes);
   }
 
   /**
-   * Gets an index definition by index number and type.
-   * Thread-safe without synchronization due to CopyOnWriteArraySet.
+   * Gets an index definition by index number and type. Thread-safe without synchronization due to
+   * CopyOnWriteArraySet.
    */
   public IndexDef getIndexDef(final @NonNegative int indexNo, final IndexType type) {
     checkArgument(indexNo >= 0, "indexNo must be >= 0!");
@@ -66,8 +66,8 @@ public final class Indexes implements Materializable {
   }
 
   /**
-   * Initializes indexes from persisted XML representation.
-   * Thread-safe: CopyOnWriteArraySet handles concurrent modifications.
+   * Initializes indexes from persisted XML representation. Thread-safe: CopyOnWriteArraySet handles
+   * concurrent modifications.
    */
   @Override
   public void init(final Node<?> root) throws DocumentException {
@@ -98,8 +98,8 @@ public final class Indexes implements Materializable {
   }
 
   /**
-   * Materializes indexes to XML representation.
-   * Thread-safe: CopyOnWriteArraySet provides consistent snapshot for iteration.
+   * Materializes indexes to XML representation. Thread-safe: CopyOnWriteArraySet provides consistent
+   * snapshot for iteration.
    */
   @Override
   public Node<?> materialize() throws DocumentException {
@@ -115,16 +115,15 @@ public final class Indexes implements Materializable {
   }
 
   /**
-   * Adds an index definition.
-   * Thread-safe: CopyOnWriteArraySet handles concurrent modifications.
+   * Adds an index definition. Thread-safe: CopyOnWriteArraySet handles concurrent modifications.
    */
   public void add(IndexDef indexDefinition) {
     indexes.add(indexDefinition);
   }
 
   /**
-   * Removes an index definition by ID.
-   * Thread-safe: CopyOnWriteArraySet handles concurrent modifications.
+   * Removes an index definition by ID. Thread-safe: CopyOnWriteArraySet handles concurrent
+   * modifications.
    */
   public void removeIndex(final @NonNegative int indexID) {
     checkArgument(indexID >= 0, "indexID must be >= 0!");
@@ -174,8 +173,7 @@ public final class Indexes implements Materializable {
 
   public Optional<IndexDef> findNameIndex(final QNm... names) throws DocumentException {
     requireNonNull(names);
-    out:
-    for (final IndexDef index : indexes) {
+    out: for (final IndexDef index : indexes) {
       if (index.isNameIndex()) {
         final Set<QNm> incl = index.getIncluded();
         final Set<QNm> excl = index.getExcluded();

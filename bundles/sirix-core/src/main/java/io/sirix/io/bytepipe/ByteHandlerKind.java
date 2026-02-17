@@ -99,8 +99,8 @@ public enum ByteHandlerKind {
         final Constructor<?> handlerCons = handlerClazz.getConstructor(Path.class);
         final Path path = Paths.get(reader.nextString());
         return (ByteHandler) handlerCons.newInstance(path);
-      } catch (InstantiationException | IllegalAccessException | IllegalArgumentException
-          | InvocationTargetException | IOException | NoSuchMethodException | SecurityException e) {
+      } catch (InstantiationException | IllegalAccessException | IllegalArgumentException | InvocationTargetException
+          | IOException | NoSuchMethodException | SecurityException e) {
         throw new IllegalStateException(e);
       }
     }
@@ -123,8 +123,7 @@ public enum ByteHandlerKind {
   public abstract void serialize(ByteHandler byteHandler, JsonWriter writer) throws IOException;
 
   /** Mapping of class -> byte handler kind. */
-  private static final Map<Class<? extends ByteHandler>, ByteHandlerKind> INSTANCEFORCLASS =
-      new HashMap<>();
+  private static final Map<Class<? extends ByteHandler>, ByteHandlerKind> INSTANCEFORCLASS = new HashMap<>();
 
   static {
     for (final ByteHandlerKind byteHandler : values()) {
@@ -144,8 +143,7 @@ public enum ByteHandlerKind {
     mClass = clazz;
   }
 
-  private static void serializeDefaultConstructor(ByteHandler byteHandler, JsonWriter writer)
-      throws IOException {
+  private static void serializeDefaultConstructor(ByteHandler byteHandler, JsonWriter writer) throws IOException {
     writer.beginObject();
     writer.name(byteHandler.getClass().getName());
     writer.nullValue();
@@ -159,9 +157,8 @@ public enum ByteHandlerKind {
       // Use getDeclaredConstructor() to get the no-arg constructor specifically
       final Constructor<?> handlerCons = handlerClazz.getDeclaredConstructor();
       return (ByteHandler) handlerCons.newInstance();
-    } catch (ClassNotFoundException | InstantiationException | IllegalAccessException
-        | IllegalArgumentException | InvocationTargetException | IOException
-        | NoSuchMethodException e) {
+    } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | IllegalArgumentException
+        | InvocationTargetException | IOException | NoSuchMethodException e) {
       throw new IllegalStateException(e);
     }
   }

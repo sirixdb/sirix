@@ -25,7 +25,7 @@ public final class PathLevelFilter extends AbstractFilter<PathSummaryReader> {
   /**
    * Constructor. Initializes the internal state.
    *
-   * @param rtx   transaction this filter is bound to
+   * @param rtx transaction this filter is bound to
    * @param level level of node
    */
   public PathLevelFilter(final PathSummaryReader rtx, final @NonNegative int level) {

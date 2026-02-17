@@ -38,7 +38,7 @@ public final class BasicJsonDiffTest {
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(15);
       final var nodeKey = wtx.insertObjectRecordAsRightSibling("hereIAm", new StringValue("yeah")).getParentKey();
       wtx.commit();
@@ -62,7 +62,7 @@ public final class BasicJsonDiffTest {
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(4);
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"new\":\"stuff\"}"));
       wtx.moveTo(4);
@@ -81,7 +81,7 @@ public final class BasicJsonDiffTest {
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       wtx.insertArrayAsFirstChild();
       wtx.commit();
       wtx.insertObjectAsFirstChild();
@@ -89,7 +89,7 @@ public final class BasicJsonDiffTest {
 
       final String diffRev1Rev2 = new BasicJsonDiff(databaseName).generateDiff(manager, 1, 2);
       assertEquals(Files.readString(JSON.resolve("basicJsonDiffTest").resolve("emptyObjectDiffRev1Rev2.json")),
-                   diffRev1Rev2);
+          diffRev1Rev2);
     }
   }
 
@@ -99,7 +99,7 @@ public final class BasicJsonDiffTest {
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"test\", \"test\"]"));
       wtx.moveTo(2);
       wtx.remove();
@@ -118,7 +118,7 @@ public final class BasicJsonDiffTest {
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"baz\":\"hello\"}"));
       wtx.moveTo(2);
       wtx.replaceObjectRecordValue(new StringValue("test"));
@@ -135,20 +135,20 @@ public final class BasicJsonDiffTest {
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.moveTo(1);
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
-                                                                           {"data":"data"}
-                                                                        """.strip()));
+             {"data":"data"}
+          """.strip()));
       wtx.moveTo(1);
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
-                                                                            {"data":"data"}
-                                                                        """.strip()));
+              {"data":"data"}
+          """.strip()));
       wtx.moveTo(1);
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
-                                                                            {"data":"data"}
-                                                                        """.strip()));
+              {"data":"data"}
+          """.strip()));
       wtx.moveTo(2);
       wtx.remove();
       wtx.commit();
@@ -164,16 +164,16 @@ public final class BasicJsonDiffTest {
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.moveTo(1);
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
-                                                                            {"data":"data"}
-                                                                        """.strip()));
+              {"data":"data"}
+          """.strip()));
       wtx.moveTo(1);
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("""
-                                                                            {"data":"data"}
-                                                                        """.strip()));
+              {"data":"data"}
+          """.strip()));
       wtx.moveTo(2);
       wtx.remove();
       wtx.commit();
@@ -184,12 +184,11 @@ public final class BasicJsonDiffTest {
   }
 
   /**
-   * Test that UPDATE operations on array elements at different positions
-   * generate correct array index paths.
+   * Test that UPDATE operations on array elements at different positions generate correct array index
+   * paths.
    *
-   * This test verifies the fix for the bug where getArrayPosition() was
-   * corrupting the transaction cursor position, causing incorrect paths
-   * like /items/[5] instead of /items/[10] for updates.
+   * This test verifies the fix for the bug where getArrayPosition() was corrupting the transaction
+   * cursor position, causing incorrect paths like /items/[5] instead of /items/[10] for updates.
    */
   @Test
   public void test_updateArrayElementPath_atIndex10() {
@@ -197,12 +196,13 @@ public final class BasicJsonDiffTest {
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       // Create an array with 20 objects, each having a "value" field
       final var sb = new StringBuilder();
       sb.append("[");
       for (int i = 0; i < 20; i++) {
-        if (i > 0) sb.append(",");
+        if (i > 0)
+          sb.append(",");
         sb.append("{\"value\":\"val").append(i).append("\"}");
       }
       sb.append("]");
@@ -249,12 +249,13 @@ public final class BasicJsonDiffTest {
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       // Create an array with 100 objects and update at index 50 in same transaction
       final var sb = new StringBuilder();
       sb.append("[");
       for (int i = 0; i < 100; i++) {
-        if (i > 0) sb.append(",");
+        if (i > 0)
+          sb.append(",");
         sb.append("{\"rating\":\"r").append(i).append("\"}");
       }
       sb.append("]");
@@ -293,12 +294,13 @@ public final class BasicJsonDiffTest {
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       // Create array with 10 items and update in same transaction (like test5)
       final var sb = new StringBuilder();
       sb.append("[");
       for (int i = 0; i < 10; i++) {
-        if (i > 0) sb.append(",");
+        if (i > 0)
+          sb.append(",");
         sb.append("{\"val\":\"v").append(i).append("\"}");
       }
       sb.append("]");
@@ -339,7 +341,7 @@ public final class BasicJsonDiffTest {
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       // Create empty array first
       wtx.insertArrayAsFirstChild();
       wtx.commit(); // Rev 1
@@ -379,7 +381,7 @@ public final class BasicJsonDiffTest {
     assert database != null;
     final var databaseName = database.getName();
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       // Create empty array
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.moveTo(1);
@@ -447,6 +449,6 @@ public final class BasicJsonDiffTest {
 
     final String expectedPattern = "[" + expectedIndex + "]";
     assertTrue(context + ": Path should contain " + expectedPattern + ", but was: " + path,
-               path.contains(expectedPattern));
+        path.contains(expectedPattern));
   }
 }

@@ -54,7 +54,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
   /**
    * Create index builders.
    *
-   * @param indexDefs    the {@link IndexDef}s
+   * @param indexDefs the {@link IndexDef}s
    * @param nodeWriteTrx the {@link XmlNodeTrx}
    * @return the created index builder instances
    */
@@ -68,10 +68,8 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
           indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case CAS:
-          indexBuilders.add(createCASIndexBuilder(nodeWriteTrx,
-                                                  nodeWriteTrx.getPageWtx(),
-                                                  nodeWriteTrx.getPathSummary(),
-                                                  indexDef));
+          indexBuilders.add(
+              createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
           break;
         case NAME:
           indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getPageWtx(), indexDef));
@@ -92,8 +90,8 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
     return new PathFilter(paths, new XmlPCRCollector(rtx));
   }
 
-  private XmlNodeVisitor createPathIndexBuilder(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
-      final IndexDef indexDef) {
+  private XmlNodeVisitor createPathIndexBuilder(final StorageEngineWriter pageTrx,
+      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return (XmlNodeVisitor) pathIndex.createBuilder(pageTrx, pathSummaryReader, indexDef);
   }
 

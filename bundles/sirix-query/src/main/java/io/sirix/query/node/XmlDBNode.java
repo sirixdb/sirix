@@ -81,7 +81,9 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     isWtx = this.rtx instanceof XmlNodeTrx;
     nodeKey = this.rtx.getNodeKey();
     kind = this.rtx.getKind();
-    deweyID = this.rtx.getResourceSession().getResourceConfig().areDeweyIDsStored ? this.rtx.getDeweyID() : null;
+    deweyID = this.rtx.getResourceSession().getResourceConfig().areDeweyIDsStored
+        ? this.rtx.getDeweyID()
+        : null;
   }
 
   /** Optional dewey ID. */
@@ -116,10 +118,10 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
       assert node.getNodeClassID() == this.getNodeClassID();
       // Compare node key, revision, and resource to ensure full identity
       // Same node key in different revisions or resources are NOT the same node
-      return node.nodeKey == this.nodeKey
-          && node.rtx.getRevisionNumber() == this.rtx.getRevisionNumber()
-          && node.rtx.getResourceSession().getResourceConfig().getID()
-              == this.rtx.getResourceSession().getResourceConfig().getID();
+      return node.nodeKey == this.nodeKey && node.rtx.getRevisionNumber() == this.rtx.getRevisionNumber()
+          && node.rtx.getResourceSession().getResourceConfig().getID() == this.rtx.getResourceSession()
+                                                                                  .getResourceConfig()
+                                                                                  .getID();
     }
     return false;
   }
@@ -238,7 +240,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
         if (deweyID != null) {
           return deweyID.isSiblingOf(node.deweyID);
         }
-        //noinspection ConstantConditions
+        // noinspection ConstantConditions
         if (node.getKind() != Kind.NAMESPACE && node.getKind() != Kind.ATTRIBUTE
             && node.getParent().getImmutableNode().getNodeKey() == ((XmlDBNode) other.getParent()).getImmutableNode()
                                                                                                   .getNodeKey()) {
@@ -338,7 +340,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     if (other instanceof XmlDBNode node) {
       assert node.getNodeClassID() == this.getNodeClassID();
       try {
-        //noinspection ConstantConditions
+        // noinspection ConstantConditions
         if (getParent().getImmutableNode().getNodeKey() == node.getImmutableNode().getNodeKey()) {
           retVal = true;
         }
@@ -1620,8 +1622,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   public int hashCode() {
     // Must be consistent with equals() which uses isSelfOf()
     // comparing node key, revision, and resource ID
-    return Objects.hash(nodeKey, rtx.getRevisionNumber(),
-        rtx.getResourceSession().getResourceConfig().getID());
+    return Objects.hash(nodeKey, rtx.getRevisionNumber(), rtx.getResourceSession().getResourceConfig().getID());
   }
 
   @Override
@@ -1655,8 +1656,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public XmlDBNode getPrevious() {
     moveRtx();
-    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-        new PreviousAxis<>(rtx.getResourceSession(), rtx);
+    final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis = new PreviousAxis<>(rtx.getResourceSession(), rtx);
     return moveTemporalAxis(axis);
   }
 

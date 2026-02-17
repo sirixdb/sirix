@@ -34,9 +34,10 @@ import java.time.Instant;
  *
  * @author Johannes Lichtenberger
  */
-@FunctionAnnotation(description = "Store the given fragments in a collection. "
-    + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
-    parameters = { "$coll", "$res", "$fragments", "$create-new" })
+@FunctionAnnotation(
+    description = "Store the given fragments in a collection. "
+        + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
+    parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Store extends AbstractFunction {
 
   /**
@@ -58,28 +59,25 @@ public final class Store extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the function name
+   * @param name the function name
    * @param createNew determines if a new collection has to be created or not
    */
   public Store(final QNm name, final boolean createNew) {
-    super(name,
-          createNew
-              ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-                              new SequenceType(AtomicType.STR, Cardinality.One),
-                              new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-                              new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany))
-              : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-                              new SequenceType(AtomicType.STR, Cardinality.One),
-                              new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-                              new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
-                              new SequenceType(AtomicType.BOOL, Cardinality.One)),
-          true);
+    super(name, createNew
+        ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
+            new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany))
+        : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
+            new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
+            new SequenceType(AtomicType.BOOL, Cardinality.One)),
+        true);
   }
 
   /**
    * Constructor.
    *
-   * @param name      the function name
+   * @param name the function name
    * @param signature the signature
    */
   public Store(final QNm name, final Signature signature) {
@@ -97,11 +95,16 @@ public final class Store extends AbstractFunction {
       }
       final boolean createNew = args.length < 4 || args[3].booleanValue();
 
-      final String commitMessage =
-          args.length >= 5 ? FunUtil.getString(args, 4, "commitMessage", null, null, false) : null;
+      final String commitMessage = args.length >= 5
+          ? FunUtil.getString(args, 4, "commitMessage", null, null, false)
+          : null;
 
-      final DateTime dateTime = args.length == 6 ? (DateTime) args[5] : null;
-      final Instant commitTimesstamp = args.length == 6 ? dateTimeToInstant.convert(dateTime) : null;
+      final DateTime dateTime = args.length == 6
+          ? (DateTime) args[5]
+          : null;
+      final Instant commitTimesstamp = args.length == 6
+          ? dateTimeToInstant.convert(dateTime)
+          : null;
 
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       if (createNew) {
@@ -122,8 +125,8 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void add(final XmlDBCollection coll, final String resName, final Sequence nodes, final String commitMessage, final Instant commitTimestamp)
-      throws DocumentException {
+  private static void add(final XmlDBCollection coll, final String resName, final Sequence nodes,
+      final String commitMessage, final Instant commitTimestamp) throws DocumentException {
     if (nodes instanceof Node<?> n) {
       coll.add(resName, new StoreParser(n), commitMessage, commitTimestamp);
     } else {
@@ -261,8 +264,7 @@ public final class Store extends AbstractFunction {
           return new StoreParser(n);
         } else {
           throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
-                                   "Cannot create subtree parser for item of type: %s",
-                                   i.itemType());
+              "Cannot create subtree parser for item of type: %s", i.itemType());
         }
       } catch (final QueryException e) {
         throw new DocumentException(e);

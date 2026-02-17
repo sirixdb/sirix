@@ -34,8 +34,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * Generating a standard resource within the {@link XmlTestHelper.PATHS#PATH1} path. It also generates a standard
- * resource defined within {@link XmlTestHelper#RESOURCE}.
+ * Generating a standard resource within the {@link XmlTestHelper.PATHS#PATH1} path. It also
+ * generates a standard resource defined within {@link XmlTestHelper#RESOURCE}.
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
@@ -67,9 +67,8 @@ public final class Holder {
       Databases.createXmlDatabase(config);
     }
     final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).useDeweyIDs(true)
-                                                                                     .hashKind(HashType.ROLLING)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).useDeweyIDs(true).hashKind(HashType.ROLLING).build());
     final XmlResourceSession resourceManager = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);

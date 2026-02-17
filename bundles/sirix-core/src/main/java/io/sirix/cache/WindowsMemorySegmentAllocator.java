@@ -19,7 +19,7 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
   private static final long MEM_RELEASE = 0x8000;
   private static final long PAGE_READWRITE = 0x04;
 
-  private static final long[] PAGE_SIZES = { 4096, 8192, 16384, 32768, 65536, 131072, 262144 };
+  private static final long[] PAGE_SIZES = {4096, 8192, 16384, 32768, 65536, 131072, 262144};
 
   // Deques for different size classes
   private final Deque<MemorySegment>[] segmentPools = new Deque[PAGE_SIZES.length];
@@ -33,22 +33,17 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
 
   static {
     virtualAllocHandle = linker.downcallHandle(Linker.nativeLinker().defaultLookup().find("VirtualAlloc").orElseThrow(),
-                                               FunctionDescriptor.of(ADDRESS,
-                                                                     ADDRESS,
-                                                                     JAVA_LONG,
-                                                                     JAVA_LONG,
-                                                                     JAVA_LONG));
+        FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_LONG, JAVA_LONG));
 
     virtualFreeHandle = linker.downcallHandle(Linker.nativeLinker().defaultLookup().find("VirtualFree").orElseThrow(),
-                                              FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_LONG, JAVA_LONG));
+        FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_LONG, JAVA_LONG));
   }
 
   private static final WindowsMemorySegmentAllocator INSTANCE = new WindowsMemorySegmentAllocator();
   private AtomicLong maxBufferSize = new AtomicLong(Long.MAX_VALUE);
   private volatile boolean initialized = false;
 
-  private WindowsMemorySegmentAllocator() {
-  }
+  private WindowsMemorySegmentAllocator() {}
 
   public static WindowsMemorySegmentAllocator getInstance() {
     return INSTANCE;
@@ -64,7 +59,7 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
     this.maxBufferSize.set(maxSegmentAllocationSize);
     this.initialized = true;
   }
-  
+
   @Override
   public boolean isInitialized() {
     return initialized;
@@ -76,8 +71,8 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
   }
 
   /**
-   * Borrow a memory segment of the given size.
-   * If a segment is available in the pool, reuse it. Otherwise, allocate a new one.
+   * Borrow a memory segment of the given size. If a segment is available in the pool, reuse it.
+   * Otherwise, allocate a new one.
    *
    * @param size The size of the segment to allocate.
    * @return A MemorySegment of the specified size.
@@ -122,9 +117,8 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
   }
 
   /**
-   * Reset a memory segment by clearing its contents.
-   * Windows implementation: Falls back to fill() for now.
-   * Could be optimized with VirtualFree/VirtualAlloc with MEM_RESET in the future.
+   * Reset a memory segment by clearing its contents. Windows implementation: Falls back to fill() for
+   * now. Could be optimized with VirtualFree/VirtualAlloc with MEM_RESET in the future.
    */
   @Override
   public void resetSegment(MemorySegment segment) {

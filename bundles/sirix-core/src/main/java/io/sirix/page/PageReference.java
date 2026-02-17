@@ -64,8 +64,8 @@ public final class PageReference {
   private int hash;
 
   /**
-   * Guard count tracks active PageGuards referencing this page.
-   * Pages can only be evicted when guardCount == 0.
+   * Guard count tracks active PageGuards referencing this page. Pages can only be evicted when
+   * guardCount == 0.
    */
   private final AtomicInteger guardCount = new AtomicInteger(0);
 
@@ -95,9 +95,9 @@ public final class PageReference {
   /**
    * Set in-memory instance of deserialized page.
    * 
-   * Note: This just swaps the reference. The old page is NOT closed here.
-   * Pages are owned by the cache and will be closed by the cache's removal listener
-   * when evicted, or by explicit operations (TIL, transaction close).
+   * Note: This just swaps the reference. The old page is NOT closed here. Pages are owned by the
+   * cache and will be closed by the cache's removal listener when evicted, or by explicit operations
+   * (TIL, transaction close).
    *
    * @param page deserialized page
    */
@@ -136,6 +136,7 @@ public final class PageReference {
 
   /**
    * Add a page fragment key.
+   * 
    * @param key the page fragment key to add.
    * @return this instance
    */
@@ -146,6 +147,7 @@ public final class PageReference {
 
   /**
    * Get the page fragments keys.
+   * 
    * @return the page fragments keys
    */
   public List<PageFragmentKey> getPageFragments() {
@@ -154,6 +156,7 @@ public final class PageReference {
 
   /**
    * Set the page fragment keys.
+   * 
    * @param previousPageFragmentKeys the previous page fragment keys to set
    * @return this instance
    */
@@ -178,15 +181,14 @@ public final class PageReference {
    * @return this instance
    */
   public PageReference setLogKey(final int key) {
-    hash = 0;  // Clear cached hashCode since it includes logKey
+    hash = 0; // Clear cached hashCode since it includes logKey
     logKey = key;
     return this;
   }
-  
+
   /**
-   * Clear the cached hashCode.
-   * Must be called before changing key, logKey, databaseId, or resourceId if the PageReference
-   * is already in a HashMap, since the hash depends on these values.
+   * Clear the cached hashCode. Must be called before changing key, logKey, databaseId, or resourceId
+   * if the PageReference is already in a HashMap, since the hash depends on these values.
    */
   public void clearCachedHash() {
     hash = 0;
@@ -257,10 +259,8 @@ public final class PageReference {
   @Override
   public boolean equals(final @Nullable Object other) {
     if (other instanceof PageReference otherPageRef) {
-      return otherPageRef.databaseId == databaseId 
-          && otherPageRef.resourceId == resourceId
-          && otherPageRef.logKey == logKey 
-          && otherPageRef.key == key;
+      return otherPageRef.databaseId == databaseId && otherPageRef.resourceId == resourceId
+          && otherPageRef.logKey == logKey && otherPageRef.key == key;
     }
     return false;
   }

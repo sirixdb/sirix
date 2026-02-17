@@ -33,25 +33,28 @@ import java.lang.foreign.ValueLayout;
 /**
  * Serializer for PATH index keys (path node keys as primitive longs).
  *
- * <p>Uses order-preserving encoding by XORing the sign bit, ensuring that
- * signed long comparison matches unsigned byte comparison:</p>
+ * <p>
+ * Uses order-preserving encoding by XORing the sign bit, ensuring that signed long comparison
+ * matches unsigned byte comparison:
+ * </p>
+ * 
  * <pre>
  * -1 &lt; 0 &lt; 1 in signed comparison
  * serialize(-1) &lt; serialize(0) &lt; serialize(1) in unsigned byte comparison
  * </pre>
  *
  * <h2>Zero Allocation</h2>
- * <p>All methods use primitive types and caller-provided buffers.
- * No boxing, no ByteBuffer allocation.</p>
+ * <p>
+ * All methods use primitive types and caller-provided buffers. No boxing, no ByteBuffer allocation.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
 public final class PathKeySerializer implements HOTLongKeySerializer {
 
   /**
-   * Sign-flip constant for order-preserving encoding.
-   * XORing with this flips the sign bit, making unsigned byte comparison
-   * equivalent to signed long comparison.
+   * Sign-flip constant for order-preserving encoding. XORing with this flips the sign bit, making
+   * unsigned byte comparison equivalent to signed long comparison.
    */
   private static final long SIGN_FLIP = 0x8000_0000_0000_0000L;
 
@@ -70,7 +73,7 @@ public final class PathKeySerializer implements HOTLongKeySerializer {
     long signFlipped = pathNodeKey ^ SIGN_FLIP;
 
     // Direct byte writes (big-endian for lexicographic comparison)
-    dest[offset]     = (byte) (signFlipped >>> 56);
+    dest[offset] = (byte) (signFlipped >>> 56);
     dest[offset + 1] = (byte) (signFlipped >>> 48);
     dest[offset + 2] = (byte) (signFlipped >>> 40);
     dest[offset + 3] = (byte) (signFlipped >>> 32);
@@ -89,15 +92,10 @@ public final class PathKeySerializer implements HOTLongKeySerializer {
     }
 
     // Read big-endian long
-    long signFlipped =
-        ((long) (bytes[offset]     & 0xFF) << 56) |
-        ((long) (bytes[offset + 1] & 0xFF) << 48) |
-        ((long) (bytes[offset + 2] & 0xFF) << 40) |
-        ((long) (bytes[offset + 3] & 0xFF) << 32) |
-        ((long) (bytes[offset + 4] & 0xFF) << 24) |
-        ((long) (bytes[offset + 5] & 0xFF) << 16) |
-        ((long) (bytes[offset + 6] & 0xFF) << 8)  |
-        ((long) (bytes[offset + 7] & 0xFF));
+    long signFlipped = ((long) (bytes[offset] & 0xFF) << 56) | ((long) (bytes[offset + 1] & 0xFF) << 48)
+        | ((long) (bytes[offset + 2] & 0xFF) << 40) | ((long) (bytes[offset + 3] & 0xFF) << 32)
+        | ((long) (bytes[offset + 4] & 0xFF) << 24) | ((long) (bytes[offset + 5] & 0xFF) << 16)
+        | ((long) (bytes[offset + 6] & 0xFF) << 8) | ((long) (bytes[offset + 7] & 0xFF));
 
     // XOR sign bit to restore original value
     return signFlipped ^ SIGN_FLIP;
@@ -108,22 +106,19 @@ public final class PathKeySerializer implements HOTLongKeySerializer {
     // Direct MemorySegment write - sign-flipped, big-endian
     // Note: JAVA_LONG is native endian, so we use explicit big-endian layout
     long signFlipped = key ^ SIGN_FLIP;
-    dest.set(ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.BIG_ENDIAN), 
-             offset, signFlipped);
+    dest.set(ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.BIG_ENDIAN), offset, signFlipped);
     return SERIALIZED_SIZE;
   }
 
   /**
    * Deserializes directly from a MemorySegment.
    *
-   * @param src    the source MemorySegment
+   * @param src the source MemorySegment
    * @param offset the offset to read from
    * @return the deserialized primitive long key
    */
   public long deserializeFrom(MemorySegment src, long offset) {
-    long signFlipped = src.get(
-        ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.BIG_ENDIAN), 
-        offset);
+    long signFlipped = src.get(ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.BIG_ENDIAN), offset);
     return signFlipped ^ SIGN_FLIP;
   }
 }

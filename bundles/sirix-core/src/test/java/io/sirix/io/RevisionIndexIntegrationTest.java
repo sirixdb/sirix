@@ -21,9 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
- * Integration tests for {@link RevisionIndex} to verify it works correctly
- * with the full SirixDB stack including commits, database reopening, and
- * concurrent access patterns.
+ * Integration tests for {@link RevisionIndex} to verify it works correctly with the full SirixDB
+ * stack including commits, database reopening, and concurrent access patterns.
  */
 class RevisionIndexIntegrationTest {
 
@@ -31,7 +30,7 @@ class RevisionIndexIntegrationTest {
   private Database<JsonResourceSession> database;
   private JsonResourceSession session;
   private static final String RESOURCE_NAME = "test-resource";
-  
+
   private Path createNewTempDir() throws Exception {
     return java.nio.file.Files.createTempDirectory("sirix-test-");
   }
@@ -65,7 +64,7 @@ class RevisionIndexIntegrationTest {
       // Ignore cleanup errors
     }
   }
-  
+
   private void deleteRecursively(java.io.File file) {
     if (file.isDirectory()) {
       java.io.File[] children = file.listFiles();
@@ -88,19 +87,19 @@ class RevisionIndexIntegrationTest {
       setUp();
       try {
         Instant commitTime;
-        
+
         // After createResource(), revision 0 already exists
         final int initialRevision = session.getMostRecentRevisionNumber();
         assertEquals(0, initialRevision, "Initial revision should be 0");
-        
+
         // Create revision 1 (use Commit.NO to avoid implicit auto-commit from insertSubtree)
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"test\": true}"), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
-        
+
         assertEquals(1, session.getMostRecentRevisionNumber(), "After first commit, should be revision 1");
-        
+
         // Get the commit timestamp from revision 1
         try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
           commitTime = rtx.getRevisionTimestamp();
@@ -122,9 +121,9 @@ class RevisionIndexIntegrationTest {
       try {
         // Revision 0 exists after createResource (empty document)
         final Instant beforeAnyCommit = Instant.now();
-        
+
         Thread.sleep(50); // Ensure separation
-        
+
         // Create revision 1 (first user commit, use Commit.NO)
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"key\": \"value\"}"), JsonNodeTrx.Commit.NO);
@@ -154,7 +153,7 @@ class RevisionIndexIntegrationTest {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rev\": 1}"), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
-        
+
         Thread.sleep(50); // Ensure time separation
         afterRev1 = Instant.now();
         Thread.sleep(50);
@@ -164,7 +163,7 @@ class RevisionIndexIntegrationTest {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rev\": 2}"), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
-        
+
         Thread.sleep(50);
         afterRev2 = Instant.now();
 
@@ -199,7 +198,8 @@ class RevisionIndexIntegrationTest {
         // Create revisions 1-10 with time gaps (use Commit.NO to avoid implicit auto-commit)
         for (int i = 1; i <= numCommits; i++) {
           try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rev\": " + i + "}"), JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rev\": " + i + "}"),
+                JsonNodeTrx.Commit.NO);
             wtx.commit();
           }
           Thread.sleep(20); // Small gap between revisions
@@ -237,7 +237,8 @@ class RevisionIndexIntegrationTest {
         // Create revisions 1-5 (use Commit.NO to avoid implicit auto-commit)
         for (int i = 1; i <= numCommits; i++) {
           try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rev\": " + i + "}"), JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rev\": " + i + "}"),
+                JsonNodeTrx.Commit.NO);
             wtx.commit();
           }
           Thread.sleep(100); // Ensure timestamp is definitely after commit
@@ -278,17 +279,19 @@ class RevisionIndexIntegrationTest {
       try {
         // Revision 0 already exists; create revision 1 (use Commit.NO)
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"data\": \"initial\"}"), JsonNodeTrx.Commit.NO);
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"data\": \"initial\"}"),
+              JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         // Create more revisions and verify lookups work
         for (int i = 2; i <= 10; i++) {
           try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rev\": " + i + "}"), JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rev\": " + i + "}"),
+                JsonNodeTrx.Commit.NO);
             wtx.commit();
           }
-          
+
           // Immediately verify we can read the newly committed revision
           Thread.sleep(20);
           final Instant now = Instant.now();
@@ -315,11 +318,12 @@ class RevisionIndexIntegrationTest {
         // Revision 0 already exists after createResource
         final int numCommits = 5;
         final List<Instant> timestamps = new ArrayList<>();
-        
+
         // Create revisions 1-5 (use Commit.NO to avoid implicit auto-commit)
         for (int i = 1; i <= numCommits; i++) {
           try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rev\": " + i + "}"), JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rev\": " + i + "}"),
+                JsonNodeTrx.Commit.NO);
             wtx.commit();
           }
           Thread.sleep(20);
@@ -351,7 +355,7 @@ class RevisionIndexIntegrationTest {
       try {
         // Revision 0 already exists; create revision 1 (use Commit.NO)
         Instant afterCommit;
-        
+
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"single\": true}"), JsonNodeTrx.Commit.NO);
           wtx.commit();
@@ -387,7 +391,8 @@ class RevisionIndexIntegrationTest {
         final int numCommits = 50;
         for (int i = 1; i <= numCommits; i++) {
           try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rev\": " + i + "}"), JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"rev\": " + i + "}"),
+                JsonNodeTrx.Commit.NO);
             wtx.commit();
           }
           // No sleep - as fast as possible
@@ -413,13 +418,13 @@ class RevisionIndexIntegrationTest {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"data\": 123}"), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
-        
+
         Thread.sleep(50);
         final Instant afterCommit = Instant.now();
-        
+
         try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(afterCommit)) {
           assertEquals(1, rtx.getRevisionNumber());
-          
+
           // Verify we can get revision timestamp
           final var revisionTimestamp = rtx.getRevisionTimestamp();
           assertNotNull(revisionTimestamp);

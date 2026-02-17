@@ -53,11 +53,10 @@ public class SomeExpr extends AbstractExpression {
    * 
    * @param pRtx exclusive (immutable) trx to iterate with.
    * @param pVars variables for which the condition must be satisfied
-   * @param pSatisfy condition that must be satisfied by at least one item of the variable results
-   *        in order to evaluate expression to true
+   * @param pSatisfy condition that must be satisfied by at least one item of the variable results in
+   *        order to evaluate expression to true
    */
-  public SomeExpr(final XmlNodeReadOnlyTrx pRtx, @NonNull final List<Axis> pVars,
-      @NonNull final Axis pSatisfy) {
+  public SomeExpr(final XmlNodeReadOnlyTrx pRtx, @NonNull final List<Axis> pVars, @NonNull final Axis pSatisfy) {
     super(pRtx);
     mVars = requireNonNull(pVars);
     mSatisfy = requireNonNull(pSatisfy);
@@ -95,9 +94,9 @@ public class SomeExpr extends AbstractExpression {
       }
     }
 
-    final int itemKey = asXmlNodeReadTrx().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
-                        asXmlNodeReadTrx().keyForName("xs:boolean")));
+    final int itemKey = asXmlNodeReadTrx().getItemList()
+                                          .addItem(new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
+                                              asXmlNodeReadTrx().keyForName("xs:boolean")));
     key = itemKey;
 
   }

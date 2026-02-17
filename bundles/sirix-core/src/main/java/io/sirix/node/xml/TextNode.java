@@ -47,6 +47,9 @@ import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.Compression;
@@ -60,8 +63,10 @@ import java.lang.foreign.MemorySegment;
 /**
  * Text node implementation using primitive fields.
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.
- * Structural fields are parsed immediately; metadata and value are parsed lazily.</p>
+ * <p>
+ * Uses primitive fields for efficient storage with delta+varint encoding. Structural fields are
+ * parsed immediately; metadata and value are parsed lazily.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -98,13 +103,15 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
   private int fixedValueLength;
   private boolean fixedValueCompressed;
 
+  // Fixed-slot lazy metadata support
+  private NodeKindLayout fixedSlotLayout;
+
   /**
    * Primary constructor with all primitive fields.
    */
-  public TextNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey,
-      long hash, byte[] value, boolean isCompressed,
-      LongHashFunction hashFunction, byte[] deweyID) {
+  public TextNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, byte[] value, boolean isCompressed, LongHashFunction hashFunction,
+      byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -123,10 +130,9 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
   /**
    * Constructor with SirixDeweyID instead of byte array.
    */
-  public TextNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey,
-      long hash, byte[] value, boolean isCompressed,
-      LongHashFunction hashFunction, SirixDeweyID deweyID) {
+  public TextNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, byte[] value, boolean isCompressed, LongHashFunction hashFunction,
+      SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -205,7 +211,8 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
 
   @Override
   public int getPreviousRevisionNumber() {
-    if (!metadataParsed) parseMetadataFields();
+    if (!metadataParsed)
+      parseMetadataFields();
     return previousRevision;
   }
 
@@ -216,7 +223,8 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
 
   @Override
   public int getLastModifiedRevisionNumber() {
-    if (!metadataParsed) parseMetadataFields();
+    if (!metadataParsed)
+      parseMetadataFields();
     return lastModifiedRevision;
   }
 
@@ -227,7 +235,8 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
 
   @Override
   public long getHash() {
-    if (!metadataParsed) parseMetadataFields();
+    if (!metadataParsed)
+      parseMetadataFields();
     if (hash == 0L && hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
@@ -404,8 +413,8 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
   }
 
   /**
-   * Returns the raw value bytes without triggering decompression.
-   * Used by the fixed-slot projector to preserve the original compressed bytes.
+   * Returns the raw value bytes without triggering decompression. Used by the fixed-slot projector to
+   * preserve the original compressed bytes.
    */
   public byte[] getRawValueWithoutDecompression() {
     if (!valueParsed) {
@@ -427,9 +436,7 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
     }
 
     bytes.clear();
-    bytes.writeLong(nodeKey)
-         .writeLong(parentKey)
-         .writeByte(NodeKind.TEXT.getId());
+    bytes.writeLong(nodeKey).writeLong(parentKey).writeByte(NodeKind.TEXT.getId());
 
     bytes.writeLong(leftSiblingKey).writeLong(rightSiblingKey);
     bytes.write(getRawValue());
@@ -445,8 +452,8 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
   /**
    * Populate this node from a BytesIn source for singleton reuse.
    */
-  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
-      LongHashFunction hashFunction, ResourceConfiguration config) {
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId, LongHashFunction hashFunction,
+      ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
@@ -477,8 +484,24 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
     this.isCompressed = false;
   }
 
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.fixedSlotLayout = layout;
+    this.metadataParsed = false;
+  }
+
   private void parseMetadataFields() {
     if (metadataParsed) {
+      return;
+    }
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.fixedSlotLayout = null;
+      this.metadataParsed = true;
       return;
     }
 
@@ -550,14 +573,18 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
    * Create a deep copy snapshot of this node.
    */
   public TextNode toSnapshot() {
-    if (!metadataParsed) parseMetadataFields();
-    if (!valueParsed) parseValuePayload();
+    if (!metadataParsed)
+      parseMetadataFields();
+    if (!valueParsed)
+      parseValuePayload();
 
-    return new TextNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, hash,
-        value != null ? value.clone() : null, isCompressed,
-        hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+    return new TextNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+        hash, value != null
+            ? value.clone()
+            : null,
+        isCompressed, hashFunction, deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null);
   }
 
   @Override
@@ -573,8 +600,7 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
   @Override
   public boolean equals(@Nullable Object obj) {
     if (obj instanceof TextNode other) {
-      return nodeKey == other.nodeKey
-          && parentKey == other.parentKey
+      return nodeKey == other.nodeKey && parentKey == other.parentKey
           && java.util.Arrays.equals(getRawValue(), other.getRawValue());
     }
     return false;

@@ -122,9 +122,9 @@ public class CastableExpr extends AbstractExpression {
     }
 
     // create result item and move transaction to it.
-    final int mItemKey = asXmlNodeReadTrx().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(isCastable)),
-                        asXmlNodeReadTrx().keyForName("xs:boolean")));
+    final int mItemKey = asXmlNodeReadTrx().getItemList()
+                                           .addItem(new AtomicValue(TypedValue.getBytes(Boolean.toString(isCastable)),
+                                               asXmlNodeReadTrx().keyForName("xs:boolean")));
     key = mItemKey;
   }
 }

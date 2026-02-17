@@ -56,9 +56,9 @@ public final class FilterAxis extends AbstractAxis {
   /**
    * Constructor initializing internal state.
    *
-   * @param axis          axis to iterate over
+   * @param axis axis to iterate over
    * @param firstAxisTest test to perform for each node found with axis
-   * @param axisTests      tests to perform for each node found with axis
+   * @param axisTests tests to perform for each node found with axis
    */
   @SuppressWarnings("unlikely-arg-type")
   @SafeVarargs

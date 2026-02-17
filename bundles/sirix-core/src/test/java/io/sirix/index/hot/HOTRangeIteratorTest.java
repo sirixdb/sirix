@@ -69,22 +69,20 @@ class HOTRangeIteratorTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           // Create test data
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("{\"path1\": 1, \"path2\": 2, \"path3\": 3}"),
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"path1\": 1, \"path2\": 2, \"path3\": 3}"),
               JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         // Read back
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -97,16 +95,16 @@ class HOTRangeIteratorTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           // Create sparse data with gaps
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 20; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"key").append(i * 10).append("\": ").append(i);
           }
           json.append("}");
@@ -116,7 +114,7 @@ class HOTRangeIteratorTest {
 
         // Read back and verify
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           assertEquals(NodeKind.OBJECT, rtx.getKind());
@@ -135,12 +133,11 @@ class HOTRangeIteratorTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           // First insert triggers initialization
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"init\": true}"), JsonNodeTrx.Commit.NO);
           wtx.commit();
@@ -148,11 +145,12 @@ class HOTRangeIteratorTest {
 
         // More operations after init
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.moveToDocumentRoot();
           wtx.moveToFirstChild();
           wtx.remove();
-          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"after_init\": true}"), JsonNodeTrx.Commit.NO);
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"after_init\": true}"),
+              JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
       }
@@ -164,16 +162,16 @@ class HOTRangeIteratorTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           // Create entries that will require key comparison during index updates
           StringBuilder json = new StringBuilder("{");
           for (char c = 'a'; c <= 'z'; c++) {
-            if (c != 'a') json.append(",");
+            if (c != 'a')
+              json.append(",");
             json.append("\"").append(c).append("\": ").append((int) c);
           }
           json.append("}");
@@ -194,16 +192,16 @@ class HOTRangeIteratorTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           // Create enough entries to trigger splits
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 500; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"field").append(i).append("\": ").append(i);
           }
           json.append("}");
@@ -224,16 +222,16 @@ class HOTRangeIteratorTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         // Create data
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 100; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"id\": ").append(i).append("}");
           }
           json.append("]");
@@ -244,9 +242,9 @@ class HOTRangeIteratorTest {
         // Delete data to potentially trigger merges
         for (int round = 0; round < 3; round++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.moveToDocumentRoot();
-            wtx.moveToFirstChild();  // array
+            wtx.moveToFirstChild(); // array
             if (wtx.hasFirstChild()) {
               wtx.moveToFirstChild();
               wtx.remove();
@@ -268,16 +266,16 @@ class HOTRangeIteratorTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         // Insert many entries to trigger node upgrades
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 1000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             // Use diverse key patterns
             json.append("\"k_").append(String.format("%04d", i)).append("\": ").append(i);
           }
@@ -305,7 +303,7 @@ class HOTRangeIteratorTest {
       int mask1 = spk.search(0x01);
       int mask2 = spk.search(0x02);
       int mask3 = spk.search(0xFF);
-      
+
       assertTrue(mask1 >= 0);
       assertTrue(mask2 >= 0);
       assertTrue(mask3 >= 0);
@@ -316,7 +314,7 @@ class HOTRangeIteratorTest {
     void testGetEntry() {
       SparsePartialKeys<Byte> spk = SparsePartialKeys.forBytes(8);
       spk.setEntry(0, (byte) 0x42);
-      
+
       Byte value = spk.getEntry(0);
       assertEquals((byte) 0x42, value);
     }
@@ -354,8 +352,8 @@ class HOTRangeIteratorTest {
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 8);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 16);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 24);
-      
-      byte[] key = new byte[] {(byte)0x80, (byte)0x40, (byte)0x20, (byte)0x10};
+
+      byte[] key = new byte[] {(byte) 0x80, (byte) 0x40, (byte) 0x20, (byte) 0x10};
       int extracted = mapping.extractMask(key);
       assertTrue(extracted >= 0);
     }
@@ -366,7 +364,7 @@ class HOTRangeIteratorTest {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(0);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 7);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 15);
-      
+
       for (int i = 0; i < 16; i++) {
         int mask = mapping.getMaskFor(i);
         assertTrue(mask >= 0);
@@ -404,11 +402,11 @@ class HOTRangeIteratorTest {
     void testEqualsDifferentCount() {
       ChunkDirectory dir1 = new ChunkDirectory();
       dir1.getOrCreateChunkRef(0);
-      
+
       ChunkDirectory dir2 = new ChunkDirectory();
       dir2.getOrCreateChunkRef(0);
       dir2.getOrCreateChunkRef(1);
-      
+
       assertFalse(dir1.equals(dir2));
     }
 
@@ -417,10 +415,10 @@ class HOTRangeIteratorTest {
     void testEqualsDifferentIndices() {
       ChunkDirectory dir1 = new ChunkDirectory();
       dir1.setChunkRef(0, new io.sirix.page.PageReference());
-      
+
       ChunkDirectory dir2 = new ChunkDirectory();
       dir2.setChunkRef(1, new io.sirix.page.PageReference());
-      
+
       assertFalse(dir1.equals(dir2));
     }
   }
@@ -433,14 +431,14 @@ class HOTRangeIteratorTest {
     @DisplayName("Serialize and deserialize paths")
     void testSerializeDeserializePaths() {
       PathKeySerializer serializer = PathKeySerializer.INSTANCE;
-      
+
       long[] testValues = new long[] {0, 1, 100, 1000, Long.MAX_VALUE};
-      
+
       for (long val : testValues) {
         byte[] buf = new byte[8];
         int len = serializer.serialize(val, buf, 0);
         assertEquals(8, len);
-        
+
         long deserialized = serializer.deserialize(buf, 0, 8);
         assertEquals(val, deserialized);
       }
@@ -450,13 +448,13 @@ class HOTRangeIteratorTest {
     @DisplayName("Compare path keys")
     void testComparePathKeys() {
       PathKeySerializer serializer = PathKeySerializer.INSTANCE;
-      
+
       byte[] buf1 = new byte[8];
       byte[] buf2 = new byte[8];
-      
+
       serializer.serialize(10L, buf1, 0);
       serializer.serialize(20L, buf2, 0);
-      
+
       int cmp = serializer.compare(buf1, 0, 8, buf2, 0, 8);
       assertTrue(cmp < 0, "10 should be less than 20");
     }
@@ -465,13 +463,13 @@ class HOTRangeIteratorTest {
     @DisplayName("Order preservation with negative values")
     void testOrderPreservation() {
       PathKeySerializer serializer = PathKeySerializer.INSTANCE;
-      
+
       byte[] bufNeg = new byte[8];
       byte[] bufPos = new byte[8];
-      
+
       serializer.serialize(-1L, bufNeg, 0);
       serializer.serialize(1L, bufPos, 0);
-      
+
       int cmp = serializer.compare(bufNeg, 0, 8, bufPos, 0, 8);
       assertTrue(cmp < 0, "-1 should sort before 1 in order-preserving format");
     }

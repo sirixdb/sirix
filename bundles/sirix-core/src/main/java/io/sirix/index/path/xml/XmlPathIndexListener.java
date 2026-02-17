@@ -26,7 +26,8 @@ final class XmlPathIndexListener implements PathNodeKeyChangeListener {
   public void listen(IndexController.ChangeType type, long nodeKey, NodeKind nodeKind, long pathNodeKey,
       @Nullable QNm name, @Nullable Str value) {
     switch (nodeKind) {
-      case ELEMENT, ATTRIBUTE, NAMESPACE, PROCESSING_INSTRUCTION -> mPathIndexListener.listen(type, nodeKey, pathNodeKey);
+      case ELEMENT, ATTRIBUTE, NAMESPACE, PROCESSING_INSTRUCTION ->
+        mPathIndexListener.listen(type, nodeKey, pathNodeKey);
       default -> {
       }
     }

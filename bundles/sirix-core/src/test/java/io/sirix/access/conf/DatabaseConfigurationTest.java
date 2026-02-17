@@ -30,9 +30,8 @@ public class DatabaseConfigurationTest {
   }
 
   /**
-   * Test method for
-   * {@link DatabaseConfiguration#serialize(DatabaseConfiguration)}
-   * and {@link DatabaseConfiguration#deserialize(java.nio.file.Path)} .
+   * Test method for {@link DatabaseConfiguration#serialize(DatabaseConfiguration)} and
+   * {@link DatabaseConfiguration#deserialize(java.nio.file.Path)} .
    * 
    * @throws SirixIOException if an I/O exception occurs
    */
@@ -40,8 +39,7 @@ public class DatabaseConfigurationTest {
   public void testDeSerialize() {
     DatabaseConfiguration conf = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile());
     assertTrue(Databases.createXmlDatabase(conf));
-    DatabaseConfiguration serializedConf =
-        DatabaseConfiguration.deserialize(XmlTestHelper.PATHS.PATH1.getFile());
+    DatabaseConfiguration serializedConf = DatabaseConfiguration.deserialize(XmlTestHelper.PATHS.PATH1.getFile());
     assertEquals(conf.toString(), serializedConf.toString());
   }
 }

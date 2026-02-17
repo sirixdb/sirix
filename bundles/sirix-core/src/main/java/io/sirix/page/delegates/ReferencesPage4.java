@@ -60,7 +60,7 @@ public final class ReferencesPage4 implements Page {
   /**
    * Constructor to initialize instance.
    *
-   * @param in   input stream to read from
+   * @param in input stream to read from
    * @param type the serialization type
    */
   public ReferencesPage4(final BytesIn<?> in, final SerializationType type) {

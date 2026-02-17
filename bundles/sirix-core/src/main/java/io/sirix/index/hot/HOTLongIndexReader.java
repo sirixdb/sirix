@@ -42,16 +42,18 @@ import java.util.Map;
 /**
  * Primitive-specialized HOT index reader for long keys (PATH index).
  *
- * <p>Uses primitive {@code long} keys to avoid boxing overhead.
- * This is the high-performance variant for PATH index read operations.</p>
+ * <p>
+ * Uses primitive {@code long} keys to avoid boxing overhead. This is the high-performance variant
+ * for PATH index read operations.
+ * </p>
  *
  * <h2>Zero Allocation Design</h2>
  * <ul>
- *   <li>Primitive long parameters (no boxing)</li>
- *   <li>Thread-local byte buffers for serialization</li>
- *   <li>No Optional - uses @Nullable returns</li>
- *   <li>Lock-free reads with guard management</li>
- *   <li>Proper tree traversal via {@link AbstractHOTIndexReader}</li>
+ * <li>Primitive long parameters (no boxing)</li>
+ * <li>Thread-local byte buffers for serialization</li>
+ * <li>No Optional - uses @Nullable returns</li>
+ * <li>Lock-free reads with guard management</li>
+ * <li>Proper tree traversal via {@link AbstractHOTIndexReader}</li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -63,21 +65,20 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
   /**
    * Thread-local buffer for key serialization (8 bytes for long).
    */
-  private static final ThreadLocal<byte[]> KEY_BUFFER =
-      ThreadLocal.withInitial(() -> new byte[8]);
+  private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[8]);
 
   private final HOTLongKeySerializer keySerializer;
 
   /**
    * Private constructor.
    *
-   * @param pageReadTrx   the storage engine reader
+   * @param pageReadTrx the storage engine reader
    * @param keySerializer the key serializer
-   * @param indexType     the index type (should be PATH)
-   * @param indexNumber   the index number
+   * @param indexType the index type (should be PATH)
+   * @param indexNumber the index number
    */
-  private HOTLongIndexReader(StorageEngineReader pageReadTrx, HOTLongKeySerializer keySerializer,
-                             IndexType indexType, int indexNumber) {
+  private HOTLongIndexReader(StorageEngineReader pageReadTrx, HOTLongKeySerializer keySerializer, IndexType indexType,
+      int indexNumber) {
     super(pageReadTrx, indexType, indexNumber);
     this.keySerializer = keySerializer;
   }
@@ -86,21 +87,22 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
    * Creates a new HOTLongIndexReader for PATH index.
    *
    * @param pageReadTrx the storage engine reader
-   * @param indexType   the index type (should be PATH)
+   * @param indexType the index type (should be PATH)
    * @param indexNumber the index number
    * @return a new HOTLongIndexReader instance
    */
-  public static HOTLongIndexReader create(StorageEngineReader pageReadTrx,
-                                          IndexType indexType, int indexNumber) {
+  public static HOTLongIndexReader create(StorageEngineReader pageReadTrx, IndexType indexType, int indexNumber) {
     return new HOTLongIndexReader(pageReadTrx, PathKeySerializer.INSTANCE, indexType, indexNumber);
   }
 
   /**
    * Get the NodeReferences for a primitive long key.
    *
-   * <p>Uses primitive long to avoid boxing.</p>
+   * <p>
+   * Uses primitive long to avoid boxing.
+   * </p>
    *
-   * @param key  the index key (primitive long)
+   * @param key the index key (primitive long)
    * @param mode the search mode
    * @return the node references, or null if not found
    */
@@ -187,7 +189,7 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
    * Create a range iterator over a key range.
    *
    * @param fromKey the start key (inclusive)
-   * @param toKey   the end key (exclusive)
+   * @param toKey the end key (exclusive)
    * @return iterator over entries in the range
    */
   public Iterator<Map.Entry<Long, NodeReferences>> range(long fromKey, long toKey) {
@@ -210,8 +212,7 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
   }
 
   @Override
-  protected int compareKeys(byte[] key1, int offset1, int length1,
-                            byte[] key2, int offset2, int length2) {
+  protected int compareKeys(byte[] key1, int offset1, int length1, byte[] key2, int offset2, int length2) {
     return keySerializer.compare(key1, offset1, length1, key2, offset2, length2);
   }
 

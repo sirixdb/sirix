@@ -35,8 +35,8 @@ import io.sirix.node.immutable.xml.ImmutableText;
 /**
  * <p>
  * Inspired by the dom4j approach {@code AbsVisitor} is an abstract base class which is useful for
- * implementing inheritance or when using anonymous inner classes to create simple {@link XmlNodeVisitor}
- * implementations.
+ * implementing inheritance or when using anonymous inner classes to create simple
+ * {@link XmlNodeVisitor} implementations.
  * </p>
  * 
  * <h2>Usage Examples:</h2>

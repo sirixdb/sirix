@@ -37,8 +37,8 @@ public final class LoadIntegrationTest {
   public void test() {
     // Initialize query context and store.
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath.getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       // Use Query to load a JSON file into the store.
       final var str = jsonArray.toAbsolutePath().toString();
@@ -51,12 +51,13 @@ public final class LoadIntegrationTest {
   public void testWithCommitMessage() {
     // Initialize query context and store.
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath.getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       // Use Query to load a JSON file into the store with a commit message.
       final var str = jsonArray.toAbsolutePath().toString();
-      final String query = "jn:load('json-path1','mydoc.jn','" + str + "',true(),{\"commitMessage\": \"commitMessage\"})";
+      final String query =
+          "jn:load('json-path1','mydoc.jn','" + str + "',true(),{\"commitMessage\": \"commitMessage\"})";
       new Query(chain, query).evaluate(ctx);
     }
   }
@@ -65,12 +66,13 @@ public final class LoadIntegrationTest {
   public void testWithCommitMessageAndCommitTimestamp() {
     // Initialize query context and store.
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(sirixPath.getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       // Use Query to load a JSON file into the store with commit message and timestamp.
       final var str = jsonArray.toAbsolutePath().toString();
-      final String query = "jn:load('json-path1','mydoc.jn','" + str + "',true(),{\"commitMessage\": \"commitMessage\",\"commitTimestamp\": \"2021-05-01T00:00:00\"})";
+      final String query = "jn:load('json-path1','mydoc.jn','" + str
+          + "',true(),{\"commitMessage\": \"commitMessage\",\"commitTimestamp\": \"2021-05-01T00:00:00\"})";
       new Query(chain, query).evaluate(ctx);
     }
   }

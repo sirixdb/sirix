@@ -21,8 +21,8 @@ public final class BufferManagerTest {
   public void test() {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var firstRtx = manager.beginNodeReadOnlyTrx();
-         final var secondRtx = manager.beginNodeReadOnlyTrx()) {
+        final var firstRtx = manager.beginNodeReadOnlyTrx();
+        final var secondRtx = manager.beginNodeReadOnlyTrx()) {
 
     }
   }

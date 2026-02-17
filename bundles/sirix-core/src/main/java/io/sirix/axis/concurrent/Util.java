@@ -21,12 +21,14 @@ public final class Util {
    *         returned.
    */
   public static long getNext(final Axis axis) {
-    return axis.hasNext() ? axis.next() : Fixed.NULL_NODE_KEY.getStandardProperty();
+    return axis.hasNext()
+        ? axis.next()
+        : Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   /**
-   * Checks, whether the given node key belongs to a node or an atomic value. Returns true for a
-   * node and throws an exception for an atomic value, because these are not allowed in the except
+   * Checks, whether the given node key belongs to a node or an atomic value. Returns true for a node
+   * and throws an exception for an atomic value, because these are not allowed in the except
    * expression.
    * 
    * @param nodeKey the node key to validate

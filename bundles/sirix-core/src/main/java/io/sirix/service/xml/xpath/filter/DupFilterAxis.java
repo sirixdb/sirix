@@ -71,8 +71,7 @@ public class DupFilterAxis extends AbstractAxis {
     // be called for those axis after calling 'hasNext()'. For all other
     // axis
     // next() has already been called by another axis.
-    mCallNext =
-        !(mAxis instanceof FilterAxis || mAxis instanceof NestedAxis || mAxis instanceof UnionAxis);
+    mCallNext = !(mAxis instanceof FilterAxis || mAxis instanceof NestedAxis || mAxis instanceof UnionAxis);
 
   }
 

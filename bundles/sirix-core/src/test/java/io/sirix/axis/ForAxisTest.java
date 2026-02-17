@@ -62,32 +62,27 @@ public class ForAxisTest {
 
     rtx.moveTo(1L);
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(rtx, "for $a in child::text() return child::node()"),
+    AbsAxisTest.testAxisConventions(new XPathAxis(rtx, "for $a in child::text() return child::node()"),
         new long[] {4L, 5L, 8L, 9L, 13L, 4L, 5L, 8L, 9L, 13L, 4L, 5L, 8L, 9L, 13L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(rtx, "for $a in child::node() return $a/node()"),
+    AbsAxisTest.testAxisConventions(new XPathAxis(rtx, "for $a in child::node() return $a/node()"),
         new long[] {6L, 7L, 11L, 12L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(rtx, "for $a in child::node() return $a/text()"), new long[] {6L, 12L});
+    AbsAxisTest.testAxisConventions(new XPathAxis(rtx, "for $a in child::node() return $a/text()"),
+        new long[] {6L, 12L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(rtx, "for $a in child::node() return $a/c"), new long[] {7L, 11L});
+    AbsAxisTest.testAxisConventions(new XPathAxis(rtx, "for $a in child::node() return $a/c"), new long[] {7L, 11L});
 
     // IAxisTest.testIAxisConventions(new XPathAxis(
     // rtx,
     // "for $a in child::node(), $b in /node(), $c in ., $d in /c return $a/c"),
     // new long[] {7L, 11L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(rtx, "for $a in child::node() return $a[@p:x]"), new long[] {9L});
+    AbsAxisTest.testAxisConventions(new XPathAxis(rtx, "for $a in child::node() return $a[@p:x]"), new long[] {9L});
 
     AbsAxisTest.testAxisConventions(new XPathAxis(rtx, "for $a in . return $a"), new long[] {1L});
 
-    final AbstractAxis axis =
-        new XPathAxis(rtx, "for $i in (10, 20), $j in (1, 2) return ($i + $j)");
+    final AbstractAxis axis = new XPathAxis(rtx, "for $i in (10, 20), $j in (1, 2) return ($i + $j)");
     assertEquals(true, axis.hasNext());
     axis.nextLong();
     assertEquals("11.0", rtx.getValue());

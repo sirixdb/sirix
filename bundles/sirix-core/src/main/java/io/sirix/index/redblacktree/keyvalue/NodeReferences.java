@@ -76,7 +76,7 @@ public final class NodeReferences implements References {
   @Override
   public String toString() {
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
-    final LongIterator iterator =  nodeKeys.getLongIterator();
+    final LongIterator iterator = nodeKeys.getLongIterator();
     while (iterator.hasNext()) {
       final var nodeKey = iterator.next();
       helper.add("referenced node key", nodeKey);

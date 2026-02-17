@@ -90,35 +90,37 @@ abstract class InnerNode extends Node {
 
   /**
    * @param partialKey search if this node has an entry for given partialKey
-   * @return if it does, then return the following child pointer.
-   * Returns null if there is no corresponding entry.
+   * @return if it does, then return the following child pointer. Returns null if there is no
+   *         corresponding entry.
    */
   abstract Node findChild(byte partialKey);
 
   /**
    * @param partialKey the partial key of the inner node
-   * @return a child which is equal or greater than given partial key, or null if there is no such child
+   * @return a child which is equal or greater than given partial key, or null if there is no such
+   *         child
    */
   abstract Node ceil(byte partialKey);
 
   /**
    * @param partialKey the partial key of the inner node
-   * @return a child which is equal or lesser than given partial key, or null if there is no such child
+   * @return a child which is equal or lesser than given partial key, or null if there is no such
+   *         child
    */
   abstract Node floor(byte partialKey);
 
   /**
-   * Note: caller needs to check if {@link InnerNode} {@link #isFull()} before calling this.
-   * If it is full then call {@link #grow()} followed by {@link #addChild(byte, Node)} on the new node.
+   * Note: caller needs to check if {@link InnerNode} {@link #isFull()} before calling this. If it is
+   * full then call {@link #grow()} followed by {@link #addChild(byte, Node)} on the new node.
    *
    * @param partialKey partialKey to be mapped
-   * @param child      the child node to be added
+   * @param child the child node to be added
    */
   abstract void addChild(byte partialKey, Node child);
 
   /**
    * @param partialKey for which the child pointer mapping is to be updated
-   * @param newChild   the new mapping to be added for given partialKey
+   * @param newChild the new mapping to be added for given partialKey
    */
   abstract void replace(byte partialKey, Node newChild);
 
@@ -149,14 +151,14 @@ abstract class InnerNode extends Node {
   abstract boolean isFull();
 
   /**
-   * @return returns the smallest child node for the partialKey strictly greater than the partialKey passed.
-   * Returns null if no such child.
+   * @return returns the smallest child node for the partialKey strictly greater than the partialKey
+   *         passed. Returns null if no such child.
    */
   abstract Node greater(byte partialKey);
 
   /**
-   * @return returns the greatest child node for the partialKey strictly lesser than the partialKey passed.
-   * Returns null if no such child.
+   * @return returns the greatest child node for the partialKey strictly lesser than the partialKey
+   *         passed. Returns null if no such child.
    */
   abstract Node lesser(byte partialKey);
 }

@@ -195,7 +195,9 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   SirixDeweyID getDeweyID();
 
   /**
-   * Get the revision number of the previous revision of the node, the transactional cursor currently points to.
+   * Get the revision number of the previous revision of the node, the transactional cursor currently
+   * points to.
+   * 
    * @return the revision number of the previous revision of the current node
    */
   int getPreviousRevisionNumber();

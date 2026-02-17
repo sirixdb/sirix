@@ -55,8 +55,8 @@ public final class BitmapReferencesPage implements Page {
   private final BitSet bitmap;
 
   /**
-   * Cached long[] representation of the bitmap for efficient popcount operations.
-   * Invalidated (set to null) whenever the bitmap is modified.
+   * Cached long[] representation of the bitmap for efficient popcount operations. Invalidated (set to
+   * null) whenever the bitmap is modified.
    */
   private long[] cachedWords;
 
@@ -64,7 +64,7 @@ public final class BitmapReferencesPage implements Page {
    * Constructor to initialize instance.
    *
    * @param numberOfEntriesAtMax number of entries at maximum
-   * @param pageToCopy           the page to copy references from
+   * @param pageToCopy the page to copy references from
    */
   public BitmapReferencesPage(final int numberOfEntriesAtMax, final ReferencesPage4 pageToCopy) {
     checkArgument(numberOfEntriesAtMax >= 0);
@@ -92,8 +92,8 @@ public final class BitmapReferencesPage implements Page {
 
     if (referenceCount == Constants.NDP_NODE_COUNT) {
       /*
-       * Currently backing array has an initial size of 8. Thus, for the last layer of indirect pages
-       * it has to resize the first time after 8 record pages, that is 512 * 8 records.
+       * Currently backing array has an initial size of 8. Thus, for the last layer of indirect pages it
+       * has to resize the first time after 8 record pages, that is 512 * 8 records.
        */
       initialSize = referenceCount >> 6;
     } else {
@@ -109,8 +109,8 @@ public final class BitmapReferencesPage implements Page {
    * Constructor to initialize instance.
    *
    * @param referenceCount number of references of page
-   * @param in             input stream to read from
-   * @param type           the serialization type
+   * @param in input stream to read from
+   * @param type the serialization type
    */
   public BitmapReferencesPage(final @NonNegative int referenceCount, final BytesIn<?> in,
       final SerializationType type) {
@@ -174,8 +174,8 @@ public final class BitmapReferencesPage implements Page {
     final int index = index(offset);
     if (!bitmap.get(offset)) {
       references.add(index, pageReference);
-      bitmap.set(offset, true);  // Fixed: was incorrectly using 'index' instead of 'offset'
-      cachedWords = null;        // Invalidate cache after bitmap modification
+      bitmap.set(offset, true); // Fixed: was incorrectly using 'index' instead of 'offset'
+      cachedWords = null; // Invalidate cache after bitmap modification
     } else {
       references.set(index, pageReference);
     }
@@ -188,7 +188,7 @@ public final class BitmapReferencesPage implements Page {
     final PageReference pageReference = new PageReference();
     references.add(index, pageReference);
     bitmap.set(offset, true);
-    cachedWords = null;  // Invalidate cache after bitmap modification
+    cachedWords = null; // Invalidate cache after bitmap modification
 
     if (bitmap.cardinality() == THRESHOLD) {
       return null;
@@ -200,11 +200,15 @@ public final class BitmapReferencesPage implements Page {
   /**
    * Compute the dense index for a given sparse offset.
    * 
-   * <p>This method counts how many bits are set in the bitmap from position 0 to offset-1,
-   * which gives the index into the dense references list.</p>
+   * <p>
+   * This method counts how many bits are set in the bitmap from position 0 to offset-1, which gives
+   * the index into the dense references list.
+   * </p>
    * 
-   * <p>Uses POPCNT-based counting for O(offset/64) complexity instead of O(offset).
-   * Each {@link Long#bitCount} call compiles to a single POPCNT instruction (~1 cycle).</p>
+   * <p>
+   * Uses POPCNT-based counting for O(offset/64) complexity instead of O(offset). Each
+   * {@link Long#bitCount} call compiles to a single POPCNT instruction (~1 cycle).
+   * </p>
    *
    * @param offset the sparse offset (0-1023)
    * @return the dense index into the references list
@@ -212,27 +216,26 @@ public final class BitmapReferencesPage implements Page {
   private int index(final int offset) {
     final long[] words = getWords();
     int count = 0;
-    final int wordIndex = offset >>> 6;      // offset / 64
-    final int bitInWord = offset & 63;       // offset % 64
-    
+    final int wordIndex = offset >>> 6; // offset / 64
+    final int bitInWord = offset & 63; // offset % 64
+
     // Count all set bits in complete words before the target word
     for (int i = 0; i < wordIndex && i < words.length; i++) {
       count += Long.bitCount(words[i]);
     }
-    
+
     // Count set bits in the target word up to (not including) offset
     if (wordIndex < words.length) {
       // Mask: bits 0 to bitInWord-1 are 1, rest are 0
       final long mask = (1L << bitInWord) - 1;
       count += Long.bitCount(words[wordIndex] & mask);
     }
-    
+
     return count;
   }
 
   /**
-   * Get the cached long[] representation of the bitmap.
-   * Lazily creates the cache on first access.
+   * Get the cached long[] representation of the bitmap. Lazily creates the cache on first access.
    *
    * @return the long[] array backing the bitmap
    */
@@ -257,7 +260,9 @@ public final class BitmapReferencesPage implements Page {
     final StringBuilder s = new StringBuilder();
 
     for (int i = 0; i < bitmap.length(); i++) {
-      s.append(bitmap.get(i) ? 1 : 0);
+      s.append(bitmap.get(i)
+          ? 1
+          : 0);
     }
 
     return s.toString();

@@ -60,8 +60,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
         && newRtx.getKind() == oldRtx.getKind()) {
       switch (newRtx.getKind()) {
         case ELEMENT:
-          if (checkNamesForEquality(newRtx, oldRtx)
-              && newRtx.getAttributeKeys().equals(oldRtx.getAttributeKeys())
+          if (checkNamesForEquality(newRtx, oldRtx) && newRtx.getAttributeKeys().equals(oldRtx.getAttributeKeys())
               && newRtx.getNamespaceKeys().equals(oldRtx.getNamespaceKeys())) {
             found = true;
 
@@ -85,8 +84,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
                 newRtx.moveTo(attr);
                 oldRtx.moveTo(attr);
 
-                if (!(checkNamesForEquality(newRtx, oldRtx)
-                    && Objects.equals(newRtx.getValue(), oldRtx.getValue()))) {
+                if (!(checkNamesForEquality(newRtx, oldRtx) && Objects.equals(newRtx.getValue(), oldRtx.getValue()))) {
                   found = false;
                   break;
                 }
@@ -181,8 +179,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
           newRtx.moveTo(attr);
           oldRtx.moveTo(attr);
 
-          if (checkNamesForEquality(newRtx, oldRtx)
-              && Objects.equals(newRtx.getValue(), oldRtx.getValue()))
+          if (checkNamesForEquality(newRtx, oldRtx) && Objects.equals(newRtx.getValue(), oldRtx.getValue()))
             fireDiff(DiffFactory.DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
           else
             fireDiff(DiffFactory.DiffType.UPDATED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
@@ -274,8 +271,7 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
   }
 
   private boolean checkNamesForEquality(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx) {
-    return newRtx.getURIKey() == oldRtx.getURIKey()
-        && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()
+    return newRtx.getURIKey() == oldRtx.getURIKey() && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()
         && newRtx.getPrefixKey() == oldRtx.getPrefixKey();
   }
 }

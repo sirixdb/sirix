@@ -173,9 +173,8 @@ public final class PipelineBuilder {
   }
 
   /**
-   * Adds a new single expression to the pipeline. This is done by adding a complete new chain to
-   * the stack because the new single expression has nothing in common with the previous
-   * expressions.
+   * Adds a new single expression to the pipeline. This is done by adding a complete new chain to the
+   * stack because the new single expression has nothing in common with the previous expressions.
    */
   public void addExpressionSingle() {
 
@@ -199,9 +198,9 @@ public final class PipelineBuilder {
 
   /**
    * Adds a for expression to the pipeline. In case the for expression has more then one for
-   * condition, the for expression is converted to a nested for expression with only one for
-   * condition each, see the following example: for $a in /a, $b in /b, $c in /c return /d is
-   * converted to for $a in /a return for $b in /b return for $c in /c return /d
+   * condition, the for expression is converted to a nested for expression with only one for condition
+   * each, see the following example: for $a in /a, $b in /b, $c in /c return /d is converted to for
+   * $a in /a return for $b in /b return for $c in /c return /d
    * 
    * @param mForConditionNum Number of all for conditions of the expression
    */
@@ -260,8 +259,7 @@ public final class PipelineBuilder {
     final Axis paramOperandOne = getPipeStack().pop().getExpr();
 
     final CompKind kind = CompKind.fromString(mComp);
-    final Axis axis =
-        AbstractComparator.getComparator(rtx, paramOperandOne, paramOperandTwo, kind, mComp);
+    final Axis axis = AbstractComparator.getComparator(rtx, paramOperandOne, paramOperandTwo, kind, mComp);
 
     // // TODO: use typeswitch of JAVA 7
     // if (mComp.equals("eq")) {
@@ -383,8 +381,7 @@ public final class PipelineBuilder {
     if (getPipeStack().empty() || getExpression().getSize() != 0) {
       addExpressionSingle();
     }
-    getExpression().add(
-        new DupFilterAxis(mTransaction, new UnionAxis(mTransaction, mOperand1, mOperand2)));
+    getExpression().add(new DupFilterAxis(mTransaction, new UnionAxis(mTransaction, mOperand1, mOperand2)));
   }
 
   /**
@@ -436,7 +433,8 @@ public final class PipelineBuilder {
     final Axis mOperand2 = getPipeStack().pop().getExpr();
     final Axis mOperand1 = getPipeStack().pop().getExpr();
 
-    final Axis axis = mIsIntersect ? new IntersectAxis(rtx, mOperand1, mOperand2)
+    final Axis axis = mIsIntersect
+        ? new IntersectAxis(rtx, mOperand1, mOperand2)
         : new ExceptAxis(rtx, mOperand1, mOperand2);
 
     if (getPipeStack().empty() || getExpression().getSize() != 0) {
@@ -546,8 +544,7 @@ public final class PipelineBuilder {
    * @param mIsSome defines whether a some- or an EveryExpression is used.
    * @param mVarNum number of binding variables
    */
-  public void addQuantifierExpr(final XmlNodeReadOnlyTrx mTransaction, final boolean mIsSome,
-      final int mVarNum) {
+  public void addQuantifierExpr(final XmlNodeReadOnlyTrx mTransaction, final boolean mIsSome, final int mVarNum) {
 
     assert getPipeStack().size() >= (mVarNum + 1);
 
@@ -560,7 +557,8 @@ public final class PipelineBuilder {
       vars.add(num, getPipeStack().pop().getExpr());
     }
 
-    final Axis mAxis = mIsSome ? new SomeExpr(mTransaction, vars, satisfy)
+    final Axis mAxis = mIsSome
+        ? new SomeExpr(mTransaction, vars, satisfy)
         : new EveryExpr(mTransaction, vars, satisfy);
 
     if (getPipeStack().empty() || getExpression().getSize() != 0) {
@@ -635,8 +633,7 @@ public final class PipelineBuilder {
    * @param mTransaction Transaction to operate with.
    * @param mSequenceType sequence type the context item should match.
    */
-  public void addInstanceOfExpr(final XmlNodeReadOnlyTrx mTransaction,
-      final SequenceType mSequenceType) {
+  public void addInstanceOfExpr(final XmlNodeReadOnlyTrx mTransaction, final SequenceType mSequenceType) {
 
     assert getPipeStack().size() >= 1;
 
@@ -719,8 +716,7 @@ public final class PipelineBuilder {
     final Integer returnType = mTransaction.keyForName(func.getReturnType());
 
     // parameter types of the function's constructor
-    final Class<?>[] paramTypes =
-        {XmlNodeReadOnlyTrx.class, List.class, Integer.TYPE, Integer.TYPE, Integer.TYPE};
+    final Class<?>[] paramTypes = {XmlNodeReadOnlyTrx.class, List.class, Integer.TYPE, Integer.TYPE, Integer.TYPE};
 
     try {
       // instantiate function class with right constructor
@@ -747,8 +743,8 @@ public final class PipelineBuilder {
   }
 
   /**
-   * Adds a VarRefExpr to the pipeline. This Expression holds a reference to the current context
-   * item of the specified variable.
+   * Adds a VarRefExpr to the pipeline. This Expression holds a reference to the current context item
+   * of the specified variable.
    * 
    * @param mTransaction the transaction to operate on.
    * @param mVarName the name of the variable

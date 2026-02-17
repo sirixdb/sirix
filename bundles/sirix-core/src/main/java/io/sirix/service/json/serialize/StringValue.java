@@ -30,8 +30,9 @@ public final class StringValue {
 
   private static String escapeUnicode(char ch) {
     StringBuilder sb = new StringBuilder();
-    //Reference: http://www.unicode.org/versions/Unicode5.1.0/
-    if ((ch >= '\u0000' && ch <= '\u001F') || (ch >= '\u007F' && ch <= '\u009F') || (ch >= '\u2000' && ch <= '\u20FF')) {
+    // Reference: http://www.unicode.org/versions/Unicode5.1.0/
+    if ((ch >= '\u0000' && ch <= '\u001F') || (ch >= '\u007F' && ch <= '\u009F')
+        || (ch >= '\u2000' && ch <= '\u20FF')) {
       String ss = Integer.toHexString(ch);
       sb.append("\\u");
       sb.append("0".repeat(4 - ss.length()));

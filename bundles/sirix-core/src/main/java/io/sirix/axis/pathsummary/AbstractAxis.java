@@ -11,8 +11,9 @@ import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Provide standard Java iterator capability compatible with the enhanced for loop available since Java 5. Override the
- * "template method" {@code nextNode()} to implement an axis. Return {@code done()} if the axis has no more "elements".
+ * Provide standard Java iterator capability compatible with the enhanced for loop available since
+ * Java 5. Override the "template method" {@code nextNode()} to implement an axis. Return
+ * {@code done()} if the axis has no more "elements".
  *
  * @author Johannes Lichtenberger
  */
@@ -79,7 +80,7 @@ public abstract class AbstractAxis implements Iterator<PathNode>, Iterable<PathN
   /**
    * Constructor.
    *
-   * @param pathNode    the context node
+   * @param pathNode the context node
    * @param includeSelf determines if self is included
    * @throws NullPointerException if {@code nodeCursor} or {@code includeSelf} is {@code null}
    */
@@ -192,9 +193,9 @@ public abstract class AbstractAxis implements Iterator<PathNode>, Iterable<PathN
    *
    * @return the next node
    * @throws RuntimeException if any unrecoverable error happens. This exception will propagate
-   *                          outward to the {@code hasNext()}, {@code next()}, or {@code peek()} invocation that
-   *                          invoked this method. Any further attempts to use the iterator will result in an
-   *                          {@link IllegalStateException}.
+   *         outward to the {@code hasNext()}, {@code next()}, or {@code peek()} invocation that
+   *         invoked this method. Any further attempts to use the iterator will result in an
+   *         {@link IllegalStateException}.
    */
   protected abstract PathNode nextNode();
 

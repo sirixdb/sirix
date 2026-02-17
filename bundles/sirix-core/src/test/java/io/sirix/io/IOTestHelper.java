@@ -47,8 +47,7 @@ public final class IOTestHelper {
   /**
    * Private constructor.
    */
-  private IOTestHelper() {
-  }
+  private IOTestHelper() {}
 
   /**
    * Static method to get {@link ResourceConfiguration}
@@ -92,20 +91,18 @@ public final class IOTestHelper {
 
     verify(pageReadOnlyTrx, atMostOnce()).newBufferedBytesInstance();
     final Writer writer = fac.createWriter();
-    writer.writeUberPageReference(pageReadOnlyTrx.getResourceSession().getResourceConfig(),
-                                  pageRef1,
-                                  page1,
-                                  bufferedBytes);
+    writer.writeUberPageReference(pageReadOnlyTrx.getResourceSession().getResourceConfig(), pageRef1, page1,
+        bufferedBytes);
     final PageReference pageRef2 = writer.readUberPageReference();
     assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
-                 ((UberPage) pageRef2.getPage()).getRevisionCount());
+        ((UberPage) pageRef2.getPage()).getRevisionCount());
     writer.close();
 
     // new instance check
     final Reader reader = fac.createReader();
     final PageReference pageRef3 = reader.readUberPageReference();
     assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
-                 ((UberPage) pageRef3.getPage()).getRevisionCount());
+        ((UberPage) pageRef3.getPage()).getRevisionCount());
     reader.close();
     fac.close();
   }

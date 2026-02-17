@@ -55,7 +55,7 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
   /**
    * Create index builders.
    *
-   * @param indexDefs    the {@link IndexDef}s
+   * @param indexDefs the {@link IndexDef}s
    * @param nodeWriteTrx the {@link JsonNodeTrx}
    * @return the created index builder instances
    */
@@ -66,13 +66,10 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
       // Store the index definition so it can be serialized during commit
       indexes.add(indexDef);
       switch (indexDef.getType()) {
-        case PATH -> indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageWtx(),
-                                                              nodeWriteTrx.getPathSummary(),
-                                                              indexDef));
-        case CAS -> indexBuilders.add(createCASIndexBuilder(nodeWriteTrx,
-                                                            nodeWriteTrx.getPageWtx(),
-                                                            nodeWriteTrx.getPathSummary(),
-                                                            indexDef));
+        case PATH ->
+          indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+        case CAS -> indexBuilders.add(
+            createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
         case NAME -> indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getPageWtx(), indexDef));
       }
     }
@@ -89,13 +86,13 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     return new PathFilter(paths, new JsonPCRCollector(rtx));
   }
 
-  private JsonNodeVisitor createPathIndexBuilder(final StorageEngineWriter pageWriteTrx, final PathSummaryReader pathSummaryReader,
-      final IndexDef indexDef) {
+  private JsonNodeVisitor createPathIndexBuilder(final StorageEngineWriter pageWriteTrx,
+      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return (JsonNodeVisitor) pathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
   }
 
-  private JsonNodeVisitor createCASIndexBuilder(final JsonNodeReadOnlyTrx nodeReadTrx, final StorageEngineWriter pageWriteTrx,
-      final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+  private JsonNodeVisitor createCASIndexBuilder(final JsonNodeReadOnlyTrx nodeReadTrx,
+      final StorageEngineWriter pageWriteTrx, final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
     return (JsonNodeVisitor) casIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
   }
 

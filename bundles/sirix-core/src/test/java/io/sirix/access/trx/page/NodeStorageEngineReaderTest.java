@@ -27,16 +27,10 @@ public final class NodeStorageEngineReaderTest {
 
   @Test
   public void testPageKey() {
-    final InternalResourceSession<?,?> resourceManagerMock = createResourceManagerMock();
+    final InternalResourceSession<?, ?> resourceManagerMock = createResourceManagerMock();
 
-    try (final var trx = new NodeStorageEngineReader(1,
-                                                     resourceManagerMock,
-                                                     new UberPage(),
-                                                     0,
-                                                     mock(Reader.class),
-                                                     mock(BufferManager.class),
-                                                     mock(RevisionRootPageReader.class),
-                                                     mock(TransactionIntentLog.class))) {
+    try (final var trx = new NodeStorageEngineReader(1, resourceManagerMock, new UberPage(), 0, mock(Reader.class),
+        mock(BufferManager.class), mock(RevisionRootPageReader.class), mock(TransactionIntentLog.class))) {
       assertEquals(0, trx.pageKey(1, IndexType.DOCUMENT));
       assertEquals(1023 / Constants.NDP_NODE_COUNT, trx.pageKey(1023, IndexType.DOCUMENT));
       assertEquals(1024 / Constants.NDP_NODE_COUNT, trx.pageKey(1024, IndexType.DOCUMENT));
@@ -51,24 +45,14 @@ public final class NodeStorageEngineReaderTest {
 
   @Test(expected = IllegalStateException.class)
   public void testGetValueFailsFastForUnsupportedFixedSlotMaterialization() {
-    final InternalResourceSession<?,?> resourceManagerMock = createResourceManagerMock();
+    final InternalResourceSession<?, ?> resourceManagerMock = createResourceManagerMock();
     final ResourceConfiguration config = new ResourceConfiguration.Builder("foobar").build();
 
-    try (final var trx = new NodeStorageEngineReader(1,
-                                                     resourceManagerMock,
-                                                     new UberPage(),
-                                                     0,
-                                                     mock(Reader.class),
-                                                     mock(BufferManager.class),
-                                                     mock(RevisionRootPageReader.class),
-                                                     mock(TransactionIntentLog.class))) {
+    try (final var trx = new NodeStorageEngineReader(1, resourceManagerMock, new UberPage(), 0, mock(Reader.class),
+        mock(BufferManager.class), mock(RevisionRootPageReader.class), mock(TransactionIntentLog.class))) {
       try (Arena arena = Arena.ofConfined()) {
-        final KeyValueLeafPage page = new KeyValueLeafPage(0L,
-                                                           IndexType.DOCUMENT,
-                                                           config,
-                                                           1,
-                                                           arena.allocate(SIXTYFOUR_KB),
-                                                           null);
+        final KeyValueLeafPage page =
+            new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, arena.allocate(SIXTYFOUR_KB), null);
         try {
           final long nodeKey = 7L;
           final int slot = StorageEngineReader.recordPageOffset(nodeKey);
@@ -85,16 +69,16 @@ public final class NodeStorageEngineReaderTest {
   }
 
   @NonNull
-  private InternalResourceSession<?,?> createResourceManagerMock() {
+  private InternalResourceSession<?, ?> createResourceManagerMock() {
     final var resourceManagerMock = mock(InternalResourceSession.class);
     when(resourceManagerMock.getResourceConfig()).thenReturn(new ResourceConfiguration.Builder("foobar").build());
-    
+
     // Mock RevisionEpochTracker to prevent NullPointerException
     final var epochTrackerMock = mock(io.sirix.access.trx.RevisionEpochTracker.class);
     final var ticketMock = mock(io.sirix.access.trx.RevisionEpochTracker.Ticket.class);
     when(epochTrackerMock.register(org.mockito.ArgumentMatchers.anyInt())).thenReturn(ticketMock);
     when(resourceManagerMock.getRevisionEpochTracker()).thenReturn(epochTrackerMock);
-    
+
     return resourceManagerMock;
   }
 }

@@ -36,6 +36,7 @@
  * <p>
  * Code examples:
  * </p>
+ * 
  * <pre>
  * // DatabaseConfiguration denoted the configuration for a connected set of data resources.
  * final DatabaseConfiguration dbConfig = new DatabaseConfiguration(new File("/path/to/db/location"));
@@ -64,7 +65,8 @@
  *
  * <p>
  * Best practice to safely manipulate a sirix resource within a database if everything exists:
- *</p>
+ * </p>
+ * 
  * <pre>
  *         final IDatabase database = Database.openDatabase(new File(&quot;/path/to/db/location&quot;);
  *         final ISession session = Session.beginSession(new SessionConfiguration(&quot;existingResource&quot;);

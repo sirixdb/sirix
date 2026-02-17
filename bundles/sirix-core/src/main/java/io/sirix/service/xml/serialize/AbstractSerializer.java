@@ -103,7 +103,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
   private void initialize(final @NonNegative int revision, final int... revisions) {
     this.revisions[0] = revision;
     if (revisions != null) {
-        System.arraycopy(revisions, 0, this.revisions, 1, revisions.length);
+      System.arraycopy(revisions, 0, this.revisions, 1, revisions.length);
     }
   }
 

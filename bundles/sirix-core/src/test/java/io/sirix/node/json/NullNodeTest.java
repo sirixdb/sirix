@@ -43,29 +43,24 @@ public class NullNodeTest {
   @Test
   public void test() throws IOException {
     final var hashFunction = LongHashFunction.xx3();
-    final NullNode node = new NullNode(
-        13L, // nodeKey
+    final NullNode node = new NullNode(13L, // nodeKey
         14L, // parentKey
         Constants.NULL_REVISION_NUMBER, // previousRevision
         0, // lastModifiedRevision
         16L, // rightSiblingKey
         15L, // leftSiblingKey
         0, // hash
-        hashFunction,
-        (byte[]) null // deweyID
+        hashFunction, (byte[]) null // deweyID
     );
     check(node);
 
-    final var config = ResourceConfiguration.newBuilder("test")
-        .hashKind(HashType.NONE)
-        .build();
+    final var config = ResourceConfiguration.newBuilder("test").hashKind(HashType.NONE).build();
 
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     NodeKind.NULL_VALUE.serialize(data, node, config);
-    
+
     var bytesIn = data.asBytesIn();
-    final NullNode node2 = (NullNode) NodeKind.NULL_VALUE.deserialize(
-        bytesIn, node.getNodeKey(), null, config);
+    final NullNode node2 = (NullNode) NodeKind.NULL_VALUE.deserialize(bytesIn, node.getNodeKey(), null, config);
     check(node2);
   }
 

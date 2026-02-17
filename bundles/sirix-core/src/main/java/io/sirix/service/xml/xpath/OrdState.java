@@ -187,10 +187,10 @@ public enum OrdState {
   UNORD;
 
   /**
-   * If mOrderRank is 0, the result sequence will be in document order. If it is greater than 0 it
-   * is not any more, but it can retain the ordered property, if a certain sequence of axis follows.
-   * For more details see [Hidders, J., Michiels, P., "Avoiding Unnecessary Ordering Operations in
-   * XPath", 2003]
+   * If mOrderRank is 0, the result sequence will be in document order. If it is greater than 0 it is
+   * not any more, but it can retain the ordered property, if a certain sequence of axis follows. For
+   * more details see [Hidders, J., Michiels, P., "Avoiding Unnecessary Ordering Operations in XPath",
+   * 2003]
    */
   static int mOrdRank;
 

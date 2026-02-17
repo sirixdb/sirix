@@ -34,7 +34,7 @@ public final class ExistsResource extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public ExistsResource(final QNm name, final Signature signature) {
@@ -53,6 +53,8 @@ public final class ExistsResource extends AbstractFunction {
       throw new QueryException(new QNm("No valid arguments specified: Database not found!"));
     }
 
-    return collection.getDatabase().existsResource(((Str) args[1]).stringValue()) ? Bool.TRUE : Bool.FALSE;
+    return collection.getDatabase().existsResource(((Str) args[1]).stringValue())
+        ? Bool.TRUE
+        : Bool.FALSE;
   }
 }

@@ -96,9 +96,9 @@ public enum FuncDef {
    * fn:max($arg as xs:anyAtomicType*, $collation as string) as xs:anyAtomicType?
    * </p>
    * <p>
-   * Selects an item from the input sequence $arg whose value is greater than or equal to the value
-   * of every other item in the input sequence. If there are two or more such items, then the
-   * specific item whose value is returned is �implementation dependent�.
+   * Selects an item from the input sequence $arg whose value is greater than or equal to the value of
+   * every other item in the input sequence. If there are two or more such items, then the specific
+   * item whose value is returned is �implementation dependent�.
    * </p>
    */
   MAX(AbstractFunction.class, 1, 2, "xs:anyAtomicType", "fn:max"),
@@ -128,8 +128,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * $arg is first reduced to an effective boolean value by applying the fn:boolean() function.
-   * Returns true if the effective boolean value is false, and false if the effective boolean value
-   * is true.;
+   * Returns true if the effective boolean value is false, and false if the effective boolean value is
+   * true.;
    * </p>
    */
   NOT(FNNot.class, 1, 1, "xs:boolean", "fn:not", "not"),
@@ -143,8 +143,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns the value of $arg represented as a xs:string. If no argument is supplied, the context
-   * item (.) is used as the default argument. The behavior of the function if the argument is
-   * omitted is exactly the same as if the context item had been passed as the argument.
+   * item (.) is used as the default argument. The behavior of the function if the argument is omitted
+   * is exactly the same as if the context item had been passed as the argument.
    * </p>
    */
   STRING(FNString.class, 0, 1, "xs:string", "fn:string", "string"),
@@ -166,8 +166,8 @@ public enum FuncDef {
    * <p>
    * fn:node-name($arg as node()?) as xs:QName?
    * </p>
-   * Returns an expanded-QName for node kinds that can have names. For other kinds of nodes it
-   * returns the empty sequence. If $arg is the empty sequence, the empty sequence is returned.
+   * Returns an expanded-QName for node kinds that can have names. For other kinds of nodes it returns
+   * the empty sequence. If $arg is the empty sequence, the empty sequence is returned.
    */
   NODE_NAME(AbstractFunction.class, 1, 1, "xs:QName", "fn:node-name"),
 
@@ -175,8 +175,8 @@ public enum FuncDef {
    * <p>
    * fn:nilled : fn:nilled($arg as node()?) as xs:boolean?
    * </p>
-   * Returns an xs:boolean indicating whether the argument node is "nilled". If the argument is not
-   * an element node, returns the empty sequence. If the argument is the empty sequence, returns the
+   * Returns an xs:boolean indicating whether the argument node is "nilled". If the argument is not an
+   * element node, returns the empty sequence. If the argument is the empty sequence, returns the
    * empty sequence.
    */
   NILLED(AbstractFunction.class, 1, 1, "xs:boolean", "fn:nilled"),
@@ -268,8 +268,8 @@ public enum FuncDef {
    * fn:string-to-codepoints($arg as xs:string?) as xs:integer*
    * </p>
    * <p>
-   * Returns the sequence of [The Unicode Standard] code points that constitute an xs:string. If
-   * $arg is a zero-length string or the empty sequence, the empty sequence is returned.
+   * Returns the sequence of [The Unicode Standard] code points that constitute an xs:string. If $arg
+   * is a zero-length string or the empty sequence, the empty sequence is returned.
    */
   STR2CODEPNT(AbstractFunction.class, 1, 1, "xs:integer", "fn:string-to-codepoints"),
 
@@ -282,9 +282,9 @@ public enum FuncDef {
    * xs:integer?
    * </p>
    * <p>
-   * Returns -1, 0, or 1, depending on whether the value of the $comparand1 is respectively less
-   * than, equal to, or greater than the value of $comparand2, according to the rules of the
-   * collation that is used.
+   * Returns -1, 0, or 1, depending on whether the value of the $comparand1 is respectively less than,
+   * equal to, or greater than the value of $comparand2, according to the rules of the collation that
+   * is used.
    * <p>
    */
   COMP(AbstractFunction.class, 2, 3, "xs:integer", "fn:compare"),
@@ -306,9 +306,9 @@ public enum FuncDef {
    * fn:concat( $arg1 as xs:anyAtomicType?, $arg2 as xs:anyAtomicType?, ... ) as xs:string
    * </p>
    * <p>
-   * Accepts two or more xs:anyAtomicType arguments and casts them to xs:string. Returns the
-   * xs:string that is the concatenation of the values of its arguments after conversion. If any of
-   * the arguments is the empty sequence, the argument is treated as the zero-length string.
+   * Accepts two or more xs:anyAtomicType arguments and casts them to xs:string. Returns the xs:string
+   * that is the concatenation of the values of its arguments after conversion. If any of the
+   * arguments is the empty sequence, the argument is treated as the zero-length string.
    * </p>
    */
   CONCAT(AbstractFunction.class, 2, Integer.MAX_VALUE, "xs:string", "fn:concat"),
@@ -363,9 +363,8 @@ public enum FuncDef {
    * fn:normalize-space($arg as xs:string?) as xs:string
    * </p>
    * <p>
-   * Returns the value of $arg with whitespace normalized by stripping leading and trailing
-   * whitespace and replacing sequences of one or more than one whitespace character with a single
-   * space, #x20.
+   * Returns the value of $arg with whitespace normalized by stripping leading and trailing whitespace
+   * and replacing sequences of one or more than one whitespace character with a single space, #x20.
    */
   NORM_SPACE(AbstractFunction.class, 0, 1, "xs:string", "fn:normalize-space"),
 
@@ -377,10 +376,9 @@ public enum FuncDef {
    * fn:normalize-unicode( $arg as xs:string?, $normalizationForm as xs:string) as xs:string
    * </p>
    * <p>
-   * Returns the value of $arg normalized according to the normalization criteria for a
-   * normalization form identified by the value of $normalizationForm. The effective value of the
-   * $normalizationForm is computed by removing leading and trailing blanks, if present, and
-   * converting to upper case.
+   * Returns the value of $arg normalized according to the normalization criteria for a normalization
+   * form identified by the value of $normalizationForm. The effective value of the $normalizationForm
+   * is computed by removing leading and trailing blanks, if present, and converting to upper case.
    */
   NORM_UNI(AbstractFunction.class, 1, 2, "xs:string", "fn:normalize-unicode"),
 
@@ -390,13 +388,13 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns the value of $arg after translating every character to its upper-case correspondent as
-   * defined in the appropriate case mappings section in the Unicode standard [The Unicode
-   * Standard]. For versions of Unicode beginning with the 2.1.8 update, only locale-insensitive
-   * case mappings should be applied. Beginning with version 3.2.0 (and likely future versions) of
-   * Unicode, precise mappings are described in default case operations, which are full case
-   * mappings in the absence of tailoring for particular languages and environments. Every
-   * lower-case character that does not have an upper-case correspondent, as well as every
-   * upper-case character, is included in the returned value in its original form.
+   * defined in the appropriate case mappings section in the Unicode standard [The Unicode Standard].
+   * For versions of Unicode beginning with the 2.1.8 update, only locale-insensitive case mappings
+   * should be applied. Beginning with version 3.2.0 (and likely future versions) of Unicode, precise
+   * mappings are described in default case operations, which are full case mappings in the absence of
+   * tailoring for particular languages and environments. Every lower-case character that does not
+   * have an upper-case correspondent, as well as every upper-case character, is included in the
+   * returned value in its original form.
    * </p>
    */
   UP_CASE(AbstractFunction.class, 1, 1, "xs:string", "fn:upper-case"),
@@ -407,13 +405,13 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns the value of $arg after translating every character to its lower-case correspondent as
-   * defined in the appropriate case mappings section in the Unicode standard [The Unicode
-   * Standard]. For versions of Unicode beginning with the 2.1.8 update, only locale-insensitive
-   * case mappings should be applied. Beginning with version 3.2.0 (and likely future versions) of
-   * Unicode, precise mappings are described in default case operations, which are full case
-   * mappings in the absence of tailoring for particular languages and environments. Every
-   * upper-case character that does not have a lower-case correspondent, as well as every lower-case
-   * character, is included in the returned value in its original form.
+   * defined in the appropriate case mappings section in the Unicode standard [The Unicode Standard].
+   * For versions of Unicode beginning with the 2.1.8 update, only locale-insensitive case mappings
+   * should be applied. Beginning with version 3.2.0 (and likely future versions) of Unicode, precise
+   * mappings are described in default case operations, which are full case mappings in the absence of
+   * tailoring for particular languages and environments. Every upper-case character that does not
+   * have a lower-case correspondent, as well as every lower-case character, is included in the
+   * returned value in its original form.
    * </p>
    */
   LOW_CASE(AbstractFunction.class, 1, 1, "xs:string", "fn:lower-case"),
@@ -436,11 +434,11 @@ public enum FuncDef {
    * fn:encode-for-uri($uri-part as xs:string?) as xs:string
    * </p>
    * <p>
-   * This function encodes reserved characters in an xs:string that is intended to be used in the
-   * path segment of a URI. It is invertible but not idempotent. This function applies the URI
-   * escaping rules defined in section 2 of [RFC 3986] to the xs:string supplied as $uri-part. The
-   * effect of the function is to escape reserved characters. Each such character in the string is
-   * replaced with its percent-encoded form as described in [RFC 3986].
+   * This function encodes reserved characters in an xs:string that is intended to be used in the path
+   * segment of a URI. It is invertible but not idempotent. This function applies the URI escaping
+   * rules defined in section 2 of [RFC 3986] to the xs:string supplied as $uri-part. The effect of
+   * the function is to escape reserved characters. Each such character in the string is replaced with
+   * its percent-encoded form as described in [RFC 3986].
    * </p>
    */
   ENCODE_URI(AbstractFunction.class, 1, 1, "xs:string", "fn:encode-for-uri"),
@@ -460,13 +458,13 @@ public enum FuncDef {
    * <p>
    * fn:escape-html-uri($uri as xs:string?) as xs:string
    * </p>
-   * This function escapes all characters except printable characters of the US-ASCII coded
-   * character set, specifically the octets ranging from 32 to 126 (decimal). The effect of the
-   * function is to escape a URI in the manner html user agents handle attribute values that expect
-   * URIs. Each character in $uri to be escaped is replaced by an escape sequence, which is formed
-   * by encoding the character as a sequence of octets in UTF-8, and then representing each of these
-   * octets in the form %HH, where HH is the hexadecimal representation of the octet. This function
-   * must always generate hexadecimal values using the upper-case letters A-F.
+   * This function escapes all characters except printable characters of the US-ASCII coded character
+   * set, specifically the octets ranging from 32 to 126 (decimal). The effect of the function is to
+   * escape a URI in the manner html user agents handle attribute values that expect URIs. Each
+   * character in $uri to be escaped is replaced by an escape sequence, which is formed by encoding
+   * the character as a sequence of octets in UTF-8, and then representing each of these octets in the
+   * form %HH, where HH is the hexadecimal representation of the octet. This function must always
+   * generate hexadecimal values using the upper-case letters A-F.
    */
   ESCAPE_HTML_URI(AbstractFunction.class, 1, 1, "xs:string", "fn:escape-html-uri"),
 
@@ -476,10 +474,9 @@ public enum FuncDef {
    * <p>
    * fn:contains( $arg1 as xs:string?, $arg2 as xs:string?, $collation as xs:string) as xs:boolean
    * </p>
-   * Returns an xs:boolean indicating whether or not the value of $arg1 contains (at the beginning,
-   * at the end, or anywhere within) at least one sequence of collation units that provides a
-   * minimal match to the collation units in the value of $arg2, according to the collation that is
-   * used.
+   * Returns an xs:boolean indicating whether or not the value of $arg1 contains (at the beginning, at
+   * the end, or anywhere within) at least one sequence of collation units that provides a minimal
+   * match to the collation units in the value of $arg2, according to the collation that is used.
    */
   CONTAINS(AbstractFunction.class, 2, 3, "xs:boolean", "fn:contains"),
 
@@ -487,8 +484,7 @@ public enum FuncDef {
    * <p>
    * fn:starts-with($arg1 as xs:string?, $arg2 as xs:string?) as xs:boolean
    * <p>
-   * fn:starts-with( $arg1 as xs:string?, $arg2 as xs:string?, $collation as xs:string) as
-   * xs:boolean
+   * fn:starts-with( $arg1 as xs:string?, $arg2 as xs:string?, $collation as xs:string) as xs:boolean
    * </p>
    * <p>
    * Returns an xs:boolean indicating whether or not the value of $arg1 starts with a sequence of
@@ -520,8 +516,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns the substring of the value of $arg1 that precedes in the value of $arg1 the first
-   * occurrence of a sequence of collation units that provides a minimal match to the collation
-   * units of $arg2 according to the collation that is used.
+   * occurrence of a sequence of collation units that provides a minimal match to the collation units
+   * of $arg2 according to the collation that is used.
    * </p>
    */
   SUBSTR_BEFORE(AbstractFunction.class, 2, 3, "xs:string", "fn:substring-before"),
@@ -535,8 +531,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns the substring of the value of $arg1 that follows in the value of $arg1 the first
-   * occurrence of a sequence of collation units that provides a minimal match to the collation
-   * units of $arg2 according to the collation that is used.
+   * occurrence of a sequence of collation units that provides a minimal match to the collation units
+   * of $arg2 according to the collation that is used.
    * </p>
    */
   SUBSTR_AFTER(AbstractFunction.class, 2, 3, "xs:string", "fn:substring-after"),
@@ -557,8 +553,7 @@ public enum FuncDef {
 
   /**
    * <p>
-   * fn:replace( $input as xs:string?, $pattern as xs:string, $replacement as xs:string) as
-   * xs:string
+   * fn:replace( $input as xs:string?, $pattern as xs:string, $replacement as xs:string) as xs:string
    * </p>
    * <p>
    * fn:replace( $input as xs:string?, $pattern as xs:string, $replacement as xs:string, $flags as
@@ -592,8 +587,7 @@ public enum FuncDef {
    * fn:resolve-uri($relative as xs:string?, $base as xs:string) as xs:anyURI?
    * </p>
    * <p>
-   * The purpose of this function is to enable a relative URI to be resolved against an absolute
-   * URI.
+   * The purpose of this function is to enable a relative URI to be resolved against an absolute URI.
    * </p>
    */
   RESOLVE_URI(AbstractFunction.class, 1, 2, "xs:string", "fn:resolve_uri"),
@@ -644,8 +638,8 @@ public enum FuncDef {
 
   /**
    * <p>
-   * op:yearMonthDuration-less-than( $arg1 as xs:yearMonthDuration, $arg2 as xs:yearMonthDuration)
-   * as xs:boolean
+   * op:yearMonthDuration-less-than( $arg1 as xs:yearMonthDuration, $arg2 as xs:yearMonthDuration) as
+   * xs:boolean
    * </p>
    * <p>
    * Returns true if and only if $arg1 is less than $arg2. Returns false otherwise.
@@ -655,8 +649,8 @@ public enum FuncDef {
 
   /**
    * <p>
-   * op:yearMonthDuration-greater-than( $arg1 as xs:yearMonthDuration, $arg2 as
-   * xs:yearMonthDuration) as xs:boolean
+   * op:yearMonthDuration-greater-than( $arg1 as xs:yearMonthDuration, $arg2 as xs:yearMonthDuration)
+   * as xs:boolean
    * </p>
    * <p>
    * Returns true if and only if $arg1 is greater than $arg2. Returns false otherwise.
@@ -727,8 +721,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns true if and only if the value of $arg1 is greater than the value of $arg2 according to
-   * the algorithm defined in section 3.2.7.4 of [XML Schema Part 2: Datatypes Second Edition]
-   * "Order relation on dateTime" for xs:dateTime values with timezones. Returns false otherwise.
+   * the algorithm defined in section 3.2.7.4 of [XML Schema Part 2: Datatypes Second Edition] "Order
+   * relation on dateTime" for xs:dateTime values with timezones. Returns false otherwise.
    * </p>
    */
   DT_GT(AbstractFunction.class, 2, 2, "xs:boolean", "op:dateTime-greater-than"),
@@ -738,8 +732,8 @@ public enum FuncDef {
    * op:date-equal($arg1 as xs:date, $arg2 as xs:date) as xs:boolean
    * </p>
    * <p>
-   * Returns true if and only if the starting instant of $arg1 is equal to starting instant of
-   * $arg2. Returns false otherwise.
+   * Returns true if and only if the starting instant of $arg1 is equal to starting instant of $arg2.
+   * Returns false otherwise.
    * </p>
    */
   DA_EQ(AbstractFunction.class, 2, 2, "xs:boolean", "op:date-equal"),
@@ -760,8 +754,8 @@ public enum FuncDef {
    * op:date-greater-than($arg1 as xs:date, $arg2 as xs:date) as xs:boolean
    * </p>
    * <p>
-   * Returns true if and only if the starting instant of $arg1 is greater than the starting instant
-   * of $arg2. Returns false otherwise.
+   * Returns true if and only if the starting instant of $arg1 is greater than the starting instant of
+   * $arg2. Returns false otherwise.
    * </p>
    */
   DA_GT(AbstractFunction.class, 2, 2, "xs:boolean", "op:date-greater-than"),
@@ -785,8 +779,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns true if and only if the value of $arg1 converted to an xs:dateTime using the date
-   * components from the reference xs:dateTime is less than the normalized value of $arg2 converted
-   * to an xs:dateTime using the date components from the same reference xs:dateTime. Returns false
+   * components from the reference xs:dateTime is less than the normalized value of $arg2 converted to
+   * an xs:dateTime using the date components from the same reference xs:dateTime. Returns false
    * otherwise.
    * </p>
    */
@@ -812,8 +806,8 @@ public enum FuncDef {
    * <p>
    * Returns true if and only if the xs:dateTimes representing the starting instants of $arg1 and
    * $arg2 compare equal. The starting instants of $arg1 and $arg2 are calculated by adding the
-   * missing components of $arg1 and $arg2 from the xs:dateTime template xxxx-xx-ddT00:00:00 where
-   * dd represents the last day of the month component in $arg1 or $arg2. Returns false otherwise.
+   * missing components of $arg1 and $arg2 from the xs:dateTime template xxxx-xx-ddT00:00:00 where dd
+   * represents the last day of the month component in $arg1 or $arg2. Returns false otherwise.
    * </p>
    */
   GYM_EQ(AbstractFunction.class, 2, 2, "xs:boolean", "op:gYearMonth-equal"),
@@ -837,8 +831,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns true if and only if the xs:dateTimes representing the starting instants of equivalent
-   * occurrences of $arg1 and $arg2 compare equal. The starting instants of equivalent occurrences
-   * of $arg1 and $arg2 are calculated by adding the missing components of $arg1 and $arg2 from an
+   * occurrences of $arg1 and $arg2 compare equal. The starting instants of equivalent occurrences of
+   * $arg1 and $arg2 are calculated by adding the missing components of $arg1 and $arg2 from an
    * xs:dateTime template such as 1972-xx-xxT00:00:00. Returns false otherwise.
    * </p>
    */
@@ -850,8 +844,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns true if and only if the xs:dateTimes representing the starting instants of equivalent
-   * occurrences of $arg1 and $arg2 compare equal. The starting instants of equivalent occurrences
-   * of $arg1 and $arg2 are calculated by adding the missing components of $arg1 and $arg2 from an
+   * occurrences of $arg1 and $arg2 compare equal. The starting instants of equivalent occurrences of
+   * $arg1 and $arg2 are calculated by adding the missing components of $arg1 and $arg2 from an
    * xs:dateTime template such as 1972-xx-ddT00:00:00 where dd represents the last day of the month
    * component in $arg1 or $arg2. Returns false otherwise.
    * </p>
@@ -864,8 +858,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns true if and only if the xs:dateTimes representing the starting instants of equivalent
-   * occurrences of $arg1 and $arg2 compare equal. The starting instants of equivalent occurrences
-   * of $arg1 and $arg2 are calculated by adding the missing components of $arg1 and $arg2 from an
+   * occurrences of $arg1 and $arg2 compare equal. The starting instants of equivalent occurrences of
+   * $arg1 and $arg2 are calculated by adding the missing components of $arg1 and $arg2 from an
    * xs:dateTime template such as 1972-12-xxT00:00:00. Returns false otherwise.
    * </p>
    */
@@ -901,8 +895,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns an xs:integer representing the days component in the value of $arg. The result is
-   * obtained by casting $arg to an xs:dayTimeDuration (see 17.1.4 Casting to duration types) and
-   * then computing the days component as described in 10.3.2.3 Canonical representation.
+   * obtained by casting $arg to an xs:dayTimeDuration (see 17.1.4 Casting to duration types) and then
+   * computing the days component as described in 10.3.2.3 Canonical representation.
    * </p>
    */
   DAYS_FROM_DUR(AbstractFunction.class, 1, 1, "xs:integer", "fn:days-from-duration"),
@@ -913,8 +907,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns an xs:integer representing the hours component in the value of $arg. The result is
-   * obtained by casting $arg to an xs:dayTimeDuration (see 17.1.4 Casting to duration types) and
-   * then computing the hours component as described in 10.3.2.3 Canonical representation.
+   * obtained by casting $arg to an xs:dayTimeDuration (see 17.1.4 Casting to duration types) and then
+   * computing the hours component as described in 10.3.2.3 Canonical representation.
    * </p>
    */
   HOURS_FROM_DUR(AbstractFunction.class, 1, 1, "xs:integer", "fn:hours-from-duration"),
@@ -925,8 +919,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns an xs:integer representing the minutes component in the value of $arg. The result is
-   * obtained by casting $arg to an xs:dayTimeDuration (see 17.1.4 Casting to duration types) and
-   * then computing the minutes component as described in 10.3.2.3 Canonical representation.
+   * obtained by casting $arg to an xs:dayTimeDuration (see 17.1.4 Casting to duration types) and then
+   * computing the minutes component as described in 10.3.2.3 Canonical representation.
    * </p>
    */
   MIN_FROM_DUR(AbstractFunction.class, 1, 1, "xs:integer", "fn:minutes-from-duration"),
@@ -937,8 +931,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns an xs:decimal representing the seconds component in the value of $arg. The result is
-   * obtained by casting $arg to an xs:dayTimeDuration (see 17.1.4 Casting to duration types) and
-   * then computing the seconds component as described in 10.3.2.3 Canonical representation.
+   * obtained by casting $arg to an xs:dayTimeDuration (see 17.1.4 Casting to duration types) and then
+   * computing the seconds component as described in 10.3.2.3 Canonical representation.
    * </p>
    */
   SEC_FROM_DUR(AbstractFunction.class, 1, 1, "xs:decimal", "fn:seconds-from-duration"),
@@ -948,8 +942,8 @@ public enum FuncDef {
    * fn:year-from-dateTime($arg as xs:dateTime?) as xs:integer?
    * </p>
    * <p>
-   * Returns an xs:integer representing the year component in the localized value of $arg. The
-   * result may be negative.
+   * Returns an xs:integer representing the year component in the localized value of $arg. The result
+   * may be negative.
    * </p>
    */
   YEAR_FROM_DT(AbstractFunction.class, 1, 1, "xs:integer", "fn:year-from-dateTime"),
@@ -1014,9 +1008,9 @@ public enum FuncDef {
    * fn:timezone-from-dateTime($arg as xs:dateTime?) as xs:dayTimeDuration?
    * </p>
    * <p>
-   * Returns the timezone component of $arg if any. If $arg has a timezone component, then the
-   * result is an xs:dayTimeDuration that indicates deviation from UTC; its value may range from
-   * +14:00 to -14:00 hours, both inclusive. Otherwise, the result is the empty sequence.
+   * Returns the timezone component of $arg if any. If $arg has a timezone component, then the result
+   * is an xs:dayTimeDuration that indicates deviation from UTC; its value may range from +14:00 to
+   * -14:00 hours, both inclusive. Otherwise, the result is the empty sequence.
    * </p>
    */
   TZ_FROM_DT(AbstractFunction.class, 1, 1, "xs:dayTimeDuration", "fn:timezone-from-dateTime"),
@@ -1059,9 +1053,9 @@ public enum FuncDef {
    * fn:timezone-from-date($arg as xs:date?) as xs:dayTimeDuration?
    * </p>
    * <p>
-   * Returns the timezone component of $arg if any. If $arg has a timezone component, then the
-   * result is an xs:dayTimeDuration that indicates deviation from UTC; its value may range from
-   * +14:00 to -14:00 hours, both inclusive. Otherwise, the result is the empty sequence.
+   * Returns the timezone component of $arg if any. If $arg has a timezone component, then the result
+   * is an xs:dayTimeDuration that indicates deviation from UTC; its value may range from +14:00 to
+   * -14:00 hours, both inclusive. Otherwise, the result is the empty sequence.
    * </p>
    */
   TZ_FROM_DATE(AbstractFunction.class, 1, 1, "xs:dayTimeDuration", "fn:timezone-from-date"),
@@ -1104,9 +1098,9 @@ public enum FuncDef {
    * fn:timezone-from-time($arg as xs:time?) as xs:dayTimeDuration?
    * </p>
    * <p>
-   * Returns the timezone component of $arg if any. If $arg has a timezone component, then the
-   * result is an xs:dayTimeDuration that indicates deviation from UTC; its value may range from
-   * +14:00 to -14:00 hours, both inclusive. Otherwise, the result is the empty sequence.
+   * Returns the timezone component of $arg if any. If $arg has a timezone component, then the result
+   * is an xs:dayTimeDuration that indicates deviation from UTC; its value may range from +14:00 to
+   * -14:00 hours, both inclusive. Otherwise, the result is the empty sequence.
    * </p>
    */
   TZ_FROM_TIME(AbstractFunction.class, 1, 1, "xs:dayTimeDuration", "fn:timezone-from-time"),
@@ -1117,16 +1111,16 @@ public enum FuncDef {
    * xs:yearMonthDuration
    * </p>
    * <p>
-   * Returns the result of adding the value of $arg1 to the value of $arg2. Backs up the "+"
-   * operator on xs:yearMonthDuration values.
+   * Returns the result of adding the value of $arg1 to the value of $arg2. Backs up the "+" operator
+   * on xs:yearMonthDuration values.
    * </p>
    */
   ADD_YMD(AbstractFunction.class, 2, 2, "xs:yearMonthDuration", "op:add-yearMonthDurations"),
 
   /**
    * <p>
-   * op:subtract-yearMonthDurations( $arg1 as xs:yearMonthDuration, $arg2 as xs:yearMonthDuration)
-   * as xs:yearMonthDuration
+   * op:subtract-yearMonthDurations( $arg1 as xs:yearMonthDuration, $arg2 as xs:yearMonthDuration) as
+   * xs:yearMonthDuration
    * </p>
    * <p>
    * Returns the result of subtracting the value of $arg2 from the value of $arg1. Backs up the "-"
@@ -1153,8 +1147,8 @@ public enum FuncDef {
    * xs:yearMonthDuration
    * </p>
    * <p>
-   * Returns the result of dividing the value of $arg1 by $arg2. The result is rounded to the
-   * nearest month. For a value v, 0 &lt;= v &lt; 0.5 rounds to 0; 0.5 &lt;= v &lt; 1.0 rounds to 1.
+   * Returns the result of dividing the value of $arg1 by $arg2. The result is rounded to the nearest
+   * month. For a value v, 0 &lt;= v &lt; 0.5 rounds to 0; 0.5 &lt;= v &lt; 1.0 rounds to 1.
    * </p>
    */
   DIV_YMD(AbstractFunction.class, 2, 2, "xs:yearMonthDuration", "op:divide-yearMonthDuration"),
@@ -1165,14 +1159,13 @@ public enum FuncDef {
    * xs:yearMonthDuration) as xs:decimal
    * </p>
    * <p>
-   * Returns the result of dividing the value of $arg1 by $arg2. Since the values of both operands
-   * are integers, the semantics of the division is identical to /**
+   * Returns the result of dividing the value of $arg1 by $arg2. Since the values of both operands are
+   * integers, the semantics of the division is identical to /**
    * <p>
    * op:numeric-divide with xs:integer operands.
    * </p>
    */
-  DIV_YMD_BY_YMD(AbstractFunction.class, 2, 2, "xs:decimal",
-      "op:divide-yearMonthDuration-by-yearMonthDuration"),
+  DIV_YMD_BY_YMD(AbstractFunction.class, 2, 2, "xs:decimal", "op:divide-yearMonthDuration-by-yearMonthDuration"),
 
   /**
    * <p>
@@ -1180,8 +1173,8 @@ public enum FuncDef {
    * xs:dayTimeDuration
    * </p>
    * <p>
-   * Returns the result of adding the value of $arg1 to the value of $arg2. Backs up the "+"
-   * operator on xs:dayTimeDuration values.
+   * Returns the result of adding the value of $arg1 to the value of $arg2. Backs up the "+" operator
+   * on xs:dayTimeDuration values.
    * </p>
    */
   ADD_DTD(AbstractFunction.class, 2, 2, "xs:dayTimeDuration", "op:add-dayTimeDurations"),
@@ -1211,8 +1204,7 @@ public enum FuncDef {
 
   /**
    * <p>
-   * op:divide-dayTimeDuration( $arg1 as xs:dayTimeDuration, $arg2 as xs:double) as
-   * xs:dayTimeDuration
+   * op:divide-dayTimeDuration( $arg1 as xs:dayTimeDuration, $arg2 as xs:double) as xs:dayTimeDuration
    * </p>
    * <p>
    * Returns the result of dividing the value of $arg1 by $arg2.
@@ -1226,13 +1218,12 @@ public enum FuncDef {
    * xs:dayTimeDuration) as xs:decimal
    * </p>
    * <p>
-   * Returns the result of dividing the value of $arg1 by $arg2. Since the values of both operands
-   * are decimals, the semantics of the division is identical to op:numeric-divide with xs:decimal
+   * Returns the result of dividing the value of $arg1 by $arg2. Since the values of both operands are
+   * decimals, the semantics of the division is identical to op:numeric-divide with xs:decimal
    * operands.
    * </p>
    */
-  DIV_DTD_BY_DTD(AbstractFunction.class, 2, 2, "xs:decimal",
-      "op:divide-dayTimeDuration-by-dayTimeDuration"),
+  DIV_DTD_BY_DTD(AbstractFunction.class, 2, 2, "xs:decimal", "op:divide-dayTimeDuration-by-dayTimeDuration"),
 
   /**
    * <p>
@@ -1244,8 +1235,8 @@ public enum FuncDef {
    * </p>
    * <p>
    * Adjusts an xs:dateTime value to a specific timezone, or to no timezone at all. If $timezone is
-   * the empty sequence, returns an xs:dateTime without a timezone. Otherwise, returns an
-   * xs:dateTime with a timezone.
+   * the empty sequence, returns an xs:dateTime without a timezone. Otherwise, returns an xs:dateTime
+   * with a timezone.
    * </p>
    */
   ADJUST_DT2TZ(AbstractFunction.class, 1, 2, "xs:dateTime", "fn:adjust-dateTime-to-timezone"),
@@ -1260,8 +1251,8 @@ public enum FuncDef {
    * <p>
    * Adjusts an xs:date value to a specific timezone, or to no timezone at all. If $timezone is the
    * empty sequence, returns an xs:date without a timezone. Otherwise, returns an xs:date with a
-   * timezone. For purposes of timezone adjustment, an xs:date is treated as an xs:dateTime with
-   * time 00:00:00.
+   * timezone. For purposes of timezone adjustment, an xs:date is treated as an xs:dateTime with time
+   * 00:00:00.
    * </p>
    */
   ADJUST_DATE2TZ(AbstractFunction.class, 1, 2, "xs:date", "fn:adjust-date-to-timezone"),
@@ -1286,8 +1277,8 @@ public enum FuncDef {
    * op:subtract-dateTimes( $arg1 as xs:dateTime, $arg2 as xs:dateTime) as xs:dayTimeDuration?
    * </p>
    * <p>
-   * Returns the xs:dayTimeDuration that corresponds to the difference between the normalized value
-   * of $arg1 and the normalized value of $arg2. If either $arg1 or $arg2 do not contain an explicit
+   * Returns the xs:dayTimeDuration that corresponds to the difference between the normalized value of
+   * $arg1 and the normalized value of $arg2. If either $arg1 or $arg2 do not contain an explicit
    * timezone then, for the purpose of the operation, the implicit timezone provided by the dynamic
    * context (See Section C.2 Dynamic Context ComponentsXP.) is assumed to be present as part of the
    * value.
@@ -1300,11 +1291,11 @@ public enum FuncDef {
    * op:subtract-dates($arg1 as xs:date, $arg2 as xs:date) as xs:dayTimeDuration?
    * </p>
    * <p>
-   * Returns the xs:dayTimeDuration that corresponds to the difference between the starting instant
-   * of $arg1 and the the starting instant of $arg2. If either $arg1 or $arg2 do not contain an
-   * explicit timezone then, for the purpose of the operation, the implicit timezone provided by the
-   * dynamic context (See Section C.2 Dynamic Context ComponentsXP.) is assumed to be present as
-   * part of the value.
+   * Returns the xs:dayTimeDuration that corresponds to the difference between the starting instant of
+   * $arg1 and the the starting instant of $arg2. If either $arg1 or $arg2 do not contain an explicit
+   * timezone then, for the purpose of the operation, the implicit timezone provided by the dynamic
+   * context (See Section C.2 Dynamic Context ComponentsXP.) is assumed to be present as part of the
+   * value.
    * </p>
    */
   SUB_DATES(AbstractFunction.class, 2, 2, "xs:dayTimeDuration", "op:subtract-dates"),
@@ -1317,9 +1308,9 @@ public enum FuncDef {
    * Returns the xs:dayTimeDuration that corresponds to the difference between the value of $arg1
    * converted to an xs:dateTime using the date components from the reference xs:dateTime and the
    * value of $arg2 converted to an xs:dateTime using the date components from the same reference
-   * xs:dateTime . If either $arg1 or $arg2 do not contain an explicit timezone then, for the
-   * purpose of the operation, the implicit timezone provided by the dynamic context (See Section
-   * C.2 Dynamic Context ComponentsXP.) is assumed to be present as part of the value.
+   * xs:dateTime . If either $arg1 or $arg2 do not contain an explicit timezone then, for the purpose
+   * of the operation, the implicit timezone provided by the dynamic context (See Section C.2 Dynamic
+   * Context ComponentsXP.) is assumed to be present as part of the value.
    * </p>
    */
   SUB_TIMES(AbstractFunction.class, 2, 2, "xs:dayTimeDuration", "op:subtract-times"),
@@ -1352,22 +1343,7 @@ public enum FuncDef {
 
   /**
    * <p>
-   * op:subtract-yearMonthDuration-from-dateTime( $arg1 as xs:dateTime, $arg2 as
-   * xs:yearMonthDuration) as xs:dateTime
-   * </p>
-   * <p>
-   * Returns the xs:dateTime computed by negating $arg2 and adding the result to the value of $arg1
-   * using the algorithm described in Appendix E of [XML Schema Part 2: Datatypes Second Edition]
-   * disregarding the rule about leap seconds. If $arg2 is negative, then the xs:dateTime returned
-   * follows $arg1.
-   * </p>
-   */
-  SUB_YMD_FROM_DT(AbstractFunction.class, 2, 2, "xs:dateTime",
-      "op:subtract-yearMonthDuration-from-dateTime"),
-
-  /**
-   * <p>
-   * op:subtract-dayTimeDuration-from-dateTime( $arg1 as xs:dateTime, $arg2 as xs:dayTimeDuration)
+   * op:subtract-yearMonthDuration-from-dateTime( $arg1 as xs:dateTime, $arg2 as xs:yearMonthDuration)
    * as xs:dateTime
    * </p>
    * <p>
@@ -1377,18 +1353,31 @@ public enum FuncDef {
    * follows $arg1.
    * </p>
    */
-  SUB_DTD_FROM_DT(AbstractFunction.class, 2, 2, "xs:dateTime",
-      "op:subtract-dayTimeDuration-from-dateTime"),
+  SUB_YMD_FROM_DT(AbstractFunction.class, 2, 2, "xs:dateTime", "op:subtract-yearMonthDuration-from-dateTime"),
+
+  /**
+   * <p>
+   * op:subtract-dayTimeDuration-from-dateTime( $arg1 as xs:dateTime, $arg2 as xs:dayTimeDuration) as
+   * xs:dateTime
+   * </p>
+   * <p>
+   * Returns the xs:dateTime computed by negating $arg2 and adding the result to the value of $arg1
+   * using the algorithm described in Appendix E of [XML Schema Part 2: Datatypes Second Edition]
+   * disregarding the rule about leap seconds. If $arg2 is negative, then the xs:dateTime returned
+   * follows $arg1.
+   * </p>
+   */
+  SUB_DTD_FROM_DT(AbstractFunction.class, 2, 2, "xs:dateTime", "op:subtract-dayTimeDuration-from-dateTime"),
 
   /**
    * <p>
    * op:add-yearMonthDuration-to-date( $arg1 as xs:date, $arg2 as xs:yearMonthDuration) as xs:date
    * </p>
    * <p>
-   * Returns the xs:date computed by adding $arg2 to the starting instant of $arg1 using the
-   * algorithm described in Appendix E of [XML Schema Part 2: Datatypes Second Edition] and
-   * discarding the time components from the resulting xs:dateTime. If $arg2 is negative, then the
-   * xs:date returned precedes $arg1.
+   * Returns the xs:date computed by adding $arg2 to the starting instant of $arg1 using the algorithm
+   * described in Appendix E of [XML Schema Part 2: Datatypes Second Edition] and discarding the time
+   * components from the resulting xs:dateTime. If $arg2 is negative, then the xs:date returned
+   * precedes $arg1.
    * </p>
    */
   ADD_YMD2DATE(AbstractFunction.class, 2, 2, "xs:date", "op:add-yearMonthDuration-to-date"),
@@ -1398,10 +1387,10 @@ public enum FuncDef {
    * op:add-dayTimeDuration-to-date( $arg1 as xs:date, $arg2 as xs:dayTimeDuration) as xs:date
    * </p>
    * <p>
-   * Returns the xs:date computed by adding $arg2 to the starting instant of $arg1 using the
-   * algorithm described in Appendix E of [XML Schema Part 2: Datatypes Second Edition] and
-   * discarding the time components from the resulting xs:dateTime. If $arg2 is negative, then the
-   * xs:date returned precedes $arg1.
+   * Returns the xs:date computed by adding $arg2 to the starting instant of $arg1 using the algorithm
+   * described in Appendix E of [XML Schema Part 2: Datatypes Second Edition] and discarding the time
+   * components from the resulting xs:dateTime. If $arg2 is negative, then the xs:date returned
+   * precedes $arg1.
    * </p>
    */
   ADD_DTD2DATE(AbstractFunction.class, 2, 2, "xs:date", "op:add-dayTimeDuration-to-date"),
@@ -1414,47 +1403,43 @@ public enum FuncDef {
    * <p>
    * Returns the xs:date computed by negating $arg2 and adding the result to the starting instant of
    * $arg1 using the algorithm described in Appendix E of [XML Schema Part 2: Datatypes Second
-   * Edition] and discarding the time components from the resulting xs:dateTime. If $arg2 is
-   * positive, then the xs:date returned precedes $arg1.
+   * Edition] and discarding the time components from the resulting xs:dateTime. If $arg2 is positive,
+   * then the xs:date returned precedes $arg1.
    * </p>
    */
-  SUB_YMD_FROM_DATE(AbstractFunction.class, 2, 2, "xs:date",
-      "op:subtract-yearMonthDuration-from-date"),
+  SUB_YMD_FROM_DATE(AbstractFunction.class, 2, 2, "xs:date", "op:subtract-yearMonthDuration-from-date"),
 
   /**
    * <p>
-   * op:subtract-dayTimeDuration-from-date( $arg1 as xs:date, $arg2 as xs:dayTimeDuration) as
-   * xs:date
+   * op:subtract-dayTimeDuration-from-date( $arg1 as xs:date, $arg2 as xs:dayTimeDuration) as xs:date
    * </p>
    * <p>
    * Returns the xs:date computed by negating $arg2 and adding the result to the starting instant of
    * $arg1 using the algorithm described in Appendix E of [XML Schema Part 2: Datatypes Second
-   * Edition] and discarding the time components from the resulting xs:dateTime. If $arg2 is
-   * positive, then the xs:date returned precedes $arg1.
+   * Edition] and discarding the time components from the resulting xs:dateTime. If $arg2 is positive,
+   * then the xs:date returned precedes $arg1.
    * </p>
    */
-  SUB_DTD_FROM_DATE(AbstractFunction.class, 2, 2, "xs:date",
-      "op:subtract-dayTimeDuration-from-date"),
+  SUB_DTD_FROM_DATE(AbstractFunction.class, 2, 2, "xs:date", "op:subtract-dayTimeDuration-from-date"),
 
   /**
    * <p>
    * op:add-dayTimeDuration-to-time( $arg1 as xs:time, $arg2 as xs:dayTimeDuration) as xs:time
    * </p>
    * <p>
-   * First, the days component in the canonical lexical representation of $arg2 is set to zero (0)
-   * and the value of the resulting xs:dayTimeDuration is calculated. Alternatively, the value of
-   * $arg2 modulus 86,400 is used as the second argument. This value is added to the value of $arg1
-   * converted to an xs:dateTime using a reference date such as 1972-12-31 and the time components
-   * of the result returned. Note that the xs:time returned may occur in a following or preceding
-   * day and may be less than $arg1.
+   * First, the days component in the canonical lexical representation of $arg2 is set to zero (0) and
+   * the value of the resulting xs:dayTimeDuration is calculated. Alternatively, the value of $arg2
+   * modulus 86,400 is used as the second argument. This value is added to the value of $arg1
+   * converted to an xs:dateTime using a reference date such as 1972-12-31 and the time components of
+   * the result returned. Note that the xs:time returned may occur in a following or preceding day and
+   * may be less than $arg1.
    * </p>
    */
   ADD_DTD2TIME(AbstractFunction.class, 2, 2, "xs:time", "op:add-dayTimeDuration-to-time"),
 
   /**
    * <p>
-   * op:subtract-dayTimeDuration-from-time( $arg1 as xs:time, $arg2 as xs:dayTimeDuration) as
-   * xs:time
+   * op:subtract-dayTimeDuration-from-time( $arg1 as xs:time, $arg2 as xs:dayTimeDuration) as xs:time
    * </p>
    * <p>
    * The result is calculated by first setting the day component in the canonical lexical
@@ -1465,8 +1450,7 @@ public enum FuncDef {
    * the xs:time returned may occur in a preceding or following day and may be greater than $arg1.
    * </p>
    */
-  SUB_DTD_FROM_TIME(AbstractFunction.class, 2, 2, "xs:time",
-      "op:subtract-dayTimeDuration-from-time"),
+  SUB_DTD_FROM_TIME(AbstractFunction.class, 2, 2, "xs:time", "op:subtract-dayTimeDuration-from-time"),
 
   /**
    * <p>
@@ -1487,9 +1471,9 @@ public enum FuncDef {
    * <p>
    * Returns an xs:QName with the namespace URI given in $argumentsURI. If $argumentsURI is the
    * zero-length string or the empty sequence, it represents "no namespace"; in this case, if the
-   * value of $argumentsQName contains a colon (:), an error is raised [err:FOCA0002]. The prefix
-   * (or absence of a prefix) in $argumentsQName is retained in the returned xs:QName value. The
-   * local name in the result is taken from the local part of $argumentsQName.
+   * value of $argumentsQName contains a colon (:), an error is raised [err:FOCA0002]. The prefix (or
+   * absence of a prefix) in $argumentsQName is retained in the returned xs:QName value. The local
+   * name in the result is taken from the local part of $argumentsQName.
    * </p>
    */
   QNAME(AbstractFunction.class, 2, 2, "xs:QName", "fn:QName"),
@@ -1499,12 +1483,12 @@ public enum FuncDef {
    * op:QName-equal($arg1 as xs:QName, $arg2 as xs:QName) as xs:boolean
    * </p>
    * <p>
-   * Returns true if the namespace URIs of $arg1 and $arg2 are equal and the local names of $arg1
-   * and $arg2 are identical based on the Unicode code point collation
+   * Returns true if the namespace URIs of $arg1 and $arg2 are equal and the local names of $arg1 and
+   * $arg2 are identical based on the Unicode code point collation
    * (http://www.w3.org/2005/xpath-functions/collation/codepoint). Otherwise, returns false. Two
-   * namespace URIs are considered equal if they are either both absent or both present and
-   * identical based on the Unicode code point collation. The prefix parts of $arg1 and $arg2, if
-   * any, are ignored.
+   * namespace URIs are considered equal if they are either both absent or both present and identical
+   * based on the Unicode code point collation. The prefix parts of $arg1 and $arg2, if any, are
+   * ignored.
    * </p>
    */
   QNAME_EQ(AbstractFunction.class, 2, 2, "xs:boolean", "op:QName-equal"),
@@ -1536,9 +1520,9 @@ public enum FuncDef {
    * fn:in-scope-prefixes($element as element()) as xs:string
    * </p>
    * <p>
-   * Returns the prefixes of the in-scope namespaces for $element. For namespaces that have a
-   * prefix, it returns the prefix as an xs:NCName. For the default namespace, which has no prefix,
-   * it returns the zero-length string.
+   * Returns the prefixes of the in-scope namespaces for $element. For namespaces that have a prefix,
+   * it returns the prefix as an xs:NCName. For the default namespace, which has no prefix, it returns
+   * the zero-length string.
    * </p>
    */
   IN_SCOPE_PREF(AbstractFunction.class, 1, 1, "xs:string", "fn:in-scope-prefixes"),
@@ -1570,12 +1554,12 @@ public enum FuncDef {
    * op:NOTATION-equal($arg1 as xs:NOTATION, $arg2 as xs:NOTATION) as xs:boolean
    * </p>
    * <p>
-   * Returns true if the namespace URIs of $arg1 and $arg2 are equal and the local names of $arg1
-   * and $arg2 are identical based on the Unicode code point collation:
+   * Returns true if the namespace URIs of $arg1 and $arg2 are equal and the local names of $arg1 and
+   * $arg2 are identical based on the Unicode code point collation:
    * http://www.w3.org/2005/xpath-functions/collation/codepoint. Otherwise, returns false. Two
-   * namespace URIs are considered equal if they are either both absent or both present and
-   * identical based on the Unicode code point collation. The prefix parts of $arg1 and $arg2, if
-   * any, are ignored.
+   * namespace URIs are considered equal if they are either both absent or both present and identical
+   * based on the Unicode code point collation. The prefix parts of $arg1 and $arg2, if any, are
+   * ignored.
    * </p>
    */
   NOTATION_EQ(AbstractFunction.class, 2, 2, "xs:boolean", "op:NOTATION-equal"),
@@ -1613,8 +1597,8 @@ public enum FuncDef {
    * fn:local-name-from-QName($arg as xs:QName?) as xs:NCName?
    * </p>
    * <p>
-   * Returns an xs:NCName representing the local part of $arg. If $arg is the empty sequence,
-   * returns the empty sequence.
+   * Returns an xs:NCName representing the local part of $arg. If $arg is the empty sequence, returns
+   * the empty sequence.
    * </p>
    */
   LOC_NAME_FROM_QNAME(AbstractFunction.class, 1, 1, "xs:NCName", "fn:local-name-from-QName"),
@@ -1651,14 +1635,14 @@ public enum FuncDef {
    * fn:lang($testlang as xs:string?, $node as node()) as xs:boolean
    * </p>
    * <p>
-   * This function tests whether the language of $node, or the context item if the second argument
-   * is omitted, as specified by xml:lang attributes is the same as, or is a sublanguage of, the
-   * language specified by $testlang. The behavior of the function if the second argument is omitted
-   * is exactly the same as if the context item (.) had been passed as the second argument. The
-   * language of the argument node, or the context item if the second argument is omitted, is
-   * determined by the value of the xml:lang attribute on the node, or, if the node has no such
-   * attribute, by the value of the xml:lang attribute on the nearest ancestor of the node that has
-   * an xml:lang attribute. If there is no such ancestor, then the function returns false
+   * This function tests whether the language of $node, or the context item if the second argument is
+   * omitted, as specified by xml:lang attributes is the same as, or is a sublanguage of, the language
+   * specified by $testlang. The behavior of the function if the second argument is omitted is exactly
+   * the same as if the context item (.) had been passed as the second argument. The language of the
+   * argument node, or the context item if the second argument is omitted, is determined by the value
+   * of the xml:lang attribute on the node, or, if the node has no such attribute, by the value of the
+   * xml:lang attribute on the nearest ancestor of the node that has an xml:lang attribute. If there
+   * is no such ancestor, then the function returns false
    * </p>
    */
   LANG(AbstractFunction.class, 1, 2, "xs:boolean", "fn:lang"),
@@ -1668,10 +1652,10 @@ public enum FuncDef {
    * op:is-same-node($argumentseter1 as node(), $argumentseter2 as node()) as xs:boolean
    * </p>
    * <p>
-   * If the node identified by the value of $argumentseter1 is the same node as the node identified
-   * by the value of $argumentseter2 (that is, the two nodes have the same identity), then the
-   * function returns true; otherwise, the function returns false. This function backs up the "is"
-   * operator on nodes.
+   * If the node identified by the value of $argumentseter1 is the same node as the node identified by
+   * the value of $argumentseter2 (that is, the two nodes have the same identity), then the function
+   * returns true; otherwise, the function returns false. This function backs up the "is" operator on
+   * nodes.
    * </p>
    */
   IS_SAME_NODE(AbstractFunction.class, 2, 2, "xs:boolean", "op:is-same-node"),
@@ -1714,8 +1698,8 @@ public enum FuncDef {
    * as xs:string) as xs:integer*
    * </p>
    * <p>
-   * Returns a sequence of positive integers giving the positions within the sequence $seqarguments
-   * of items that are equal to $srcharguments.
+   * Returns a sequence of positive integers giving the positions within the sequence $seqarguments of
+   * items that are equal to $srcharguments.
    * </p>
    */
   INDEX_OF(AbstractFunction.class, 2, 3, "xs:integer", "fn:index-of"),
@@ -1750,10 +1734,10 @@ public enum FuncDef {
    * fn:distinct-values( $arg as xs:anyAtomicType*, $collation as xs:string) as xs:anyAtomicType*
    * </p>
    * <p>
-   * Returns the sequence that results from removing from $arg all but one of a set of values that
-   * are eq to one other. Values of type xs:untypedAtomic are compared as if they were of type
-   * xs:string. Values that cannot be compared, i.e. the eq operator is not defined for their types,
-   * are considered to be distinct. The order in which the sequence of values is returned is
+   * Returns the sequence that results from removing from $arg all but one of a set of values that are
+   * eq to one other. Values of type xs:untypedAtomic are compared as if they were of type xs:string.
+   * Values that cannot be compared, i.e. the eq operator is not defined for their types, are
+   * considered to be distinct. The order in which the sequence of values is returned is
    * �implementation dependent�.
    * </p>
    */
@@ -1768,12 +1752,12 @@ public enum FuncDef {
    * xs:boolean
    * </p>
    * <p>
-   * This function assesses whether two sequences are deep-equal to each other. To be deep-equal,
-   * they must contain items that are pairwise deep-equal; and for two items to be deep-equal, they
-   * must either be atomic values that compare equal, or nodes of the same kind, with the same name,
-   * whose children are deep-equal. This is defined in more detail below. The $collation argument
-   * identifies a collation which is used at all levels of recursion when strings are compared (but
-   * not when names are compared), according to the rules in 7.3.1 Collations.
+   * This function assesses whether two sequences are deep-equal to each other. To be deep-equal, they
+   * must contain items that are pairwise deep-equal; and for two items to be deep-equal, they must
+   * either be atomic values that compare equal, or nodes of the same kind, with the same name, whose
+   * children are deep-equal. This is defined in more detail below. The $collation argument identifies
+   * a collation which is used at all levels of recursion when strings are compared (but not when
+   * names are compared), according to the rules in 7.3.1 Collations.
    * </p>
    */
   DEEP_EQ(AbstractFunction.class, 2, 2, "xs:boolean", "fn:deep-equal"),
@@ -1784,10 +1768,10 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns the sequence containing every xs:integer whose value is between the value of $firstval
-   * (inclusive) and the value of $lastval (inclusive), in monotonic order. If the value of the
-   * first operand is greater than the value of the second, the empty sequence is returned. If the
-   * values of the two operands are equal, a sequence containing a single xs:integer equal to the
-   * value is returned.
+   * (inclusive) and the value of $lastval (inclusive), in monotonic order. If the value of the first
+   * operand is greater than the value of the second, the empty sequence is returned. If the values of
+   * the two operands are equal, a sequence containing a single xs:integer equal to the value is
+   * returned.
    * </p>
    */
   TO(AbstractFunction.class, 2, 2, "xs:integer", "op:to"),
@@ -1831,10 +1815,10 @@ public enum FuncDef {
    * </p>
    * <p>
    * Returns the current dateTime (with timezone) from the dynamic context. (See Section C.2 Dynamic
-   * Context ComponentsXP.) This is an xs:dateTime that is current at some time during the
-   * evaluation of a query or transformation in which fn:current-dateTime() is executed. This
-   * function is �stable�. The precise instant during the query or transformation represented by the
-   * value of fn:current-dateTime() is �implementation dependent�.
+   * Context ComponentsXP.) This is an xs:dateTime that is current at some time during the evaluation
+   * of a query or transformation in which fn:current-dateTime() is executed. This function is
+   * �stable�. The precise instant during the query or transformation represented by the value of
+   * fn:current-dateTime() is �implementation dependent�.
    * </p>
    */
   CURRENT_DT(AbstractFunction.class, 0, 0, "xs:dateTime", "fn:current-dateTime"),
@@ -1937,8 +1921,8 @@ public enum FuncDef {
    * @param paramMax specified maximum number of function arguments
    * @param paramReturnType return type of the function
    */
-  private FuncDef(final Class<? extends AbstractFunction> paramFunc, final int paramMin,
-      final int paramMax, final String paramReturnType, final String... paramName) {
+  private FuncDef(final Class<? extends AbstractFunction> paramFunc, final int paramMin, final int paramMax,
+      final String paramReturnType, final String... paramName) {
 
     this.mNames = paramName;
     this.mFunc = paramFunc;

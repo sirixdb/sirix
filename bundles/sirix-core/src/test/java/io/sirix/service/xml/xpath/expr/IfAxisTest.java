@@ -58,17 +58,14 @@ public class IfAxisTest {
 
     holder.getXmlNodeReadTrx().moveTo(1L);
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "if (text()) then . else child::node()"),
+    AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "if (text()) then . else child::node()"),
+        new long[] {1L});
+
+    AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "if (node()) then . else child::node()"),
         new long[] {1L});
 
     AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "if (node()) then . else child::node()"),
-        new long[] {1L});
-
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(),
-            "if (processing-instruction()) then . else child::node()"),
+        new XPathAxis(holder.getXmlNodeReadTrx(), "if (processing-instruction()) then . else child::node()"),
         new long[] {4L, 5L, 8L, 9L, 13L});
 
   }

@@ -43,7 +43,7 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
     axisFilter.add(firstAxisTest);
 
     if (axisTest != null) {
-        axisFilter.addAll(Arrays.asList(axisTest));
+      axisFilter.addAll(Arrays.asList(axisTest));
     }
   }
 

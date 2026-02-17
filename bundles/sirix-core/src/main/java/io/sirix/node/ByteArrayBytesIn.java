@@ -35,8 +35,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
- * BytesIn implementation backed by a byte array.
- * Used for lazy snapshot parsing where the node owns a copy of the serialized bytes.
+ * BytesIn implementation backed by a byte array. Used for lazy snapshot parsing where the node owns
+ * a copy of the serialized bytes.
  *
  * @author Johannes Lichtenberger
  */
@@ -99,24 +99,18 @@ public final class ByteArrayBytesIn implements BytesIn<byte[]> {
 
   @Override
   public int readInt() {
-    int value = (data[position] & 0xFF) |
-                ((data[position + 1] & 0xFF) << 8) |
-                ((data[position + 2] & 0xFF) << 16) |
-                ((data[position + 3] & 0xFF) << 24);
+    int value = (data[position] & 0xFF) | ((data[position + 1] & 0xFF) << 8) | ((data[position + 2] & 0xFF) << 16)
+        | ((data[position + 3] & 0xFF) << 24);
     position += 4;
     return value;
   }
 
   @Override
   public long readLong() {
-    long value = (data[position] & 0xFFL) |
-                 ((data[position + 1] & 0xFFL) << 8) |
-                 ((data[position + 2] & 0xFFL) << 16) |
-                 ((data[position + 3] & 0xFFL) << 24) |
-                 ((data[position + 4] & 0xFFL) << 32) |
-                 ((data[position + 5] & 0xFFL) << 40) |
-                 ((data[position + 6] & 0xFFL) << 48) |
-                 ((data[position + 7] & 0xFFL) << 56);
+    long value = (data[position] & 0xFFL) | ((data[position + 1] & 0xFFL) << 8) | ((data[position + 2] & 0xFFL) << 16)
+        | ((data[position + 3] & 0xFFL) << 24) | ((data[position + 4] & 0xFFL) << 32)
+        | ((data[position + 5] & 0xFFL) << 40) | ((data[position + 6] & 0xFFL) << 48)
+        | ((data[position + 7] & 0xFFL) << 56);
     position += 8;
     return value;
   }
@@ -192,12 +186,5 @@ public final class ByteArrayBytesIn implements BytesIn<byte[]> {
     return Arrays.copyOfRange(data, position, data.length);
   }
 }
-
-
-
-
-
-
-
 
 

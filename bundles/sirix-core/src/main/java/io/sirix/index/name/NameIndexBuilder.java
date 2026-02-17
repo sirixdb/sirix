@@ -20,7 +20,9 @@ import java.util.Set;
 /**
  * Builder for NAME indexes.
  * 
- * <p>Supports both traditional RBTree and high-performance HOT index backends.</p>
+ * <p>
+ * Supports both traditional RBTree and high-performance HOT index backends.
+ * </p>
  */
 public final class NameIndexBuilder {
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(NameIndexBuilder.class));
@@ -48,8 +50,8 @@ public final class NameIndexBuilder {
   /**
    * Constructor with HOT writer (high-performance path).
    */
-  public NameIndexBuilder(final Set<QNm> includes, final Set<QNm> excludes,
-      final HOTIndexWriter<QNm> hotWriter, final StorageEngineReader pageRtx) {
+  public NameIndexBuilder(final Set<QNm> includes, final Set<QNm> excludes, final HOTIndexWriter<QNm> hotWriter,
+      final StorageEngineReader pageRtx) {
     this.includes = includes;
     this.excludes = excludes;
     this.rbTreeWriter = null;
@@ -82,8 +84,7 @@ public final class NameIndexBuilder {
   private void buildRBTree(QNm name, ImmutableNode node) {
     assert rbTreeWriter != null;
     final Optional<NodeReferences> textReferences = rbTreeWriter.get(name, SearchMode.EQUAL);
-    textReferences.ifPresentOrElse(
-        nodeReferences -> setNodeReferencesRBTree(node, nodeReferences, name),
+    textReferences.ifPresentOrElse(nodeReferences -> setNodeReferencesRBTree(node, nodeReferences, name),
         () -> setNodeReferencesRBTree(node, new NodeReferences(), name));
   }
 

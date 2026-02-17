@@ -23,18 +23,18 @@ public interface BufferManager extends AutoCloseable {
   Cache<PathSummaryCacheKey, PathSummaryData> getPathSummaryCache();
 
   void clearAllCaches();
-  
+
   /**
-   * Clear all cached pages for a specific database.
-   * CRITICAL: Must be called when a database is closed to prevent cache pollution.
+   * Clear all cached pages for a specific database. CRITICAL: Must be called when a database is
+   * closed to prevent cache pollution.
    * 
    * @param databaseId the database ID to clear pages for
    */
   void clearCachesForDatabase(long databaseId);
-  
+
   /**
-   * Clear all cached pages for a specific resource within a database.
-   * CRITICAL: Must be called when a resource is closed to prevent cache pollution.
+   * Clear all cached pages for a specific resource within a database. CRITICAL: Must be called when a
+   * resource is closed to prevent cache pollution.
    * 
    * @param databaseId the database ID
    * @param resourceId the resource ID to clear pages for

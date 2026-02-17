@@ -48,15 +48,17 @@ import static java.util.Objects.requireNonNull;
 /**
  * Abstract base class for HOT index readers.
  *
- * <p>Provides common functionality for tree navigation, root reference lookup,
- * and iteration. Subclasses implement key serialization/deserialization.</p>
+ * <p>
+ * Provides common functionality for tree navigation, root reference lookup, and iteration.
+ * Subclasses implement key serialization/deserialization.
+ * </p>
  *
  * <h2>Zero Allocation Design</h2>
  * <ul>
- *   <li>Thread-local byte buffers for key serialization</li>
- *   <li>No Optional - uses @Nullable returns</li>
- *   <li>Lock-free reads with guard management</li>
- *   <li>Pre-allocated traversal arrays via {@link HOTTrieReader}</li>
+ * <li>Thread-local byte buffers for key serialization</li>
+ * <li>No Optional - uses @Nullable returns</li>
+ * <li>Lock-free reads with guard management</li>
+ * <li>Pre-allocated traversal arrays via {@link HOTTrieReader}</li>
  * </ul>
  *
  * @param <K> the key type exposed by the reader
@@ -72,11 +74,10 @@ public abstract class AbstractHOTIndexReader<K> {
    * Protected constructor.
    *
    * @param pageReadTrx the storage engine reader
-   * @param indexType   the index type (PATH, CAS, NAME)
+   * @param indexType the index type (PATH, CAS, NAME)
    * @param indexNumber the index number
    */
-  protected AbstractHOTIndexReader(StorageEngineReader pageReadTrx,
-                                   IndexType indexType, int indexNumber) {
+  protected AbstractHOTIndexReader(StorageEngineReader pageReadTrx, IndexType indexType, int indexNumber) {
     this.pageReadTrx = requireNonNull(pageReadTrx);
     this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
@@ -143,11 +144,11 @@ public abstract class AbstractHOTIndexReader<K> {
   }
 
   /**
-   * Navigate to the leaf page containing the key.
-   * Uses {@link HOTTrieReader} for proper tree traversal.
+   * Navigate to the leaf page containing the key. Uses {@link HOTTrieReader} for proper tree
+   * traversal.
    *
    * @param rootRef the root reference
-   * @param key     the search key bytes
+   * @param key the search key bytes
    * @return the leaf page, or null if not found
    */
   protected @Nullable HOTLeafPage navigateToLeaf(PageReference rootRef, byte[] key) {
@@ -159,7 +160,7 @@ public abstract class AbstractHOTIndexReader<K> {
   /**
    * Serialize a key to bytes.
    *
-   * @param key    the key to serialize
+   * @param key the key to serialize
    * @param buffer the buffer to write to
    * @param offset the offset in the buffer
    * @return the number of bytes written
@@ -179,16 +180,15 @@ public abstract class AbstractHOTIndexReader<K> {
   /**
    * Compare two serialized keys.
    *
-   * @param key1       first key bytes
-   * @param offset1    offset in first key
-   * @param length1    length of first key
-   * @param key2       second key bytes
-   * @param offset2    offset in second key
-   * @param length2    length of second key
+   * @param key1 first key bytes
+   * @param offset1 offset in first key
+   * @param length1 length of first key
+   * @param key2 second key bytes
+   * @param offset2 offset in second key
+   * @param length2 length of second key
    * @return negative if key1 < key2, zero if equal, positive if key1 > key2
    */
-  protected abstract int compareKeys(byte[] key1, int offset1, int length1,
-                                     byte[] key2, int offset2, int length2);
+  protected abstract int compareKeys(byte[] key1, int offset1, int length1, byte[] key2, int offset2, int length2);
 
   /**
    * Get the thread-local key buffer.
@@ -279,7 +279,7 @@ public abstract class AbstractHOTIndexReader<K> {
           }
         }
       }
-      
+
       // Clean up trie reader when done
       if (trieReader != null && currentLeaf == null) {
         trieReader.close();
@@ -290,13 +290,15 @@ public abstract class AbstractHOTIndexReader<K> {
   /**
    * Range iterator over HOT entries, handling tree navigation.
    *
-   * <p>For range queries, we start from the leftmost leaf and skip entries
-   * that are before {@code fromBytes}. This is simpler and more correct than
-   * trying to navigate directly to a key that may not exist.</p>
+   * <p>
+   * For range queries, we start from the leftmost leaf and skip entries that are before
+   * {@code fromBytes}. This is simpler and more correct than trying to navigate directly to a key
+   * that may not exist.
+   * </p>
    */
   protected class RangeIterator implements Iterator<Map.Entry<K, NodeReferences>> {
     private final byte[] fromBytes;
-    private final byte @Nullable [] toBytes;  // null means no upper bound
+    private final byte @Nullable [] toBytes; // null means no upper bound
     private @Nullable HOTLeafPage currentLeaf;
     private int currentIndex;
     private Map.@Nullable Entry<K, NodeReferences> nextEntry;
@@ -376,7 +378,7 @@ public abstract class AbstractHOTIndexReader<K> {
           }
         }
       }
-      
+
       // Clean up trie reader when done
       if (trieReader != null && currentLeaf == null) {
         trieReader.close();

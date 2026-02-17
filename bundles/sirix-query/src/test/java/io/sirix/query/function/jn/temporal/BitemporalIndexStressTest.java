@@ -59,13 +59,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Stress tests for bitemporal valid time indexes.
  *
- * <p>These tests create large datasets with many valid time entries to exercise
- * the HOT (Height Optimized Trie) implementation and CAS index internals:
+ * <p>
+ * These tests create large datasets with many valid time entries to exercise the HOT (Height
+ * Optimized Trie) implementation and CAS index internals:
  * <ul>
- *   <li>Page splits and indirect page creation</li>
- *   <li>Range queries across many index entries</li>
- *   <li>Node upgrades in the index structure</li>
- *   <li>Merge operations on updates</li>
+ * <li>Page splits and indirect page creation</li>
+ * <li>Range queries across many index entries</li>
+ * <li>Node upgrades in the index structure</li>
+ * <li>Merge operations on updates</li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -102,33 +103,31 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Manually create CAS indexes for valid time paths
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+          final var validFromIndex =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
 
           final var validToPath = parse("/[]/validTo", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var validToIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
+          final var validToIndex =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(validFromIndex, validToIndex), wtx);
 
           // Generate 5000 records with valid time ranges spanning 10 years
-          String json = generateLargeValidTimeDataset(5000,
-              LocalDate.of(2015, 1, 1),
-              LocalDate.of(2025, 1, 1));
+          String json = generateLargeValidTimeDataset(5000, LocalDate.of(2015, 1, 1), LocalDate.of(2025, 1, 1));
 
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
           wtx.commit();
@@ -140,7 +139,7 @@ public final class BitemporalIndexStressTest {
 
         // Verify data can be read
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -155,15 +154,15 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Generate 10000 records with overlapping ranges (many records valid at same time)
           String json = generateOverlappingValidTimeDataset(10000);
@@ -174,7 +173,7 @@ public final class BitemporalIndexStressTest {
 
         // Verify
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -189,15 +188,15 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Sequential ranges: each record valid for 1 day, no overlap
           String json = generateSequentialValidTimeDataset(3000, LocalDate.of(2020, 1, 1));
@@ -207,7 +206,7 @@ public final class BitemporalIndexStressTest {
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -227,32 +226,30 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Create CAS indexes for valid time paths
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+          final var validFromIndex =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
 
           final var validToPath = parse("/[]/validTo", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var validToIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
+          final var validToIndex =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(validFromIndex, validToIndex), wtx);
 
-          String json = generateLargeValidTimeDataset(2000,
-              LocalDate.of(2020, 1, 1),
-              LocalDate.of(2024, 1, 1));
+          String json = generateLargeValidTimeDataset(2000, LocalDate.of(2020, 1, 1), LocalDate.of(2024, 1, 1));
 
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
           wtx.commit();
@@ -262,19 +259,12 @@ public final class BitemporalIndexStressTest {
           assertTrue(casIndexCount >= 2, "Should have CAS indexes for valid time fields");
 
           // Perform range queries at different thresholds
-          String[] thresholds = {
-              "2021-01-01T00:00:00Z",
-              "2022-01-01T00:00:00Z",
-              "2023-01-01T00:00:00Z"
-          };
+          String[] thresholds = {"2021-01-01T00:00:00Z", "2022-01-01T00:00:00Z", "2023-01-01T00:00:00Z"};
 
           for (String threshold : thresholds) {
             var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
-                indexController.createCASFilter(
-                    Set.of("/[]/validFrom"),
-                    new Str(threshold),
-                    SearchMode.GREATER_OR_EQUAL,
-                    new JsonPCRCollector(wtx)));
+                indexController.createCASFilter(Set.of("/[]/validFrom"), new Str(threshold),
+                    SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
             int count = 0;
             while (casIndex.hasNext()) {
@@ -287,10 +277,10 @@ public final class BitemporalIndexStressTest {
 
         // Verify data can be read in a new transaction
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
-          rtx.moveToFirstChild();  // array
+          rtx.moveToFirstChild(); // array
           assertTrue(rtx.hasFirstChild(), "Array should have children");
         }
       }
@@ -304,16 +294,16 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         // Insert data with known timestamps
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           StringBuilder json = new StringBuilder("[");
           // Create 1000 records, 10 at each of 100 different timestamps
@@ -323,10 +313,16 @@ public final class BitemporalIndexStressTest {
             String validTo = date.plusDays(30).atStartOfDay().toInstant(ZoneOffset.UTC).toString();
 
             for (int j = 0; j < 10; j++) {
-              if (i > 0 || j > 0) json.append(",");
-              json.append("{\"id\": ").append(i * 10 + j)
-                  .append(", \"validFrom\": \"").append(validFrom).append("\"")
-                  .append(", \"validTo\": \"").append(validTo).append("\"")
+              if (i > 0 || j > 0)
+                json.append(",");
+              json.append("{\"id\": ")
+                  .append(i * 10 + j)
+                  .append(", \"validFrom\": \"")
+                  .append(validFrom)
+                  .append("\"")
+                  .append(", \"validTo\": \"")
+                  .append(validTo)
+                  .append("\"")
                   .append("}");
             }
           }
@@ -337,7 +333,7 @@ public final class BitemporalIndexStressTest {
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -357,10 +353,10 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
@@ -369,31 +365,37 @@ public final class BitemporalIndexStressTest {
         List<Long> allValidToNodeKeys = new ArrayList<>();
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Create CAS indexes
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+          final var validFromIndex =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
 
           final var validToPath = parse("/[]/validTo", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var validToIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
+          final var validToIndex =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(validFromIndex, validToIndex), wtx);
 
           // Create exactly 100 records with known timestamps
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 100; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             LocalDate date = LocalDate.of(2020, 1, 1).plusDays(i);
             String validFrom = date.atStartOfDay().toInstant(ZoneOffset.UTC).toString();
             String validTo = date.plusDays(30).atStartOfDay().toInstant(ZoneOffset.UTC).toString();
-            json.append("{\"id\": ").append(i)
-                .append(", \"validFrom\": \"").append(validFrom).append("\"")
-                .append(", \"validTo\": \"").append(validTo).append("\"")
+            json.append("{\"id\": ")
+                .append(i)
+                .append(", \"validFrom\": \"")
+                .append(validFrom)
+                .append("\"")
+                .append(", \"validTo\": \"")
+                .append(validTo)
+                .append("\"")
                 .append("}");
           }
           json.append("]");
@@ -403,13 +405,13 @@ public final class BitemporalIndexStressTest {
 
           // Collect all validFrom and validTo nodeKeys by traversing the document
           wtx.moveToDocumentRoot();
-          wtx.moveToFirstChild();  // array
+          wtx.moveToFirstChild(); // array
           if (wtx.hasFirstChild()) {
-            wtx.moveToFirstChild();  // first object
+            wtx.moveToFirstChild(); // first object
             do {
               // Each object has: id, validFrom, validTo
               if (wtx.hasFirstChild()) {
-                wtx.moveToFirstChild();  // first key (id)
+                wtx.moveToFirstChild(); // first key (id)
                 // Move to validFrom key
                 while (wtx.hasRightSibling()) {
                   wtx.moveToRightSibling();
@@ -427,7 +429,7 @@ public final class BitemporalIndexStressTest {
                     }
                   }
                 }
-                wtx.moveToParent();  // back to object
+                wtx.moveToParent(); // back to object
               }
             } while (wtx.moveToRightSibling());
           }
@@ -438,11 +440,8 @@ public final class BitemporalIndexStressTest {
 
           // Query all indexed validFrom values and collect nodeKeys
           var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
-              indexController.createCASFilter(
-                  Set.of("/[]/validFrom"),
-                  new Str("2020-01-01T00:00:00Z"),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+              indexController.createCASFilter(Set.of("/[]/validFrom"), new Str("2020-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           List<Long> indexedValidFromNodeKeys = new ArrayList<>();
           while (casIndex.hasNext()) {
@@ -451,22 +450,17 @@ public final class BitemporalIndexStressTest {
           }
 
           // Verify exact count
-          assertEquals(100, indexedValidFromNodeKeys.size(),
-              "Index should contain exactly 100 validFrom entries");
+          assertEquals(100, indexedValidFromNodeKeys.size(), "Index should contain exactly 100 validFrom entries");
 
           // Verify all expected nodeKeys are in the index
           for (Long expectedKey : allValidFromNodeKeys) {
-            assertTrue(indexedValidFromNodeKeys.contains(expectedKey),
-                "Index should contain nodeKey " + expectedKey);
+            assertTrue(indexedValidFromNodeKeys.contains(expectedKey), "Index should contain nodeKey " + expectedKey);
           }
 
           // Query all indexed validTo values
           var casIndexTo = indexController.openCASIndex(wtx.getPageTrx(), validToIndex,
-              indexController.createCASFilter(
-                  Set.of("/[]/validTo"),
-                  new Str("2020-01-01T00:00:00Z"),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+              indexController.createCASFilter(Set.of("/[]/validTo"), new Str("2020-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           List<Long> indexedValidToNodeKeys = new ArrayList<>();
           while (casIndexTo.hasNext()) {
@@ -474,12 +468,10 @@ public final class BitemporalIndexStressTest {
             refs.getNodeKeys().forEach(indexedValidToNodeKeys::add);
           }
 
-          assertEquals(100, indexedValidToNodeKeys.size(),
-              "Index should contain exactly 100 validTo entries");
+          assertEquals(100, indexedValidToNodeKeys.size(), "Index should contain exactly 100 validTo entries");
 
           for (Long expectedKey : allValidToNodeKeys) {
-            assertTrue(indexedValidToNodeKeys.contains(expectedKey),
-                "Index should contain nodeKey " + expectedKey);
+            assertTrue(indexedValidToNodeKeys.contains(expectedKey), "Index should contain nodeKey " + expectedKey);
           }
         }
       }
@@ -493,21 +485,21 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+          final var validFromIndex =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(validFromIndex), wtx);
 
@@ -515,14 +507,21 @@ public final class BitemporalIndexStressTest {
           StringBuilder json = new StringBuilder("[");
           for (int year = 2020; year <= 2024; year++) {
             for (int i = 0; i < 100; i++) {
-              if (year > 2020 || i > 0) json.append(",");
+              if (year > 2020 || i > 0)
+                json.append(",");
               LocalDate date = LocalDate.of(year, 1, 1).plusDays(i);
               String validFrom = date.atStartOfDay().toInstant(ZoneOffset.UTC).toString();
               String validTo = date.plusMonths(6).atStartOfDay().toInstant(ZoneOffset.UTC).toString();
-              json.append("{\"id\": ").append((year - 2020) * 100 + i)
-                  .append(", \"year\": ").append(year)
-                  .append(", \"validFrom\": \"").append(validFrom).append("\"")
-                  .append(", \"validTo\": \"").append(validTo).append("\"")
+              json.append("{\"id\": ")
+                  .append((year - 2020) * 100 + i)
+                  .append(", \"year\": ")
+                  .append(year)
+                  .append(", \"validFrom\": \"")
+                  .append(validFrom)
+                  .append("\"")
+                  .append(", \"validTo\": \"")
+                  .append(validTo)
+                  .append("\"")
                   .append("}");
             }
           }
@@ -533,11 +532,8 @@ public final class BitemporalIndexStressTest {
 
           // Query for records >= 2022-01-01 (should be 300: 2022, 2023, 2024)
           var casIndex2022 = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
-              indexController.createCASFilter(
-                  Set.of("/[]/validFrom"),
-                  new Str("2022-01-01T00:00:00Z"),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+              indexController.createCASFilter(Set.of("/[]/validFrom"), new Str("2022-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long count2022 = 0;
           while (casIndex2022.hasNext()) {
@@ -548,11 +544,8 @@ public final class BitemporalIndexStressTest {
 
           // Query for records >= 2024-01-01 (should be 100: only 2024)
           var casIndex2024 = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
-              indexController.createCASFilter(
-                  Set.of("/[]/validFrom"),
-                  new Str("2024-01-01T00:00:00Z"),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+              indexController.createCASFilter(Set.of("/[]/validFrom"), new Str("2024-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long count2024 = 0;
           while (casIndex2024.hasNext()) {
@@ -563,11 +556,8 @@ public final class BitemporalIndexStressTest {
 
           // Query for all records (should be 500)
           var casIndexAll = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
-              indexController.createCASFilter(
-                  Set.of("/[]/validFrom"),
-                  new Str("2020-01-01T00:00:00Z"),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+              indexController.createCASFilter(Set.of("/[]/validFrom"), new Str("2020-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long countAll = 0;
           while (casIndexAll.hasNext()) {
@@ -587,10 +577,10 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
@@ -599,24 +589,23 @@ public final class BitemporalIndexStressTest {
 
         // Revision 1: Insert 100 records
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
-          validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+          validFromIndex =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(validFromIndex), wtx);
 
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 100; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             LocalDate date = LocalDate.of(2020, 1, 1).plusDays(i);
             String validFrom = date.atStartOfDay().toInstant(ZoneOffset.UTC).toString();
-            json.append("{\"id\": ").append(i)
-                .append(", \"validFrom\": \"").append(validFrom).append("\"")
-                .append("}");
+            json.append("{\"id\": ").append(i).append(", \"validFrom\": \"").append(validFrom).append("\"").append("}");
           }
           json.append("]");
 
@@ -625,11 +614,8 @@ public final class BitemporalIndexStressTest {
 
           // Collect nodeKeys from revision 1
           var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
-              indexController.createCASFilter(
-                  Set.of("/[]/validFrom"),
-                  new Str("2020-01-01T00:00:00Z"),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+              indexController.createCASFilter(Set.of("/[]/validFrom"), new Str("2020-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           while (casIndex.hasNext()) {
             var refs = casIndex.next();
@@ -642,11 +628,11 @@ public final class BitemporalIndexStressTest {
         // Revision 2: Add 100 more records
         List<Long> rev2NodeKeys = new ArrayList<>();
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           wtx.moveToDocumentRoot();
-          wtx.moveToFirstChild();  // array
-          wtx.moveToLastChild();   // last object
+          wtx.moveToFirstChild(); // array
+          wtx.moveToLastChild(); // last object
 
           for (int i = 100; i < 200; i++) {
             LocalDate date = LocalDate.of(2021, 1, 1).plusDays(i - 100);
@@ -659,11 +645,8 @@ public final class BitemporalIndexStressTest {
           // Collect all nodeKeys from revision 2
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
           var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
-              indexController.createCASFilter(
-                  Set.of("/[]/validFrom"),
-                  new Str("2020-01-01T00:00:00Z"),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+              indexController.createCASFilter(Set.of("/[]/validFrom"), new Str("2020-01-01T00:00:00Z"),
+                  SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           while (casIndex.hasNext()) {
             var refs = casIndex.next();
@@ -681,8 +664,7 @@ public final class BitemporalIndexStressTest {
           // Verify that we have exactly 100 new nodeKeys (those that weren't in rev1)
           List<Long> newNodeKeys = new ArrayList<>(rev2NodeKeys);
           newNodeKeys.removeAll(rev1NodeKeys);
-          assertEquals(100, newNodeKeys.size(),
-              "Should have exactly 100 new nodeKeys in revision 2");
+          assertEquals(100, newNodeKeys.size(), "Should have exactly 100 new nodeKeys in revision 2");
         }
       }
     }
@@ -695,33 +677,32 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+          final var validFromIndex =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(validFromIndex), wtx);
 
           // Create exactly 1000 records: one per day starting from 2020-01-01
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 1000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             LocalDate date = LocalDate.of(2020, 1, 1).plusDays(i);
             String validFrom = date.atStartOfDay().toInstant(ZoneOffset.UTC).toString();
-            json.append("{\"id\": ").append(i)
-                .append(", \"validFrom\": \"").append(validFrom).append("\"")
-                .append("}");
+            json.append("{\"id\": ").append(i).append(", \"validFrom\": \"").append(validFrom).append("\"").append("}");
           }
           json.append("]");
 
@@ -765,14 +746,10 @@ public final class BitemporalIndexStressTest {
       }
     }
 
-    private long countIndexEntries(IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController,
-                                   JsonNodeTrx wtx, IndexDef indexDef, String threshold) {
-      var casIndex = indexController.openCASIndex(wtx.getPageTrx(), indexDef,
-          indexController.createCASFilter(
-              Set.of("/[]/validFrom"),
-              new Str(threshold),
-              SearchMode.GREATER_OR_EQUAL,
-              new JsonPCRCollector(wtx)));
+    private long countIndexEntries(IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController, JsonNodeTrx wtx,
+        IndexDef indexDef, String threshold) {
+      var casIndex = indexController.openCASIndex(wtx.getPageTrx(), indexDef, indexController.createCASFilter(
+          Set.of("/[]/validFrom"), new Str(threshold), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
       long count = 0;
       while (casIndex.hasNext()) {
@@ -796,21 +773,19 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(5)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.INCREMENTAL)
+                                                        .maxNumberOfRevisionsToRestore(5)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         // Revision 1: Initial data
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
-          String json = generateLargeValidTimeDataset(100,
-              LocalDate.of(2020, 1, 1),
-              LocalDate.of(2021, 1, 1));
+          String json = generateLargeValidTimeDataset(100, LocalDate.of(2020, 1, 1), LocalDate.of(2021, 1, 1));
 
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
           wtx.commit();
@@ -819,13 +794,13 @@ public final class BitemporalIndexStressTest {
         // Revisions 2-50: Add more data
         for (int rev = 2; rev <= 50; rev++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
 
             wtx.moveToDocumentRoot();
-            wtx.moveToFirstChild();  // array
+            wtx.moveToFirstChild(); // array
 
             if (wtx.hasFirstChild()) {
-              wtx.moveToLastChild();   // last element
+              wtx.moveToLastChild(); // last element
 
               // Add 20 new records per revision
               LocalDate baseDate = LocalDate.of(2020, 1, 1).plusDays(rev * 7L);
@@ -833,13 +808,9 @@ public final class BitemporalIndexStressTest {
                 LocalDate validFrom = baseDate.plusDays(i);
                 LocalDate validTo = validFrom.plusMonths(6);
 
-                String record = String.format(
-                    "{\"id\": %d, \"rev\": %d, \"validFrom\": \"%s\", \"validTo\": \"%s\"}",
-                    rev * 1000 + i,
-                    rev,
-                    validFrom.atStartOfDay().toInstant(ZoneOffset.UTC).toString(),
-                    validTo.atStartOfDay().toInstant(ZoneOffset.UTC).toString()
-                );
+                String record = String.format("{\"id\": %d, \"rev\": %d, \"validFrom\": \"%s\", \"validTo\": \"%s\"}",
+                    rev * 1000 + i, rev, validFrom.atStartOfDay().toInstant(ZoneOffset.UTC).toString(),
+                    validTo.atStartOfDay().toInstant(ZoneOffset.UTC).toString());
 
                 wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(record));
               }
@@ -872,21 +843,19 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.DIFFERENTIAL)
-            .maxNumberOfRevisionsToRestore(5)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.DIFFERENTIAL)
+                                                        .maxNumberOfRevisionsToRestore(5)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         // Revision 1: Initial data with 500 records
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
-          String json = generateLargeValidTimeDataset(500,
-              LocalDate.of(2020, 1, 1),
-              LocalDate.of(2025, 1, 1));
+          String json = generateLargeValidTimeDataset(500, LocalDate.of(2020, 1, 1), LocalDate.of(2025, 1, 1));
 
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
           wtx.commit();
@@ -895,16 +864,16 @@ public final class BitemporalIndexStressTest {
         // Revisions 2-30: Update validTo on some records (extending validity)
         for (int rev = 2; rev <= 30; rev++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
 
             wtx.moveToDocumentRoot();
-            wtx.moveToFirstChild();  // array
+            wtx.moveToFirstChild(); // array
 
             if (wtx.hasFirstChild()) {
-              wtx.moveToFirstChild();  // first object
+              wtx.moveToFirstChild(); // first object
 
               // Move to a random position and update validTo
-              int stepsToMove = (rev * 13) % 100;  // Deterministic "random"
+              int stepsToMove = (rev * 13) % 100; // Deterministic "random"
               for (int i = 0; i < stepsToMove && wtx.hasRightSibling(); i++) {
                 wtx.moveToRightSibling();
               }
@@ -950,26 +919,29 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // 1000 records: 500 valid in 2020, 500 valid in 2021
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 500; i++) {
-            if (i > 0) json.append(",");
-            json.append("{\"id\": ").append(i)
+            if (i > 0)
+              json.append(",");
+            json.append("{\"id\": ")
+                .append(i)
                 .append(", \"year\": 2020")
                 .append(", \"validFrom\": \"2020-01-01T00:00:00Z\"")
                 .append(", \"validTo\": \"2020-12-31T23:59:59Z\"}");
           }
           for (int i = 500; i < 1000; i++) {
-            json.append(",{\"id\": ").append(i)
+            json.append(",{\"id\": ")
+                .append(i)
                 .append(", \"year\": 2021")
                 .append(", \"validFrom\": \"2021-01-01T00:00:00Z\"")
                 .append(", \"validTo\": \"2021-12-31T23:59:59Z\"}");
@@ -986,7 +958,7 @@ public final class BitemporalIndexStressTest {
         store.lookup(DB_NAME);
 
         try (var ctx = SirixQueryContext.createWithJsonStore(store);
-             var chain = SirixCompileChain.createWithJsonStore(store)) {
+            var chain = SirixCompileChain.createWithJsonStore(store)) {
 
           // Query for records valid at mid-2020
           String query = "jn:valid-at('" + DB_NAME + "', '" + RESOURCE_NAME + "', xs:dateTime('2020-07-01T12:00:00Z'))";
@@ -1005,16 +977,16 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         // Revision 1
         Instant rev1Time;
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           String json = "[{\"id\": 1, \"validFrom\": \"2020-01-01T00:00:00Z\", \"validTo\": \"2020-12-31T23:59:59Z\"}]";
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
@@ -1023,16 +995,19 @@ public final class BitemporalIndexStressTest {
         }
 
         // Small delay to ensure different timestamp
-        try { Thread.sleep(10); } catch (InterruptedException ignored) {}
+        try {
+          Thread.sleep(10);
+        } catch (InterruptedException ignored) {
+        }
 
         // Revision 2
         Instant rev2Time;
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           wtx.moveToDocumentRoot();
-          wtx.moveToFirstChild();  // array
-          wtx.moveToLastChild();   // last element
+          wtx.moveToFirstChild(); // array
+          wtx.moveToLastChild(); // last element
 
           String record = "{\"id\": 2, \"validFrom\": \"2021-01-01T00:00:00Z\", \"validTo\": \"2021-12-31T23:59:59Z\"}";
           wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(record));
@@ -1046,7 +1021,7 @@ public final class BitemporalIndexStressTest {
         store.lookup(DB_NAME);
 
         try (var ctx = SirixQueryContext.createWithJsonStore(store);
-             var chain = SirixCompileChain.createWithJsonStore(store)) {
+            var chain = SirixCompileChain.createWithJsonStore(store)) {
 
           // Query the most recent revision for records valid in 2020
           String query = "jn:valid-at('" + DB_NAME + "', '" + RESOURCE_NAME + "', xs:dateTime('2020-06-15T12:00:00Z'))";
@@ -1069,25 +1044,31 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // 500 records all starting same date but ending differently
           StringBuilder json = new StringBuilder("[");
           String sameValidFrom = "2020-01-01T00:00:00Z";
 
           for (int i = 0; i < 500; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             LocalDate validTo = LocalDate.of(2020, 1, 1).plusDays(i + 1);
-            json.append("{\"id\": ").append(i)
-                .append(", \"validFrom\": \"").append(sameValidFrom).append("\"")
-                .append(", \"validTo\": \"").append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+            json.append("{\"id\": ")
+                .append(i)
+                .append(", \"validFrom\": \"")
+                .append(sameValidFrom)
+                .append("\"")
+                .append(", \"validTo\": \"")
+                .append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC))
+                .append("\"")
                 .append("}");
           }
           json.append("]");
@@ -1097,7 +1078,7 @@ public final class BitemporalIndexStressTest {
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -1112,23 +1093,29 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Records spanning from past to far future
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 200; i++) {
-            if (i > 0) json.append(",");
-            int year = 1990 + i;  // 1990 to 2189
-            json.append("{\"id\": ").append(i)
-                .append(", \"validFrom\": \"").append(year).append("-01-01T00:00:00Z\"")
-                .append(", \"validTo\": \"").append(year).append("-12-31T23:59:59Z\"")
+            if (i > 0)
+              json.append(",");
+            int year = 1990 + i; // 1990 to 2189
+            json.append("{\"id\": ")
+                .append(i)
+                .append(", \"validFrom\": \"")
+                .append(year)
+                .append("-01-01T00:00:00Z\"")
+                .append(", \"validTo\": \"")
+                .append(year)
+                .append("-12-31T23:59:59Z\"")
                 .append("}");
           }
           json.append("]");
@@ -1138,7 +1125,7 @@ public final class BitemporalIndexStressTest {
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -1153,26 +1140,32 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // 1000 records with millisecond-different timestamps
           StringBuilder json = new StringBuilder("[");
           Instant base = Instant.parse("2020-06-15T12:00:00.000Z");
 
           for (int i = 0; i < 1000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             Instant validFrom = base.plusMillis(i);
             Instant validTo = validFrom.plus(1, ChronoUnit.HOURS);
-            json.append("{\"id\": ").append(i)
-                .append(", \"validFrom\": \"").append(validFrom).append("\"")
-                .append(", \"validTo\": \"").append(validTo).append("\"")
+            json.append("{\"id\": ")
+                .append(i)
+                .append(", \"validFrom\": \"")
+                .append(validFrom)
+                .append("\"")
+                .append(", \"validTo\": \"")
+                .append(validTo)
+                .append("\"")
                 .append("}");
           }
           json.append("]");
@@ -1182,7 +1175,7 @@ public final class BitemporalIndexStressTest {
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -1197,24 +1190,29 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // 500 records valid at exactly one instant
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 500; i++) {
-            if (i > 0) json.append(",");
-            Instant pointTime = LocalDate.of(2020, 1, 1).plusDays(i)
-                .atStartOfDay().toInstant(ZoneOffset.UTC);
-            json.append("{\"id\": ").append(i)
-                .append(", \"validFrom\": \"").append(pointTime).append("\"")
-                .append(", \"validTo\": \"").append(pointTime).append("\"")
+            if (i > 0)
+              json.append(",");
+            Instant pointTime = LocalDate.of(2020, 1, 1).plusDays(i).atStartOfDay().toInstant(ZoneOffset.UTC);
+            json.append("{\"id\": ")
+                .append(i)
+                .append(", \"validFrom\": \"")
+                .append(pointTime)
+                .append("\"")
+                .append(", \"validTo\": \"")
+                .append(pointTime)
+                .append("\"")
                 .append("}");
           }
           json.append("]");
@@ -1224,7 +1222,7 @@ public final class BitemporalIndexStressTest {
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -1244,26 +1242,24 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
-          String json = generateLargeValidTimeDataset(15000,
-              LocalDate.of(2000, 1, 1),
-              LocalDate.of(2050, 1, 1));
+          String json = generateLargeValidTimeDataset(15000, LocalDate.of(2000, 1, 1), LocalDate.of(2050, 1, 1));
 
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -1278,10 +1274,10 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
@@ -1289,24 +1285,22 @@ public final class BitemporalIndexStressTest {
         IndexDef validToIndex;
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Create CAS indexes for valid time paths
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var validFromPath = parse("/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
-          validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
+          validFromIndex =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validFromPath), 0, IndexDef.DbType.JSON);
 
           final var validToPath = parse("/[]/validTo", io.brackit.query.util.path.PathParser.Type.JSON);
-          validToIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
+          validToIndex =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validToPath), 1, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(validFromIndex, validToIndex), wtx);
 
-          String json = generateLargeValidTimeDataset(3000,
-              LocalDate.of(2015, 1, 1),
-              LocalDate.of(2025, 1, 1));
+          String json = generateLargeValidTimeDataset(3000, LocalDate.of(2015, 1, 1), LocalDate.of(2025, 1, 1));
 
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
           wtx.commit();
@@ -1319,7 +1313,7 @@ public final class BitemporalIndexStressTest {
         // Repeatedly query the indexes to stress test the HOT implementation
         for (int iteration = 0; iteration < 100; iteration++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
 
             var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
@@ -1328,11 +1322,8 @@ public final class BitemporalIndexStressTest {
             String threshold = year + "-01-01T00:00:00Z";
 
             var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
-                indexController.createCASFilter(
-                    Set.of("/[]/validFrom"),
-                    new Str(threshold),
-                    SearchMode.GREATER_OR_EQUAL,
-                    new JsonPCRCollector(wtx)));
+                indexController.createCASFilter(Set.of("/[]/validFrom"), new Str(threshold),
+                    SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
             int count = 0;
             while (casIndex.hasNext()) {
@@ -1346,11 +1337,11 @@ public final class BitemporalIndexStressTest {
         // Also test repeated reads
         for (int iteration = 0; iteration < 50; iteration++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               var rtx = session.beginNodeReadOnlyTrx()) {
+              var rtx = session.beginNodeReadOnlyTrx()) {
             rtx.moveToDocumentRoot();
             assertTrue(rtx.hasFirstChild(), "Iteration " + iteration + ": should have data");
 
-            rtx.moveToFirstChild();  // array
+            rtx.moveToFirstChild(); // array
             int count = 0;
             if (rtx.hasFirstChild()) {
               rtx.moveToFirstChild();
@@ -1372,21 +1363,30 @@ public final class BitemporalIndexStressTest {
 
   private String generateLargeValidTimeDataset(int count, LocalDate startDate, LocalDate endDate) {
     StringBuilder json = new StringBuilder("[");
-    Random random = new Random(42);  // Fixed seed for reproducibility
+    Random random = new Random(42); // Fixed seed for reproducibility
     long daysBetween = ChronoUnit.DAYS.between(startDate, endDate);
 
     for (int i = 0; i < count; i++) {
-      if (i > 0) json.append(",");
+      if (i > 0)
+        json.append(",");
 
       long randomDays = random.nextLong(daysBetween);
       LocalDate validFrom = startDate.plusDays(randomDays);
-      LocalDate validTo = validFrom.plusDays(1 + random.nextInt(365));  // 1-365 days validity
+      LocalDate validTo = validFrom.plusDays(1 + random.nextInt(365)); // 1-365 days validity
 
-      json.append("{\"id\": ").append(i)
-          .append(", \"name\": \"record_").append(i).append("\"")
-          .append(", \"value\": ").append(random.nextInt(10000))
-          .append(", \"validFrom\": \"").append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
-          .append(", \"validTo\": \"").append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+      json.append("{\"id\": ")
+          .append(i)
+          .append(", \"name\": \"record_")
+          .append(i)
+          .append("\"")
+          .append(", \"value\": ")
+          .append(random.nextInt(10000))
+          .append(", \"validFrom\": \"")
+          .append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC))
+          .append("\"")
+          .append(", \"validTo\": \"")
+          .append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC))
+          .append("\"")
           .append("}");
     }
     json.append("]");
@@ -1398,18 +1398,26 @@ public final class BitemporalIndexStressTest {
 
     // Create heavily overlapping ranges - many records valid at any given time
     for (int i = 0; i < count; i++) {
-      if (i > 0) json.append(",");
+      if (i > 0)
+        json.append(",");
 
       int startMonth = (i % 12) + 1;
-      int durationMonths = 3 + (i % 9);  // 3-11 months
+      int durationMonths = 3 + (i % 9); // 3-11 months
 
       LocalDate validFrom = LocalDate.of(2020, startMonth, 1);
       LocalDate validTo = validFrom.plusMonths(durationMonths);
 
-      json.append("{\"id\": ").append(i)
-          .append(", \"category\": \"cat_").append(i % 50).append("\"")
-          .append(", \"validFrom\": \"").append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
-          .append(", \"validTo\": \"").append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+      json.append("{\"id\": ")
+          .append(i)
+          .append(", \"category\": \"cat_")
+          .append(i % 50)
+          .append("\"")
+          .append(", \"validFrom\": \"")
+          .append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC))
+          .append("\"")
+          .append(", \"validTo\": \"")
+          .append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC))
+          .append("\"")
           .append("}");
     }
     json.append("]");
@@ -1420,15 +1428,22 @@ public final class BitemporalIndexStressTest {
     StringBuilder json = new StringBuilder("[");
 
     for (int i = 0; i < count; i++) {
-      if (i > 0) json.append(",");
+      if (i > 0)
+        json.append(",");
 
       LocalDate validFrom = startDate.plusDays(i);
-      LocalDate validTo = validFrom;  // Valid for exactly one day
+      LocalDate validTo = validFrom; // Valid for exactly one day
 
-      json.append("{\"id\": ").append(i)
-          .append(", \"day\": ").append(i)
-          .append(", \"validFrom\": \"").append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
-          .append(", \"validTo\": \"").append(validTo.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC).minusNanos(1)).append("\"")
+      json.append("{\"id\": ")
+          .append(i)
+          .append(", \"day\": ")
+          .append(i)
+          .append(", \"validFrom\": \"")
+          .append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC))
+          .append("\"")
+          .append(", \"validTo\": \"")
+          .append(validTo.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC).minusNanos(1))
+          .append("\"")
           .append("}");
     }
     json.append("]");
@@ -1440,8 +1455,8 @@ public final class BitemporalIndexStressTest {
   class UniquePathStressTests {
 
     /**
-     * Tests CAS index with >1000 unique paths containing valid time fields.
-     * This stresses the PCR (Path Class Reference) handling in the index.
+     * Tests CAS index with >1000 unique paths containing valid time fields. This stresses the PCR (Path
+     * Class Reference) handling in the index.
      */
     @Test
     @DisplayName("1200 unique paths with validFrom/validTo fields")
@@ -1451,15 +1466,15 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Generate JSON with 1200 unique paths for validFrom/validTo
           // Structure: { section_N: { records: [ { validFrom, validTo, ... } ] } }
@@ -1475,7 +1490,7 @@ public final class BitemporalIndexStressTest {
 
         // Verify data can be read
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -1497,15 +1512,15 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Create CAS indexes that cover all paths
           // Each section has a unique path: /section_N/data/[]/validFrom
@@ -1514,15 +1529,15 @@ public final class BitemporalIndexStressTest {
           // Create indexes for multiple path patterns
           List<IndexDef> indexes = new ArrayList<>();
           for (int i = 0; i < NUM_SECTIONS; i++) {
-            var validFromPath = parse("/section_" + i + "/data/[]/validFrom",
-                io.brackit.query.util.path.PathParser.Type.JSON);
-            var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-                Collections.singleton(validFromPath), i * 2, IndexDef.DbType.JSON);
+            var validFromPath =
+                parse("/section_" + i + "/data/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
+            var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validFromPath), i * 2,
+                IndexDef.DbType.JSON);
 
-            var validToPath = parse("/section_" + i + "/data/[]/validTo",
-                io.brackit.query.util.path.PathParser.Type.JSON);
-            var validToIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-                Collections.singleton(validToPath), i * 2 + 1, IndexDef.DbType.JSON);
+            var validToPath =
+                parse("/section_" + i + "/data/[]/validTo", io.brackit.query.util.path.PathParser.Type.JSON);
+            var validToIndex = IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validToPath), i * 2 + 1,
+                IndexDef.DbType.JSON);
 
             indexes.add(validFromIndex);
             indexes.add(validToIndex);
@@ -1544,11 +1559,8 @@ public final class BitemporalIndexStressTest {
           long totalVerified = 0;
           for (int i = 0; i < Math.min(10, NUM_SECTIONS); i++) {
             var casIndex = indexController.openCASIndex(wtx.getPageTrx(), indexes.get(i * 2),
-                indexController.createCASFilter(
-                    Set.of("/section_" + i + "/data/[]/validFrom"),
-                    new Str("2020-01-01T00:00:00Z"),
-                    SearchMode.GREATER_OR_EQUAL,
-                    new JsonPCRCollector(wtx)));
+                indexController.createCASFilter(Set.of("/section_" + i + "/data/[]/validFrom"),
+                    new Str("2020-01-01T00:00:00Z"), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
             long count = 0;
             while (casIndex.hasNext()) {
@@ -1564,7 +1576,7 @@ public final class BitemporalIndexStressTest {
 
         // Verify data integrity in read transaction
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
           rtx.moveToFirstChild();
@@ -1595,15 +1607,15 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Generate deeply nested structure with 2000 unique paths
           // Paths like: /level1_N/level2_M/level3_O/data/[]/validFrom
@@ -1614,7 +1626,7 @@ public final class BitemporalIndexStressTest {
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -1632,15 +1644,15 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Generate mixed structure:
           // - 1500 paths with valid time fields
@@ -1652,7 +1664,7 @@ public final class BitemporalIndexStressTest {
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -1670,15 +1682,15 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Generate paths with similar prefixes to stress trie:
           // /organization/department_N/team_M/member_O/validFrom
@@ -1690,7 +1702,7 @@ public final class BitemporalIndexStressTest {
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -1711,27 +1723,27 @@ public final class BitemporalIndexStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         final var resourceConfig = ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .validTimePaths("validFrom", "validTo")
-            .versioningApproach(VersioningType.FULL)
-            .buildPathSummary(true)
-            .build();
+                                                        .validTimePaths("validFrom", "validTo")
+                                                        .versioningApproach(VersioningType.FULL)
+                                                        .buildPathSummary(true)
+                                                        .build();
 
         database.createResource(resourceConfig);
 
         List<Long> allValidFromNodeKeys = new ArrayList<>();
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
 
           // Create CAS indexes for all department paths
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
           List<IndexDef> indexes = new ArrayList<>();
 
           for (int dept = 0; dept < NUM_DEPARTMENTS; dept++) {
-            var validFromPath = parse("/dept_" + dept + "/employees/[]/validFrom",
-                io.brackit.query.util.path.PathParser.Type.JSON);
-            var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR,
-                Collections.singleton(validFromPath), dept, IndexDef.DbType.JSON);
+            var validFromPath =
+                parse("/dept_" + dept + "/employees/[]/validFrom", io.brackit.query.util.path.PathParser.Type.JSON);
+            var validFromIndex = IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(validFromPath), dept,
+                IndexDef.DbType.JSON);
             indexes.add(validFromIndex);
           }
           indexController.createIndexes(Set.copyOf(indexes), wtx);
@@ -1739,16 +1751,27 @@ public final class BitemporalIndexStressTest {
           // Generate structure with 100 departments, each with 10 employees = 1000 records
           StringBuilder json = new StringBuilder("{");
           for (int dept = 0; dept < NUM_DEPARTMENTS; dept++) {
-            if (dept > 0) json.append(",");
+            if (dept > 0)
+              json.append(",");
             json.append("\"dept_").append(dept).append("\": {\"employees\": [");
             for (int emp = 0; emp < EMPLOYEES_PER_DEPT; emp++) {
-              if (emp > 0) json.append(",");
+              if (emp > 0)
+                json.append(",");
               LocalDate hireDate = LocalDate.of(2020, 1, 1).plusDays(dept * 10L + emp);
               LocalDate contractEnd = hireDate.plusYears(2);
-              json.append("{\"id\": ").append(dept * 1000 + emp)
-                  .append(", \"name\": \"emp_").append(dept).append("_").append(emp).append("\"")
-                  .append(", \"validFrom\": \"").append(hireDate.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
-                  .append(", \"validTo\": \"").append(contractEnd.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+              json.append("{\"id\": ")
+                  .append(dept * 1000 + emp)
+                  .append(", \"name\": \"emp_")
+                  .append(dept)
+                  .append("_")
+                  .append(emp)
+                  .append("\"")
+                  .append(", \"validFrom\": \"")
+                  .append(hireDate.atStartOfDay().toInstant(ZoneOffset.UTC))
+                  .append("\"")
+                  .append(", \"validTo\": \"")
+                  .append(contractEnd.atStartOfDay().toInstant(ZoneOffset.UTC))
+                  .append("\"")
                   .append("}");
             }
             json.append("]}");
@@ -1761,11 +1784,8 @@ public final class BitemporalIndexStressTest {
           // Collect all validFrom nodeKeys by querying each department's index
           for (int dept = 0; dept < NUM_DEPARTMENTS; dept++) {
             var casIndex = indexController.openCASIndex(wtx.getPageTrx(), indexes.get(dept),
-                indexController.createCASFilter(
-                    Set.of("/dept_" + dept + "/employees/[]/validFrom"),
-                    new Str("2020-01-01T00:00:00Z"),
-                    SearchMode.GREATER_OR_EQUAL,
-                    new JsonPCRCollector(wtx)));
+                indexController.createCASFilter(Set.of("/dept_" + dept + "/employees/[]/validFrom"),
+                    new Str("2020-01-01T00:00:00Z"), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
             while (casIndex.hasNext()) {
               var refs = casIndex.next();
@@ -1779,8 +1799,7 @@ public final class BitemporalIndexStressTest {
 
           // Verify no duplicate nodeKeys
           long uniqueCount = allValidFromNodeKeys.stream().distinct().count();
-          assertEquals(allValidFromNodeKeys.size(), uniqueCount,
-              "All nodeKeys should be unique across departments");
+          assertEquals(allValidFromNodeKeys.size(), uniqueCount, "All nodeKeys should be unique across departments");
         }
       }
     }
@@ -1791,15 +1810,22 @@ public final class BitemporalIndexStressTest {
       // Create 120 sections with 10 records each = 1200 unique paths for validFrom/validTo
       StringBuilder json = new StringBuilder("{");
       for (int section = 0; section < 120; section++) {
-        if (section > 0) json.append(",");
+        if (section > 0)
+          json.append(",");
         json.append("\"section_").append(section).append("\": {\"records\": [");
         for (int i = 0; i < 10; i++) {
-          if (i > 0) json.append(",");
+          if (i > 0)
+            json.append(",");
           LocalDate validFrom = LocalDate.of(2020, 1, 1).plusDays(section * 10L + i);
           LocalDate validTo = validFrom.plusMonths(6);
-          json.append("{\"id\": ").append(section * 10 + i)
-              .append(", \"validFrom\": \"").append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
-              .append(", \"validTo\": \"").append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+          json.append("{\"id\": ")
+              .append(section * 10 + i)
+              .append(", \"validFrom\": \"")
+              .append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC))
+              .append("\"")
+              .append(", \"validTo\": \"")
+              .append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC))
+              .append("\"")
               .append("}");
         }
         json.append("]}");
@@ -1811,16 +1837,24 @@ public final class BitemporalIndexStressTest {
     private String generateJsonWithNestedPaths(int numSections, int recordsPerSection) {
       StringBuilder json = new StringBuilder("{");
       for (int section = 0; section < numSections; section++) {
-        if (section > 0) json.append(",");
+        if (section > 0)
+          json.append(",");
         json.append("\"section_").append(section).append("\": {\"data\": [");
         for (int i = 0; i < recordsPerSection; i++) {
-          if (i > 0) json.append(",");
+          if (i > 0)
+            json.append(",");
           LocalDate validFrom = LocalDate.of(2020, 1, 1).plusDays(section * recordsPerSection + i);
           LocalDate validTo = validFrom.plusMonths(3);
-          json.append("{\"id\": ").append(section * recordsPerSection + i)
-              .append(", \"value\": ").append(i * 100)
-              .append(", \"validFrom\": \"").append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
-              .append(", \"validTo\": \"").append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+          json.append("{\"id\": ")
+              .append(section * recordsPerSection + i)
+              .append(", \"value\": ")
+              .append(i * 100)
+              .append(", \"validFrom\": \"")
+              .append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC))
+              .append("\"")
+              .append(", \"validTo\": \"")
+              .append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC))
+              .append("\"")
               .append("}");
         }
         json.append("]}");
@@ -1834,19 +1868,27 @@ public final class BitemporalIndexStressTest {
       StringBuilder json = new StringBuilder("{");
       int pathCount = 0;
       for (int l1 = 0; l1 < 20 && pathCount < numPaths; l1++) {
-        if (l1 > 0) json.append(",");
+        if (l1 > 0)
+          json.append(",");
         json.append("\"level1_").append(l1).append("\": {");
         for (int l2 = 0; l2 < 20 && pathCount < numPaths; l2++) {
-          if (l2 > 0) json.append(",");
+          if (l2 > 0)
+            json.append(",");
           json.append("\"level2_").append(l2).append("\": {");
           for (int l3 = 0; l3 < 5 && pathCount < numPaths; l3++) {
-            if (l3 > 0) json.append(",");
+            if (l3 > 0)
+              json.append(",");
             json.append("\"level3_").append(l3).append("\": {\"data\": [");
             LocalDate validFrom = LocalDate.of(2020, 1, 1).plusDays(pathCount);
             LocalDate validTo = validFrom.plusYears(1);
-            json.append("{\"id\": ").append(pathCount)
-                .append(", \"validFrom\": \"").append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
-                .append(", \"validTo\": \"").append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+            json.append("{\"id\": ")
+                .append(pathCount)
+                .append(", \"validFrom\": \"")
+                .append(validFrom.atStartOfDay().toInstant(ZoneOffset.UTC))
+                .append("\"")
+                .append(", \"validTo\": \"")
+                .append(validTo.atStartOfDay().toInstant(ZoneOffset.UTC))
+                .append("\"")
                 .append("}]}");
             pathCount++;
           }
@@ -1862,20 +1904,29 @@ public final class BitemporalIndexStressTest {
       // 60% paths have valid time, 40% don't
       StringBuilder json = new StringBuilder("{");
       for (int i = 0; i < numPaths; i++) {
-        if (i > 0) json.append(",");
-        boolean hasValidTime = (i % 10) < 6;  // 60% have valid time
+        if (i > 0)
+          json.append(",");
+        boolean hasValidTime = (i % 10) < 6; // 60% have valid time
         json.append("\"entity_").append(i).append("\": {\"data\": [");
         LocalDate date = LocalDate.of(2020, 1, 1).plusDays(i);
         if (hasValidTime) {
-          json.append("{\"id\": ").append(i)
-              .append(", \"value\": ").append(i * 10)
-              .append(", \"validFrom\": \"").append(date.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
-              .append(", \"validTo\": \"").append(date.plusMonths(6).atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+          json.append("{\"id\": ")
+              .append(i)
+              .append(", \"value\": ")
+              .append(i * 10)
+              .append(", \"validFrom\": \"")
+              .append(date.atStartOfDay().toInstant(ZoneOffset.UTC))
+              .append("\"")
+              .append(", \"validTo\": \"")
+              .append(date.plusMonths(6).atStartOfDay().toInstant(ZoneOffset.UTC))
+              .append("\"")
               .append("}");
         } else {
           // No valid time fields
-          json.append("{\"id\": ").append(i)
-              .append(", \"value\": ").append(i * 10)
+          json.append("{\"id\": ")
+              .append(i)
+              .append(", \"value\": ")
+              .append(i * 10)
               .append(", \"status\": \"permanent\"")
               .append("}");
         }
@@ -1891,19 +1942,29 @@ public final class BitemporalIndexStressTest {
       StringBuilder json = new StringBuilder("{\"organization\": {");
       int pathCount = 0;
       for (int dept = 0; dept < 6 && pathCount < numPaths; dept++) {
-        if (dept > 0) json.append(",");
+        if (dept > 0)
+          json.append(",");
         json.append("\"department_").append(dept).append("\": {");
         for (int team = 0; team < 10 && pathCount < numPaths; team++) {
-          if (team > 0) json.append(",");
+          if (team > 0)
+            json.append(",");
           json.append("\"team_").append(team).append("\": {\"members\": [");
           for (int member = 0; member < 30 && pathCount < numPaths; member++) {
-            if (member > 0) json.append(",");
+            if (member > 0)
+              json.append(",");
             LocalDate joinDate = LocalDate.of(2020, 1, 1).plusDays(pathCount);
             LocalDate leaveDate = joinDate.plusYears(3);
-            json.append("{\"id\": ").append(pathCount)
-                .append(", \"name\": \"member_").append(pathCount).append("\"")
-                .append(", \"validFrom\": \"").append(joinDate.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
-                .append(", \"validTo\": \"").append(leaveDate.atStartOfDay().toInstant(ZoneOffset.UTC)).append("\"")
+            json.append("{\"id\": ")
+                .append(pathCount)
+                .append(", \"name\": \"member_")
+                .append(pathCount)
+                .append("\"")
+                .append(", \"validFrom\": \"")
+                .append(joinDate.atStartOfDay().toInstant(ZoneOffset.UTC))
+                .append("\"")
+                .append(", \"validTo\": \"")
+                .append(leaveDate.atStartOfDay().toInstant(ZoneOffset.UTC))
+                .append("\"")
                 .append("}");
             pathCount++;
           }

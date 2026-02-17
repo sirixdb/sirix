@@ -20,6 +20,8 @@ final class JsonDeweyIDManager extends AbstractDeweyIDManager<InternalJsonNodeTr
    * @throws SirixException if generating an ID fails
    */
   SirixDeweyID newRecordValueID() {
-    return nodeTrx.storeDeweyIDs() ? nodeTrx.getDeweyID().getRecordValueRootID() : null;
+    return nodeTrx.storeDeweyIDs()
+        ? nodeTrx.getDeweyID().getRecordValueRootID()
+        : null;
   }
 }

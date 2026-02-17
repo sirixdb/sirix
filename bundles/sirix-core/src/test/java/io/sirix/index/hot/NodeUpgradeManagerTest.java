@@ -32,14 +32,7 @@ class NodeUpgradeManagerTest {
   class NodeTypeDeterminationTests {
 
     @ParameterizedTest(name = "{0} children → {1}")
-    @CsvSource({
-        "1, BI_NODE",
-        "2, BI_NODE",
-        "3, SPAN_NODE",
-        "16, SPAN_NODE",
-        "17, MULTI_NODE",
-        "32, MULTI_NODE"
-    })
+    @CsvSource({"1, BI_NODE", "2, BI_NODE", "3, SPAN_NODE", "16, SPAN_NODE", "17, MULTI_NODE", "32, MULTI_NODE"})
     void testDetermineNodeType(int numChildren, NodeType expectedType) {
       assertEquals(expectedType, NodeUpgradeManager.determineNodeType(numChildren));
     }
@@ -47,10 +40,8 @@ class NodeUpgradeManagerTest {
     @Test
     @DisplayName("Invalid child count throws exception")
     void testInvalidChildCount() {
-      assertThrows(IllegalArgumentException.class,
-          () -> NodeUpgradeManager.determineNodeType(0));
-      assertThrows(IllegalArgumentException.class,
-          () -> NodeUpgradeManager.determineNodeType(33));
+      assertThrows(IllegalArgumentException.class, () -> NodeUpgradeManager.determineNodeType(0));
+      assertThrows(IllegalArgumentException.class, () -> NodeUpgradeManager.determineNodeType(33));
     }
   }
 
@@ -59,15 +50,8 @@ class NodeUpgradeManagerTest {
   class NodeTypeByBitsTests {
 
     @ParameterizedTest(name = "{0} bits → {1}")
-    @CsvSource({
-        "0, BI_NODE",
-        "1, BI_NODE",
-        "2, SPAN_NODE",
-        "3, SPAN_NODE",
-        "4, SPAN_NODE",
-        "5, MULTI_NODE",
-        "8, MULTI_NODE"
-    })
+    @CsvSource({"0, BI_NODE", "1, BI_NODE", "2, SPAN_NODE", "3, SPAN_NODE", "4, SPAN_NODE", "5, MULTI_NODE",
+        "8, MULTI_NODE"})
     void testDetermineNodeTypeByBits(int numBits, NodeType expectedType) {
       assertEquals(expectedType, NodeUpgradeManager.determineNodeTypeByBits(numBits));
     }
@@ -84,9 +68,9 @@ class NodeUpgradeManagerTest {
       leftRef.setKey(100);
       PageReference rightRef = new PageReference();
       rightRef.setKey(200);
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       assertFalse(NodeUpgradeManager.needsUpgrade(biNode, 2));
       assertTrue(NodeUpgradeManager.needsUpgrade(biNode, 3));
     }
@@ -101,10 +85,9 @@ class NodeUpgradeManagerTest {
         children[i].setKey(100 + i);
         partialKeys[i] = (byte) i;
       }
-      
-      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(
-          1L, 1, (byte) 0, 0b1111L, partialKeys, children);
-      
+
+      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b1111L, partialKeys, children);
+
       assertFalse(NodeUpgradeManager.needsUpgrade(spanNode, 16));
       assertTrue(NodeUpgradeManager.needsUpgrade(spanNode, 17));
     }
@@ -124,10 +107,9 @@ class NodeUpgradeManagerTest {
         children[i].setKey(100 + i);
         partialKeys[i] = (byte) i;
       }
-      
-      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(
-          1L, 1, (byte) 0, 0b1111L, partialKeys, children);
-      
+
+      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b1111L, partialKeys, children);
+
       assertFalse(NodeUpgradeManager.shouldDowngrade(spanNode, 4));
       assertFalse(NodeUpgradeManager.shouldDowngrade(spanNode, 3));
       assertTrue(NodeUpgradeManager.shouldDowngrade(spanNode, 2));
@@ -140,9 +122,9 @@ class NodeUpgradeManagerTest {
       leftRef.setKey(100);
       PageReference rightRef = new PageReference();
       rightRef.setKey(200);
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       assertTrue(NodeUpgradeManager.shouldDowngrade(biNode, 0));
     }
   }
@@ -163,10 +145,9 @@ class NodeUpgradeManagerTest {
       for (int i = 0; i < 256; i++) {
         childIndex[i] = (byte) (i % 32);
       }
-      
-      HOTIndirectPage multiNode = HOTIndirectPage.createMultiNode(
-          1L, 1, (byte) 0, childIndex, children);
-      
+
+      HOTIndirectPage multiNode = HOTIndirectPage.createMultiNode(1L, 1, (byte) 0, childIndex, children);
+
       assertTrue(NodeUpgradeManager.isFull(multiNode));
     }
 
@@ -177,9 +158,9 @@ class NodeUpgradeManagerTest {
       leftRef.setKey(100);
       PageReference rightRef = new PageReference();
       rightRef.setKey(200);
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       assertFalse(NodeUpgradeManager.isFull(biNode));
     }
   }
@@ -195,9 +176,9 @@ class NodeUpgradeManagerTest {
       leftRef.setKey(100);
       PageReference rightRef = new PageReference();
       rightRef.setKey(200);
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       // BiNode has 2 children, max is 2, so it's always 100% full
       assertFalse(NodeUpgradeManager.isUnderfilled(biNode, fillFactor));
     }
@@ -208,11 +189,7 @@ class NodeUpgradeManagerTest {
   class MaxChildrenTests {
 
     @ParameterizedTest(name = "{0} → max {1}")
-    @CsvSource({
-        "BI_NODE, 2",
-        "SPAN_NODE, 16",
-        "MULTI_NODE, 32"
-    })
+    @CsvSource({"BI_NODE, 2", "SPAN_NODE, 16", "MULTI_NODE, 32"})
     void testGetMaxChildrenForType(NodeType nodeType, int expectedMax) {
       assertEquals(expectedMax, NodeUpgradeManager.getMaxChildrenForType(nodeType));
     }
@@ -229,16 +206,16 @@ class NodeUpgradeManagerTest {
       PageReference rightRef1 = new PageReference();
       leftRef1.setKey(100);
       rightRef1.setKey(101);
-      
+
       PageReference leftRef2 = new PageReference();
       PageReference rightRef2 = new PageReference();
       leftRef2.setKey(200);
       rightRef2.setKey(201);
-      
+
       // Both BiNodes use discriminative bit in byte 0
       HOTIndirectPage biNode1 = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef1, rightRef1);
       HOTIndirectPage biNode2 = HOTIndirectPage.createBiNode(2L, 1, 4, leftRef2, rightRef2);
-      
+
       assertTrue(NodeUpgradeManager.shouldMergeToSpanNode(biNode1, biNode2));
     }
 
@@ -249,16 +226,16 @@ class NodeUpgradeManagerTest {
       PageReference rightRef1 = new PageReference();
       leftRef1.setKey(100);
       rightRef1.setKey(101);
-      
+
       PageReference leftRef2 = new PageReference();
       PageReference rightRef2 = new PageReference();
       leftRef2.setKey(200);
       rightRef2.setKey(201);
-      
+
       // BiNode1 uses bit in byte 0, BiNode2 uses bit in byte 1
       HOTIndirectPage biNode1 = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef1, rightRef1);
       HOTIndirectPage biNode2 = HOTIndirectPage.createBiNode(2L, 1, 8, leftRef2, rightRef2);
-      
+
       assertFalse(NodeUpgradeManager.shouldMergeToSpanNode(biNode1, biNode2));
     }
   }

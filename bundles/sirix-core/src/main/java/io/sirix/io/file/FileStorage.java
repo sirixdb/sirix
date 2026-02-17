@@ -71,7 +71,7 @@ public final class FileStorage implements IOStorage {
    * The revision file cache.
    */
   private final AsyncCache<Integer, RevisionFileData> cache;
-  
+
   /**
    * Revision index holder for fast timestamp lookups.
    */
@@ -84,8 +84,7 @@ public final class FileStorage implements IOStorage {
    * @param cache the revision file data cache
    * @param revisionIndexHolder the revision index holder
    */
-  public FileStorage(final ResourceConfiguration resourceConfig, 
-      final AsyncCache<Integer, RevisionFileData> cache,
+  public FileStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache,
       final RevisionIndexHolder revisionIndexHolder) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     file = resourceConfig.resourcePath;
@@ -93,7 +92,7 @@ public final class FileStorage implements IOStorage {
     this.cache = cache;
     this.revisionIndexHolder = revisionIndexHolder;
   }
-  
+
   /**
    * Constructor (backward compatibility).
    *
@@ -115,11 +114,8 @@ public final class FileStorage implements IOStorage {
       }
 
       return new FileReader(new RandomAccessFile(dataFilePath.toFile(), "r"),
-                            new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"),
-                            new ByteHandlerPipeline(byteHandlerPipeline),
-                            SerializationType.DATA,
-                            new PagePersister(),
-                            cache.synchronous());
+          new RandomAccessFile(revisionsOffsetFilePath.toFile(), "r"), new ByteHandlerPipeline(byteHandlerPipeline),
+          SerializationType.DATA, new PagePersister(), cache.synchronous());
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -151,20 +147,11 @@ public final class FileStorage implements IOStorage {
       final var byteHandlerPipe = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
       final var pagePersister = new PagePersister();
-      final var reader = new FileReader(randomAccessDataFile,
-                                        randomAccessRevisionDataFile,
-                                        byteHandlerPipe,
-                                        serializationType,
-                                        pagePersister,
-                                        cache.synchronous());
+      final var reader = new FileReader(randomAccessDataFile, randomAccessRevisionDataFile, byteHandlerPipe,
+          serializationType, pagePersister, cache.synchronous());
 
-      return new FileWriter(randomAccessDataFile,
-                            randomAccessRevisionDataFile,
-                            serializationType,
-                            pagePersister,
-                            cache,
-                            revisionIndexHolder,
-                            reader);
+      return new FileWriter(randomAccessDataFile, randomAccessRevisionDataFile, serializationType, pagePersister, cache,
+          revisionIndexHolder, reader);
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -207,7 +194,7 @@ public final class FileStorage implements IOStorage {
   public ByteHandler getByteHandler() {
     return byteHandlerPipeline;
   }
-  
+
   @Override
   public @NonNull RevisionIndexHolder getRevisionIndexHolder() {
     return revisionIndexHolder;

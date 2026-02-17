@@ -12,11 +12,7 @@ public class PathSummaryCache implements Cache<PathSummaryCacheKey, PathSummaryD
   private final com.github.benmanes.caffeine.cache.Cache<PathSummaryCacheKey, PathSummaryData> cache;
 
   public PathSummaryCache(final int maxSize) {
-    cache = Caffeine.newBuilder()
-                    .initialCapacity(maxSize)
-                    .maximumSize(maxSize)
-                    .scheduler(scheduler)
-                    .build();
+    cache = Caffeine.newBuilder().initialCapacity(maxSize).maximumSize(maxSize).scheduler(scheduler).build();
   }
 
   @Override
@@ -71,6 +67,5 @@ public class PathSummaryCache implements Cache<PathSummaryCacheKey, PathSummaryD
   }
 
   @Override
-  public void close() {
-  }
+  public void close() {}
 }
