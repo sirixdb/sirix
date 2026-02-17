@@ -86,7 +86,7 @@ public final class FixedSlotRecordMaterializer {
       return false;
     }
 
-    if (!FixedSlotRecordProjector.hasSupportedPayloads(layout)) {
+    if (!layout.hasSupportedPayloads()) {
       return false;
     }
 
@@ -538,7 +538,7 @@ public final class FixedSlotRecordMaterializer {
       return null;
     }
 
-    if (!FixedSlotRecordProjector.hasSupportedPayloads(layout)) {
+    if (!layout.hasSupportedPayloads()) {
       return null;
     }
 

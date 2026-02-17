@@ -87,6 +87,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   private boolean valueParsed = true;
 
   // === METADATA LAZY SUPPORT ===
+  private long lazyBaseOffset;
   private NodeKindLayout fixedSlotLayout;
   private boolean metadataParsed = true;
 
@@ -423,7 +424,8 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     return bytes.hashDirect(hashFunction);
   }
 
-  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+  public void bindFixedSlotLazy(final MemorySegment slotData, final long baseOffset, final NodeKindLayout layout) {
+    this.lazyBaseOffset = baseOffset;
     this.fixedSlotLayout = layout;
     this.metadataParsed = false;
     // lazyValueSource already points to slotData from setLazyRawValue
@@ -437,10 +439,11 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     if (fixedSlotLayout != null) {
       final MemorySegment sd = (MemorySegment) lazyValueSource;
       final NodeKindLayout ly = fixedSlotLayout;
-      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
-      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
-      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
-      this.pathNodeKey = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.PATH_NODE_KEY);
+      final long off = this.lazyBaseOffset;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.HASH);
+      this.pathNodeKey = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.PATH_NODE_KEY);
       this.fixedSlotLayout = null;
       this.metadataParsed = true;
       return;

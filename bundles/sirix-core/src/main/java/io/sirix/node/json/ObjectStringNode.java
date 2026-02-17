@@ -116,6 +116,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   private boolean fixedValueCompressed; // Whether inline payload is FSST compressed
 
   // Fixed-slot lazy metadata support
+  private long lazyBaseOffset;
   private NodeKindLayout fixedSlotLayout;
 
   /**
@@ -503,7 +504,8 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.hash = 0L;
   }
 
-  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+  public void bindFixedSlotLazy(final MemorySegment slotData, final long baseOffset, final NodeKindLayout layout) {
+    this.lazyBaseOffset = baseOffset;
     this.fixedSlotLayout = layout;
     this.metadataParsed = false;
   }
@@ -516,9 +518,10 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     if (fixedSlotLayout != null) {
       final MemorySegment sd = (MemorySegment) lazySource;
       final NodeKindLayout ly = fixedSlotLayout;
-      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
-      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
-      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      final long off = this.lazyBaseOffset;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.HASH);
       this.fixedSlotLayout = null;
       this.metadataParsed = true;
       return;

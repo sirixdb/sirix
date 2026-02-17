@@ -19,6 +19,7 @@ public final class NodeKindLayout {
   private final boolean fixedSlotSupported;
   private final int[] offsets;
   private final PayloadRef[] payloadRefs;
+  private final boolean hasSupportedPayloads;
 
   private NodeKindLayout(final NodeKind nodeKind, final int fixedSlotSizeInBytes, final boolean fixedSlotSupported,
       final int[] offsets, final PayloadRef[] payloadRefs) {
@@ -27,6 +28,18 @@ public final class NodeKindLayout {
     this.fixedSlotSupported = fixedSlotSupported;
     this.offsets = Objects.requireNonNull(offsets).clone();
     this.payloadRefs = Objects.requireNonNull(payloadRefs).clone();
+    this.hasSupportedPayloads = computeHasSupportedPayloads(this.payloadRefs);
+  }
+
+  private static boolean computeHasSupportedPayloads(final PayloadRef[] refs) {
+    for (final PayloadRef ref : refs) {
+      final PayloadRefKind kind = ref.kind();
+      if (kind != PayloadRefKind.VALUE_BLOB && kind != PayloadRefKind.ATTRIBUTE_VECTOR
+          && kind != PayloadRefKind.NAMESPACE_VECTOR) {
+        return false;
+      }
+    }
+    return true;
   }
 
   public static NodeKindLayout unsupported(final NodeKind nodeKind) {
@@ -55,6 +68,14 @@ public final class NodeKindLayout {
     return offsets[Objects.requireNonNull(field, "field must not be null").ordinal()];
   }
 
+  /**
+   * Hot-path variant of {@link #offsetOfOrMinusOne} that skips null checks.
+   * Only use when the field is known to exist in this layout.
+   */
+  public int offsetUnchecked(final StructuralField field) {
+    return offsets[field.ordinal()];
+  }
+
   public boolean hasField(final StructuralField field) {
     return offsetOfOrMinusOne(field) != UNSUPPORTED_FIELD_OFFSET;
   }
@@ -65,6 +86,14 @@ public final class NodeKindLayout {
 
   public PayloadRef payloadRef(final int index) {
     return payloadRefs[index];
+  }
+
+  /**
+   * Pre-computed result of whether all payload refs are supported for inline projection.
+   * Avoids iterating payloadRefs on every moveTo call.
+   */
+  public boolean hasSupportedPayloads() {
+    return hasSupportedPayloads;
   }
 
   public static final class Builder {

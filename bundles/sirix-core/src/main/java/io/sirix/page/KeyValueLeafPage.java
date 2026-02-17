@@ -229,7 +229,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * References to overflow pages.
    */
-  private final Map<Long, PageReference> references;
+  private volatile Map<Long, PageReference> references;
 
   /**
    * Key of record page. This is the base key of all contained nodes.
@@ -417,7 +417,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // internal flow.
     assert resourceConfig != null : "The resource config must not be null!";
 
-    this.references = new ConcurrentHashMap<>();
     this.recordPageKey = recordPageKey;
     this.records = new DataRecord[Constants.NDP_NODE_COUNT];
     this.areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
@@ -770,8 +769,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       setSlot(segment, i);
       markSlotAsCompactFormat(i);
 
-      if (config.areDeweyIDsStored && record.getDeweyID() != null && record.getNodeKey() != 0) {
-        setDeweyId(record.getDeweyID().toBytes(), i);
+      if (config.areDeweyIDsStored && record.getNodeKey() != 0) {
+        final byte[] deweyBytes = record.getDeweyIDAsBytes();
+        if (deweyBytes != null) {
+          setDeweyId(deweyBytes, i);
+        }
       }
 
       records[i] = null;
@@ -804,7 +806,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   public Map<Long, PageReference> getReferencesMap() {
-    return references;
+    return references != null ? references : Map.of();
   }
 
   /**
@@ -1898,7 +1900,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public int size() {
-    return getNumberOfNonNullEntries(records) + references.size();
+    return getNumberOfNonNullEntries(records) + (references != null ? references.size() : 0);
   }
 
   private int getNumberOfNonNullEntries(final DataRecord[] entries) {
@@ -2051,7 +2053,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     inMemoryRecordCount = 0;
     demotionThreshold = MIN_DEMOTION_THRESHOLD;
     rematerializedRecordsSinceLastDemotion = 0;
-    references.clear();
+    if (references != null) {
+      references.clear();
+    }
     bytes = null;
     hashCode = null;
   }
@@ -2203,13 +2207,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public List<PageReference> getReferences() {
+    if (references == null || references.isEmpty()) {
+      return List.of();
+    }
     return List.of(references.values().toArray(new PageReference[0]));
   }
 
   @Override
   public void commit(final @NonNull StorageEngineWriter pageWriteTrx) {
     addReferences(pageWriteTrx.getResourceSession().getResourceConfig());
-    for (final PageReference reference : references.values()) {
+    final var refs = references;
+    if (refs == null) {
+      return;
+    }
+    for (final PageReference reference : refs.values()) {
       if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
           && reference.getLogKey() == Constants.NULL_ID_LONG)) {
         pageWriteTrx.commit(reference);
@@ -2229,17 +2240,26 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public void setPageReference(final long key, @NonNull final PageReference reference) {
-    references.put(key, reference);
+    referencesOrInit().put(key, reference);
   }
 
   @Override
   public Set<Entry<Long, PageReference>> referenceEntrySet() {
-    return references.entrySet();
+    return references != null ? references.entrySet() : Set.of();
   }
 
   @Override
   public PageReference getPageReference(final long key) {
-    return references.get(key);
+    return references != null ? references.get(key) : null;
+  }
+
+  private Map<Long, PageReference> referencesOrInit() {
+    var refs = references;
+    if (refs == null) {
+      refs = new ConcurrentHashMap<>();
+      references = refs;
+    }
+    return refs;
   }
 
   @Override
@@ -2425,7 +2445,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         : -1;
 
     // Clear references
-    references.clear();
+    if (references != null) {
+      references.clear();
+    }
     addedReferences = false;
 
     // Clear cached data
@@ -2494,8 +2516,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         processEntries(resourceConfiguration, records);
         for (int i = 0; i < records.length; i++) {
           final DataRecord record = records[i];
-          if (record != null && record.getDeweyID() != null && record.getNodeKey() != 0) {
-            setDeweyId(record.getDeweyID().toBytes(), i);
+          if (record != null && record.getNodeKey() != 0) {
+            final byte[] deweyBytes = record.getDeweyIDAsBytes();
+            if (deweyBytes != null) {
+              setDeweyId(deweyBytes, i);
+            }
           }
         }
       } else {
@@ -2537,7 +2562,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
           final var reference = new PageReference();
           reference.setPage(new OverflowPage(persistentBuffer));
-          references.put(recordID, reference);
+          referencesOrInit().put(recordID, reference);
         } else {
           // Normal record: setSlot copies data to slotMemory, so temp buffer is fine
           setSlot(buffer, offset);

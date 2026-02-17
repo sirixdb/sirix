@@ -164,6 +164,25 @@ public final class SlotLayoutAccessors {
     writePayloadRef(slot, 0L, layout, payloadRefIndex, pointer, length, flags);
   }
 
+  // ── unchecked hot-path variants ─────────────────────────────────────
+  // These skip null checks and bounds validation for maximum performance.
+  // Only use when layout and field are known to be valid (e.g., from pre-computed static finals).
+
+  public static long readLongFieldUnchecked(final MemorySegment slot, final long baseOffset,
+      final NodeKindLayout layout, final StructuralField field) {
+    return slot.get(LONG_LAYOUT, baseOffset + layout.offsetUnchecked(field));
+  }
+
+  public static int readIntFieldUnchecked(final MemorySegment slot, final long baseOffset,
+      final NodeKindLayout layout, final StructuralField field) {
+    return slot.get(INT_LAYOUT, baseOffset + layout.offsetUnchecked(field));
+  }
+
+  public static boolean readBooleanFieldUnchecked(final MemorySegment slot, final long baseOffset,
+      final NodeKindLayout layout, final StructuralField field) {
+    return slot.get(BYTE_LAYOUT, baseOffset + layout.offsetUnchecked(field)) != 0;
+  }
+
   // ── helpers ────────────────────────────────────────────────────────
 
   private static int requiredOffset(final NodeKindLayout layout, final StructuralField field) {
