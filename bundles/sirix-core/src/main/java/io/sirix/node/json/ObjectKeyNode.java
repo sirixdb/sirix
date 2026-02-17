@@ -368,11 +368,17 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   @Override
   public void decrementDescendantCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     descendantCount--;
   }
 
   @Override
   public void incrementDescendantCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     descendantCount++;
   }
 

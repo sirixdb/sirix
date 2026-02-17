@@ -316,21 +316,33 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
 
   @Override
   public void incrementChildCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     childCount++;
   }
 
   @Override
   public void decrementChildCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     childCount--;
   }
 
   @Override
   public void incrementDescendantCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     descendantCount++;
   }
 
   @Override
   public void decrementDescendantCount() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     descendantCount--;
   }
 
