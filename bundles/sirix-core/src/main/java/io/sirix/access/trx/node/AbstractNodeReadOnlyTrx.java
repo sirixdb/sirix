@@ -1303,7 +1303,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     DataRecord newNode;
     try {
       newNode = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DOCUMENT, -1);
-    } catch (final SirixIOException | UncheckedIOException | IllegalArgumentException e) {
+    } catch (final SirixIOException | UncheckedIOException | IllegalArgumentException | IllegalStateException e) {
       newNode = null;
     }
 

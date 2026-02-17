@@ -243,7 +243,7 @@ public final class JsonNodeReadOnlyTrxImpl
   public ImmutableNode getNode() {
     assertNotClosed();
 
-    final var currentNode = getStructuralNode();
+    final var currentNode = getCurrentNode();
     // $CASES-OMITTED$
     return switch (currentNode.getKind()) {
       case OBJECT -> ImmutableObjectNode.of((ObjectNode) currentNode);

@@ -81,10 +81,10 @@ public final class XmlNodeReadOnlyTrxImpl
     final NodeKind kind = getKind();
     // $CASES-OMITTED$
     return switch (kind) {
-      case ELEMENT -> ImmutableElement.of((ElementNode) getStructuralNode());
-      case TEXT -> ImmutableText.of((TextNode) getStructuralNode());
-      case COMMENT -> ImmutableComment.of((CommentNode) getStructuralNode());
-      case PROCESSING_INSTRUCTION -> ImmutablePI.of((PINode) getStructuralNode());
+      case ELEMENT -> ImmutableElement.of((ElementNode) getCurrentNode());
+      case TEXT -> ImmutableText.of((TextNode) getCurrentNode());
+      case COMMENT -> ImmutableComment.of((CommentNode) getCurrentNode());
+      case PROCESSING_INSTRUCTION -> ImmutablePI.of((PINode) getCurrentNode());
       case ATTRIBUTE -> ImmutableAttributeNode.of((AttributeNode) getCurrentNode());
       case NAMESPACE -> ImmutableNamespace.of((NamespaceNode) getCurrentNode());
       case XML_DOCUMENT -> ImmutableXmlDocumentRootNode.of((XmlDocumentRootNode) getCurrentNode());
