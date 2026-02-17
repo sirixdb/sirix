@@ -1561,21 +1561,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Shift the memory.
-    if (sizeDelta > 0) {
-      // Shifting to the right
-      MemorySegment source = memory.asSlice(alignedShiftStartOffset, shiftEndOffset - alignedShiftStartOffset);
-      MemorySegment target =
-          memory.asSlice(alignOffset(alignedShiftStartOffset + sizeDelta), shiftEndOffset - alignedShiftStartOffset);
-      target.copyFrom(source);
-    } else {
-      // Shifting to the left: move from start to end.
-      // Loop condition uses j (read index) to avoid reading past the data region.
-      for (int i = alignOffset(alignedShiftStartOffset + sizeDelta), j = alignedShiftStartOffset;
-           j < shiftEndOffset; i++, j++) {
-        byte value = memory.get(ValueLayout.JAVA_BYTE, j);
-        memory.set(ValueLayout.JAVA_BYTE, i, value);
-      }
-    }
+    // Bulk copy: MemorySegment.copy handles overlapping regions safely (memmove semantics).
+    final int dstOffset = alignOffset(alignedShiftStartOffset + sizeDelta);
+    final long copyLength = shiftEndOffset - alignedShiftStartOffset;
+    MemorySegment.copy(memory, alignedShiftStartOffset, memory, dstOffset, copyLength);
 
     // Adjust the offsets for all affected slots.
     for (int i = 0; i < offsets.length; i++) {
