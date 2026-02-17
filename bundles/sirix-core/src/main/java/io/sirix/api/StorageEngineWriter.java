@@ -83,6 +83,18 @@ public interface StorageEngineWriter extends StorageEngineReader {
   <V extends DataRecord> V prepareRecordForModification(@NonNegative long key, @NonNull IndexType indexType, int index);
 
   /**
+   * Persist a modified record directly back into its record-page slot.
+   *
+   * <p>This is the hot update path used to keep page slot memory in sync with
+   * in-memory mutable records without waiting for commit-time materialization.</p>
+   *
+   * @param record    modified record to persist
+   * @param indexType the index type
+   * @param index     the index number
+   */
+  void updateRecordSlot(@NonNull DataRecord record, @NonNull IndexType indexType, int index);
+
+  /**
    * Remove an entry from the storage.
    *
    * @param key       entry key from entry to be removed

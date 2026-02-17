@@ -21,8 +21,8 @@
 
 package io.sirix.node.xml;
 
+import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
-import io.sirix.node.NodeTestHelper;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
@@ -69,31 +69,24 @@ public class NamespaceNodeTest {
 
   @Test
   public void testNamespaceNode() {
-    // Create data in the correct serialization format with size prefix and padding
+    // Create data in the structural delta/varint format.
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
-    
-    long sizePos = NodeTestHelper.writeHeader(data, NodeKind.NAMESPACE);
-    long startPos = data.writePosition();
-    
-    // Write NodeDelegate fields (16 bytes)
-    data.writeLong(13);                              // parentKey - offset 0
-    data.writeInt(Constants.NULL_REVISION_NUMBER);   // previousRevision - offset 8
-    data.writeInt(0);                                // lastModifiedRevision - offset 12
-    
-    // Write NameNode fields (20 bytes)
-    data.writeLong(1L);                              // pathNodeKey - offset 16
-    data.writeInt(14);                               // prefixKey - offset 24
-    data.writeInt(15);                               // localNameKey - offset 28
-    data.writeInt(13);                               // uriKey - offset 32
-    
-    // Finalize
-    NodeTestHelper.finalizeSerialization(data, sizePos, startPos);
+
+    final long nodeKey = 99L;
+    data.writeByte(NodeKind.NAMESPACE.getId());
+    DeltaVarIntCodec.encodeDelta(data, 13L, nodeKey); // parentKey
+    DeltaVarIntCodec.encodeDelta(data, 1L, nodeKey);  // pathNodeKey
+    DeltaVarIntCodec.encodeSigned(data, 14);          // prefixKey
+    DeltaVarIntCodec.encodeSigned(data, 15);          // localNameKey
+    DeltaVarIntCodec.encodeSigned(data, 13);          // uriKey
+    DeltaVarIntCodec.encodeSigned(data, Constants.NULL_REVISION_NUMBER);
+    DeltaVarIntCodec.encodeSigned(data, 0);           // lastModifiedRevision
     
     // Deserialize to create properly initialized node
     var bytesIn = data.asBytesIn();
     bytesIn.readByte(); // Skip NodeKind byte
     final NamespaceNode node = (NamespaceNode) NodeKind.NAMESPACE.deserialize(
-        bytesIn, 99L, SirixDeweyID.newRootID().toBytes(), 
+        bytesIn, nodeKey, SirixDeweyID.newRootID().toBytes(),
         pageReadTrx.getResourceSession().getResourceConfig());
     
     // Compute and set hash

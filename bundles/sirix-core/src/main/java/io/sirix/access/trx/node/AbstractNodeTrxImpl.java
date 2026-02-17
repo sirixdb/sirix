@@ -11,10 +11,13 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.SirixDeweyID;
+import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.page.UberPage;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -42,7 +45,7 @@ import static java.util.concurrent.Executors.newScheduledThreadPool;
  * @author Joao Sousa
  */
 public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor, NF extends NodeFactory, N extends ImmutableNode, IN extends InternalNodeReadOnlyTrx<N>>
-    implements NodeReadOnlyTrx, InternalNodeTrx<W>, NodeCursor {
+    implements InternalNodeTrx<W>, NodeCursor {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractNodeTrxImpl.class);
 
@@ -265,13 +268,18 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @Override
   public void adaptHashesInPostorderTraversal() {
     if (hashType != HashType.NONE) {
-      final long nodeKey = getCurrentNode().getNodeKey();
+      final long nodeKey = nodeReadOnlyTrx.getNodeKey();
       postOrderTraversalHashes();
-      final ImmutableNode startNode = getCurrentNode();
+      final ImmutableNode startNode = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      // Pre-capture all values from startNode before traversing ancestors.
+      // Each ancestor's prepareRecordForModification may overwrite the singleton if same kind.
+      final long hashToAdd = startNode.computeHash(nodeHashing.getBytes());
+      final boolean startIsStruct = startNode instanceof StructNode;
+      final long startDescendantCount = startIsStruct ? ((StructNode) startNode).getDescendantCount() : 0;
       moveToParent();
-      while (getCurrentNode().hasParent()) {
+      while (nodeReadOnlyTrx.hasParent()) {
         moveToParent();
-        nodeHashing.addParentHash(startNode);
+        nodeHashing.addParentHash(hashToAdd, startIsStruct, startDescendantCount);
       }
       moveTo(nodeKey);
     }
@@ -347,6 +355,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     assertRunning();
     modificationCount++;
     intermediateCommitIfRequired();
+  }
+
+  protected final void persistUpdatedRecord(final DataRecord record) {
+    pageTrx.updateRecordSlot(record, IndexType.DOCUMENT, -1);
   }
 
   /**
@@ -616,7 +628,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @Override
   public SirixDeweyID getDeweyID() {
     nodeReadOnlyTrx.assertNotClosed();
-    return getCurrentNode().getDeweyID();
+    return nodeReadOnlyTrx.getDeweyID();
   }
 
   @Override

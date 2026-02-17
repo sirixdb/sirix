@@ -40,6 +40,7 @@ import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import io.sirix.node.Utils;
 import io.sirix.node.Bytes;
 import io.sirix.node.interfaces.DeweyIdSerializer;
@@ -298,6 +299,10 @@ public enum PageKind {
       final RecordSerializer recordPersister = resourceConfig.recordPersister;
       final Map<Long, PageReference> references = keyValueLeafPage.getReferencesMap();
 
+      // Compact fixed-format slots to delta+varint encoding first.
+      // This must happen before FSST so the symbol table builder sees compact bytes.
+      keyValueLeafPage.compactFixedSlotsForCommit(resourceConfig);
+
       // Build FSST symbol table and compress strings BEFORE addReferences() serializes them
       keyValueLeafPage.buildFsstSymbolTable(resourceConfig);
       keyValueLeafPage.compressStringValues();
@@ -316,18 +321,21 @@ public enum PageKind {
 
       // Write compressed slot offsets (delta + bit-packed) - ~75% smaller than raw int[1024]
       final int[] slotOffsets = keyValueLeafPage.getSlotOffsets();
-      SlotOffsetCodec.encode(sink, slotOffsets, keyValueLeafPage.getLastSlotIndex());
+      final MemorySegment slotMemory = keyValueLeafPage.getSlotMemory();
+      final CompactedRegion compactedSlots = compactLengthPrefixedRegion(slotOffsets, slotMemory);
+      SlotOffsetCodec.encode(sink, compactedSlots.offsets(), keyValueLeafPage.getLastSlotIndex());
 
-      // Write slotMemory region - BULK COPY
-      int slotMemoryUsedSize = keyValueLeafPage.getUsedSlotsSize();
+      // Write compacted slotMemory region.
+      int slotMemoryUsedSize = compactedSlots.usedSize();
       if (slotMemoryUsedSize == 0) {
         slotMemoryUsedSize = 1;
       }
       sink.writeInt(slotMemoryUsedSize);
-      
-      // Bulk copy slotMemory - direct segment-to-segment copy (zero allocation for MemorySegmentBytesOut/PooledBytesOut)
-      final MemorySegment slotMem = keyValueLeafPage.getSlotMemory();
-      sink.writeSegment(slotMem, 0, slotMemoryUsedSize);
+      if (compactedSlots.usedSize() > 0) {
+        writeCompactedLengthPrefixedRegion(sink, slotMemory, slotOffsets, compactedSlots.offsets(), compactedSlots.usedSize());
+      } else {
+        sink.writeByte((byte) 0);
+      }
 
       // Write dewey ID data if stored
       if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
@@ -336,19 +344,22 @@ public enum PageKind {
         
         // Write compressed dewey ID offsets (delta + bit-packed)
         final int[] deweyIdOffsets = keyValueLeafPage.getDeweyIdOffsets();
-        SlotOffsetCodec.encode(sink, deweyIdOffsets, keyValueLeafPage.getLastDeweyIdIndex());
+        final MemorySegment deweyIdMemory = keyValueLeafPage.getDeweyIdMemory();
+        final CompactedRegion compactedDeweyIds = compactLengthPrefixedRegion(deweyIdOffsets, deweyIdMemory);
+        SlotOffsetCodec.encode(sink, compactedDeweyIds.offsets(), keyValueLeafPage.getLastDeweyIdIndex());
         
-        // Write deweyIdMemory region - BULK COPY
-        int deweyIdMemoryUsedSize = keyValueLeafPage.getUsedDeweyIdSize();
+        // Write compacted deweyIdMemory region.
+        int deweyIdMemoryUsedSize = compactedDeweyIds.usedSize();
         if (deweyIdMemoryUsedSize == 0) {
           deweyIdMemoryUsedSize = 1;
         }
         sink.writeInt(deweyIdMemoryUsedSize);
-        
-        final MemorySegment deweyMem = keyValueLeafPage.getDeweyIdMemory();
-        if (deweyMem != null) {
-          // Direct segment-to-segment copy (zero allocation for MemorySegmentBytesOut/PooledBytesOut)
-          sink.writeSegment(deweyMem, 0, deweyIdMemoryUsedSize);
+        if (compactedDeweyIds.usedSize() > 0) {
+          writeCompactedLengthPrefixedRegion(sink,
+                                             deweyIdMemory,
+                                             deweyIdOffsets,
+                                             compactedDeweyIds.offsets(),
+                                             compactedDeweyIds.usedSize());
         } else {
           // Write a single byte placeholder if no dewey ID memory
           sink.writeByte((byte) 0);
@@ -385,16 +396,23 @@ public enum PageKind {
       // Format: [hasColumnar:1][size:4][offsets:bit-packed][data:N]
       if (keyValueLeafPage.hasColumnarStringStorage()) {
         sink.writeByte((byte) 1); // Has columnar data
-        int columnarSize = keyValueLeafPage.getStringValueMemoryFreeSpaceStart();
+        final int[] stringValueOffsets = keyValueLeafPage.getStringValueOffsets();
+        final MemorySegment stringValueMemory = keyValueLeafPage.getStringValueMemory();
+        final CompactedRegion compactedStrings = compactLengthPrefixedRegion(stringValueOffsets, stringValueMemory);
+        final int columnarSize = compactedStrings.usedSize();
         sink.writeInt(columnarSize);
         
         // Write bit-packed string value offsets
-        SlotOffsetCodec.encode(sink, keyValueLeafPage.getStringValueOffsets(), 
-            keyValueLeafPage.getLastStringValueIndex());
-        
-        // Write columnar string data - direct segment copy (zero allocation for MemorySegmentBytesOut/PooledBytesOut)
-        MemorySegment stringMem = keyValueLeafPage.getStringValueMemory();
-        sink.writeSegment(stringMem, 0, columnarSize);
+        SlotOffsetCodec.encode(sink, compactedStrings.offsets(), keyValueLeafPage.getLastStringValueIndex());
+
+        // Write compacted columnar string data.
+        if (columnarSize > 0) {
+          writeCompactedLengthPrefixedRegion(sink,
+                                             stringValueMemory,
+                                             stringValueOffsets,
+                                             compactedStrings.offsets(),
+                                             columnarSize);
+        }
       } else {
         sink.writeByte((byte) 0); // No columnar data
       }
@@ -1222,6 +1240,90 @@ public enum PageKind {
 
   private static byte[] segmentToByteArray(MemorySegment segment) {
     return segment.toArray(java.lang.foreign.ValueLayout.JAVA_BYTE);
+  }
+
+  private static final ValueLayout.OfInt JAVA_INT_UNALIGNED = ValueLayout.JAVA_INT.withByteAlignment(1);
+  private static final int LENGTH_PREFIX_BYTES = Integer.BYTES;
+  private static final int LENGTH_PREFIX_ALIGNMENT = Integer.BYTES;
+
+  private static CompactedRegion compactLengthPrefixedRegion(final int[] sourceOffsets,
+      final MemorySegment sourceMemory) {
+    final int[] compactedOffsets = new int[sourceOffsets.length];
+    Arrays.fill(compactedOffsets, -1);
+
+    if (sourceMemory == null) {
+      return new CompactedRegion(compactedOffsets, 0);
+    }
+
+    int writeOffset = 0;
+    for (int slot = 0; slot < sourceOffsets.length; slot++) {
+      final int sourceOffset = sourceOffsets[slot];
+      if (sourceOffset < 0) {
+        continue;
+      }
+
+      final int alignedWriteOffset = alignOffset(writeOffset);
+      compactedOffsets[slot] = alignedWriteOffset;
+
+      final int entryLength = readLengthPrefix(sourceMemory, sourceOffset);
+      writeOffset = alignedWriteOffset + LENGTH_PREFIX_BYTES + entryLength;
+    }
+
+    return new CompactedRegion(compactedOffsets, writeOffset);
+  }
+
+  private static void writeCompactedLengthPrefixedRegion(final BytesOut<?> sink, final MemorySegment sourceMemory,
+      final int[] sourceOffsets, final int[] compactedOffsets, final int usedSize) {
+    int writeOffset = 0;
+    for (int slot = 0; slot < sourceOffsets.length; slot++) {
+      final int sourceOffset = sourceOffsets[slot];
+      if (sourceOffset < 0) {
+        continue;
+      }
+
+      final int targetOffset = compactedOffsets[slot];
+      while (writeOffset < targetOffset) {
+        sink.writeByte((byte) 0);
+        writeOffset++;
+      }
+
+      final int entryLength = readLengthPrefix(sourceMemory, sourceOffset);
+      final int totalEntrySize = LENGTH_PREFIX_BYTES + entryLength;
+      sink.writeSegment(sourceMemory, sourceOffset, totalEntrySize);
+      writeOffset += totalEntrySize;
+    }
+
+    if (writeOffset != usedSize) {
+      throw new IllegalStateException(
+          "Compacted region size mismatch. expected=" + usedSize + ", actual=" + writeOffset);
+    }
+  }
+
+  private static int alignOffset(final int offset) {
+    return (offset + LENGTH_PREFIX_ALIGNMENT - 1) & -LENGTH_PREFIX_ALIGNMENT;
+  }
+
+  private static int readLengthPrefix(final MemorySegment sourceMemory, final int sourceOffset) {
+    if (sourceOffset < 0 || sourceOffset + LENGTH_PREFIX_BYTES > sourceMemory.byteSize()) {
+      throw new IllegalStateException(
+          "Invalid source offset for compact serialization: " + sourceOffset + ", memorySize=" + sourceMemory.byteSize());
+    }
+
+    final int length = sourceMemory.get(JAVA_INT_UNALIGNED, sourceOffset);
+    if (length <= 0 || sourceOffset + LENGTH_PREFIX_BYTES + (long) length > sourceMemory.byteSize()) {
+      throw new IllegalStateException(
+          "Invalid length prefix during compact serialization. offset="
+              + sourceOffset
+              + ", length="
+              + length
+              + ", memorySize="
+              + sourceMemory.byteSize());
+    }
+
+    return length;
+  }
+
+  private record CompactedRegion(int[] offsets, int usedSize) {
   }
 
   /**

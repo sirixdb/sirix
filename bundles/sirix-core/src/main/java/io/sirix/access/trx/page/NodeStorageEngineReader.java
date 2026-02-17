@@ -380,10 +380,19 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   @SuppressWarnings({"unchecked", "rawtypes"})
   private DataRecord getDataRecord(long key, int offset, MemorySegment data, KeyValuePage<? extends DataRecord> page) {
-    var record = resourceConfig.recordPersister.deserialize(new MemorySegmentBytesIn(data),
-                                                            key,
-                                                            page.getDeweyIdAsByteArray(offset),
-                                                            resourceConfig);
+    final boolean fixedSlotFormat = page instanceof KeyValueLeafPage kvPage && kvPage.isFixedSlotFormat(offset);
+    if (fixedSlotFormat) {
+      throw new IllegalStateException(
+          "Fixed-slot bytes must be read through singleton cursor access (moveTo/lookupSlotWithGuard) "
+              + "or writer-specific fixed-slot materialization (key="
+              + key
+              + ", slot="
+              + offset
+              + ").");
+    }
+
+    final byte[] deweyIdBytes = page.getDeweyIdAsByteArray(offset);
+    final DataRecord record = deserializeCompactRecord(key, data, deweyIdBytes);
     
     // Propagate FSST symbol table to string nodes for lazy decompression
     // Only KeyValueLeafPage has FSST symbol table support
@@ -392,9 +401,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       kvPage.onRecordRematerialized();
     }
     
-    // Use raw type to avoid generic mismatch with different KeyValuePage implementations
+    // Use raw type to avoid generic mismatch with different KeyValuePage implementations.
     ((KeyValuePage) page).setRecord(record);
     return record;
+  }
+
+  private DataRecord deserializeCompactRecord(final long key, final MemorySegment data, final byte[] deweyIdBytes) {
+    return resourceConfig.recordPersister.deserialize(new MemorySegmentBytesIn(data), key, deweyIdBytes, resourceConfig);
   }
 
   /**

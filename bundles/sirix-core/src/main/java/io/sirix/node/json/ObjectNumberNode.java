@@ -46,6 +46,7 @@ import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.NumericValueNode;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Fixed;
@@ -63,7 +64,7 @@ import java.math.BigInteger;
  * 
  * @author Johannes Lichtenberger
  */
-public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, NumericValueNode {
+public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, NumericValueNode, ReusableNodeProxy {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
@@ -95,6 +96,10 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
   private boolean valueParsed;
   private boolean hasHash;
   private long valueOffset;
+
+  // Fixed-slot value encoding state (for read path via populateSingletonFromFixedSlot)
+  private boolean fixedValueEncoding;   // Whether value comes from fixed-slot inline payload
+  private int fixedValueLength;         // Length of inline payload bytes
 
   /**
    * Primary constructor with all primitive fields.
@@ -265,6 +270,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
 
   public void setValue(final Number value) {
     this.value = value;
+    this.fixedValueEncoding = false;
     this.valueParsed = true;
   }
 
@@ -325,6 +331,11 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     this.nodeKey = nodeKey;
   }
 
+  public void setDeweyIDBytes(final byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
                        final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
@@ -349,17 +360,37 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     this.value = null;
   }
   
+  /**
+   * Populate this singleton from fixed-slot inline payload (zero allocation).
+   * Sets up lazy value parsing from the fixed-slot MemorySegment.
+   * CRITICAL: Resets hash to 0 — caller MUST call setHash() AFTER this method.
+   *
+   * @param source the slot data (MemorySegment) containing inline payload
+   * @param valueOffset byte offset within source where payload bytes start
+   * @param valueLength length of payload bytes
+   */
+  public void setLazyNumberValue(final Object source, final long valueOffset, final int valueLength) {
+    this.lazySource = source;
+    this.valueOffset = valueOffset;
+    this.metadataParsed = true;
+    this.valueParsed = false;
+    this.fixedValueEncoding = true;
+    this.fixedValueLength = valueLength;
+    this.value = null;
+    this.hash = 0L;
+  }
+
   private void parseMetadataFields() {
     if (metadataParsed) {
       return;
     }
-    
+
     if (lazySource == null) {
       metadataParsed = true;
       return;
     }
-    
-    BytesIn<?> bytesIn = createBytesIn(lazyOffset);
+
+    final BytesIn<?> bytesIn = createBytesIn(lazyOffset);
     
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
@@ -374,17 +405,29 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     if (valueParsed) {
       return;
     }
-    
+
+    // Fixed-slot inline payload path (from setLazyNumberValue)
+    if (fixedValueEncoding) {
+      if (fixedValueLength > 0) {
+        final BytesIn<?> bytesIn = createBytesIn(valueOffset);
+        this.value = NodeKind.deserializeNumber(bytesIn);
+      } else {
+        this.value = 0;
+      }
+      this.valueParsed = true;
+      return;
+    }
+
     if (!metadataParsed) {
       parseMetadataFields();
     }
-    
+
     if (lazySource == null) {
       valueParsed = true;
       return;
     }
-    
-    BytesIn<?> bytesIn = createBytesIn(valueOffset);
+
+    final BytesIn<?> bytesIn = createBytesIn(valueOffset);
     this.value = NodeKind.deserializeNumber(bytesIn);
     this.valueParsed = true;
   }

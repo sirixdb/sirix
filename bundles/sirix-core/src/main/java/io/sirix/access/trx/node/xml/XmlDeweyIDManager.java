@@ -44,6 +44,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
     final StructNode root =
         nodeTrx.getPageWtx().prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     root.setDeweyID(id);
+    persistUpdatedRecord(root);
 
     adaptNonStructuralNodes(root);
 
@@ -54,7 +55,9 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
       int nspNr = 0;
       var previousNodeKey = nodeTrx.getNodeKey();
 
-      for (final long ignored : LevelOrderAxis.newBuilder(nodeTrx).includeNonStructuralNodes().includeSelf().build()) {
+      final var axis = LevelOrderAxis.newBuilder(nodeTrx).includeNonStructuralNodes().includeSelf().build();
+      while (axis.hasNext()) {
+        axis.nextLong();
         SirixDeweyID deweyID;
         if (nodeTrx.isAttribute()) {
           final long attNodeKey = nodeTrx.getNodeKey();
@@ -88,6 +91,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
 
         final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
+        persistUpdatedRecord(node);
 
         previousNodeKey = node.getNodeKey();
       }
@@ -113,6 +117,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
 
         final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
+        persistUpdatedRecord(node);
 
         nodeTrx.moveToParent();
       }
@@ -130,6 +135,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
 
         final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
+        persistUpdatedRecord(node);
 
         nodeTrx.moveToParent();
       }
@@ -174,6 +180,10 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
       }
     }
     return id;
+  }
+
+  private void persistUpdatedRecord(final DataRecord record) {
+    pageTrx.updateRecordSlot(record, IndexType.DOCUMENT, -1);
   }
 
 }

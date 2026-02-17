@@ -45,6 +45,7 @@ import io.sirix.node.SirixDeweyID;
 import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableObjectNullNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.settings.Fixed;
@@ -59,7 +60,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  * 
  * @author Johannes Lichtenberger
  */
-public final class ObjectNullNode implements StructNode, ImmutableJsonNode {
+public final class ObjectNullNode implements StructNode, ImmutableJsonNode, ReusableNodeProxy {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
@@ -155,6 +156,11 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode {
   public void setDeweyID(final SirixDeweyID id) {
     this.sirixDeweyID = id;
     this.deweyIDBytes = null;
+  }
+
+  public void setDeweyIDBytes(final byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
   }
 
   @Override

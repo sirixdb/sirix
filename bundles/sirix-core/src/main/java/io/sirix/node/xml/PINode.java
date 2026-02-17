@@ -31,32 +31,42 @@ package io.sirix.node.xml;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.brackit.query.atomic.QNm;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.DeltaVarIntCodec;
+import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.xml.ImmutablePI;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
+import io.sirix.utils.Compression;
 import io.sirix.utils.NamePageHash;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.lang.foreign.MemorySegment;
+
 /**
  * Processing Instruction node using primitive fields.
  *
  * @author Johannes Lichtenberger
  */
-public final class PINode implements StructNode, NameNode, ValueNode, ImmutableXmlNode {
+public final class PINode implements StructNode, NameNode, ValueNode, ImmutableXmlNode, ReusableNodeProxy {
 
   // === IMMEDIATE STRUCTURAL FIELDS ===
   private long nodeKey;
@@ -82,6 +92,11 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   // === VALUE FIELD ===
   private byte[] value;
   private boolean isCompressed;
+  private Object lazyValueSource;
+  private long lazyValueOffset;
+  private int lazyValueLength;
+  private boolean lazyValueCompressed;
+  private boolean valueParsed = true;
 
   // === NON-SERIALIZED FIELDS ===
   private LongHashFunction hashFunction;
@@ -262,7 +277,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   @Override
   public long getHash() {
     if (hash == 0L && hashFunction != null) {
-      hash = computeHash(Bytes.elasticOffHeapByteBuffer());
+      hash = computeHash(Bytes.threadLocalHashBuffer());
     }
     return hash;
   }
@@ -271,10 +286,39 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   public void setHash(long hash) { this.hash = hash; }
 
   @Override
-  public byte[] getRawValue() { return value; }
+  public byte[] getRawValue() {
+    if (!valueParsed) {
+      parseLazyValue();
+    }
+    if (value != null && isCompressed) {
+      value = Compression.decompress(value);
+      isCompressed = false;
+    }
+    return value;
+  }
 
   @Override
-  public void setRawValue(byte[] value) { this.value = value; this.hash = 0L; }
+  public void setRawValue(byte[] value) {
+    this.value = value;
+    this.valueParsed = true;
+    this.lazyValueSource = null;
+    this.lazyValueOffset = 0L;
+    this.lazyValueLength = 0;
+    this.lazyValueCompressed = false;
+    this.isCompressed = false;
+    this.hash = 0L;
+  }
+
+  public void setLazyRawValue(Object source, long valueOffset, int valueLength, boolean compressed) {
+    this.lazyValueSource = source;
+    this.lazyValueOffset = valueOffset;
+    this.lazyValueLength = valueLength;
+    this.lazyValueCompressed = compressed;
+    this.value = null;
+    this.valueParsed = false;
+    this.isCompressed = compressed;
+    this.hash = 0L;
+  }
 
   @Override
   public String getValue() { return value != null ? new String(value, Constants.DEFAULT_ENCODING) : ""; }
@@ -284,7 +328,22 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   public void setName(QNm name) { this.qNm = name; }
 
+  /**
+   * Returns the raw value bytes without triggering decompression.
+   * Used by the fixed-slot projector to preserve the original compressed bytes.
+   */
+  public byte[] getRawValueWithoutDecompression() {
+    if (!valueParsed) {
+      parseLazyValue();
+    }
+    return value;
+  }
+
   public boolean isCompressed() { return isCompressed; }
+
+  public void setCompressed(boolean compressed) {
+    this.isCompressed = compressed;
+  }
 
   @Override
   public boolean isSameItem(@Nullable Node other) { return other != null && other.getNodeKey() == nodeKey; }
@@ -297,6 +356,11 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   @Override
   public void setDeweyID(SirixDeweyID id) { this.sirixDeweyID = id; this.deweyIDBytes = null; }
+
+  public void setDeweyIDBytes(byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
 
   @Override
   public SirixDeweyID getDeweyID() {
@@ -316,6 +380,79 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   public LongHashFunction getHashFunction() { return hashFunction; }
 
+  /**
+   * Populate this node from a BytesIn source for singleton reuse.
+   */
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
+      LongHashFunction hashFunction, ResourceConfiguration config) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
+
+    this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.lastChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.prefixKey = DeltaVarIntCodec.decodeSigned(source);
+    this.localNameKey = DeltaVarIntCodec.decodeSigned(source);
+    this.uriKey = DeltaVarIntCodec.decodeSigned(source);
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
+
+    this.childCount = config.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0L;
+    if (config.hashType != HashType.NONE) {
+      this.hash = source.readLong();
+      this.descendantCount = DeltaVarIntCodec.decodeSigned(source);
+    } else {
+      this.hash = 0L;
+      this.descendantCount = 0L;
+    }
+
+    final boolean compressed = source.readByte() == (byte) 1;
+    final int valueLength = DeltaVarIntCodec.decodeSigned(source);
+    final long valueOffset = source.position();
+    setLazyRawValue(source.getSource(), valueOffset, valueLength, compressed);
+    source.position(valueOffset + valueLength);
+  }
+
+  private void parseLazyValue() {
+    if (valueParsed) {
+      return;
+    }
+
+    if (lazyValueSource == null) {
+      valueParsed = true;
+      return;
+    }
+
+    final BytesIn<?> bytesIn = createBytesIn(lazyValueSource, lazyValueOffset);
+    final byte[] parsedValue = new byte[lazyValueLength];
+    if (lazyValueLength > 0) {
+      bytesIn.read(parsedValue, 0, lazyValueLength);
+    }
+    value = parsedValue;
+    isCompressed = lazyValueCompressed;
+    valueParsed = true;
+    lazyValueSource = null;
+  }
+
+  private static BytesIn<?> createBytesIn(Object source, long offset) {
+    if (source instanceof MemorySegment segment) {
+      final var bytesIn = new MemorySegmentBytesIn(segment);
+      bytesIn.position(offset);
+      return bytesIn;
+    }
+    if (source instanceof byte[] bytes) {
+      final var bytesIn = new ByteArrayBytesIn(bytes);
+      bytesIn.position(offset);
+      return bytesIn;
+    }
+    throw new IllegalStateException("Unknown lazy source type: " + source.getClass());
+  }
+
   @Override
   public long computeHash(BytesOut<?> bytes) {
     if (hashFunction == null) return 0L;
@@ -328,15 +465,19 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
       bytes.writeLong(lastChildKey);
     }
     bytes.writeInt(prefixKey).writeInt(localNameKey).writeInt(uriKey);
-    if (value != null) bytes.write(value);
+    final byte[] rawValue = getRawValue();
+    if (rawValue != null) {
+      bytes.write(rawValue);
+    }
     return bytes.hashDirect(hashFunction);
   }
 
   public PINode toSnapshot() {
+    final byte[] rawValue = getRawValue();
     return new PINode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
         childCount, descendantCount, hash, pathNodeKey, prefixKey, localNameKey, uriKey,
-        value != null ? value.clone() : null, isCompressed, hashFunction,
+        rawValue != null ? rawValue.clone() : null, isCompressed, hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null, qNm);
   }
 

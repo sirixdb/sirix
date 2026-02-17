@@ -32,6 +32,8 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.json.InternalJsonNodeReadOnlyTrx;
+import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.axis.ChildAxis;
@@ -47,7 +49,9 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -521,6 +525,143 @@ class FlyweightCursorTest {
       assertEquals(1, booleanCount, "Should have 1 boolean value");
       assertEquals(1, nullCount, "Should have 1 null value");
       assertEquals(1, arrayCount, "Should have 1 array");
+    }
+  }
+
+  /**
+   * Regression test: insertObjectRecordAsLeftSibling must insert at the correct position,
+   * not at the parent. Previously, the singleton cursor alias caused moveTo() after
+   * moveToParent() to navigate to the parent instead of the original node.
+   */
+  @Test
+  void testInsertObjectRecordAsLeftSiblingPosition() {
+    try (final var session = database.beginResourceSession(RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      // Create: {"a": "1", "b": "2"}
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\": \"1\", \"b\": \"2\"}"));
+      wtx.commit();
+    }
+
+    // Insert a left sibling of "b"
+    try (final var session = database.beginResourceSession(RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();  // Object
+      wtx.moveToFirstChild();  // "a" key
+      wtx.moveToRightSibling(); // "b" key
+      assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
+      assertEquals("b", wtx.getName().getLocalName());
+
+      // This was the buggy operation — the cursor would end up at parent instead of "b"
+      wtx.insertObjectRecordAsLeftSibling("inserted", new StringValue("new"));
+      wtx.commit();
+    }
+
+    // Verify structure: {"a": "1", "inserted": "new", "b": "2"}
+    try (final var session = database.beginResourceSession(RESOURCE);
+         final var rtx = session.beginNodeReadOnlyTrx()) {
+      rtx.moveToDocumentRoot();
+      rtx.moveToFirstChild();  // Object
+      rtx.moveToFirstChild();  // First key
+
+      assertEquals("a", rtx.getName().getLocalName(), "First key should be 'a'");
+      assertTrue(rtx.moveToRightSibling());
+      assertEquals("inserted", rtx.getName().getLocalName(), "Second key should be 'inserted'");
+      assertTrue(rtx.moveToRightSibling());
+      assertEquals("b", rtx.getName().getLocalName(), "Third key should be 'b'");
+    }
+  }
+
+  /**
+   * Regression test: insertObjectRecordAsRightSibling must insert at the correct position.
+   * Same root cause as the left sibling bug — singleton alias after moveToParent().
+   */
+  @Test
+  void testInsertObjectRecordAsRightSiblingPosition() {
+    try (final var session = database.beginResourceSession(RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      // Create: {"a": "1", "b": "2"}
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\": \"1\", \"b\": \"2\"}"));
+      wtx.commit();
+    }
+
+    // Insert a right sibling of "a"
+    try (final var session = database.beginResourceSession(RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();  // Object
+      wtx.moveToFirstChild();  // "a" key
+      assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
+      assertEquals("a", wtx.getName().getLocalName());
+
+      wtx.insertObjectRecordAsRightSibling("inserted", new StringValue("new"));
+      wtx.commit();
+    }
+
+    // Verify structure: {"a": "1", "inserted": "new", "b": "2"}
+    try (final var session = database.beginResourceSession(RESOURCE);
+         final var rtx = session.beginNodeReadOnlyTrx()) {
+      rtx.moveToDocumentRoot();
+      rtx.moveToFirstChild();  // Object
+      rtx.moveToFirstChild();  // First key
+
+      assertEquals("a", rtx.getName().getLocalName(), "First key should be 'a'");
+      assertTrue(rtx.moveToRightSibling());
+      assertEquals("inserted", rtx.getName().getLocalName(), "Second key should be 'inserted'");
+      assertTrue(rtx.moveToRightSibling());
+      assertEquals("b", rtx.getName().getLocalName(), "Third key should be 'b'");
+    }
+  }
+
+  /**
+   * Regression test: getNode() must return a true immutable snapshot that does not
+   * mutate when the cursor moves. Previously, getNode() used getStructuralNode()
+   * which returned the live mutable singleton, so the "immutable" wrapper would
+   * silently change after cursor movement.
+   */
+  @Test
+  void testGetNodeReturnsImmutableSnapshotOnCursorMove() {
+    try (final var session = database.beginResourceSession(RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+          "{\"first\": \"hello\", \"second\": \"world\"}"));
+      wtx.commit();
+    }
+
+    try (final var session = database.beginResourceSession(RESOURCE);
+         final var rtx = session.beginNodeReadOnlyTrx()) {
+
+      // Navigate to "first" object key
+      rtx.moveToDocumentRoot();
+      rtx.moveToFirstChild();  // Object
+      rtx.moveToFirstChild();  // "first" key
+      assertEquals(NodeKind.OBJECT_KEY, rtx.getKind());
+
+      // Get immutable snapshot at "first"
+      final var firstNode = rtx.getNode();
+      final long firstKey = firstNode.getNodeKey();
+      final NodeKind firstKind = firstNode.getKind();
+
+      // Move cursor to "second" key
+      assertTrue(rtx.moveToRightSibling());
+      assertEquals(NodeKind.OBJECT_KEY, rtx.getKind());
+
+      // Get immutable snapshot at "second"
+      final var secondNode = rtx.getNode();
+      final long secondKey = secondNode.getNodeKey();
+
+      // The two snapshots must be different nodes
+      assertNotEquals(firstKey, secondKey, "first and second should have different keys");
+
+      // CRITICAL: firstNode must still reflect the original "first" key, not "second"
+      assertEquals(firstKey, firstNode.getNodeKey(),
+          "Immutable snapshot must not change after cursor move");
+      assertEquals(firstKind, firstNode.getKind(),
+          "Immutable snapshot kind must not change after cursor move");
+
+      // Both snapshots must be independent objects (not the same singleton)
+      assertNotSame(firstNode, secondNode,
+          "Different getNode() calls after cursor move must return different objects");
     }
   }
 }

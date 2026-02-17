@@ -29,14 +29,4 @@ final class XmlNodeHashing extends AbstractNodeHashing<ImmutableXmlNode, XmlNode
     return nodeReadOnlyTrx.getStructuralNode();
   }
 
-  @Override
-  protected ImmutableXmlNode getCurrentNode() {
-    return nodeReadOnlyTrx.getCurrentNode();
-  }
-
-  @Override
-  protected void setCurrentNode(final ImmutableXmlNode node) {
-    nodeReadOnlyTrx.setCurrentNode(node);
-  }
-
 }

@@ -62,12 +62,16 @@ public final class CASIndexListener {
   }
 
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey, final Str value) {
+    listen(type, node.getNodeKey(), pathNodeKey, value);
+  }
+
+  public void listen(final IndexController.ChangeType type, final long nodeKey, final long pathNodeKey, final Str value) {
     var hasMoved = pathSummaryReader.moveTo(pathNodeKey);
     assert hasMoved;
     switch (type) {
       case INSERT -> {
         if (pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
-          insert(node, pathNodeKey, value);
+          insert(nodeKey, pathNodeKey, value);
         }
       }
       case DELETE -> {
@@ -75,10 +79,10 @@ public final class CASIndexListener {
           CASValue casValue = new CASValue(value, this.type, pathNodeKey);
           if (useHOT) {
             assert hotWriter != null;
-            hotWriter.remove(casValue, node.getNodeKey());
+            hotWriter.remove(casValue, nodeKey);
           } else {
             assert rbTreeWriter != null;
-            rbTreeWriter.remove(casValue, node.getNodeKey());
+            rbTreeWriter.remove(casValue, nodeKey);
           }
         }
       }
@@ -87,7 +91,7 @@ public final class CASIndexListener {
     }
   }
 
-  private void insert(final ImmutableNode node, final long pathNodeKey, final Str value) throws SirixIOException {
+  private void insert(final long nodeKey, final long pathNodeKey, final Str value) throws SirixIOException {
     boolean isOfType = false;
     try {
       AtomicUtil.toType(value, type);
@@ -98,42 +102,42 @@ public final class CASIndexListener {
     if (isOfType) {
       final CASValue indexValue = new CASValue(value, type, pathNodeKey);
       if (useHOT) {
-        insertHOT(node, indexValue);
+        insertHOT(nodeKey, indexValue);
       } else {
-        insertRBTree(node, indexValue);
+        insertRBTree(nodeKey, indexValue);
       }
     }
   }
 
-  private void insertRBTree(final ImmutableNode node, final CASValue indexValue) {
+  private void insertRBTree(final long nodeKey, final CASValue indexValue) {
     assert rbTreeWriter != null;
     final Optional<NodeReferences> textReferences = rbTreeWriter.get(indexValue, SearchMode.EQUAL);
     if (textReferences.isPresent()) {
-      setNodeReferencesRBTree(node, new NodeReferences(textReferences.get().getNodeKeys()), indexValue);
+      setNodeReferencesRBTree(nodeKey, new NodeReferences(textReferences.get().getNodeKeys()), indexValue);
     } else {
-      setNodeReferencesRBTree(node, new NodeReferences(), indexValue);
+      setNodeReferencesRBTree(nodeKey, new NodeReferences(), indexValue);
     }
   }
 
-  private void insertHOT(final ImmutableNode node, final CASValue indexValue) {
+  private void insertHOT(final long nodeKey, final CASValue indexValue) {
     assert hotWriter != null;
     NodeReferences existingRefs = hotWriter.get(indexValue, SearchMode.EQUAL);
     if (existingRefs != null) {
-      setNodeReferencesHOT(node, new NodeReferences(existingRefs.getNodeKeys()), indexValue);
+      setNodeReferencesHOT(nodeKey, new NodeReferences(existingRefs.getNodeKeys()), indexValue);
     } else {
-      setNodeReferencesHOT(node, new NodeReferences(), indexValue);
+      setNodeReferencesHOT(nodeKey, new NodeReferences(), indexValue);
     }
   }
 
-  private void setNodeReferencesRBTree(final ImmutableNode node, final NodeReferences references, 
+  private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references,
       final CASValue indexValue) {
     assert rbTreeWriter != null;
-    rbTreeWriter.index(indexValue, references.addNodeKey(node.getNodeKey()), RBTreeReader.MoveCursor.NO_MOVE);
+    rbTreeWriter.index(indexValue, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
   }
 
-  private void setNodeReferencesHOT(final ImmutableNode node, final NodeReferences references,
+  private void setNodeReferencesHOT(final long nodeKey, final NodeReferences references,
       final CASValue indexValue) {
     assert hotWriter != null;
-    hotWriter.index(indexValue, references.addNodeKey(node.getNodeKey()), RBTreeReader.MoveCursor.NO_MOVE);
+    hotWriter.index(indexValue, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
   }
 }

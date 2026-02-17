@@ -55,6 +55,10 @@ public final class PathIndexListener {
   }
 
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey) {
+    listen(type, node.getNodeKey(), pathNodeKey);
+  }
+
+  public void listen(final IndexController.ChangeType type, final long nodeKey, final long pathNodeKey) {
     pathSummaryReader.moveTo(pathNodeKey);
     try {
       // If paths is empty, index ALL paths (same logic as PathIndexBuilder)
@@ -65,9 +69,9 @@ public final class PathIndexListener {
         case INSERT -> {
           if (shouldProcess) {
             if (useHOT) {
-              handleInsertHOT(node, pathNodeKey);
+              handleInsertHOT(nodeKey, pathNodeKey);
             } else {
-              handleInsertRBTree(node, pathNodeKey);
+              handleInsertRBTree(nodeKey, pathNodeKey);
             }
           }
         }
@@ -75,10 +79,10 @@ public final class PathIndexListener {
           if (shouldProcess) {
             if (useHOT) {
               assert hotWriter != null;
-              hotWriter.remove(pathNodeKey, node.getNodeKey());
+              hotWriter.remove(pathNodeKey, nodeKey);
             } else {
               assert rbTreeWriter != null;
-              rbTreeWriter.remove(pathNodeKey, node.getNodeKey());
+              rbTreeWriter.remove(pathNodeKey, nodeKey);
             }
           }
         }
@@ -90,37 +94,37 @@ public final class PathIndexListener {
     }
   }
 
-  private void handleInsertRBTree(final ImmutableNode node, final long pathNodeKey) {
+  private void handleInsertRBTree(final long nodeKey, final long pathNodeKey) {
     assert rbTreeWriter != null;
     final Optional<NodeReferences> textReferences = rbTreeWriter.get(pathNodeKey, SearchMode.EQUAL);
     if (textReferences.isPresent()) {
-      setNodeReferencesRBTree(node, textReferences.get(), pathNodeKey);
+      setNodeReferencesRBTree(nodeKey, textReferences.get(), pathNodeKey);
     } else {
-      setNodeReferencesRBTree(node, new NodeReferences(), pathNodeKey);
+      setNodeReferencesRBTree(nodeKey, new NodeReferences(), pathNodeKey);
     }
   }
 
-  private void handleInsertHOT(final ImmutableNode node, final long pathNodeKey) {
+  private void handleInsertHOT(final long nodeKey, final long pathNodeKey) {
     assert hotWriter != null;
     // HOT writer uses primitive long - no boxing!
     NodeReferences existingRefs = hotWriter.get(pathNodeKey, SearchMode.EQUAL);
     if (existingRefs != null) {
-      setNodeReferencesHOT(node, existingRefs, pathNodeKey);
+      setNodeReferencesHOT(nodeKey, existingRefs, pathNodeKey);
     } else {
-      setNodeReferencesHOT(node, new NodeReferences(), pathNodeKey);
+      setNodeReferencesHOT(nodeKey, new NodeReferences(), pathNodeKey);
     }
   }
 
-  private void setNodeReferencesRBTree(final ImmutableNode node, final NodeReferences references,
+  private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references,
       final long pathNodeKey) {
     assert rbTreeWriter != null;
-    rbTreeWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
+    rbTreeWriter.index(pathNodeKey, references.addNodeKey(nodeKey), MoveCursor.NO_MOVE);
   }
 
-  private void setNodeReferencesHOT(final ImmutableNode node, final NodeReferences references,
+  private void setNodeReferencesHOT(final long nodeKey, final NodeReferences references,
       final long pathNodeKey) {
     assert hotWriter != null;
     // HOT writer uses primitive long - no boxing!
-    hotWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
+    hotWriter.index(pathNodeKey, references.addNodeKey(nodeKey), MoveCursor.NO_MOVE);
   }
 }

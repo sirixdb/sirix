@@ -30,10 +30,14 @@ package io.sirix.node.xml;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
+import io.sirix.node.BytesIn;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
+import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.xml.ImmutableXmlDocumentRootNode;
@@ -296,7 +300,7 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode {
   @Override
   public long getHash() {
     if (hash == 0L && hashFunction != null) {
-      hash = computeHash(Bytes.elasticOffHeapByteBuffer());
+      hash = computeHash(Bytes.threadLocalHashBuffer());
     }
     return hash;
   }
@@ -364,6 +368,11 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode {
     this.deweyIDBytes = null;
   }
 
+  public void setDeweyIDBytes(byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   /**
    * Get the hash function.
    *
@@ -371,6 +380,35 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode {
    */
   public LongHashFunction getHashFunction() {
     return hashFunction;
+  }
+
+  /**
+   * Populate this node from a BytesIn source for singleton reuse.
+   */
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
+      LongHashFunction hashFunction, ResourceConfiguration config) {
+    final long firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    final long childCount = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty() ? 0L : 1L;
+
+    final long hash;
+    final long descendantCount;
+    if (config.hashType != HashType.NONE) {
+      hash = source.readLong();
+      descendantCount = DeltaVarIntCodec.decodeSignedLong(source);
+    } else {
+      hash = 0L;
+      descendantCount = 0L;
+    }
+
+    this.nodeKey = Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
+    this.firstChildKey = firstChildKey;
+    this.lastChildKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+    this.childCount = childCount;
+    this.hash = hash;
+    this.descendantCount = descendantCount;
+    this.hashFunction = hashFunction;
+    this.deweyIDBytes = deweyId;
+    this.sirixDeweyID = null;
   }
 
   /**

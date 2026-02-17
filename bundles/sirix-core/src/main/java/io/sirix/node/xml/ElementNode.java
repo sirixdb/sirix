@@ -36,16 +36,15 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.node.Bytes;
-import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
-import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.xml.ImmutableElement;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Fixed;
@@ -57,20 +56,17 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.lang.foreign.MemorySegment;
 import java.util.Collections;
 import java.util.List;
 
 /**
  * Node representing an XML element.
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.
- * Structural fields are parsed immediately for tree navigation; other fields
- * are parsed lazily on demand.</p>
+ * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
  *
  * @author Johannes Lichtenberger
  */
-public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode {
+public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode, ReusableNodeProxy {
 
   // === IMMEDIATE STRUCTURAL FIELDS ===
   private long nodeKey;
@@ -80,13 +76,13 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   private long firstChildKey;
   private long lastChildKey;
 
-  // === LAZY FIELDS (NameNode) ===
+  // === NAME FIELDS ===
   private long pathNodeKey;
   private int prefixKey;
   private int localNameKey;
   private int uriKey;
 
-  // === LAZY FIELDS (Metadata) ===
+  // === METADATA FIELDS ===
   private int previousRevision;
   private int lastModifiedRevision;
   private long childCount;
@@ -100,13 +96,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   private LongList attributeKeys;
   private LongList namespaceKeys;
   private QNm qNm;
-
-  // === LAZY PARSING STATE ===
-  private Object lazySource;
-  private long lazyOffset;
-  private boolean lazyFieldsParsed;
-  private boolean hasHash;
-  private boolean storeChildCount;
 
   /**
    * Primary constructor with all primitive fields.
@@ -138,7 +127,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     this.attributeKeys = attributeKeys != null ? attributeKeys : new LongArrayList();
     this.namespaceKeys = namespaceKeys != null ? namespaceKeys : new LongArrayList();
     this.qNm = qNm;
-    this.lazyFieldsParsed = true;
   }
 
   /**
@@ -170,7 +158,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     this.attributeKeys = attributeKeys != null ? attributeKeys : new LongArrayList();
     this.namespaceKeys = namespaceKeys != null ? namespaceKeys : new LongArrayList();
     this.qNm = qNm;
-    this.lazyFieldsParsed = true;
   }
 
   @Override
@@ -260,11 +247,10 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     return lastChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
-  // === LAZY GETTERS (trigger parsing) ===
+  // === METADATA/NAME GETTERS ===
 
   @Override
   public long getPathNodeKey() {
-    if (!lazyFieldsParsed) parseLazyFields();
     return pathNodeKey;
   }
 
@@ -275,7 +261,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getPrefixKey() {
-    if (!lazyFieldsParsed) parseLazyFields();
     return prefixKey;
   }
 
@@ -286,7 +271,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getLocalNameKey() {
-    if (!lazyFieldsParsed) parseLazyFields();
     return localNameKey;
   }
 
@@ -297,7 +281,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getURIKey() {
-    if (!lazyFieldsParsed) parseLazyFields();
     return uriKey;
   }
 
@@ -308,7 +291,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getPreviousRevisionNumber() {
-    if (!lazyFieldsParsed) parseLazyFields();
     return previousRevision;
   }
 
@@ -319,7 +301,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getLastModifiedRevisionNumber() {
-    if (!lazyFieldsParsed) parseLazyFields();
     return lastModifiedRevision;
   }
 
@@ -330,7 +311,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getChildCount() {
-    if (!lazyFieldsParsed) parseLazyFields();
     return childCount;
   }
 
@@ -340,7 +320,6 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getDescendantCount() {
-    if (!lazyFieldsParsed) parseLazyFields();
     return descendantCount;
   }
 
@@ -351,9 +330,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getHash() {
-    if (!lazyFieldsParsed) parseLazyFields();
     if (hash == 0L && hashFunction != null) {
-      hash = computeHash(Bytes.elasticOffHeapByteBuffer());
+      hash = computeHash(Bytes.threadLocalHashBuffer());
     }
     return hash;
   }
@@ -415,6 +393,11 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     this.deweyIDBytes = null;
   }
 
+  public void setDeweyIDBytes(byte[] deweyIDBytes) {
+    this.deweyIDBytes = deweyIDBytes;
+    this.sirixDeweyID = null;
+  }
+
   @Override
   public SirixDeweyID getDeweyID() {
     if (deweyIDBytes != null && sirixDeweyID == null) {
@@ -456,6 +439,10 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     attributeKeys.removeIf(key -> key == attrNodeKey);
   }
 
+  public void clearAttributeKeys() {
+    attributeKeys.clear();
+  }
+
   public List<Long> getAttributeKeys() {
     return Collections.unmodifiableList(attributeKeys);
   }
@@ -479,6 +466,10 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   public void removeNamespace(long namespaceKey) {
     namespaceKeys.removeIf(key -> key == namespaceKey);
+  }
+
+  public void clearNamespaceKeys() {
+    namespaceKeys.clear();
   }
 
   public List<Long> getNamespaceKeys() {
@@ -515,96 +506,59 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     return bytes.hashDirect(hashFunction);
   }
 
-  // === LAZY PARSING ===
-
   /**
    * Populate this node from a BytesIn source for singleton reuse.
-   * LAZY OPTIMIZATION: Only parses structural fields immediately.
    */
   public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
-      LongHashFunction hashFunction, ResourceConfiguration config,
-      LongList attributeKeys, LongList namespaceKeys, QNm qNm) {
+      LongHashFunction hashFunction, ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
-    this.attributeKeys = attributeKeys != null ? attributeKeys : new LongArrayList();
-    this.namespaceKeys = namespaceKeys != null ? namespaceKeys : new LongArrayList();
-    this.qNm = qNm;
+    if (this.attributeKeys == null) {
+      this.attributeKeys = new LongArrayList();
+    }
+    if (this.namespaceKeys == null) {
+      this.namespaceKeys = new LongArrayList();
+    }
+    this.attributeKeys.clear();
+    this.namespaceKeys.clear();
 
-    // IMMEDIATE: Only structural relationships
     this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.lastChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-
-    // LAZY: Everything else
-    this.lazySource = source.getSource();
-    this.lazyOffset = source.position();
-    this.lazyFieldsParsed = false;
-    this.hasHash = config.hashType != HashType.NONE;
-    this.storeChildCount = config.storeChildCount();
-
-    // Initialize lazy fields to defaults
-    this.pathNodeKey = 0;
-    this.prefixKey = 0;
-    this.localNameKey = 0;
-    this.uriKey = 0;
-    this.previousRevision = 0;
-    this.lastModifiedRevision = 0;
-    this.childCount = 0;
-    this.descendantCount = 0;
-    this.hash = 0;
-  }
-
-  private void parseLazyFields() {
-    if (lazyFieldsParsed) {
-      return;
-    }
-
-    if (lazySource == null) {
-      lazyFieldsParsed = true;
-      return;
-    }
-
-    BytesIn<?> bytesIn;
-    if (lazySource instanceof MemorySegment segment) {
-      bytesIn = new MemorySegmentBytesIn(segment);
-      bytesIn.position(lazyOffset);
-    } else if (lazySource instanceof byte[] bytes) {
-      bytesIn = new ByteArrayBytesIn(bytes);
-      bytesIn.position(lazyOffset);
+    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
+    this.prefixKey = DeltaVarIntCodec.decodeSigned(source);
+    this.localNameKey = DeltaVarIntCodec.decodeSigned(source);
+    this.uriKey = DeltaVarIntCodec.decodeSigned(source);
+    this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
+    this.childCount = config.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0L;
+    if (config.hashType != HashType.NONE) {
+      this.hash = source.readLong();
+      this.descendantCount = DeltaVarIntCodec.decodeSigned(source);
     } else {
-      throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
+      this.hash = 0L;
+      this.descendantCount = 0L;
     }
 
-    // NameNode fields
-    this.pathNodeKey = DeltaVarIntCodec.decodeDelta(bytesIn, nodeKey);
-    this.prefixKey = DeltaVarIntCodec.decodeSigned(bytesIn);
-    this.localNameKey = DeltaVarIntCodec.decodeSigned(bytesIn);
-    this.uriKey = DeltaVarIntCodec.decodeSigned(bytesIn);
-
-    // Metadata fields
-    this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
-    this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
-    this.childCount = storeChildCount ? DeltaVarIntCodec.decodeSigned(bytesIn) : 0;
-    if (hasHash) {
-      this.hash = bytesIn.readLong();
-      this.descendantCount = DeltaVarIntCodec.decodeSigned(bytesIn);
+    final int attributeCount = DeltaVarIntCodec.decodeSigned(source);
+    for (int i = 0; i < attributeCount; i++) {
+      this.attributeKeys.add(DeltaVarIntCodec.decodeDelta(source, nodeKey));
     }
 
-    this.lazyFieldsParsed = true;
+    final int namespaceCount = DeltaVarIntCodec.decodeSigned(source);
+    for (int i = 0; i < namespaceCount; i++) {
+      this.namespaceKeys.add(DeltaVarIntCodec.decodeDelta(source, nodeKey));
+    }
   }
 
   /**
    * Create a deep copy snapshot of this node.
-   * Forces parsing of all lazy fields since snapshot must be independent.
    */
   public ElementNode toSnapshot() {
-    if (!lazyFieldsParsed) {
-      parseLazyFields();
-    }
     return new ElementNode(
         nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,

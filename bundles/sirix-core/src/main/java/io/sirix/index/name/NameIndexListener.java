@@ -52,6 +52,10 @@ public final class NameIndexListener {
   }
 
   public void listen(IndexController.ChangeType type, @NonNull ImmutableNode node, QNm name) {
+    listen(type, node.getNodeKey(), name);
+  }
+
+  public void listen(IndexController.ChangeType type, long nodeKey, QNm name) {
     // Skip if name is null (can happen when node is loaded from disk without cached name)
     if (name == null) {
       return;
@@ -67,18 +71,18 @@ public final class NameIndexListener {
     switch (type) {
       case INSERT -> {
         if (useHOT) {
-          handleInsertHOT(node, name);
+          handleInsertHOT(nodeKey, name);
         } else {
-          handleInsertRBTree(node, name);
+          handleInsertRBTree(nodeKey, name);
         }
       }
       case DELETE -> {
         if (useHOT) {
           assert hotWriter != null;
-          hotWriter.remove(name, node.getNodeKey());
+          hotWriter.remove(name, nodeKey);
         } else {
           assert rbTreeWriter != null;
-          rbTreeWriter.remove(name, node.getNodeKey());
+          rbTreeWriter.remove(name, nodeKey);
         }
       }
       default -> {
@@ -86,35 +90,35 @@ public final class NameIndexListener {
     }
   }
 
-  private void handleInsertRBTree(@NonNull ImmutableNode node, QNm name) {
+  private void handleInsertRBTree(long nodeKey, QNm name) {
     assert rbTreeWriter != null;
     final Optional<NodeReferences> textReferences = rbTreeWriter.get(name, SearchMode.EQUAL);
     if (textReferences.isPresent()) {
-      setNodeReferencesRBTree(node, textReferences.get(), name);
+      setNodeReferencesRBTree(nodeKey, textReferences.get(), name);
     } else {
-      setNodeReferencesRBTree(node, new NodeReferences(), name);
+      setNodeReferencesRBTree(nodeKey, new NodeReferences(), name);
     }
   }
 
-  private void handleInsertHOT(@NonNull ImmutableNode node, QNm name) {
+  private void handleInsertHOT(long nodeKey, QNm name) {
     assert hotWriter != null;
     NodeReferences existingRefs = hotWriter.get(name, SearchMode.EQUAL);
     if (existingRefs != null) {
-      setNodeReferencesHOT(node, existingRefs, name);
+      setNodeReferencesHOT(nodeKey, existingRefs, name);
     } else {
-      setNodeReferencesHOT(node, new NodeReferences(), name);
+      setNodeReferencesHOT(nodeKey, new NodeReferences(), name);
     }
   }
 
-  private void setNodeReferencesRBTree(final ImmutableNode node, final NodeReferences references, 
+  private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references,
       final QNm name) {
     assert rbTreeWriter != null;
-    rbTreeWriter.index(name, references.addNodeKey(node.getNodeKey()), RBTreeReader.MoveCursor.NO_MOVE);
+    rbTreeWriter.index(name, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
   }
 
-  private void setNodeReferencesHOT(final ImmutableNode node, final NodeReferences references,
+  private void setNodeReferencesHOT(final long nodeKey, final NodeReferences references,
       final QNm name) {
     assert hotWriter != null;
-    hotWriter.index(name, references.addNodeKey(node.getNodeKey()), RBTreeReader.MoveCursor.NO_MOVE);
+    hotWriter.index(name, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
   }
 }

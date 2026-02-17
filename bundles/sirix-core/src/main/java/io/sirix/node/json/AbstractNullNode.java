@@ -79,7 +79,7 @@ public abstract class AbstractNullNode extends AbstractStructForwardingNode impl
   @Override
   public long getHash() {
     if (hashCode == 0L) {
-      hashCode = computeHash(Bytes.elasticOffHeapByteBuffer());
+      hashCode = computeHash(Bytes.threadLocalHashBuffer());
     }
     return hashCode;
   }

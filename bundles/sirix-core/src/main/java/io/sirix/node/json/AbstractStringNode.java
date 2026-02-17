@@ -79,7 +79,7 @@ public abstract class AbstractStringNode extends AbstractStructForwardingNode im
   @Override
   public long getHash() {
     if (hashCode == 0L) {
-      hashCode = computeHash(Bytes.elasticOffHeapByteBuffer());
+      hashCode = computeHash(Bytes.threadLocalHashBuffer());
     }
     return hashCode;
   }

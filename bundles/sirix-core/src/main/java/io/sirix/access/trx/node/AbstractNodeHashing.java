@@ -123,7 +123,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    * @throws SirixIOException if anything weird happens
    */
   private void postorderRemove() {
-    nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey());
+    nodeReadOnlyTrx.moveTo(nodeReadOnlyTrx.getParentKey());
     postorderAdd();
   }
 
@@ -134,20 +134,22 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    */
   private void postorderAdd() {
     // start with hash to add
-    final var startNode = getCurrentNode();
+    final Node startNode = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+    final long startNodeKey = startNode.getNodeKey();
     // long for adapting the hash of the parent
     long hashCodeForParent;
     // adapting the parent if the current node is no structural one.
     if (!(startNode instanceof StructNode)) {
-      final Node node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-      node.setHash(getCurrentNode().computeHash(bytes));
-      nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey());
+      final Node node = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+      node.setHash(node.computeHash(bytes));
+      persistNode(node);
+      nodeReadOnlyTrx.moveTo(nodeReadOnlyTrx.getParentKey());
     }
     // Cursor to root
     StructNode cursorToRoot;
     do {
-      cursorToRoot = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-      hashCodeForParent = getCurrentNode().computeHash(bytes);
+      cursorToRoot = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+      hashCodeForParent = cursorToRoot.computeHash(bytes);
       // Caring about attributes and namespaces if node is an element.
       if (cursorToRoot.getKind() == NodeKind.ELEMENT) {
         final ElementNode currentElement = (ElementNode) cursorToRoot;
@@ -155,12 +157,16 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         final int attCount = ((ElementNode) cursorToRoot).getAttributeCount();
         for (int i = 0; i < attCount; i++) {
           nodeReadOnlyTrx.moveTo(currentElement.getAttributeKey(i));
-          hashCodeForParent = getCurrentNode().computeHash(bytes) + hashCodeForParent * PRIME;
+          final Node attributeNode =
+              pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+          hashCodeForParent = attributeNode.computeHash(bytes) + hashCodeForParent * PRIME;
         }
         final int nspCount = ((ElementNode) cursorToRoot).getNamespaceCount();
         for (int i = 0; i < nspCount; i++) {
           nodeReadOnlyTrx.moveTo(currentElement.getNamespaceKey(i));
-          hashCodeForParent = getCurrentNode().computeHash(bytes) + hashCodeForParent * PRIME;
+          final Node namespaceNode =
+              pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+          hashCodeForParent = namespaceNode.computeHash(bytes) + hashCodeForParent * PRIME;
         }
         nodeReadOnlyTrx.moveTo(cursorToRoot.getNodeKey());
       }
@@ -168,23 +174,24 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
       // Caring about the children of a node
       if (nodeReadOnlyTrx.moveTo(getStructuralNode().getFirstChildKey())) {
         do {
-          hashCodeForParent = getCurrentNode().getHash() + hashCodeForParent * PRIME;
+          hashCodeForParent = nodeReadOnlyTrx.getHash() + hashCodeForParent * PRIME;
         } while (nodeReadOnlyTrx.moveTo(getStructuralNode().getRightSiblingKey()));
         nodeReadOnlyTrx.moveTo(getStructuralNode().getParentKey());
       }
 
       // setting hash and resetting hash
       cursorToRoot.setHash(hashCodeForParent);
+      persistNode(cursorToRoot);
     } while (nodeReadOnlyTrx.moveTo(cursorToRoot.getParentKey()));
 
-    setCurrentNode(startNode);
+    nodeReadOnlyTrx.moveTo(startNodeKey);
   }
 
   protected abstract StructNode getStructuralNode();
 
-  protected abstract N getCurrentNode();
-
-  protected abstract void setCurrentNode(N node);
+  private void persistNode(final Node node) {
+    pageTrx.updateRecordSlot(node, IndexType.DOCUMENT, -1);
+  }
 
   /**
    * Adapting the structure with a rolling hash for all ancestors only with update.
@@ -193,68 +200,84 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    * @throws SirixIOException if anything weird happened
    */
   private void rollingUpdate(final long oldHash) {
-    final var newNode = getCurrentNode();
+    long currentKey = nodeReadOnlyTrx.getNodeKey();
+    final Node newNode = pageTrx.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
+    final long newNodeKey = newNode.getNodeKey();
     final long newHash = newNode.computeHash(bytes);
     long resultNew;
 
-    // go the path to the root
+    // go the path to the root — track position via local key to avoid moveTo allocations
     do {
-      final Node node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-      if (node.getNodeKey() == newNode.getNodeKey()) {
+      final Node node = pageTrx.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
+      if (node.getNodeKey() == newNodeKey) {
         resultNew = newHash;
       } else {
         resultNew = node.getHash() - (oldHash * PRIME);
         resultNew = resultNew + newHash * PRIME;
       }
       node.setHash(resultNew);
-    } while (nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey()));
+      persistNode(node);
+      currentKey = node.getParentKey();
+    } while (currentKey >= 0);
 
-    setCurrentNode(newNode);
+    nodeReadOnlyTrx.moveTo(newNodeKey);
   }
 
   /**
    * Adapting the structure with a rolling hash for all ancestors only with remove.
    */
   private void rollingRemove() {
-    final var startNode = getCurrentNode();
+    final Node startNode = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+    final long startNodeKey = startNode.getNodeKey();
+    // Capture all needed values from startNode before any subsequent prepareRecordForModification
+    // calls, which may return the same write-path singleton and overwrite startNode's fields.
+    final long startParentKey = startNode.getParentKey();
+    final boolean startNodeIsStruct = startNode instanceof StructNode;
+    final long startDescendantCount = startNodeIsStruct ? ((StructNode) startNode).getDescendantCount() : 0;
     long hashToRemove = startNode.getHash() == 0L ? startNode.computeHash(bytes) : startNode.getHash();
     long hashToAdd = 0;
     long newHash;
-    // go the path to the root
+    // go the path to the root — track position via local key to avoid moveTo allocations
+    long currentKey = nodeReadOnlyTrx.getNodeKey();
     do {
-      final Node node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-      if (node.getNodeKey() == startNode.getNodeKey()) {
+      final Node node = pageTrx.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
+      if (node.getNodeKey() == startNodeKey) {
         // the hash for the start node is always 0
         newHash = 0L;
-      } else if (node.getNodeKey() == startNode.getParentKey()) {
+      } else if (node.getNodeKey() == startParentKey) {
         // the parent node is just removed
         newHash = node.getHash() - hashToRemove * PRIME;
         hashToRemove = node.getHash();
-        setRemoveDescendants(startNode, node);
+        if (startNodeIsStruct) {
+          setRemoveDescendants(startDescendantCount, node);
+        }
       } else {
         // the ancestors are all touched regarding the modification
         newHash = node.getHash() - hashToRemove * PRIME;
         newHash = newHash + hashToAdd * PRIME;
         hashToRemove = node.getHash();
-        setRemoveDescendants(startNode, node);
+        if (startNodeIsStruct) {
+          setRemoveDescendants(startDescendantCount, node);
+        }
       }
       node.setHash(newHash);
+      persistNode(node);
       hashToAdd = newHash;
-    } while (nodeReadOnlyTrx.moveTo(getCurrentNode().getParentKey()));
+      currentKey = node.getParentKey();
+    } while (currentKey >= 0);
 
-    setCurrentNode(startNode);
+    nodeReadOnlyTrx.moveTo(startNodeKey);
   }
 
   /**
    * Set new descendant count of ancestor after a remove-operation.
    *
-   * @param startNode the node which has been removed
+   * @param startDescendantCount the descendant count of the removed node (pre-captured as local)
    * @param ancestorNode the ancestor node to update (from prepareRecordForModification)
    */
-  private void setRemoveDescendants(final ImmutableNode startNode, final Node ancestorNode) {
-    assert startNode != null;
-    if (startNode instanceof StructNode startNodeAsStructNode && ancestorNode instanceof StructNode structAncestor) {
-      structAncestor.setDescendantCount(structAncestor.getDescendantCount() - startNodeAsStructNode.getDescendantCount() - 1);
+  private static void setRemoveDescendants(final long startDescendantCount, final Node ancestorNode) {
+    if (ancestorNode instanceof StructNode structAncestor) {
+      structAncestor.setDescendantCount(structAncestor.getDescendantCount() - startDescendantCount - 1);
     }
   }
 
@@ -265,7 +288,13 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    */
   private void rollingAdd() {
     // start with hash to add
-    final var startNode = getCurrentNode();
+    final Node startNode = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+    final long startNodeKey = startNode.getNodeKey();
+    // Capture all needed values from startNode before any subsequent prepareRecordForModification
+    // calls, which may return the same write-path singleton and overwrite startNode's fields.
+    final long startParentKey = startNode.getParentKey();
+    final NodeKind startNodeKind = startNode.getKind();
+    final boolean startIsStruct = startNode instanceof StructNode;
     final long oldDescendantCount = getStructuralNode().getDescendantCount();
     final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
     bytes.clear();
@@ -273,76 +302,87 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     long newHash;
     long possibleOldHash = 0L;
 
-    if (isValueNode(startNode)) {
+    long currentKey;
+    if (isValueNode(startNodeKind)) {
       hashToAdd = startNode.computeHash(bytes);
       // Set hash on value node so it can be serialized with metadata
-      final Node valueNode = pageTrx.prepareRecordForModification(startNode.getNodeKey(), IndexType.DOCUMENT, -1);
+      final Node valueNode = pageTrx.prepareRecordForModification(startNodeKey, IndexType.DOCUMENT, -1);
       valueNode.setHash(hashToAdd);
-      nodeReadOnlyTrx.moveTo(startNode.getParentKey());
+      persistNode(valueNode);
+      currentKey = startParentKey;
     } else {
       if (startNode.getHash() == 0L) {
         hashToAdd = startNode.computeHash(bytes);
-        ((Node) startNode).setHash(hashToAdd);
+        startNode.setHash(hashToAdd);
+        persistNode(startNode);
       } else {
         hashToAdd = startNode.getHash();
       }
+      currentKey = startNodeKey;
     }
 
-    // go the path to the root
+    // go the path to the root — track position via local key to avoid moveTo allocations
     Node node;
+    long nodeParentKey;
     do {
-      node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-      if (node.getNodeKey() == startNode.getNodeKey()) {
+      node = pageTrx.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
+      nodeParentKey = node.getParentKey();
+      if (node.getNodeKey() == startNodeKey) {
         // first, take the hashcode of the node only
         newHash = hashToAdd;
-      } else if (node.getNodeKey() == startNode.getParentKey()) {
+      } else if (node.getNodeKey() == startParentKey) {
         // at the parent level, just add the node
-        var newMultipliedHash = hashToAdd * PRIME;
+        final long newMultipliedHash = hashToAdd * PRIME;
         possibleOldHash = node.getHash();
         newHash = possibleOldHash + newMultipliedHash;
         hashToAdd = newHash;
-        setAddDescendants(startNode, node, descendantCount);
+        setAddDescendants(startIsStruct, node, descendantCount);
       } else {
         // at the rest, remove the existing old key for this element and add the new one
-        var oldMultipliedHash = possibleOldHash * PRIME;
-        var newMultipliedHash = hashToAdd * PRIME;
+        final long oldMultipliedHash = possibleOldHash * PRIME;
+        final long newMultipliedHash = hashToAdd * PRIME;
         newHash = node.getHash() - oldMultipliedHash + newMultipliedHash;
         hashToAdd = newHash;
         possibleOldHash = node.getHash();
-        setAddDescendants(startNode, node, descendantCount);
+        setAddDescendants(startIsStruct, node, descendantCount);
       }
       node.setHash(newHash);
-    } while (nodeReadOnlyTrx.moveTo(node.getParentKey()));
-    setCurrentNode(startNode);
+      persistNode(node);
+      currentKey = nodeParentKey;
+    } while (currentKey >= 0);
+    nodeReadOnlyTrx.moveTo(startNodeKey);
   }
 
-  private boolean isValueNode(N startNode) {
-    return startNode.getKind() == NodeKind.STRING_VALUE || startNode.getKind() == NodeKind.OBJECT_STRING_VALUE
-        || startNode.getKind() == NodeKind.BOOLEAN_VALUE || startNode.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE
-        || startNode.getKind() == NodeKind.NUMBER_VALUE || startNode.getKind() == NodeKind.OBJECT_NUMBER_VALUE
-        || startNode.getKind() == NodeKind.NULL_VALUE || startNode.getKind() == NodeKind.OBJECT_NULL_VALUE
-        || startNode.getKind() == NodeKind.ATTRIBUTE || startNode.getKind() == NodeKind.TEXT
-        || startNode.getKind() == NodeKind.COMMENT || startNode.getKind() == NodeKind.PROCESSING_INSTRUCTION;
+  private static boolean isValueNode(final NodeKind kind) {
+    return kind == NodeKind.STRING_VALUE || kind == NodeKind.OBJECT_STRING_VALUE
+        || kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.OBJECT_BOOLEAN_VALUE
+        || kind == NodeKind.NUMBER_VALUE || kind == NodeKind.OBJECT_NUMBER_VALUE
+        || kind == NodeKind.NULL_VALUE || kind == NodeKind.OBJECT_NULL_VALUE
+        || kind == NodeKind.ATTRIBUTE || kind == NodeKind.TEXT || kind == NodeKind.COMMENT
+        || kind == NodeKind.PROCESSING_INSTRUCTION;
   }
 
   /**
-   * Add a hash.
+   * Add a hash and descendant count from a pre-captured start node to the current parent.
+   * Values are pre-captured to avoid singleton aliasing — the start node's singleton may be
+   * overwritten by prepareRecordForModification for the parent.
    *
-   * @param startNode start node
+   * @param hashToAdd          pre-computed hash of the start node
+   * @param startIsStruct      whether the start node is a StructNode
+   * @param startDescendantCount descendant count of the start node (only used if startIsStruct)
    */
-  public void addParentHash(final ImmutableNode startNode) {
+  public void addParentHash(final long hashToAdd, final boolean startIsStruct, final long startDescendantCount) {
     switch (hashType) {
       case ROLLING:
-        long hashToAdd = startNode.computeHash(bytes);
         final Node parentNode =
-            pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-        var hash = parentNode.getHash();
+            pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+        final long hash = parentNode.getHash();
         parentNode.setHash(hash + hashToAdd * PRIME);
-        if (startNode instanceof StructNode startAsStructNode) {
-          final StructNode parentNodeAsStructNode = (StructNode) parentNode;
-          parentNodeAsStructNode.setDescendantCount(
-              parentNodeAsStructNode.getDescendantCount() + startAsStructNode.getDescendantCount() + 1);
+        if (startIsStruct && parentNode instanceof StructNode parentStruct) {
+          parentStruct.setDescendantCount(
+              parentStruct.getDescendantCount() + startDescendantCount + 1);
         }
+        persistNode(parentNode);
         break;
       case POSTORDER:
         break;
@@ -359,7 +399,13 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     switch (hashType) {
       case ROLLING -> {
         // Setup.
-        final var startNode = getCurrentNode();
+        final Node startNode = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+        final long startNodeKey = startNode.getNodeKey();
+        // Capture all needed values from startNode before any subsequent prepareRecordForModification
+        // calls, which may return the same write-path singleton and overwrite startNode's fields.
+        final boolean startHasParent = startNode.hasParent();
+        final long startParentKey = startNode.getParentKey();
+        final boolean startIsStruct = startNode instanceof StructNode;
         final long oldDescendantCount = getStructuralNode().getDescendantCount();
         final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
 
@@ -370,22 +416,24 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         long hashToAdd = startNode.getHash() == 0L
             ? startNode.computeHash(bytes)
             : startNode.getHash();  // Already includes own data hash from child processing
-        Node node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
+        Node node = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setHash(hashToAdd);
+        persistNode(node);
 
         // Set parent node's hash.
-        if (startNode.hasParent()) {
-          nodeReadOnlyTrx.moveTo(startNode.getParentKey());
-          node = pageTrx.prepareRecordForModification(getCurrentNode().getNodeKey(), IndexType.DOCUMENT, -1);
-          final var currentNodeHash = node.getHash();
+        if (startHasParent) {
+          nodeReadOnlyTrx.moveTo(startParentKey);
+          node = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+          final long currentNodeHash = node.getHash();
           // If parent's hash is 0, initialize with its own data hash.
           // Otherwise, use existing hash (which already includes parent's data hash).
           long hash = currentNodeHash == 0L ? node.computeHash(bytes) : currentNodeHash;
           node.setHash(hash + hashToAdd * PRIME);
 
-          setAddDescendants(startNode, node, descendantCount);
+          setAddDescendants(startIsStruct, node, descendantCount);
+          persistNode(node);
         }
-        setCurrentNode(startNode);
+        nodeReadOnlyTrx.moveTo(startNodeKey);
       }
       case POSTORDER -> postorderAdd();
       case NONE -> {
@@ -396,19 +444,25 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   /**
    * Set new descendant count of ancestor after an add-operation.
    *
-   * @param startNode       the node which has been removed
+   * @param startIsStruct   whether the start node is a StructNode (pre-captured as local)
    * @param nodeToModify    node to modify
    * @param descendantCount the descendantCount to add
    */
-  private static void setAddDescendants(final ImmutableNode startNode, final Node nodeToModify,
+  private static void setAddDescendants(final boolean startIsStruct, final Node nodeToModify,
       final @NonNegative long descendantCount) {
-    assert startNode != null;
     assert nodeToModify != null;
-    if (startNode instanceof StructNode) {
-      final StructNode node = (StructNode) nodeToModify;
+    if (startIsStruct && nodeToModify instanceof StructNode node) {
       final long oldDescendantCount = node.getDescendantCount();
       node.setDescendantCount(oldDescendantCount + descendantCount);
     }
+  }
+
+  /**
+   * Returns the shared bytes buffer used for hash computation.
+   * Exposed for callers that need to pre-compute hashes before traversal.
+   */
+  public BytesOut<?> getBytes() {
+    return bytes;
   }
 
   public boolean isBulkInsert() {

@@ -9,11 +9,17 @@ import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
+import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
+import io.sirix.node.layout.FixedToCompactTransformer;
+import io.sirix.node.xml.AttributeNode;
+import io.sirix.node.xml.CommentNode;
+import io.sirix.node.xml.PINode;
+import io.sirix.node.xml.TextNode;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
@@ -295,9 +301,26 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private final long[] slotBitmap;
 
   /**
+   * Bitmap tracking which populated slots are currently stored in fixed in-memory layout.
+   * Bit i set => slot i contains fixed-layout bytes (not compact varint/delta bytes).
+   */
+  private final long[] fixedFormatBitmap;
+
+  /**
+   * Node kind id for fixed-format slots, indexed by slot number.
+   * Entries are {@link #NO_FIXED_SLOT_KIND} for compact slots or unknown fixed slots.
+   */
+  private final byte[] fixedSlotKinds;
+
+  /**
    * Number of words in the slot bitmap (16 words * 64 bits = 1024 slots).
    */
   private static final int BITMAP_WORDS = 16;
+
+  /**
+   * Sentinel for "no fixed slot kind assigned".
+   */
+  private static final byte NO_FIXED_SLOT_KIND = (byte) -1;
 
   /**
    * Bitmap tracking which slots need preservation during lazy copy (16 longs = 1024 bits).
@@ -342,6 +365,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * If true, close() should NOT release memory to segmentAllocator since it wasn't allocated by it.
    */
   private final boolean externallyAllocatedMemory;
+
+  /** Thread-local serialization buffer for compactFixedSlotsForCommit (avoids per-call allocation). */
+  private static final ThreadLocal<MemorySegmentBytesOut> COMPACT_BUFFER =
+      ThreadLocal.withInitial(() -> new MemorySegmentBytesOut(256));
 
   private MemorySegmentAllocator segmentAllocator =
       OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
@@ -400,9 +427,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
     this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
     this.slotBitmap = new long[BITMAP_WORDS];  // All bits initially 0 (no slots populated)
+    this.fixedFormatBitmap = new long[BITMAP_WORDS];
+    this.fixedSlotKinds = new byte[Constants.NDP_NODE_COUNT];
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
     Arrays.fill(stringValueOffsets, -1);
+    Arrays.fill(fixedSlotKinds, NO_FIXED_SLOT_KIND);
     this.doResizeMemorySegmentsIfNeeded = true;
     this.slotMemoryFreeSpaceStart = 0;
     this.lastSlotIndex = -1;
@@ -458,9 +488,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
     this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
     this.slotBitmap = new long[BITMAP_WORDS];  // Will be populated during deserialization
+    this.fixedFormatBitmap = new long[BITMAP_WORDS];
+    this.fixedSlotKinds = new byte[Constants.NDP_NODE_COUNT];
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
     Arrays.fill(stringValueOffsets, -1);
+    Arrays.fill(fixedSlotKinds, NO_FIXED_SLOT_KIND);
     this.stringValueMemoryFreeSpaceStart = 0;
     this.lastStringValueIndex = -1;
     this.doResizeMemorySegmentsIfNeeded = true;
@@ -557,6 +590,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     
     // Build bitmap from provided slotOffsets for O(k) iteration
     this.slotBitmap = new long[BITMAP_WORDS];
+    this.fixedFormatBitmap = new long[BITMAP_WORDS];
+    this.fixedSlotKinds = new byte[Constants.NDP_NODE_COUNT];
+    Arrays.fill(this.fixedSlotKinds, NO_FIXED_SLOT_KIND);
     for (int i = 0; i < slotOffsets.length; i++) {
       if (slotOffsets[i] >= 0) {
         slotBitmap[i >>> 6] |= (1L << (i & 63));
@@ -642,6 +678,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return records[offset];
   }
 
+  /**
+   * Clear the cached record reference at the given offset.
+   * <p>
+   * Used after fixed-slot projection to prevent stale pooled object references
+   * from being returned by {@link #getRecord(int)}. Fixed-slot bytes are the
+   * authoritative source for fixed-format slots, so the cached record must be
+   * cleared to force re-materialization from those bytes on the next read.
+   *
+   * @param offset the slot offset to clear
+   */
+  public void clearRecord(final int offset) {
+    if (records[offset] != null) {
+      records[offset] = null;
+      inMemoryRecordCount--;
+    }
+  }
+
   @Override
   public void setRecord(@NonNull final DataRecord record) {
     addedReferences = false;
@@ -719,6 +772,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
 
       setSlot(segment, i);
+      markSlotAsCompactFormat(i);
 
       if (config.areDeweyIDsStored && record.getDeweyID() != null && record.getNodeKey() != 0) {
         setDeweyId(record.getDeweyID().toBytes(), i);
@@ -1113,6 +1167,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Returns bitmap of slots stored in fixed in-memory layout.
+   */
+  public long[] getFixedFormatBitmap() {
+    return fixedFormatBitmap;
+  }
+
+  /**
    * Check if a specific slot is populated using the bitmap.
    * This is O(1) and avoids memory access to slotOffsets.
    * 
@@ -1121,6 +1182,55 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   public boolean hasSlot(int slotNumber) {
     return (slotBitmap[slotNumber >>> 6] & (1L << (slotNumber & 63))) != 0;
+  }
+
+  /**
+   * Returns {@code true} if slot data is in fixed in-memory layout.
+   */
+  public boolean isFixedSlotFormat(int slotNumber) {
+    return (fixedFormatBitmap[slotNumber >>> 6] & (1L << (slotNumber & 63))) != 0;
+  }
+
+  /**
+   * Returns node kind for a fixed-format slot, or {@code null} if the slot is compact
+   * or fixed metadata is unavailable.
+   */
+  public NodeKind getFixedSlotNodeKind(final int slotNumber) {
+    if (!isFixedSlotFormat(slotNumber)) {
+      return null;
+    }
+    final byte kindId = fixedSlotKinds[slotNumber];
+    if (kindId == NO_FIXED_SLOT_KIND) {
+      return null;
+    }
+    return NodeKind.getKind(kindId);
+  }
+
+  /**
+   * Mark slot as fixed-layout in-memory representation.
+   */
+  public void markSlotAsFixedFormat(final int slotNumber) {
+    fixedFormatBitmap[slotNumber >>> 6] |= (1L << (slotNumber & 63));
+    fixedSlotKinds[slotNumber] = NO_FIXED_SLOT_KIND;
+  }
+
+  /**
+   * Mark slot as fixed-layout in-memory representation with explicit kind metadata.
+   */
+  public void markSlotAsFixedFormat(final int slotNumber, final NodeKind nodeKind) {
+    if (nodeKind == null) {
+      throw new IllegalArgumentException("nodeKind must not be null");
+    }
+    fixedFormatBitmap[slotNumber >>> 6] |= (1L << (slotNumber & 63));
+    fixedSlotKinds[slotNumber] = nodeKind.getId();
+  }
+
+  /**
+   * Mark slot as compact serialized representation.
+   */
+  public void markSlotAsCompactFormat(final int slotNumber) {
+    fixedFormatBitmap[slotNumber >>> 6] &= ~(1L << (slotNumber & 63));
+    fixedSlotKinds[slotNumber] = NO_FIXED_SLOT_KIND;
   }
 
   /**
@@ -1455,20 +1565,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Shift the memory.
-    if (sizeDelta > 0) {
-      // Shifting to the right
-      MemorySegment source = memory.asSlice(alignedShiftStartOffset, shiftEndOffset - alignedShiftStartOffset);
-      MemorySegment target =
-          memory.asSlice(alignOffset(alignedShiftStartOffset + sizeDelta), shiftEndOffset - alignedShiftStartOffset);
-      target.copyFrom(source);
-    } else {
-      // Shifting to the left: move from start to end.
-      for (int i = alignOffset(alignedShiftStartOffset + sizeDelta), j = alignedShiftStartOffset;
-           i < shiftEndOffset; i++, j++) {
-        byte value = memory.get(ValueLayout.JAVA_BYTE, j);
-        memory.set(ValueLayout.JAVA_BYTE, i, value);
-      }
-    }
+    // Bulk copy: MemorySegment.copy handles overlapping regions safely (memmove semantics).
+    final int dstOffset = alignOffset(alignedShiftStartOffset + sizeDelta);
+    final long copyLength = shiftEndOffset - alignedShiftStartOffset;
+    MemorySegment.copy(memory, alignedShiftStartOffset, memory, dstOffset, copyLength);
 
     // Adjust the offsets for all affected slots.
     for (int i = 0; i < offsets.length; i++) {
@@ -1494,6 +1594,40 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   public boolean isSlotSet(int slotNumber) {
     return slotOffsets[slotNumber] != -1;
+  }
+
+  /**
+   * Get the absolute data offset for a slot within {@link #getSlotMemory()}, skipping the 4-byte
+   * length prefix. Use together with {@link #getSlotDataLength(int)} and {@link #getSlotMemory()}
+   * to avoid allocating a {@code MemorySegment} slice on the hot path.
+   *
+   * @param slotNumber the slot index
+   * @return absolute byte offset into slotMemory where data begins, or {@code -1} if the slot is empty
+   */
+  public long getSlotDataOffset(final int slotNumber) {
+    assert slotNumber >= 0 && slotNumber < slotOffsets.length : "Invalid slot number: " + slotNumber;
+    final int slotOffset = slotOffsets[slotNumber];
+    if (slotOffset < 0) {
+      return -1;
+    }
+    return slotOffset + INT_SIZE;
+  }
+
+  /**
+   * Get the data length (in bytes) stored in the given slot, excluding the 4-byte length prefix.
+   * Use together with {@link #getSlotDataOffset(int)} and {@link #getSlotMemory()} to avoid
+   * allocating a {@code MemorySegment} slice on the hot path.
+   *
+   * @param slotNumber the slot index
+   * @return data length in bytes, or {@code -1} if the slot is empty
+   */
+  public int getSlotDataLength(final int slotNumber) {
+    assert slotNumber >= 0 && slotNumber < slotOffsets.length : "Invalid slot number: " + slotNumber;
+    final int slotOffset = slotOffsets[slotNumber];
+    if (slotOffset < 0) {
+      return -1;
+    }
+    return slotMemory.get(JAVA_INT_UNALIGNED, slotOffset);
   }
 
   @Override
@@ -1910,7 +2044,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       deweyIdMemory = null;
       stringValueMemory = null;
     }
-    
+
     // Clear FSST symbol table
     fsstSymbolTable = null;
 
@@ -2292,6 +2426,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     
     // Clear slot bitmap (all slots now empty)
     Arrays.fill(slotBitmap, 0L);
+    Arrays.fill(fixedFormatBitmap, 0L);
+    Arrays.fill(fixedSlotKinds, NO_FIXED_SLOT_KIND);
     
     // Reset free space pointers
     slotMemoryFreeSpaceStart = 0;
@@ -2331,24 +2467,36 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       // This is the deferred work from combineRecordPagesForModification for DIFFERENTIAL,
       // INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning types.
       if (preservationBitmap != null && completePageRef != null) {
-        for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-          // Check if slot needs preservation, has no in-memory modification, and has no
-          // already materialized slot payload in the modified page. The last check is
-          // critical for demoted records (records[i] == null but slot already updated).
-          boolean needsPreservation = (preservationBitmap[i >>> 6] & (1L << (i & 63))) != 0;
-          if (needsPreservation && records[i] == null && !hasSlot(i)) {
-            // Copy slot from completePage
-            MemorySegment slotData = completePageRef.getSlot(i);
-            if (slotData != null) {
-              setSlot(slotData, i);
-            }
-            // Copy deweyId too if stored
-            if (areDeweyIDsStored) {
-              MemorySegment deweyId = completePageRef.getDeweyId(i);
-              if (deweyId != null) {
-                setDeweyId(deweyId, i);
+        for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
+          long word = preservationBitmap[wordIndex];
+          int baseSlot = wordIndex << 6;
+          while (word != 0) {
+            int bit = Long.numberOfTrailingZeros(word);
+            int slotIndex = baseSlot + bit;
+
+            // Preserve only when the slot is still absent from the modified page.
+            // This keeps write-intent data authoritative and avoids rematerialization churn.
+            if (records[slotIndex] == null && !hasSlot(slotIndex)) {
+              MemorySegment slotData = completePageRef.getSlot(slotIndex);
+              if (slotData != null) {
+                setSlot(slotData, slotIndex);
+                final NodeKind fixedNodeKind = completePageRef.getFixedSlotNodeKind(slotIndex);
+                if (fixedNodeKind != null) {
+                  markSlotAsFixedFormat(slotIndex, fixedNodeKind);
+                } else {
+                  markSlotAsCompactFormat(slotIndex);
+                }
+              }
+
+              if (areDeweyIDsStored) {
+                MemorySegment deweyId = completePageRef.getDeweyId(slotIndex);
+                if (deweyId != null) {
+                  setDeweyId(deweyId, slotIndex);
+                }
               }
             }
+
+            word &= word - 1;
           }
         }
       }
@@ -2404,9 +2552,68 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         } else {
           // Normal record: setSlot copies data to slotMemory, so temp buffer is fine
           setSlot(buffer, offset);
+          markSlotAsCompactFormat(offset);
         }
       }
     } // Confined arena automatically closes here, freeing all temporary buffers
+  }
+
+  void compactFixedSlotsForCommit(final ResourceConfiguration resourceConfiguration) {
+    // Quick exit: no fixed-format slots → nothing to compact.
+    boolean hasFixedSlots = false;
+    for (int w = 0; w < BITMAP_WORDS; w++) {
+      if (fixedFormatBitmap[w] != 0) {
+        hasFixedSlots = true;
+        break;
+      }
+    }
+    if (!hasFixedSlots) {
+      return;
+    }
+
+    // In-place compaction: compact format is always <= fixed format in size,
+    // so we overwrite each fixed slot at its current offset. No buffer allocation needed.
+    // Any gaps left by shrunk slots are eliminated by downstream compactLengthPrefixedRegion().
+    final MemorySegmentBytesOut compactBuffer = COMPACT_BUFFER.get();
+
+    for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
+      long word = fixedFormatBitmap[wordIndex];
+      final int baseSlot = wordIndex << 6;
+      while (word != 0) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        final int slotIndex = baseSlot + bit;
+        final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotIndex;
+
+        final NodeKind nodeKind = getFixedSlotNodeKind(slotIndex);
+        final int slotOffset = slotOffsets[slotIndex];
+        final int fixedLength = slotMemory.get(JAVA_INT_UNALIGNED, slotOffset);
+        final MemorySegment fixedSlotBytes = slotMemory.asSlice(slotOffset + INT_SIZE, fixedLength);
+
+        if (nodeKind == null) {
+          throw new IllegalStateException("Missing fixed-slot metadata for node key " + nodeKey);
+        }
+
+        // Direct byte-level transformation: fixed → compact without materializing a DataRecord.
+        compactBuffer.clear();
+        FixedToCompactTransformer.transform(nodeKind, nodeKey, fixedSlotBytes, resourceConfiguration, compactBuffer);
+        final MemorySegment compactBytes = compactBuffer.getDestination();
+        final int compactSize = (int) compactBytes.byteSize();
+        if (compactSize > PageConstants.MAX_RECORD_SIZE) {
+          throw new IllegalStateException("Compacted record exceeds max size for node key " + nodeKey);
+        }
+
+        // Overwrite in-place: compact bytes fit within the fixed slot's footprint.
+        // Offset unchanged — only the length prefix and data bytes are rewritten.
+        slotMemory.set(JAVA_INT_UNALIGNED, slotOffset, compactSize);
+        MemorySegment.copy(compactBytes, 0, slotMemory, slotOffset + INT_SIZE, compactSize);
+
+        word &= word - 1;
+      }
+    }
+
+    // Clear fixed-format tracking — all slots are now compact format.
+    Arrays.fill(fixedFormatBitmap, 0L);
+    Arrays.fill(fixedSlotKinds, NO_FIXED_SLOT_KIND);
   }
 
   /**
@@ -2432,11 +2639,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         addStringSample(stringSamples, stringNode.getRawValueWithoutDecompression());
       } else if (record instanceof ObjectStringNode objectStringNode) {
         addStringSample(stringSamples, objectStringNode.getRawValueWithoutDecompression());
+      } else if (record instanceof TextNode textNode) {
+        addStringSample(stringSamples, textNode.getRawValueWithoutDecompression());
+      } else if (record instanceof CommentNode commentNode) {
+        addStringSample(stringSamples, commentNode.getRawValueWithoutDecompression());
+      } else if (record instanceof PINode piNode) {
+        addStringSample(stringSamples, piNode.getRawValueWithoutDecompression());
+      } else if (record instanceof AttributeNode attrNode) {
+        addStringSample(stringSamples, attrNode.getRawValueWithoutDecompression());
       }
     }
 
     // Include string values only present in slot memory (demoted records).
     // This is commit-path work and preserves FSST sample completeness.
+    // Fixed-format slots are already compacted before this method runs.
     for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
       if (records[i] != null) {
         continue;
@@ -2447,7 +2663,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         continue;
       }
 
-      final long nodeKey = recordPageKey + i;
+      final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
       final DataRecord record = resourceConfig.recordPersister.deserialize(new MemorySegmentBytesIn(slot),
                                                                            nodeKey,
                                                                            getDeweyIdAsByteArray(i),
@@ -2457,6 +2673,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         addStringSample(stringSamples, stringNode.getRawValueWithoutDecompression());
       } else if (record instanceof ObjectStringNode objectStringNode) {
         addStringSample(stringSamples, objectStringNode.getRawValueWithoutDecompression());
+      } else if (record instanceof TextNode textNode) {
+        addStringSample(stringSamples, textNode.getRawValueWithoutDecompression());
+      } else if (record instanceof CommentNode commentNode) {
+        addStringSample(stringSamples, commentNode.getRawValueWithoutDecompression());
+      } else if (record instanceof PINode piNode) {
+        addStringSample(stringSamples, piNode.getRawValueWithoutDecompression());
+      } else if (record instanceof AttributeNode attrNode) {
+        addStringSample(stringSamples, attrNode.getRawValueWithoutDecompression());
       }
     }
 

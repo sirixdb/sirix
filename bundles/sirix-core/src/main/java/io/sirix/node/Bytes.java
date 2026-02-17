@@ -12,9 +12,27 @@ import java.nio.ByteBuffer;
  * during high-throughput operations like JSON shredding.
  */
 public final class Bytes {
-    
+
+    private static final ThreadLocal<MemorySegmentBytesOut> HASH_BUFFER =
+        ThreadLocal.withInitial(() -> new MemorySegmentBytesOut(256));
+
     private Bytes() {
         // Utility class
+    }
+
+    /**
+     * Returns a thread-local reusable buffer for hash computation.
+     * The buffer is cleared on each call. Safe because:
+     * - ThreadLocal guarantees per-thread isolation
+     * - computeHash() never recurses into another node's getHash()
+     * - The buffer content is consumed within the getHash() call
+     *
+     * @return a cleared, reusable BytesOut instance
+     */
+    public static BytesOut<MemorySegment> threadLocalHashBuffer() {
+        final MemorySegmentBytesOut buf = HASH_BUFFER.get();
+        buf.clear();
+        return buf;
     }
     
     /**
