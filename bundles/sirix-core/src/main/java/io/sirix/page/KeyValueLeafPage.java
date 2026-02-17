@@ -366,6 +366,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private final boolean externallyAllocatedMemory;
 
+  /** Set to true when compaction rebuilds slotMemory with an allocator-managed buffer. */
+  private boolean slotMemoryRebuilt;
+
   private MemorySegmentAllocator segmentAllocator =
       OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
 
@@ -2010,6 +2013,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Release backing buffer for zero-copy pages (has priority over segment release)
     if (backingBufferReleaser != null) {
+      // If slotMemory was rebuilt during compaction, it's allocator-managed
+      // and must be released separately from the backing buffer.
+      if (slotMemoryRebuilt && slotMemory != null && slotMemory.byteSize() > 0) {
+        try {
+          segmentAllocator.release(slotMemory);
+        } catch (Throwable e) {
+          LOGGER.debug("Failed to release rebuilt slotMemory for page {}: {}", recordPageKey, e.getMessage());
+        }
+      }
       try {
         backingBufferReleaser.run();
       } catch (Throwable e) {
@@ -2555,46 +2567,110 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   void compactFixedSlotsForCommit(final ResourceConfiguration resourceConfiguration) {
+    // Quick exit: no fixed-format slots → nothing to compact.
+    boolean hasFixedSlots = false;
+    for (int w = 0; w < BITMAP_WORDS; w++) {
+      if (fixedFormatBitmap[w] != 0) {
+        hasFixedSlots = true;
+        break;
+      }
+    }
+    if (!hasFixedSlots) {
+      return;
+    }
+
+    // --- Step 1: Allocate new buffer ---
+    // Compact format is always <= fixed format, so current used size is a safe upper bound.
+    final int upperBound = Math.max(slotMemoryFreeSpaceStart, 4096);
+    final MemorySegment oldSlotMemory = this.slotMemory;
+    final MemorySegment newSlotMemory = segmentAllocator.allocate(upperBound);
+
+    // --- Step 2: Single-pass rebuild ---
     final RecordSerializer serializer = resourceConfiguration.recordPersister;
     final MemorySegmentBytesOut compactBuffer = new MemorySegmentBytesOut(256);
+    int writeOffset = 0;
+    int newLastSlotIndex = -1;
+    int newLastSlotOffset = -1;
 
     for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
-      long word = fixedFormatBitmap[wordIndex];
-      int baseSlot = wordIndex << 6;
+      long word = slotBitmap[wordIndex];
+      final int baseSlot = wordIndex << 6;
       while (word != 0) {
         final int bit = Long.numberOfTrailingZeros(word);
         final int slotIndex = baseSlot + bit;
-        final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotIndex;
+        final int alignedWriteOffset = alignOffset(writeOffset);
+        final boolean isFixed = (fixedFormatBitmap[wordIndex] & (1L << bit)) != 0;
 
-        final NodeKind nodeKind = getFixedSlotNodeKind(slotIndex);
-        final MemorySegment fixedSlotBytes = getSlot(slotIndex);
-        if (nodeKind == null || fixedSlotBytes == null) {
-          throw new IllegalStateException("Missing fixed-slot metadata for node key " + nodeKey);
+        if (isFixed) {
+          // Fixed-format: materialize -> serialize -> write compact bytes
+          final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotIndex;
+          final NodeKind nodeKind = getFixedSlotNodeKind(slotIndex);
+          // Read from OLD slotMemory
+          final int oldOffset = slotOffsets[slotIndex];
+          final int oldLength = oldSlotMemory.get(JAVA_INT_UNALIGNED, oldOffset);
+          final MemorySegment fixedSlotBytes = oldSlotMemory.asSlice(oldOffset + INT_SIZE, oldLength);
+
+          if (nodeKind == null) {
+            throw new IllegalStateException("Missing fixed-slot metadata for node key " + nodeKey);
+          }
+
+          final byte[] deweyIdBytes = areDeweyIDsStored ? getDeweyIdAsByteArray(slotIndex) : null;
+          final DataRecord record = FixedSlotRecordMaterializer.materialize(
+              nodeKind, nodeKey, fixedSlotBytes, deweyIdBytes, resourceConfiguration);
+          if (record == null) {
+            throw new IllegalStateException("Cannot materialize fixed-slot record for node key " + nodeKey);
+          }
+
+          compactBuffer.clear();
+          serializer.serialize(compactBuffer, record, resourceConfiguration);
+          final MemorySegment compactBytes = compactBuffer.getDestination();
+          if (compactBytes.byteSize() > PageConstants.MAX_RECORD_SIZE) {
+            throw new IllegalStateException("Compacted record exceeds max size for node key " + nodeKey);
+          }
+
+          final int dataSize = (int) compactBytes.byteSize();
+          newSlotMemory.set(ValueLayout.JAVA_INT, alignedWriteOffset, dataSize);
+          MemorySegment.copy(compactBytes, 0, newSlotMemory, alignedWriteOffset + INT_SIZE, dataSize);
+          slotOffsets[slotIndex] = alignedWriteOffset;
+          writeOffset = alignedWriteOffset + INT_SIZE + dataSize;
+        } else {
+          // Non-fixed (compact): bulk copy [length prefix][data] from old -> new
+          final int oldOffset = slotOffsets[slotIndex];
+          final int dataLength = oldSlotMemory.get(JAVA_INT_UNALIGNED, oldOffset);
+          final int totalEntrySize = INT_SIZE + dataLength;
+          MemorySegment.copy(oldSlotMemory, oldOffset, newSlotMemory, alignedWriteOffset, totalEntrySize);
+          slotOffsets[slotIndex] = alignedWriteOffset;
+          writeOffset = alignedWriteOffset + totalEntrySize;
         }
 
-        // Always materialize from fixed-slot bytes (the authoritative source).
-        // Do NOT use records[slotIndex] here: it may hold a stale singleton reference
-        // from FixedSlotRecordMaterializer that was reused for a different node.
-        final byte[] deweyIdBytes = areDeweyIDsStored ? getDeweyIdAsByteArray(slotIndex) : null;
-        final DataRecord record =
-            FixedSlotRecordMaterializer.materialize(nodeKind, nodeKey, fixedSlotBytes, deweyIdBytes, resourceConfiguration);
-
-        if (record == null) {
-          throw new IllegalStateException("Cannot materialize fixed-slot record for node key " + nodeKey);
+        // Track the slot with the largest offset (for lastSlotIndex)
+        if (slotOffsets[slotIndex] > newLastSlotOffset) {
+          newLastSlotOffset = slotOffsets[slotIndex];
+          newLastSlotIndex = slotIndex;
         }
-
-        compactBuffer.clear();
-        serializer.serialize(compactBuffer, record, resourceConfiguration);
-        final MemorySegment compactBytes = compactBuffer.getDestination();
-        if (compactBytes.byteSize() > PageConstants.MAX_RECORD_SIZE) {
-          throw new IllegalStateException("Compacted fixed-slot record exceeds max record size for node key " + nodeKey);
-        }
-
-        setSlot(compactBytes, slotIndex);
-        markSlotAsCompactFormat(slotIndex);
 
         word &= word - 1;
       }
+    }
+
+    // --- Step 3: Swap in new buffer, update metadata ---
+    this.slotMemory = newSlotMemory;
+    this.lastSlotIndex = newLastSlotIndex;
+    this.slotMemoryFreeSpaceStart = writeOffset;
+
+    // --- Step 4: Clear fixed-format tracking ---
+    Arrays.fill(fixedFormatBitmap, 0L);
+    Arrays.fill(fixedSlotKinds, NO_FIXED_SLOT_KIND);
+
+    // --- Step 5: Release old slotMemory ---
+    if (backingBufferReleaser != null) {
+      // Zero-copy page: old slotMemory is a slice of backingBuffer.
+      // Don't release it directly -- backingBuffer is released by close().
+      // Mark that the new slotMemory is allocator-managed so close() releases it.
+      slotMemoryRebuilt = true;
+    } else if (!externallyAllocatedMemory) {
+      // Normal page: release old allocator-managed buffer to pool.
+      segmentAllocator.release(oldSlotMemory);
     }
   }
 
