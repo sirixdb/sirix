@@ -200,14 +200,15 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    * @throws SirixIOException if anything weird happened
    */
   private void rollingUpdate(final long oldHash) {
-    final Node newNode = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+    long currentKey = nodeReadOnlyTrx.getNodeKey();
+    final Node newNode = pageTrx.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
     final long newNodeKey = newNode.getNodeKey();
     final long newHash = newNode.computeHash(bytes);
     long resultNew;
 
-    // go the path to the root
+    // go the path to the root — track position via local key to avoid moveTo allocations
     do {
-      final Node node = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+      final Node node = pageTrx.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
       if (node.getNodeKey() == newNodeKey) {
         resultNew = newHash;
       } else {
@@ -216,7 +217,8 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
       }
       node.setHash(resultNew);
       persistNode(node);
-    } while (nodeReadOnlyTrx.moveTo(nodeReadOnlyTrx.getParentKey()));
+      currentKey = node.getParentKey();
+    } while (currentKey >= 0);
 
     nodeReadOnlyTrx.moveTo(newNodeKey);
   }
@@ -235,9 +237,10 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     long hashToRemove = startNode.getHash() == 0L ? startNode.computeHash(bytes) : startNode.getHash();
     long hashToAdd = 0;
     long newHash;
-    // go the path to the root
+    // go the path to the root — track position via local key to avoid moveTo allocations
+    long currentKey = nodeReadOnlyTrx.getNodeKey();
     do {
-      final Node node = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+      final Node node = pageTrx.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
       if (node.getNodeKey() == startNodeKey) {
         // the hash for the start node is always 0
         newHash = 0L;
@@ -260,7 +263,8 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
       node.setHash(newHash);
       persistNode(node);
       hashToAdd = newHash;
-    } while (nodeReadOnlyTrx.moveTo(nodeReadOnlyTrx.getParentKey()));
+      currentKey = node.getParentKey();
+    } while (currentKey >= 0);
 
     nodeReadOnlyTrx.moveTo(startNodeKey);
   }
@@ -298,13 +302,14 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     long newHash;
     long possibleOldHash = 0L;
 
+    long currentKey;
     if (isValueNode(startNodeKind)) {
       hashToAdd = startNode.computeHash(bytes);
       // Set hash on value node so it can be serialized with metadata
       final Node valueNode = pageTrx.prepareRecordForModification(startNodeKey, IndexType.DOCUMENT, -1);
       valueNode.setHash(hashToAdd);
       persistNode(valueNode);
-      nodeReadOnlyTrx.moveTo(startParentKey);
+      currentKey = startParentKey;
     } else {
       if (startNode.getHash() == 0L) {
         hashToAdd = startNode.computeHash(bytes);
@@ -313,13 +318,14 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
       } else {
         hashToAdd = startNode.getHash();
       }
+      currentKey = startNodeKey;
     }
 
-    // go the path to the root
+    // go the path to the root — track position via local key to avoid moveTo allocations
     Node node;
     long nodeParentKey;
     do {
-      node = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+      node = pageTrx.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
       nodeParentKey = node.getParentKey();
       if (node.getNodeKey() == startNodeKey) {
         // first, take the hashcode of the node only
@@ -342,7 +348,8 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
       }
       node.setHash(newHash);
       persistNode(node);
-    } while (nodeReadOnlyTrx.moveTo(nodeParentKey));
+      currentKey = nodeParentKey;
+    } while (currentKey >= 0);
     nodeReadOnlyTrx.moveTo(startNodeKey);
   }
 

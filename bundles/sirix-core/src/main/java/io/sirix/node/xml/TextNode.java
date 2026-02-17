@@ -229,7 +229,7 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
   public long getHash() {
     if (!metadataParsed) parseMetadataFields();
     if (hash == 0L && hashFunction != null) {
-      hash = computeHash(Bytes.elasticOffHeapByteBuffer());
+      hash = computeHash(Bytes.threadLocalHashBuffer());
     }
     return hash;
   }

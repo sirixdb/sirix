@@ -376,13 +376,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (modifiedPage instanceof KeyValueLeafPage modifiedLeafPage && modifiedLeafPage.isFixedSlotFormat(recordOffset)) {
       final NodeKind nodeKind = modifiedLeafPage.getFixedSlotNodeKind(recordOffset);
       if (nodeKind != null) {
-        final MemorySegment fixedSlotBytes = modifiedLeafPage.getSlot(recordOffset);
-        if (fixedSlotBytes != null) {
+        final long dataOffset = modifiedLeafPage.getSlotDataOffset(recordOffset);
+        if (dataOffset >= 0) {
           final DataRecord singleton = getOrCreateWriteSingleton(nodeKind);
           if (singleton != null) {
+            final int dataLength = modifiedLeafPage.getSlotDataLength(recordOffset);
             final byte[] deweyIdBytes = modifiedLeafPage.getDeweyIdAsByteArray(recordOffset);
             if (FixedSlotRecordMaterializer.populateExisting(singleton, nodeKind, recordKey,
-                fixedSlotBytes, deweyIdBytes, pageRtx.getResourceSession().getResourceConfig())) {
+                modifiedLeafPage.getSlotMemory(), dataOffset, dataLength, deweyIdBytes,
+                pageRtx.getResourceSession().getResourceConfig())) {
               return singleton;  // Zero-allocation hot path
             }
           }
@@ -484,17 +486,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     final int recordOffset = StorageEngineReader.recordPageOffset(record.getNodeKey());
-    MemorySegment slot = modifiedLeafPage.getSlot(recordOffset);
-    if (slot == null || slot.byteSize() != totalSlotSize) {
+    long dataOffset = modifiedLeafPage.getSlotDataOffset(recordOffset);
+    int dataLength = (dataOffset >= 0) ? modifiedLeafPage.getSlotDataLength(recordOffset) : -1;
+    if (dataOffset < 0 || dataLength != totalSlotSize) {
       final MemorySegment projectionBuffer = ensureFixedSlotProjectionBuffer(totalSlotSize);
       modifiedLeafPage.setSlot(projectionBuffer.asSlice(0, totalSlotSize), recordOffset);
-      slot = modifiedLeafPage.getSlot(recordOffset);
-      if (slot == null || slot.byteSize() != totalSlotSize) {
+      dataOffset = modifiedLeafPage.getSlotDataOffset(recordOffset);
+      dataLength = (dataOffset >= 0) ? modifiedLeafPage.getSlotDataLength(recordOffset) : -1;
+      if (dataOffset < 0 || dataLength != totalSlotSize) {
         return false;
       }
     }
 
-    if (!FixedSlotRecordProjector.project(record, layout, slot)) {
+    if (!FixedSlotRecordProjector.project(record, layout, modifiedLeafPage.getSlotMemory(), dataOffset)) {
       return false;
     }
     modifiedLeafPage.markSlotAsFixedFormat(recordOffset, nodeKind);

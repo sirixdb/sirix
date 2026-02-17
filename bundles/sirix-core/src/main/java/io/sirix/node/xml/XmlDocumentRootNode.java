@@ -300,7 +300,7 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode {
   @Override
   public long getHash() {
     if (hash == 0L && hashFunction != null) {
-      hash = computeHash(Bytes.elasticOffHeapByteBuffer());
+      hash = computeHash(Bytes.threadLocalHashBuffer());
     }
     return hash;
   }

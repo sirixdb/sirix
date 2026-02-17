@@ -32,6 +32,9 @@ public final class FixedSlotRecordProjector {
   /** Unaligned long layout for reading/writing vector entries in inline payload. */
   private static final ValueLayout.OfLong LONG_UNALIGNED = ValueLayout.JAVA_LONG_UNALIGNED;
 
+  /** Pre-zeroed buffer used to clear header bytes without allocating an asSlice(). */
+  private static final MemorySegment ZERO_BUFFER = MemorySegment.ofArray(new byte[512]);
+
   /** Thread-local buffer for serializing number values inline. */
   private static final ThreadLocal<MemorySegmentBytesOut> NUMBER_BUFFER =
       ThreadLocal.withInitial(() -> new MemorySegmentBytesOut(32));
@@ -91,18 +94,21 @@ public final class FixedSlotRecordProjector {
   }
 
   /**
-   * Project a record into the given fixed-slot target.
+   * Project a record into the given fixed-slot target at the specified base offset.
    *
-   * <p>For payload-bearing nodes (strings, numbers), the target slot must be sized to include
-   * both the fixed-slot header and inline payload bytes. The payload bytes are written immediately
-   * after the header, and the PayloadRef metadata in the header stores the offset and length.
+   * <p>For payload-bearing nodes (strings, numbers), the target area starting at {@code baseOffset}
+   * must be sized to include both the fixed-slot header and inline payload bytes. The payload bytes
+   * are written immediately after the header, and the PayloadRef metadata in the header stores
+   * the offset (relative to slot data start) and length.
    *
    * @param record record to project
    * @param layout fixed-slot layout descriptor
-   * @param targetSlot target slot memory (header + inline payload area)
+   * @param targetSlot target memory (may be the full slotMemory)
+   * @param baseOffset absolute byte offset where the slot data begins
    * @return {@code true} if projection succeeded, {@code false} if the record cannot be projected
    */
-  public static boolean project(final DataRecord record, final NodeKindLayout layout, final MemorySegment targetSlot) {
+  public static boolean project(final DataRecord record, final NodeKindLayout layout,
+      final MemorySegment targetSlot, final long baseOffset) {
     Objects.requireNonNull(record, "record must not be null");
     Objects.requireNonNull(layout, "layout must not be null");
     Objects.requireNonNull(targetSlot, "targetSlot must not be null");
@@ -117,13 +123,13 @@ public final class FixedSlotRecordProjector {
     }
 
     final int headerSize = layout.fixedSlotSizeInBytes();
-    if (targetSlot.byteSize() < headerSize) {
+    if (targetSlot.byteSize() - baseOffset < headerSize) {
       throw new IllegalArgumentException(
-          "target slot too small: " + targetSlot.byteSize() + " < " + headerSize);
+          "target slot too small: available=" + (targetSlot.byteSize() - baseOffset) + " < " + headerSize);
     }
 
-    // Clear the header portion (payload area is written explicitly).
-    targetSlot.asSlice(0, headerSize).fill((byte) 0);
+    // Clear the header portion using bulk copy from pre-zeroed buffer (avoids asSlice allocation).
+    MemorySegment.copy(ZERO_BUFFER, 0, targetSlot, baseOffset, headerSize);
 
     final ImmutableNode immutableNode = record instanceof ImmutableNode node ? node : null;
     final StructNode structNode = record instanceof StructNode node ? node : null;
@@ -131,19 +137,19 @@ public final class FixedSlotRecordProjector {
     final BooleanValueNode booleanValueNode = record instanceof BooleanValueNode node ? node : null;
     final ObjectKeyNode objectKeyNode = record instanceof ObjectKeyNode node ? node : null;
 
-    if (!writeCommonFields(record, immutableNode, targetSlot, layout)) {
+    if (!writeCommonFields(record, immutableNode, targetSlot, baseOffset, layout)) {
       return false;
     }
-    if (!writeStructuralFields(structNode, targetSlot, layout)) {
+    if (!writeStructuralFields(structNode, targetSlot, baseOffset, layout)) {
       return false;
     }
-    if (!writeNameFields(nameNode, objectKeyNode, targetSlot, layout)) {
+    if (!writeNameFields(nameNode, objectKeyNode, targetSlot, baseOffset, layout)) {
       return false;
     }
-    if (!writeBooleanField(booleanValueNode, targetSlot, layout)) {
+    if (!writeBooleanField(booleanValueNode, targetSlot, baseOffset, layout)) {
       return false;
     }
-    if (!writeInlinePayloadRefs(record, targetSlot, layout)) {
+    if (!writeInlinePayloadRefs(record, targetSlot, baseOffset, layout)) {
       return false;
     }
 
@@ -151,15 +157,17 @@ public final class FixedSlotRecordProjector {
   }
 
   private static boolean writeCommonFields(final DataRecord record, final ImmutableNode immutableNode,
-      final MemorySegment targetSlot, final NodeKindLayout layout) {
+      final MemorySegment targetSlot, final long baseOffset, final NodeKindLayout layout) {
     if (layout.hasField(StructuralField.PREVIOUS_REVISION)) {
       SlotLayoutAccessors.writeIntField(targetSlot,
+                                        baseOffset,
                                         layout,
                                         StructuralField.PREVIOUS_REVISION,
                                         record.getPreviousRevisionNumber());
     }
     if (layout.hasField(StructuralField.LAST_MODIFIED_REVISION)) {
       SlotLayoutAccessors.writeIntField(targetSlot,
+                                        baseOffset,
                                         layout,
                                         StructuralField.LAST_MODIFIED_REVISION,
                                         record.getLastModifiedRevisionNumber());
@@ -168,24 +176,25 @@ public final class FixedSlotRecordProjector {
       if (immutableNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, layout, StructuralField.PARENT_KEY, immutableNode.getParentKey());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.PARENT_KEY, immutableNode.getParentKey());
     }
     if (layout.hasField(StructuralField.HASH)) {
       if (immutableNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, layout, StructuralField.HASH, immutableNode.getHash());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.HASH, immutableNode.getHash());
     }
     return true;
   }
 
   private static boolean writeStructuralFields(final StructNode structNode, final MemorySegment targetSlot,
-      final NodeKindLayout layout) {
+      final long baseOffset, final NodeKindLayout layout) {
     if (layout.hasField(StructuralField.RIGHT_SIBLING_KEY)) {
       if (structNode == null) {
         return false;
       }
       SlotLayoutAccessors.writeLongField(targetSlot,
+                                         baseOffset,
                                          layout,
                                          StructuralField.RIGHT_SIBLING_KEY,
                                          structNode.getRightSiblingKey());
@@ -194,31 +203,32 @@ public final class FixedSlotRecordProjector {
       if (structNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, layout, StructuralField.LEFT_SIBLING_KEY, structNode.getLeftSiblingKey());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY, structNode.getLeftSiblingKey());
     }
     if (layout.hasField(StructuralField.FIRST_CHILD_KEY)) {
       if (structNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, layout, StructuralField.FIRST_CHILD_KEY, structNode.getFirstChildKey());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.FIRST_CHILD_KEY, structNode.getFirstChildKey());
     }
     if (layout.hasField(StructuralField.LAST_CHILD_KEY)) {
       if (structNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, layout, StructuralField.LAST_CHILD_KEY, structNode.getLastChildKey());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.LAST_CHILD_KEY, structNode.getLastChildKey());
     }
     if (layout.hasField(StructuralField.CHILD_COUNT)) {
       if (structNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, layout, StructuralField.CHILD_COUNT, structNode.getChildCount());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.CHILD_COUNT, structNode.getChildCount());
     }
     if (layout.hasField(StructuralField.DESCENDANT_COUNT)) {
       if (structNode == null) {
         return false;
       }
       SlotLayoutAccessors.writeLongField(targetSlot,
+                                         baseOffset,
                                          layout,
                                          StructuralField.DESCENDANT_COUNT,
                                          structNode.getDescendantCount());
@@ -227,47 +237,48 @@ public final class FixedSlotRecordProjector {
   }
 
   private static boolean writeNameFields(final NameNode nameNode, final ObjectKeyNode objectKeyNode,
-      final MemorySegment targetSlot, final NodeKindLayout layout) {
+      final MemorySegment targetSlot, final long baseOffset, final NodeKindLayout layout) {
     if (layout.hasField(StructuralField.PATH_NODE_KEY)) {
       if (nameNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeLongField(targetSlot, layout, StructuralField.PATH_NODE_KEY, nameNode.getPathNodeKey());
+      SlotLayoutAccessors.writeLongField(targetSlot, baseOffset, layout, StructuralField.PATH_NODE_KEY, nameNode.getPathNodeKey());
     }
     if (layout.hasField(StructuralField.PREFIX_KEY)) {
       if (nameNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeIntField(targetSlot, layout, StructuralField.PREFIX_KEY, nameNode.getPrefixKey());
+      SlotLayoutAccessors.writeIntField(targetSlot, baseOffset, layout, StructuralField.PREFIX_KEY, nameNode.getPrefixKey());
     }
     if (layout.hasField(StructuralField.LOCAL_NAME_KEY)) {
       if (nameNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeIntField(targetSlot, layout, StructuralField.LOCAL_NAME_KEY, nameNode.getLocalNameKey());
+      SlotLayoutAccessors.writeIntField(targetSlot, baseOffset, layout, StructuralField.LOCAL_NAME_KEY, nameNode.getLocalNameKey());
     }
     if (layout.hasField(StructuralField.URI_KEY)) {
       if (nameNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeIntField(targetSlot, layout, StructuralField.URI_KEY, nameNode.getURIKey());
+      SlotLayoutAccessors.writeIntField(targetSlot, baseOffset, layout, StructuralField.URI_KEY, nameNode.getURIKey());
     }
     if (layout.hasField(StructuralField.NAME_KEY)) {
       if (objectKeyNode == null) {
         return false;
       }
-      SlotLayoutAccessors.writeIntField(targetSlot, layout, StructuralField.NAME_KEY, objectKeyNode.getNameKey());
+      SlotLayoutAccessors.writeIntField(targetSlot, baseOffset, layout, StructuralField.NAME_KEY, objectKeyNode.getNameKey());
     }
     return true;
   }
 
   private static boolean writeBooleanField(final BooleanValueNode booleanValueNode, final MemorySegment targetSlot,
-      final NodeKindLayout layout) {
+      final long baseOffset, final NodeKindLayout layout) {
     if (layout.hasField(StructuralField.BOOLEAN_VALUE)) {
       if (booleanValueNode == null) {
         return false;
       }
       SlotLayoutAccessors.writeBooleanField(targetSlot,
+                                            baseOffset,
                                             layout,
                                             StructuralField.BOOLEAN_VALUE,
                                             booleanValueNode.getValue());
@@ -281,12 +292,13 @@ public final class FixedSlotRecordProjector {
    * The inline payload is written immediately after the fixed-slot header.
    */
   private static boolean writeInlinePayloadRefs(final DataRecord record, final MemorySegment targetSlot,
-      final NodeKindLayout layout) {
+      final long baseOffset, final NodeKindLayout layout) {
     final int refs = layout.payloadRefCount();
     if (refs == 0) {
       return true;
     }
 
+    // payloadOffset is relative to slot data start (i.e. starts at headerSize)
     int payloadOffset = layout.fixedSlotSizeInBytes();
 
     for (int i = 0; i < refs; i++) {
@@ -299,9 +311,9 @@ public final class FixedSlotRecordProjector {
         }
         final int count = element.getAttributeCount();
         final int length = count * Long.BYTES;
-        SlotLayoutAccessors.writePayloadRef(targetSlot, layout, i, payloadOffset, length, 0);
+        SlotLayoutAccessors.writePayloadRef(targetSlot, baseOffset, layout, i, payloadOffset, length, 0);
         for (int j = 0; j < count; j++) {
-          targetSlot.set(LONG_UNALIGNED, payloadOffset, element.getAttributeKey(j));
+          targetSlot.set(LONG_UNALIGNED, baseOffset + payloadOffset, element.getAttributeKey(j));
           payloadOffset += Long.BYTES;
         }
         continue;
@@ -311,9 +323,9 @@ public final class FixedSlotRecordProjector {
         }
         final int count = element.getNamespaceCount();
         final int length = count * Long.BYTES;
-        SlotLayoutAccessors.writePayloadRef(targetSlot, layout, i, payloadOffset, length, 0);
+        SlotLayoutAccessors.writePayloadRef(targetSlot, baseOffset, layout, i, payloadOffset, length, 0);
         for (int j = 0; j < count; j++) {
-          targetSlot.set(LONG_UNALIGNED, payloadOffset, element.getNamespaceKey(j));
+          targetSlot.set(LONG_UNALIGNED, baseOffset + payloadOffset, element.getNamespaceKey(j));
           payloadOffset += Long.BYTES;
         }
         continue;
@@ -351,9 +363,9 @@ public final class FixedSlotRecordProjector {
         NodeKind.serializeNumber(nn.getValue(), buf);
         final MemorySegment serialized = buf.getDestination();
         final int numLen = (int) serialized.byteSize();
-        SlotLayoutAccessors.writePayloadRef(targetSlot, layout, i, payloadOffset, numLen, 0);
+        SlotLayoutAccessors.writePayloadRef(targetSlot, baseOffset, layout, i, payloadOffset, numLen, 0);
         if (numLen > 0) {
-          MemorySegment.copy(serialized, 0, targetSlot, payloadOffset, numLen);
+          MemorySegment.copy(serialized, 0, targetSlot, baseOffset + payloadOffset, numLen);
         }
         payloadOffset += numLen;
         continue;
@@ -362,9 +374,9 @@ public final class FixedSlotRecordProjector {
       }
 
       final int length = payloadBytes != null ? payloadBytes.length : 0;
-      SlotLayoutAccessors.writePayloadRef(targetSlot, layout, i, payloadOffset, length, flags);
+      SlotLayoutAccessors.writePayloadRef(targetSlot, baseOffset, layout, i, payloadOffset, length, flags);
       if (length > 0) {
-        MemorySegment.copy(MemorySegment.ofArray(payloadBytes), 0, targetSlot, payloadOffset, length);
+        MemorySegment.copy(MemorySegment.ofArray(payloadBytes), 0, targetSlot, baseOffset + payloadOffset, length);
       }
       payloadOffset += length;
     }

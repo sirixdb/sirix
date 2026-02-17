@@ -331,7 +331,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   @Override
   public long getHash() {
     if (hash == 0L && hashFunction != null) {
-      hash = computeHash(Bytes.elasticOffHeapByteBuffer());
+      hash = computeHash(Bytes.threadLocalHashBuffer());
     }
     return hash;
   }

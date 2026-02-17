@@ -174,7 +174,7 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   @Override
   public long getHash() {
     if (hash == 0L && hashFunction != null) {
-      hash = computeHash(Bytes.elasticOffHeapByteBuffer());
+      hash = computeHash(Bytes.threadLocalHashBuffer());
     }
     return hash;
   }

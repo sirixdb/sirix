@@ -37,7 +37,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(layout.fixedSlotSizeInBytes());
-      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot);
+      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot, 0L);
 
       assertTrue(projected);
       assertEquals(7L, SlotLayoutAccessors.readLongField(slot, layout, StructuralField.PARENT_KEY));
@@ -69,7 +69,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(layout.fixedSlotSizeInBytes());
-      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot);
+      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot, 0L);
 
       assertTrue(projected);
       assertEquals(3L, SlotLayoutAccessors.readLongField(slot, layout, StructuralField.PARENT_KEY));
@@ -100,7 +100,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(totalSize);
-      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot);
+      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot, 0L);
 
       assertTrue(projected);
 
@@ -142,7 +142,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(totalSize);
-      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot);
+      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot, 0L);
 
       assertTrue(projected);
 
@@ -174,7 +174,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(totalSize);
-      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot);
+      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot, 0L);
 
       assertTrue(projected);
 
@@ -210,7 +210,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(totalSize);
-      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot);
+      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot, 0L);
 
       assertTrue(projected);
 
@@ -237,7 +237,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(totalSize);
-      assertTrue(FixedSlotRecordProjector.project(node, layout, slot));
+      assertTrue(FixedSlotRecordProjector.project(node, layout, slot, 0L));
 
       final long pointer = SlotLayoutAccessors.readPayloadPointer(slot, layout, 0);
       final int length = SlotLayoutAccessors.readPayloadLength(slot, layout, 0);
@@ -260,7 +260,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(totalSize);
-      assertTrue(FixedSlotRecordProjector.project(node, layout, slot));
+      assertTrue(FixedSlotRecordProjector.project(node, layout, slot, 0L));
 
       final int flags = SlotLayoutAccessors.readPayloadFlags(slot, layout, 0);
       assertEquals(1, flags); // compressed flag set
@@ -297,7 +297,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(totalSize);
-      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot);
+      final boolean projected = FixedSlotRecordProjector.project(node, layout, slot, 0L);
 
       assertTrue(projected);
 
@@ -336,7 +336,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(totalSize);
-      assertTrue(FixedSlotRecordProjector.project(node, layout, slot));
+      assertTrue(FixedSlotRecordProjector.project(node, layout, slot, 0L));
 
       final int flags = SlotLayoutAccessors.readPayloadFlags(slot, layout, 0);
       assertEquals(1, flags); // compressed flag set
@@ -357,7 +357,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(totalSize);
-      assertTrue(FixedSlotRecordProjector.project(node, layout, slot));
+      assertTrue(FixedSlotRecordProjector.project(node, layout, slot, 0L));
 
       assertEquals(7L, SlotLayoutAccessors.readLongField(slot, layout, StructuralField.PARENT_KEY));
       assertEquals(17L, SlotLayoutAccessors.readLongField(slot, layout, StructuralField.RIGHT_SIBLING_KEY));
@@ -389,7 +389,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(totalSize);
-      assertTrue(FixedSlotRecordProjector.project(node, layout, slot));
+      assertTrue(FixedSlotRecordProjector.project(node, layout, slot, 0L));
 
       assertEquals(7L, SlotLayoutAccessors.readLongField(slot, layout, StructuralField.PARENT_KEY));
       assertEquals(5L, SlotLayoutAccessors.readLongField(slot, layout, StructuralField.PATH_NODE_KEY));
@@ -428,7 +428,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(totalSize);
-      assertTrue(FixedSlotRecordProjector.project(node, layout, slot));
+      assertTrue(FixedSlotRecordProjector.project(node, layout, slot, 0L));
 
       // Verify structural fields
       assertEquals(7L, SlotLayoutAccessors.readLongField(slot, layout, StructuralField.PARENT_KEY));
@@ -472,7 +472,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(Math.max(layoutWithAttrs.fixedSlotSizeInBytes(), 128));
-      assertFalse(FixedSlotRecordProjector.project(node, layoutWithAttrs, slot));
+      assertFalse(FixedSlotRecordProjector.project(node, layoutWithAttrs, slot, 0L));
     }
   }
 
@@ -495,7 +495,7 @@ class FixedSlotRecordProjectorTest {
           + node.getAttributeCount() * Long.BYTES
           + node.getNamespaceCount() * Long.BYTES;
       final MemorySegment slot = arena.allocate(totalSize);
-      assertTrue(FixedSlotRecordProjector.project(node, layout, slot));
+      assertTrue(FixedSlotRecordProjector.project(node, layout, slot, 0L));
 
       // Verify structural fields
       assertEquals(10L, SlotLayoutAccessors.readLongField(slot, layout, StructuralField.PARENT_KEY));
@@ -524,7 +524,7 @@ class FixedSlotRecordProjectorTest {
           0L, 0L, 0, 0, 0,
           hashFunction, (byte[]) null, new LongArrayList(), new LongArrayList(), new QNm(""));
       assertTrue(FixedSlotRecordMaterializer.populateExisting(
-          populated, NodeKind.ELEMENT, 42L, slot, null, null));
+          populated, NodeKind.ELEMENT, 42L, slot, 0L, (int) slot.byteSize(), null, null));
       assertEquals(42L, populated.getNodeKey());
       assertEquals(10L, populated.getParentKey());
       assertEquals(20L, populated.getRightSiblingKey());
@@ -562,7 +562,7 @@ class FixedSlotRecordProjectorTest {
 
     try (final Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(layout.fixedSlotSizeInBytes());
-      assertTrue(FixedSlotRecordProjector.project(node, layout, slot));
+      assertTrue(FixedSlotRecordProjector.project(node, layout, slot, 0L));
 
       assertEquals(0, SlotLayoutAccessors.readPayloadLength(slot, layout, 0));
       assertEquals(0, SlotLayoutAccessors.readPayloadLength(slot, layout, 1));
@@ -572,7 +572,7 @@ class FixedSlotRecordProjectorTest {
           0L, 0L, 0, 0, 0,
           hashFunction, (byte[]) null, new LongArrayList(), new LongArrayList(), new QNm(""));
       assertTrue(FixedSlotRecordMaterializer.populateExisting(
-          populated, NodeKind.ELEMENT, 1L, slot, null, null));
+          populated, NodeKind.ELEMENT, 1L, slot, 0L, (int) slot.byteSize(), null, null));
       assertEquals(0, populated.getAttributeCount());
       assertEquals(0, populated.getNamespaceCount());
       assertEquals(2L, populated.getParentKey());
@@ -597,7 +597,7 @@ class FixedSlotRecordProjectorTest {
           + original.getAttributeCount() * Long.BYTES
           + original.getNamespaceCount() * Long.BYTES;
       final MemorySegment slot = arena.allocate(totalSize);
-      assertTrue(FixedSlotRecordProjector.project(original, layout, slot));
+      assertTrue(FixedSlotRecordProjector.project(original, layout, slot, 0L));
 
       // Populate into an existing singleton
       final ElementNode singleton = new ElementNode(
@@ -606,7 +606,7 @@ class FixedSlotRecordProjectorTest {
           hashFunction, (byte[]) null, new LongArrayList(), new LongArrayList(), new QNm(""));
 
       assertTrue(FixedSlotRecordMaterializer.populateExisting(
-          singleton, NodeKind.ELEMENT, 5L, slot, null, null));
+          singleton, NodeKind.ELEMENT, 5L, slot, 0L, (int) slot.byteSize(), null, null));
 
       assertEquals(5L, singleton.getNodeKey());
       assertEquals(100L, singleton.getParentKey());

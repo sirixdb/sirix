@@ -1592,6 +1592,40 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return slotOffsets[slotNumber] != -1;
   }
 
+  /**
+   * Get the absolute data offset for a slot within {@link #getSlotMemory()}, skipping the 4-byte
+   * length prefix. Use together with {@link #getSlotDataLength(int)} and {@link #getSlotMemory()}
+   * to avoid allocating a {@code MemorySegment} slice on the hot path.
+   *
+   * @param slotNumber the slot index
+   * @return absolute byte offset into slotMemory where data begins, or {@code -1} if the slot is empty
+   */
+  public long getSlotDataOffset(final int slotNumber) {
+    assert slotNumber >= 0 && slotNumber < slotOffsets.length : "Invalid slot number: " + slotNumber;
+    final int slotOffset = slotOffsets[slotNumber];
+    if (slotOffset < 0) {
+      return -1;
+    }
+    return slotOffset + INT_SIZE;
+  }
+
+  /**
+   * Get the data length (in bytes) stored in the given slot, excluding the 4-byte length prefix.
+   * Use together with {@link #getSlotDataOffset(int)} and {@link #getSlotMemory()} to avoid
+   * allocating a {@code MemorySegment} slice on the hot path.
+   *
+   * @param slotNumber the slot index
+   * @return data length in bytes, or {@code -1} if the slot is empty
+   */
+  public int getSlotDataLength(final int slotNumber) {
+    assert slotNumber >= 0 && slotNumber < slotOffsets.length : "Invalid slot number: " + slotNumber;
+    final int slotOffset = slotOffsets[slotNumber];
+    if (slotOffset < 0) {
+      return -1;
+    }
+    return slotMemory.get(JAVA_INT_UNALIGNED, slotOffset);
+  }
+
   @Override
   public MemorySegment getSlot(int slotNumber) {
     // Validate slot memory segment
