@@ -15,7 +15,7 @@ import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
-import io.sirix.node.layout.FixedSlotRecordMaterializer;
+import io.sirix.node.layout.FixedToCompactTransformer;
 import io.sirix.node.xml.AttributeNode;
 import io.sirix.node.xml.CommentNode;
 import io.sirix.node.xml.PINode;
@@ -2574,7 +2574,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // In-place compaction: compact format is always <= fixed format in size,
     // so we overwrite each fixed slot at its current offset. No buffer allocation needed.
     // Any gaps left by shrunk slots are eliminated by downstream compactLengthPrefixedRegion().
-    final RecordSerializer serializer = resourceConfiguration.recordPersister;
     final MemorySegmentBytesOut compactBuffer = COMPACT_BUFFER.get();
 
     for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
@@ -2594,15 +2593,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
           throw new IllegalStateException("Missing fixed-slot metadata for node key " + nodeKey);
         }
 
-        final byte[] deweyIdBytes = areDeweyIDsStored ? getDeweyIdAsByteArray(slotIndex) : null;
-        final DataRecord record = FixedSlotRecordMaterializer.materialize(
-            nodeKind, nodeKey, fixedSlotBytes, deweyIdBytes, resourceConfiguration);
-        if (record == null) {
-          throw new IllegalStateException("Cannot materialize fixed-slot record for node key " + nodeKey);
-        }
-
+        // Direct byte-level transformation: fixed → compact without materializing a DataRecord.
         compactBuffer.clear();
-        serializer.serialize(compactBuffer, record, resourceConfiguration);
+        FixedToCompactTransformer.transform(nodeKind, nodeKey, fixedSlotBytes, resourceConfiguration, compactBuffer);
         final MemorySegment compactBytes = compactBuffer.getDestination();
         final int compactSize = (int) compactBytes.byteSize();
         if (compactSize > PageConstants.MAX_RECORD_SIZE) {
