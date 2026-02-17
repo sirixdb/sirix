@@ -652,7 +652,7 @@ public enum VersioningType {
   protected static <V extends DataRecord, T extends KeyValuePage<V>> void propagateFsstSymbolTable(final T sourcePage,
       final T targetPage) {
     if (sourcePage instanceof KeyValueLeafPage sourceKvp && targetPage instanceof KeyValueLeafPage targetKvp) {
-      byte[] fsstSymbolTable = sourceKvp.getFsstSymbolTable();
+      final byte[] fsstSymbolTable = sourceKvp.getFsstSymbolTable();
       if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
         targetKvp.setFsstSymbolTable(fsstSymbolTable);
       }

@@ -460,6 +460,28 @@ public final class FSSTCompressor {
       return input.clone();
     }
 
+    return encodeWithParsedSymbols(input, symbols);
+  }
+
+  /**
+   * Encode using pre-parsed symbol table. Avoids re-parsing the symbol table on every call when
+   * encoding multiple values with the same table (e.g., all strings on a page).
+   *
+   * @param input data to compress
+   * @param parsedSymbols pre-parsed symbol table from {@link #parseSymbolTable(byte[])}
+   * @return compressed data, or original if compression not beneficial
+   */
+  public static byte[] encode(final byte[] input, final byte[][] parsedSymbols) {
+    Objects.requireNonNull(input, "input must not be null");
+
+    if (parsedSymbols == null || parsedSymbols.length == 0) {
+      return input.clone();
+    }
+
+    return encodeWithParsedSymbols(input, parsedSymbols);
+  }
+
+  private static byte[] encodeWithParsedSymbols(final byte[] input, final byte[][] symbols) {
     // If input too small, return with raw header
     if (input.length < MIN_COMPRESSION_SIZE) {
       return markAsRaw(input);
@@ -568,6 +590,32 @@ public final class FSSTCompressor {
       return encoded.clone();
     }
 
+    return decodeWithParsedSymbols(encoded, symbols);
+  }
+
+  /**
+   * Decode using pre-parsed symbol table. Avoids re-parsing the symbol table on every call when
+   * decoding multiple values with the same table (e.g., all strings on a page).
+   *
+   * @param encoded compressed data (with header byte)
+   * @param parsedSymbols pre-parsed symbol table from {@link #parseSymbolTable(byte[])}
+   * @return decompressed data
+   */
+  public static byte[] decode(final byte[] encoded, final byte[][] parsedSymbols) {
+    Objects.requireNonNull(encoded, "encoded must not be null");
+
+    if (encoded.length == 0) {
+      return new byte[0];
+    }
+
+    if (parsedSymbols == null || parsedSymbols.length == 0) {
+      return encoded.clone();
+    }
+
+    return decodeWithParsedSymbols(encoded, parsedSymbols);
+  }
+
+  private static byte[] decodeWithParsedSymbols(final byte[] encoded, final byte[][] symbols) {
     // Check header byte
     final byte header = encoded[0];
     if (header == HEADER_RAW) {

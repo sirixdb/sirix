@@ -111,7 +111,7 @@ public class NamePage0LeakTest {
                                      .filter(p -> p.getIndexType() == IndexType.NAME)
                                      .forEach(p -> System.err.println(
                                          "  Page 0 NAME (rev " + p.getRevision() + ", closed=" + p.isClosed() + ")"));
-    } catch (Exception ex) {
+    } catch (Exception | AssertionError ex) {
       System.err.println("(Cache analysis skipped - transaction closed)");
     }
 

@@ -100,6 +100,8 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   private boolean isCompressed;
   /** FSST symbol table for decompression (shared from KeyValueLeafPage) */
   private byte[] fsstSymbolTable;
+  /** Pre-parsed FSST symbol table (avoids re-parsing on every decode) */
+  private byte[][] parsedFsstSymbols;
   /** Decompressed value (lazy allocated on first access if compressed) */
   private byte[] decodedValue;
 
@@ -323,9 +325,10 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     if (!valueParsed) {
       parseValueField();
     }
-    // If compressed, decode on first access
+    // If compressed, decode on first access using pre-parsed symbols when available
     if (isCompressed && decodedValue == null && value != null) {
-      decodedValue = FSSTCompressor.decode(value, fsstSymbolTable);
+      final byte[][] parsed = parsedFsstSymbols;
+      decodedValue = (parsed != null) ? FSSTCompressor.decode(value, parsed) : FSSTCompressor.decode(value, fsstSymbolTable);
     }
     return isCompressed
         ? decodedValue
@@ -398,12 +401,25 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
   /**
    * Set the FSST symbol table.
-   * 
+   *
    * @param fsstSymbolTable the symbol table
    */
   public void setFsstSymbolTable(byte[] fsstSymbolTable) {
     this.fsstSymbolTable = fsstSymbolTable;
+    this.parsedFsstSymbols = null;
     this.decodedValue = null; // Reset decoded value when table changes
+  }
+
+  /**
+   * Set the FSST symbol table with pre-parsed symbols to avoid redundant parsing.
+   *
+   * @param fsstSymbolTable the raw symbol table bytes
+   * @param parsedFsstSymbols the pre-parsed symbol arrays
+   */
+  public void setFsstSymbolTable(byte[] fsstSymbolTable, byte[][] parsedFsstSymbols) {
+    this.fsstSymbolTable = fsstSymbolTable;
+    this.parsedFsstSymbols = parsedFsstSymbols;
+    this.decodedValue = null;
   }
 
   @Override
@@ -536,6 +552,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     this.fixedValueCompressed = compressed;
     this.value = null;
     this.fsstSymbolTable = null;
+    this.parsedFsstSymbols = null;
     this.decodedValue = null;
     this.hash = 0L;
   }

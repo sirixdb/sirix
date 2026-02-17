@@ -114,8 +114,8 @@ class FSSTCompressorTest {
     final byte[] input = "test data".getBytes(StandardCharsets.UTF_8);
 
     // When: encoding with null table
-    final byte[] encoded = FSSTCompressor.encode(input, null);
-    final byte[] decoded = FSSTCompressor.decode(encoded, null);
+    final byte[] encoded = FSSTCompressor.encode(input, (byte[]) null);
+    final byte[] decoded = FSSTCompressor.decode(encoded, (byte[]) null);
 
     // Then: P2 - graceful degradation
     assertArrayEquals(input, decoded);

@@ -773,10 +773,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         final int strLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
         final int strFlags = SlotLayoutAccessors.readPayloadFlags(slotMemory, baseOffset, layout, 0);
         node.setLazyRawValue(slotMemory, baseOffset + strPointer, strLength, (strFlags & 1) != 0);
-        // Propagate FSST symbol table for decompression
+        // Propagate FSST symbol table for decompression (use pre-parsed symbols)
         final byte[] strFsstSymbols = page.getFsstSymbolTable();
         if (strFsstSymbols != null && strFsstSymbols.length > 0) {
-          node.setFsstSymbolTable(strFsstSymbols);
+          node.setFsstSymbolTable(strFsstSymbols, page.getParsedFsstSymbols());
         }
         node.setDeweyIDBytes(deweyIdBytes);
         node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
@@ -794,10 +794,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         final int objStrLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
         final int objStrFlags = SlotLayoutAccessors.readPayloadFlags(slotMemory, baseOffset, layout, 0);
         node.setLazyRawValue(slotMemory, baseOffset + objStrPointer, objStrLength, (objStrFlags & 1) != 0);
-        // Propagate FSST symbol table for decompression
+        // Propagate FSST symbol table for decompression (use pre-parsed symbols)
         final byte[] objStrFsstSymbols = page.getFsstSymbolTable();
         if (objStrFsstSymbols != null && objStrFsstSymbols.length > 0) {
-          node.setFsstSymbolTable(objStrFsstSymbols);
+          node.setFsstSymbolTable(objStrFsstSymbols, page.getParsedFsstSymbols());
         }
         node.setDeweyIDBytes(deweyIdBytes);
         node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
@@ -1080,10 +1080,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       case STRING_VALUE -> {
         StringNode stringNode = (StringNode) singleton;
         stringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-        // Propagate FSST symbol table for decompression
+        // Propagate FSST symbol table for decompression (use pre-parsed symbols)
         byte[] fsstSymbolTable = page.getFsstSymbolTable();
         if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-          stringNode.setFsstSymbolTable(fsstSymbolTable);
+          stringNode.setFsstSymbolTable(fsstSymbolTable, page.getParsedFsstSymbols());
         }
       }
       case NUMBER_VALUE ->
@@ -1095,10 +1095,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       case OBJECT_STRING_VALUE -> {
         ObjectStringNode objectStringNode = (ObjectStringNode) singleton;
         objectStringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-        // Propagate FSST symbol table for decompression
+        // Propagate FSST symbol table for decompression (use pre-parsed symbols)
         byte[] fsstSymbolTable = page.getFsstSymbolTable();
         if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-          objectStringNode.setFsstSymbolTable(fsstSymbolTable);
+          objectStringNode.setFsstSymbolTable(fsstSymbolTable, page.getParsedFsstSymbols());
         }
       }
       case OBJECT_NUMBER_VALUE -> ((ObjectNumberNode) singleton).readFrom(source, nodeKey, deweyId,
@@ -1236,11 +1236,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   /**
    * Make sure that the transaction is not yet closed when calling this method.
+   * Uses {@code assert} so the volatile read of {@code isClosed} is eliminated
+   * when assertions are disabled (the production default), removing a memory
+   * barrier from every getter on the read hot path.
    */
   public void assertNotClosed() {
-    if (isClosed) {
-      throw new IllegalStateException("Transaction is already closed.");
-    }
+    assert !isClosed : "Transaction is already closed.";
   }
 
   /**
