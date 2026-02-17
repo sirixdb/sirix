@@ -48,6 +48,9 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
@@ -82,6 +85,10 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   private long lazyValueOffset;
   private int lazyValueLength;
   private boolean valueParsed = true;
+
+  // === METADATA LAZY SUPPORT ===
+  private NodeKindLayout fixedSlotLayout;
+  private boolean metadataParsed = true;
 
   // === NON-SERIALIZED FIELDS ===
   private LongHashFunction hashFunction;
@@ -151,7 +158,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   public boolean hasParent() { return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
 
   @Override
-  public long getPathNodeKey() { return pathNodeKey; }
+  public long getPathNodeKey() { if (!metadataParsed) parseMetadataFields(); return pathNodeKey; }
 
   @Override
   public void setPathNodeKey(@NonNegative long pathNodeKey) { this.pathNodeKey = pathNodeKey; }
@@ -175,19 +182,20 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   public void setURIKey(int uriKey) { this.uriKey = uriKey; }
 
   @Override
-  public int getPreviousRevisionNumber() { return previousRevision; }
+  public int getPreviousRevisionNumber() { if (!metadataParsed) parseMetadataFields(); return previousRevision; }
 
   @Override
   public void setPreviousRevision(int revision) { this.previousRevision = revision; }
 
   @Override
-  public int getLastModifiedRevisionNumber() { return lastModifiedRevision; }
+  public int getLastModifiedRevisionNumber() { if (!metadataParsed) parseMetadataFields(); return lastModifiedRevision; }
 
   @Override
   public void setLastModifiedRevision(int revision) { this.lastModifiedRevision = revision; }
 
   @Override
   public long getHash() {
+    if (!metadataParsed) parseMetadataFields();
     if (hash == 0L && hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
@@ -354,7 +362,34 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     return bytes.hashDirect(hashFunction);
   }
 
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.fixedSlotLayout = layout;
+    this.metadataParsed = false;
+    // lazyValueSource already points to slotData from setLazyRawValue
+  }
+
+  private void parseMetadataFields() {
+    if (metadataParsed) {
+      return;
+    }
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazyValueSource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.pathNodeKey = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.PATH_NODE_KEY);
+      this.fixedSlotLayout = null;
+      this.metadataParsed = true;
+      return;
+    }
+
+    this.metadataParsed = true;
+  }
+
   public AttributeNode toSnapshot() {
+    if (!metadataParsed) parseMetadataFields();
     final byte[] rawValue = getRawValue();
     return new AttributeNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         pathNodeKey, prefixKey, localNameKey, uriKey, hash,

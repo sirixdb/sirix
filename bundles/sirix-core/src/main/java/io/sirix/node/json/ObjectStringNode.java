@@ -45,6 +45,9 @@ import io.sirix.node.SirixDeweyID;
 import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
@@ -109,6 +112,9 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   private boolean fixedValueEncoding;   // Whether value comes from fixed-slot inline payload
   private int fixedValueLength;         // Length of inline payload bytes
   private boolean fixedValueCompressed; // Whether inline payload is FSST compressed
+
+  // Fixed-slot lazy metadata support
+  private NodeKindLayout fixedSlotLayout;
 
   /**
    * Primary constructor with all primitive fields.
@@ -503,21 +509,34 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.hash = 0L;
   }
 
-  /**
-   * Parse metadata fields on demand (cheap - just varints and optionally a long).
-   */
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.fixedSlotLayout = layout;
+    this.metadataParsed = false;
+  }
+
   private void parseMetadataFields() {
     if (metadataParsed) {
       return;
     }
-    
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.fixedSlotLayout = null;
+      this.metadataParsed = true;
+      return;
+    }
+
     if (lazySource == null) {
       metadataParsed = true;
       return;
     }
-    
+
     BytesIn<?> bytesIn = createBytesIn(lazyOffset);
-    
+
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     if (hasHash) {

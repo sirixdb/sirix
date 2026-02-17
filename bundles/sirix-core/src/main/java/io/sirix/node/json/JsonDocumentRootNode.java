@@ -35,7 +35,12 @@ import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.settings.Fixed;
+
+import java.lang.foreign.MemorySegment;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -81,6 +86,11 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   
   /** DeweyID as bytes. */
   private byte[] deweyIDBytes;
+
+  // Fixed-slot lazy support
+  private Object lazySource;
+  private NodeKindLayout fixedSlotLayout;
+  private boolean lazyFieldsParsed = true;
 
   /**
    * Primary constructor with all primitive fields.
@@ -219,6 +229,7 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
   @Override
   public long getChildCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return childCount;
   }
 
@@ -228,16 +239,19 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
   @Override
   public void incrementChildCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
     childCount++;
   }
 
   @Override
   public void decrementChildCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
     childCount--;
   }
 
   @Override
   public long getDescendantCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return descendantCount;
   }
 
@@ -248,11 +262,13 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
   @Override
   public void incrementDescendantCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
     descendantCount++;
   }
 
   @Override
   public void decrementDescendantCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
     descendantCount--;
   }
 
@@ -290,6 +306,7 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
   @Override
   public long getHash() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return hash;
   }
 
@@ -383,12 +400,38 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
     this.hash = 0L;
   }
 
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.lazySource = slotData;
+    this.fixedSlotLayout = layout;
+    this.lazyFieldsParsed = false;
+  }
+
+  private void parseLazyFields() {
+    if (lazyFieldsParsed) {
+      return;
+    }
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.childCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.CHILD_COUNT);
+      this.descendantCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.DESCENDANT_COUNT);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.fixedSlotLayout = null;
+      this.lazyFieldsParsed = true;
+      return;
+    }
+
+    this.lazyFieldsParsed = true;
+  }
+
   /**
    * Create a deep copy snapshot of this node.
    *
    * @return a new instance with copied values
    */
   public JsonDocumentRootNode toSnapshot() {
+    if (!lazyFieldsParsed) parseLazyFields();
     final JsonDocumentRootNode snapshot = new JsonDocumentRootNode(
         nodeKey, firstChildKey, lastChildKey, childCount, descendantCount, hashFunction);
     snapshot.hash = this.hash;

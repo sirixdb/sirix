@@ -620,10 +620,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setNodeKey(nodeKey);
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
         node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
-        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case XML_DOCUMENT -> {
@@ -633,10 +631,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setNodeKey(nodeKey);
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
         node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
-        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case OBJECT -> {
@@ -645,17 +641,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
-        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case ARRAY -> {
@@ -665,17 +655,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
         node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
-        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case OBJECT_KEY -> {
@@ -684,18 +668,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
         node.setNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.NAME_KEY));
         node.clearCachedName();
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case BOOLEAN_VALUE -> {
@@ -704,14 +683,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setValue(SlotLayoutAccessors.readBooleanField(slotData, layout, StructuralField.BOOLEAN_VALUE));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case NULL_VALUE -> {
@@ -720,13 +696,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case OBJECT_BOOLEAN_VALUE -> {
@@ -735,12 +708,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setValue(SlotLayoutAccessors.readBooleanField(slotData, layout, StructuralField.BOOLEAN_VALUE));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case OBJECT_NULL_VALUE -> {
@@ -749,11 +719,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case NAMESPACE -> {
@@ -762,16 +729,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
         node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
         node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setName(EMPTY_QNM);
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case ELEMENT -> {
@@ -783,21 +746,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
-        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
         node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
-        node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         FixedSlotRecordMaterializer.readInlineVectorPayload(node, slotData, layout, 0, true);
         FixedSlotRecordMaterializer.readInlineVectorPayload(node, slotData, layout, 1, false);
         node.setName(EMPTY_QNM);
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case STRING_VALUE -> {
@@ -808,10 +763,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazySource and metadataParsed=true
         final long strPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int strLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         final int strFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
@@ -821,8 +773,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         if (strFsstSymbols != null && strFsstSymbols.length > 0) {
           node.setFsstSymbolTable(strFsstSymbols);
         }
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case OBJECT_STRING_VALUE -> {
@@ -831,10 +783,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazySource and metadataParsed=true
         final long objStrPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int objStrLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         final int objStrFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
@@ -844,8 +793,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         if (objStrFsstSymbols != null && objStrFsstSymbols.length > 0) {
           node.setFsstSymbolTable(objStrFsstSymbols);
         }
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case NUMBER_VALUE -> {
@@ -856,15 +805,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyNumberValue BEFORE setHash — setLazyNumberValue resets hash to 0
+        // setLazyNumberValue BEFORE bindFixedSlotLazy — setLazyNumberValue sets lazySource and metadataParsed=true
         final long numPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int numLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         node.setLazyNumberValue(slotData, numPointer, numLength);
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case OBJECT_NUMBER_VALUE -> {
@@ -873,15 +819,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyNumberValue BEFORE setHash — setLazyNumberValue resets hash to 0
+        // setLazyNumberValue BEFORE bindFixedSlotLazy — setLazyNumberValue sets lazySource and metadataParsed=true
         final long objNumPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int objNumLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         node.setLazyNumberValue(slotData, objNumPointer, objNumLength);
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case TEXT -> {
@@ -892,16 +835,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazySource and metadataParsed=true
         final long textPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int textLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         final int textFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
         node.setLazyRawValue(slotData, textPointer, textLength, (textFlags & 1) != 0);
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case COMMENT -> {
@@ -912,16 +852,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazyValueSource
         final long commentPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int commentLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         final int commentFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
         node.setLazyRawValue(slotData, commentPointer, commentLength, (commentFlags & 1) != 0);
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case ATTRIBUTE -> {
@@ -930,20 +867,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
         node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
         node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazyValueSource
         final long attrPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int attrLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         node.setLazyRawValue(slotData, attrPointer, attrLength);
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setName(EMPTY_QNM);
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       case PROCESSING_INSTRUCTION -> {
@@ -955,24 +888,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
-        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
         node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
-        node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(
-            SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LAST_MODIFIED_REVISION));
-        node.setChildCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.DESCENDANT_COUNT));
-        // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
+        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazyValueSource
         final long piPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
         final int piLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
         final int piFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
         node.setLazyRawValue(slotData, piPointer, piLength, (piFlags & 1) != 0);
-        node.setHash(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.HASH));
         node.setName(EMPTY_QNM);
         node.setDeweyIDBytes(deweyIdBytes);
+        node.bindFixedSlotLazy(slotData, layout);
         return true;
       }
       default -> {

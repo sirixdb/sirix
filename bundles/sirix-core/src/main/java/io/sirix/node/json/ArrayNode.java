@@ -44,6 +44,9 @@ import io.sirix.node.SirixDeweyID;
 
 import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
@@ -99,6 +102,9 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, ReusableN
   private boolean lazyFieldsParsed;
   private boolean hasHash;
   private boolean storeChildCount;
+
+  // Fixed-slot lazy support
+  private NodeKindLayout fixedSlotLayout;
 
   /**
    * Primary constructor with all primitive fields.
@@ -269,9 +275,12 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, ReusableN
 
   @Override
   public long getLastChildKey() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return lastChildKey;
   }
-  
+
   public void setLastChildKey(final long lastChild) {
     this.lastChildKey = lastChild;
   }
@@ -316,6 +325,9 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, ReusableN
 
   @Override
   public boolean hasLastChild() {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
     return lastChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
@@ -407,16 +419,36 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, ReusableN
     this.descendantCount = 0;
   }
   
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.lazySource = slotData;
+    this.fixedSlotLayout = layout;
+    this.lazyFieldsParsed = false;
+  }
+
   private void parseLazyFields() {
     if (lazyFieldsParsed) {
       return;
     }
-    
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.lastChildKey = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.LAST_CHILD_KEY);
+      this.childCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.CHILD_COUNT);
+      this.descendantCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.DESCENDANT_COUNT);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.fixedSlotLayout = null;
+      this.lazyFieldsParsed = true;
+      return;
+    }
+
     if (lazySource == null) {
       lazyFieldsParsed = true;
       return;
     }
-    
+
     BytesIn<?> bytesIn;
     if (lazySource instanceof MemorySegment segment) {
       bytesIn = new MemorySegmentBytesIn(segment);
@@ -427,7 +459,7 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, ReusableN
     } else {
       throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
     }
-    
+
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.childCount = storeChildCount ? DeltaVarIntCodec.decodeSigned(bytesIn) : 0;

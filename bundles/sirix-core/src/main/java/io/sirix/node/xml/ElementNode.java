@@ -47,7 +47,12 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.settings.Fixed;
+
+import java.lang.foreign.MemorySegment;
 import io.sirix.utils.NamePageHash;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
@@ -96,6 +101,11 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   private LongList attributeKeys;
   private LongList namespaceKeys;
   private QNm qNm;
+
+  // Fixed-slot lazy support
+  private Object lazySource;
+  private NodeKindLayout fixedSlotLayout;
+  private boolean lazyFieldsParsed = true;
 
   /**
    * Primary constructor with all primitive fields.
@@ -235,6 +245,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getLastChildKey() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return lastChildKey;
   }
 
@@ -244,6 +255,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public boolean hasLastChild() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return lastChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
@@ -251,6 +263,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getPathNodeKey() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return pathNodeKey;
   }
 
@@ -281,6 +294,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getURIKey() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return uriKey;
   }
 
@@ -291,6 +305,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getPreviousRevisionNumber() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return previousRevision;
   }
 
@@ -301,6 +316,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getLastModifiedRevisionNumber() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return lastModifiedRevision;
   }
 
@@ -311,6 +327,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getChildCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return childCount;
   }
 
@@ -320,6 +337,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getDescendantCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return descendantCount;
   }
 
@@ -330,6 +348,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getHash() {
+    if (!lazyFieldsParsed) parseLazyFields();
     if (hash == 0L && hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
@@ -343,21 +362,25 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public void incrementChildCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
     childCount++;
   }
 
   @Override
   public void decrementChildCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
     childCount--;
   }
 
   @Override
   public void incrementDescendantCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
     descendantCount++;
   }
 
   @Override
   public void decrementDescendantCount() {
+    if (!lazyFieldsParsed) parseLazyFields();
     descendantCount--;
   }
 
@@ -555,10 +578,41 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     }
   }
 
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.lazySource = slotData;
+    this.fixedSlotLayout = layout;
+    this.lazyFieldsParsed = false;
+  }
+
+  private void parseLazyFields() {
+    if (lazyFieldsParsed) {
+      return;
+    }
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.lastChildKey = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.LAST_CHILD_KEY);
+      this.childCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.CHILD_COUNT);
+      this.descendantCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.DESCENDANT_COUNT);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.pathNodeKey = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.PATH_NODE_KEY);
+      this.uriKey = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.URI_KEY);
+      this.fixedSlotLayout = null;
+      this.lazyFieldsParsed = true;
+      return;
+    }
+
+    this.lazyFieldsParsed = true;
+  }
+
   /**
    * Create a deep copy snapshot of this node.
    */
   public ElementNode toSnapshot() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return new ElementNode(
         nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,

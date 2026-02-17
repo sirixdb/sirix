@@ -50,6 +50,9 @@ import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.Compression;
@@ -97,6 +100,11 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   private int lazyValueLength;
   private boolean lazyValueCompressed;
   private boolean valueParsed = true;
+
+  // === FIXED-SLOT LAZY SUPPORT ===
+  private Object lazySource;
+  private NodeKindLayout fixedSlotLayout;
+  private boolean lazyFieldsParsed = true;
 
   // === NON-SERIALIZED FIELDS ===
   private LongHashFunction hashFunction;
@@ -208,38 +216,38 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   public boolean hasFirstChild() { return firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
 
   @Override
-  public long getLastChildKey() { return lastChildKey; }
+  public long getLastChildKey() { if (!lazyFieldsParsed) parseLazyFields(); return lastChildKey; }
 
   public void setLastChildKey(long key) { this.lastChildKey = key; }
 
   @Override
-  public boolean hasLastChild() { return lastChildKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
+  public boolean hasLastChild() { if (!lazyFieldsParsed) parseLazyFields(); return lastChildKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
 
   @Override
-  public long getChildCount() { return childCount; }
+  public long getChildCount() { if (!lazyFieldsParsed) parseLazyFields(); return childCount; }
 
   public void setChildCount(long childCount) { this.childCount = childCount; }
 
   @Override
-  public void incrementChildCount() { childCount++; }
+  public void incrementChildCount() { if (!lazyFieldsParsed) parseLazyFields(); childCount++; }
 
   @Override
-  public void decrementChildCount() { childCount--; }
+  public void decrementChildCount() { if (!lazyFieldsParsed) parseLazyFields(); childCount--; }
 
   @Override
-  public long getDescendantCount() { return descendantCount; }
+  public long getDescendantCount() { if (!lazyFieldsParsed) parseLazyFields(); return descendantCount; }
 
   @Override
   public void setDescendantCount(long descendantCount) { this.descendantCount = descendantCount; }
 
   @Override
-  public void incrementDescendantCount() { descendantCount++; }
+  public void incrementDescendantCount() { if (!lazyFieldsParsed) parseLazyFields(); descendantCount++; }
 
   @Override
-  public void decrementDescendantCount() { descendantCount--; }
+  public void decrementDescendantCount() { if (!lazyFieldsParsed) parseLazyFields(); descendantCount--; }
 
   @Override
-  public long getPathNodeKey() { return pathNodeKey; }
+  public long getPathNodeKey() { if (!lazyFieldsParsed) parseLazyFields(); return pathNodeKey; }
 
   @Override
   public void setPathNodeKey(@NonNegative long pathNodeKey) { this.pathNodeKey = pathNodeKey; }
@@ -257,25 +265,26 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   public void setLocalNameKey(int localNameKey) { this.localNameKey = localNameKey; }
 
   @Override
-  public int getURIKey() { return uriKey; }
+  public int getURIKey() { if (!lazyFieldsParsed) parseLazyFields(); return uriKey; }
 
   @Override
   public void setURIKey(int uriKey) { this.uriKey = uriKey; }
 
   @Override
-  public int getPreviousRevisionNumber() { return previousRevision; }
+  public int getPreviousRevisionNumber() { if (!lazyFieldsParsed) parseLazyFields(); return previousRevision; }
 
   @Override
   public void setPreviousRevision(int revision) { this.previousRevision = revision; }
 
   @Override
-  public int getLastModifiedRevisionNumber() { return lastModifiedRevision; }
+  public int getLastModifiedRevisionNumber() { if (!lazyFieldsParsed) parseLazyFields(); return lastModifiedRevision; }
 
   @Override
   public void setLastModifiedRevision(int revision) { this.lastModifiedRevision = revision; }
 
   @Override
   public long getHash() {
+    if (!lazyFieldsParsed) parseLazyFields();
     if (hash == 0L && hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
@@ -472,7 +481,38 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     return bytes.hashDirect(hashFunction);
   }
 
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.lazySource = slotData;
+    this.fixedSlotLayout = layout;
+    this.lazyFieldsParsed = false;
+  }
+
+  private void parseLazyFields() {
+    if (lazyFieldsParsed) {
+      return;
+    }
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.lastChildKey = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.LAST_CHILD_KEY);
+      this.childCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.CHILD_COUNT);
+      this.descendantCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.DESCENDANT_COUNT);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.pathNodeKey = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.PATH_NODE_KEY);
+      this.uriKey = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.URI_KEY);
+      this.fixedSlotLayout = null;
+      this.lazyFieldsParsed = true;
+      return;
+    }
+
+    this.lazyFieldsParsed = true;
+  }
+
   public PINode toSnapshot() {
+    if (!lazyFieldsParsed) parseLazyFields();
     final byte[] rawValue = getRawValue();
     return new PINode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,

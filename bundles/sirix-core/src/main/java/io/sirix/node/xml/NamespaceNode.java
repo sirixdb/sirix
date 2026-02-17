@@ -45,7 +45,12 @@ import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.settings.Fixed;
+
+import java.lang.foreign.MemorySegment;
 import io.sirix.utils.NamePageHash;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -69,6 +74,11 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   private int previousRevision;
   private int lastModifiedRevision;
   private long hash;
+
+  // === FIXED-SLOT LAZY SUPPORT ===
+  private Object lazySource;
+  private NodeKindLayout fixedSlotLayout;
+  private boolean lazyFieldsParsed = true;
 
   // === NON-SERIALIZED FIELDS ===
   private LongHashFunction hashFunction;
@@ -136,7 +146,7 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   public boolean hasParent() { return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
 
   @Override
-  public long getPathNodeKey() { return pathNodeKey; }
+  public long getPathNodeKey() { if (!lazyFieldsParsed) parseLazyFields(); return pathNodeKey; }
 
   @Override
   public void setPathNodeKey(@NonNegative long pathNodeKey) { this.pathNodeKey = pathNodeKey; }
@@ -160,19 +170,20 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   public void setURIKey(int uriKey) { this.uriKey = uriKey; }
 
   @Override
-  public int getPreviousRevisionNumber() { return previousRevision; }
+  public int getPreviousRevisionNumber() { if (!lazyFieldsParsed) parseLazyFields(); return previousRevision; }
 
   @Override
   public void setPreviousRevision(int revision) { this.previousRevision = revision; }
 
   @Override
-  public int getLastModifiedRevisionNumber() { return lastModifiedRevision; }
+  public int getLastModifiedRevisionNumber() { if (!lazyFieldsParsed) parseLazyFields(); return lastModifiedRevision; }
 
   @Override
   public void setLastModifiedRevision(int revision) { this.lastModifiedRevision = revision; }
 
   @Override
   public long getHash() {
+    if (!lazyFieldsParsed) parseLazyFields();
     if (hash == 0L && hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
@@ -253,7 +264,34 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
     return bytes.hashDirect(hashFunction);
   }
 
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.lazySource = slotData;
+    this.fixedSlotLayout = layout;
+    this.lazyFieldsParsed = false;
+  }
+
+  private void parseLazyFields() {
+    if (lazyFieldsParsed) {
+      return;
+    }
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.pathNodeKey = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.PATH_NODE_KEY);
+      this.fixedSlotLayout = null;
+      this.lazyFieldsParsed = true;
+      return;
+    }
+
+    this.lazyFieldsParsed = true;
+  }
+
   public NamespaceNode toSnapshot() {
+    if (!lazyFieldsParsed) parseLazyFields();
     return new NamespaceNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         pathNodeKey, prefixKey, localNameKey, uriKey, hash, hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null, qNm);

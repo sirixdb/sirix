@@ -43,6 +43,9 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 import io.sirix.node.interfaces.Node;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
@@ -111,6 +114,9 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   private boolean fixedValueEncoding;   // Whether value comes from fixed-slot inline payload
   private int fixedValueLength;         // Length of inline payload bytes
   private boolean fixedValueCompressed; // Whether inline payload is FSST compressed
+
+  // Fixed-slot lazy metadata support
+  private NodeKindLayout fixedSlotLayout;
 
   /**
    * Primary constructor with all primitive fields.
@@ -536,6 +542,11 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     this.hash = 0L;
   }
 
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.fixedSlotLayout = layout;
+    this.metadataParsed = false;
+  }
+
   /**
    * Parse metadata fields on demand (cheap - just varints and optionally a long).
    * Called by getters that access prevRev, lastModRev, or hash.
@@ -544,15 +555,25 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     if (metadataParsed) {
       return;
     }
-    
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazySource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.fixedSlotLayout = null;
+      this.metadataParsed = true;
+      return;
+    }
+
     if (lazySource == null) {
-      // Already fully constructed (e.g., from constructor)
       metadataParsed = true;
       return;
     }
-    
+
     BytesIn<?> bytesIn = createBytesIn(lazyOffset);
-    
+
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     if (hasHash) {

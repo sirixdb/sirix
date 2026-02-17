@@ -47,6 +47,9 @@ import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.node.layout.NodeKindLayout;
+import io.sirix.node.layout.SlotLayoutAccessors;
+import io.sirix.node.layout.StructuralField;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.Compression;
@@ -85,6 +88,10 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   private int lazyValueLength;
   private boolean lazyValueCompressed;
   private boolean valueParsed = true;
+
+  // === METADATA LAZY SUPPORT ===
+  private NodeKindLayout fixedSlotLayout;
+  private boolean metadataParsed = true;
 
   // === NON-SERIALIZED FIELDS ===
   private LongHashFunction hashFunction;
@@ -190,6 +197,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
 
   @Override
   public int getPreviousRevisionNumber() {
+    if (!metadataParsed) parseMetadataFields();
     return previousRevision;
   }
 
@@ -200,6 +208,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
 
   @Override
   public int getLastModifiedRevisionNumber() {
+    if (!metadataParsed) parseMetadataFields();
     return lastModifiedRevision;
   }
 
@@ -210,6 +219,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
 
   @Override
   public long getHash() {
+    if (!metadataParsed) parseMetadataFields();
     if (hash == 0L && hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
@@ -476,7 +486,33 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     return hashFunction.hashBytes(buffer);
   }
 
+  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+    this.fixedSlotLayout = layout;
+    this.metadataParsed = false;
+    // lazyValueSource already points to slotData from setLazyRawValue
+  }
+
+  private void parseMetadataFields() {
+    if (metadataParsed) {
+      return;
+    }
+
+    if (fixedSlotLayout != null) {
+      final MemorySegment sd = (MemorySegment) lazyValueSource;
+      final NodeKindLayout ly = fixedSlotLayout;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      this.fixedSlotLayout = null;
+      this.metadataParsed = true;
+      return;
+    }
+
+    this.metadataParsed = true;
+  }
+
   public CommentNode toSnapshot() {
+    if (!metadataParsed) parseMetadataFields();
     final byte[] rawValue = getRawValue();
     return new CommentNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, hash,
