@@ -1,4 +1,4 @@
-# *path/method_name*
+# *method_name::path*
 
 ## Cyclomatic Complexity
 *Present both CCN from Lizard and your own calculation.*
